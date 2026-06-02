@@ -1,0 +1,23 @@
+[project]
+name = "witcher-larp-core-engine"
+version = "0.1.0"
+description = "Local offline-first control app for a one-day Witcher LARP."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.111,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "httpx>=0.27,<1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<9",
+]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

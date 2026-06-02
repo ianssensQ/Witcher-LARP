@@ -1,0 +1,6 @@
+# Legacy compatibility only. Canonical Python dependencies live in pyproject.toml
+# and are installed through uv.
+fastapi>=0.111,<1
+uvicorn[standard]>=0.30,<1
+httpx>=0.27,<1
+pytest>=8,<9
