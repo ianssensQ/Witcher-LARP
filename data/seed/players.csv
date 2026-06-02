@@ -1,0 +1,14 @@
+player_id,role_type,display_name,lord_id,sorceress_start_lord_id,level,xp,gold,reputation,stats_json,player_code_id
+p_lord_1,lord,Lord Aedirn,domain_north,,1,0,0,0,"{""combat"":2,""lore"":1,""influence"":3}",code_lord_1
+p_lord_2,lord,Lord Temeria,domain_river,,1,0,0,0,"{""combat"":2,""lore"":1,""influence"":3}",code_lord_2
+p_lord_3,lord,Lord Redania,domain_forest,,1,0,0,0,"{""combat"":2,""lore"":1,""influence"":3}",code_lord_3
+p_lord_4,lord,Lord Skellige,domain_hill,,1,0,0,0,"{""combat"":2,""lore"":1,""influence"":3}",code_lord_4
+p_sorc_1,sorceress,Yennefer Circle,,p_lord_1,1,0,30,0,"{""magic"":3,""lore"":2,""influence"":2}",code_sorc_1
+p_sorc_2,sorceress,Triss Circle,,p_lord_2,1,0,30,0,"{""magic"":3,""lore"":2,""influence"":2}",code_sorc_2
+p_sorc_3,sorceress,Philippa Circle,,p_lord_3,1,0,30,0,"{""magic"":3,""lore"":2,""influence"":2}",code_sorc_3
+p_sorc_4,sorceress,Fringilla Circle,,p_lord_4,1,0,30,0,"{""magic"":3,""lore"":2,""influence"":2}",code_sorc_4
+p_witcher_1,witcher,Witcher Wolf,,,1,0,20,0,"{""combat"":3,""alchemy"":2,""lore"":1}",code_witcher_1
+p_witcher_2,witcher,Witcher Cat,,,1,0,20,0,"{""combat"":3,""alchemy"":2,""lore"":1}",code_witcher_2
+p_witcher_3,witcher,Witcher Griffin,,,1,0,20,0,"{""combat"":3,""alchemy"":2,""lore"":1}",code_witcher_3
+p_witcher_4,witcher,Witcher Bear,,,1,0,20,0,"{""combat"":3,""alchemy"":2,""lore"":1}",code_witcher_4
+p_witcher_5,witcher,Witcher Viper,,,1,0,20,0,"{""combat"":3,""alchemy"":2,""lore"":1}",code_witcher_5

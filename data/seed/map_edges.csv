@@ -1,0 +1,16 @@
+edge_id,from_node_id,to_node_id,mp_cost,bidirectional
+edge_north_fort_east,node_res_north,node_fort_east,2,true
+edge_north_field,node_res_north,node_field_oats,1,true
+edge_river_well,node_res_river,node_well_city,1,true
+edge_river_lake,node_res_river,node_lake_mist,2,true
+edge_forest_dark,node_res_forest,node_forest_dark,1,true
+edge_forest_swamp,node_res_forest,node_swamp_black,2,true
+edge_hill_mountain,node_res_hill,node_mountain_gray,1,true
+edge_hill_fort_west,node_res_hill,node_fort_west,2,true
+edge_fort_east_village,node_fort_east,node_village_barn,2,true
+edge_fort_west_science,node_fort_west,node_science_barn,2,true
+edge_village_well,node_village_barn,node_well_city,1,true
+edge_magic_science,node_spanish_magic,node_science_barn,2,true
+edge_field_magic,node_field_oats,node_spanish_magic,2,true
+edge_lake_swamp,node_lake_mist,node_swamp_black,2,true
+edge_swamp_mountain,node_swamp_black,node_mountain_gray,3,true

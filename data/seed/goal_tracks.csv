@@ -1,0 +1,14 @@
+track_id,goal_id,state,current_value,target_value,visibility
+track_lord_1,goal_lord_1,active,0,1,player_and_master
+track_lord_2,goal_lord_2,active,0,1,player_and_master
+track_lord_3,goal_lord_3,active,0,2,player_and_master
+track_lord_4,goal_lord_4,active,0,1,player_and_master
+track_sorc_1,goal_sorc_1,active,0,1,player_and_master
+track_sorc_2,goal_sorc_2,active,0,2,player_and_master
+track_sorc_3,goal_sorc_3,active,0,1,player_and_master
+track_sorc_4,goal_sorc_4,active,0,1,player_and_master
+track_witcher_1,goal_witcher_1,active,0,1,player_and_master
+track_witcher_2,goal_witcher_2,active,0,1,player_and_master
+track_witcher_3,goal_witcher_3,active,0,1,player_and_master
+track_witcher_4,goal_witcher_4,active,0,1,player_and_master
+track_witcher_5,goal_witcher_5,active,0,1,player_and_master

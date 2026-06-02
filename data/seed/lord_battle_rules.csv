@@ -1,0 +1,2 @@
+rule_id,grid_width,grid_height,turn_timer_seconds,damage_formula,initiative_tiebreaker,timeout_policy,auto_resolve_policy
+lord_battle_default,5,6,60,max(1 attack-defense+modifiers),initiative_desc_tier_desc_seed,auto_defend_then_skip,repeated_timeout_master_takeover_or_auto_resolve

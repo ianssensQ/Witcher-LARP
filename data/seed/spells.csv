@@ -1,0 +1,7 @@
+spell_id,tier,role,cost_mana,target_type,effect_json,counterplay
+spell_hint_t1,1,hint,1,scene,"{""effect"":""reveal_hint""}",master_log
+spell_boost_t1,1,boost,1,player,"{""effect"":""modifier_plus_1""}",visible_log
+spell_reveal_t2,2,reveal,2,object,"{""effect"":""reveal_hidden_flag""}",ward_blocks
+spell_ward_t2,2,ward,2,territory,"{""effect"":""raid_resistance_plus_1""}",curse_break
+spell_curse_t3,3,curse,3,player,"{""effect"":""next_check_minus_2""}",master_review
+spell_ritual_t4,4,ritual,4,final_hook,"{""effect"":""locked_magical_intent""}",final_evidence_review

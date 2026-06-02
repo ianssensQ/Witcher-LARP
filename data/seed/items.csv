@@ -1,0 +1,8 @@
+item_id,item_type,tier,stat_requirement_json,effect_json
+item_herb_bundle,material,1,"{""alchemy"":1}","{""use"":""potion_discount""}"
+item_silver_dust,material,2,"{""alchemy"":2}","{""use"":""monster_bonus""}"
+item_monster_trophy,trophy,3,"{""combat"":3}","{""use"":""lord_influence_claim""}"
+item_ancient_relic,plot_key,4,"{""lore"":4}","{""use"":""final_evidence""}"
+item_order_seal,order_token,2,"{""influence"":2}","{""use"":""order_completion_proof""}"
+item_gwent_marker,pvp_stake,1,"{}","{""use"":""gwent_stake_marker""}"
+item_final_token,final_evidence,3,"{}","{""use"":""final_summary_input""}"

@@ -1,0 +1,8 @@
+act_id,sequence,act_type,name,start_offset_min,end_offset_min,buffer_after_min,unlock_required,physical_announcement_required
+registration,0,registration,Registration and snapshot,0,30,0,false,false
+act1,1,story,Act 1,30,135,15,false,true
+act2,2,story,Act 2,150,285,15,true,true
+act3,3,story,Act 3,300,435,15,true,true
+final_lock,4,final_lock,Final lock,435,450,0,true,true
+final_act,5,final,Final Act,450,570,0,true,true
+debrief,6,debrief,Debrief export emergency buffer,570,600,0,false,false

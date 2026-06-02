@@ -1,0 +1,6 @@
+handout_id,audience,required_topics
+handout_common,all,common_rules;qr_honesty;single_d20;pvp_refusal_safety;npc_scene_book
+handout_witcher,witcher,qr_manual_id;pve_cooldown;orders;gwent;paper_fallback
+handout_sorceress,sorceress,mana;spells;potions;favorites;alignment
+handout_lord,lord,lord_panel;movement;garrisons;orders;raids;battles;paper_lord_continuation
+handout_master,npc_master,review_severity;final_summary;paper_recovered;game_day_ops

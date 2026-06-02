@@ -1,0 +1,5 @@
+event_id,npc_role,event_type,target_id,price_json,consequence_json,severity
+npc_king_ruling,npc_king,king_ruling,order_river_review,"{""gold"":0,""favor"":1}","{""effect"":""order_review_resolution""}",P1
+npc_king_influence,npc_king,influence_grant,p_lord_1,"{""gold"":10}","{""effect"":""influence_plus_1""}",P2
+npc_wanderer_deal,npc_wanderer,stranger_deal,p_witcher_4,"{""hidden_price"":""final_debt""}","{""effect"":""unlock_dark_path""}",P1
+npc_wanderer_field,npc_wanderer,field_intervention,qr_a3_037,"{""gold"":0}","{""effect"":""final_evidence_prompt""}",P2

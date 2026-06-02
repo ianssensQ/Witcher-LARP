@@ -1,0 +1,2 @@
+rule_id,max_primary,max_secondary,max_sorceresses_per_favored,change_limit_per_act,passive_bonus_allowed
+favorite_default,1,1,2,1,false

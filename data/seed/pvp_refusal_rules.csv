@@ -1,0 +1,7 @@
+rule_id,reason,severity,default_outcome
+refusal_active_scene,active_scene,P2,deferred_window
+refusal_safety_stop,safety_stop,P0,needs_master_review
+refusal_unsafe_path,unsafe_path,P1,needs_master_review
+refusal_force_majeure,force_majeure,P1,needs_master_review
+refusal_table_overload,table_overload,P2,queued
+refusal_valid_ignore,valid_ignore,P2,no_penalty_review

@@ -1,0 +1,2 @@
+form_type,required_fields_json,recovery_event_type,conflict_policy
+paper_lord_action,"[""paper_form_id"",""source_form_type"",""operator"",""timestamp"",""reason""]",paper_recovered_lord_action,silent_overwrite

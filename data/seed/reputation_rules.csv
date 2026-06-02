@@ -1,0 +1,6 @@
+rule_id,min_value,max_value,label,player_descriptor,master_visibility
+rep_darkness,-5,-4,Darkness,feared,numeric_and_log
+rep_tainted,-3,-2,Tainted,untrusted,numeric_and_log
+rep_neutral,-1,1,Neutral,uncertain,numeric_and_log
+rep_good,2,3,Good,trusted,numeric_and_log
+rep_light,4,5,Light,celebrated,numeric_and_log

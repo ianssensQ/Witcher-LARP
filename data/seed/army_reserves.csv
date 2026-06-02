@@ -1,0 +1,5 @@
+reserve_id,domain_id,card_id,count,status
+reserve_north_infantry,domain_north,unit_infantry_t1,3,available
+reserve_river_guard,domain_river,unit_guard_t1,3,available
+reserve_forest_ranged,domain_forest,unit_ranged_t1,3,available
+reserve_hill_cavalry,domain_hill,unit_cavalry_t2,2,available

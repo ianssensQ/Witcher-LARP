@@ -1,0 +1,2 @@
+scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome
+scn_missing_reward,act1,1,monster_hunt,combat,11,single_d20,mob_neutral_patrol_t1,reward_does_not_exist,Impossible reward,Missing reward should fail,fail_and_cooldown

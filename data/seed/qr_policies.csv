@@ -1,0 +1,2 @@
+policy_id,physical_presence_required,manual_entry_allowed,manual_rate_limit,suspected_violation_outcome
+qr_honesty_default,true,true,5_per_minute,needs_master_review

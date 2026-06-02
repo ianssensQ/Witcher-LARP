@@ -1,0 +1,2 @@
+deck_id,player_id,leader_card_id,card_ids
+deck_bad,p_witcher_1,gwent_leader_wolf,gwent_unit_01;gwent_weather_frost;gwent_weather_fog;gwent_weather_rain;gwent_decoy;gwent_scorch;gwent_horn;gwent_larp_banner;rare_gwent_04;rare_gwent_05;rare_gwent_06

@@ -1,0 +1,12 @@
+field_id,source_type,evidence_category,visibility,required_for_export
+field_territory,territory_claims,territory,masters,true
+field_lord_battle,lord_battle,battle,masters,true
+field_orders,orders,order,masters,true
+field_pve,pve_scenarios,pve_contract,masters,true
+field_gwent,gwent_matches,pvp_gwent,masters,true
+field_trade,trade_transfers,trade_locks,masters,true
+field_favorites,favorites,favorite,masters,true
+field_magic,goal_flags,locked_magical_intent,masters,true
+field_npc,npc_events,npc_price,masters,true
+field_paper,paper_forms,paper_recovered,masters,true
+field_personal,final_hooks,personal_hooks,masters,true

@@ -1,0 +1,2 @@
+rule_id,token_cost,gold_cost,duration_min,resistance_check,loot_policy,counterplay
+raid_default,1,15,30,defense_or_ward,optional_gold_card_influence_loot,garrison_or_ward_reduces_effect

@@ -1,0 +1,14 @@
+goal_id,player_id,act_id,public_text,progress_type,final_hook_id
+goal_lord_1,p_lord_1,act1,Secure a border claim,count,hook_lord_border
+goal_lord_2,p_lord_2,act1,Control a resource route,count,hook_lord_route
+goal_lord_3,p_lord_3,act2,Build a coalition,count,hook_lord_coalition
+goal_lord_4,p_lord_4,act2,Win a contested defense,count,hook_lord_defense
+goal_sorc_1,p_sorc_1,act1,Lock a magical intent,flag,hook_sorc_intent
+goal_sorc_2,p_sorc_2,act1,Create a potion bargain,count,hook_sorc_potion
+goal_sorc_3,p_sorc_3,act2,Change or defend a favorite,flag,hook_sorc_favorite
+goal_sorc_4,p_sorc_4,act3,Reveal an alignment evidence,flag,hook_sorc_alignment
+goal_witcher_1,p_witcher_1,act1,Complete a monster contract,count,hook_witcher_contract
+goal_witcher_2,p_witcher_2,act1,Win or finish a Gwent stake,flag,hook_witcher_gwent
+goal_witcher_3,p_witcher_3,act2,Carry an order proof,count,hook_witcher_order
+goal_witcher_4,p_witcher_4,act2,Expose an NPC price,flag,hook_witcher_npc
+goal_witcher_5,p_witcher_5,act3,Bring final evidence,flag,hook_witcher_final

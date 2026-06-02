@@ -1,0 +1,2 @@
+profile_id,name,active_house_status,old_house_status,adjacent_shed_status,notes
+venue_map_v1,Venue Map V1,active_new_house,no_play_excluded,no_play_excluded,Old house and adjacent shed have no QR/orders/territories/routes.

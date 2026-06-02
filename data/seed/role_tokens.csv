@@ -1,0 +1,7 @@
+token_id,role_type,owner_id,token,enabled
+token_lord_1,lord,p_lord_1,LORD-NORTH-R8K4,true
+token_lord_2,lord,p_lord_2,LORD-RIVER-M2J9,true
+token_lord_3,lord,p_lord_3,LORD-FOREST-P6W3,true
+token_lord_4,lord,p_lord_4,LORD-HILL-T5C7,true
+token_master_king,npc_master,npc_king,MASTER-KING-4QZ8,true
+token_master_wanderer,npc_master,npc_wanderer,MASTER-WANDERER-2LF6,true

@@ -1,0 +1,6 @@
+rule_id,source,xp_min,xp_max,stat_gain_rule,max_stat,level_thresholds
+xp_monster,monster_hunt,3,20,+1_stat_per_level,7,0;10;25;45;70;100;135;175;220;270
+xp_autoquest,autoquest,2,8,+1_stat_per_level,7,0;10;25;45;70;100;135;175;220;270
+xp_order,order_completion,4,12,+1_stat_per_level,7,0;10;25;45;70;100;135;175;220;270
+xp_personal_goal,personal_goal,5,15,+1_stat_per_level,7,0;10;25;45;70;100;135;175;220;270
+xp_significant_event,significant_event,5,20,+1_stat_per_level,7,0;10;25;45;70;100;135;175;220;270

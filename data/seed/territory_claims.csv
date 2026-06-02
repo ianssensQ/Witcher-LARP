@@ -1,0 +1,6 @@
+claim_id,territory_id,claimant_domain_id,status,claimed_at_offset_min,source
+claim_res_north,territory_res_north,domain_north,controlled,30,seed
+claim_res_river,territory_res_river,domain_river,controlled,30,seed
+claim_res_forest,territory_res_forest,domain_forest,controlled,30,seed
+claim_res_hill,territory_res_hill,domain_hill,controlled,30,seed
+claim_field_oats,territory_field_oats,domain_north,contested_pending_tick,75,lord_action

@@ -1,0 +1,6 @@
+rule_id,asset_type,rarity,total_cap,act_cap,earliest_act,visibility,power_budget,counterplay
+rare_gwent_cap,gwent_card,Rare,6,2,act1,visible_when_owned,2,stake_or_scorch_counter
+artifact_cap,artifact,Rare,8,2,act1,owner_or_master,3,reveal_or_trade_lock
+legendary_artifact_cap,artifact,Legendary,2,1,act2,master_only,4,final_counter_evidence
+rare_potion_cap,potion,Rare,2,1,act2,sorceress_market,2,max_one_potion_per_scene
+plot_key_cap,item,plot_key,6,2,act1,master_and_owner,3,final_summary_review

@@ -1,0 +1,18 @@
+node_id,name,node_type,zone_status,territory_id
+node_res_north,North Residence,residence,active_new_house,territory_res_north
+node_res_river,River Residence,residence,active_new_house,territory_res_river
+node_res_forest,Forest Residence,residence,active_new_house,territory_res_forest
+node_res_hill,Hill Residence,residence,active_new_house,territory_res_hill
+node_fort_east,East Fort,fort,active_new_house,territory_fort_east
+node_fort_west,West Fort,fort,active_new_house,territory_fort_west
+node_field_oats,Oat Fields,field,active_new_house,territory_field_oats
+node_village_barn,Barn Village,village_barn,active_new_house,territory_village_barn
+node_well_city,Well Resource City,resource_city,active_new_house,territory_well_city
+node_spanish_magic,Spanish Magic Corner,magic_city,active_new_house,territory_magic_corner
+node_science_barn,Two Floor Science Barn,science_city,active_new_house,territory_science_barn
+node_forest_dark,Dark Forest,forest,active_new_house,territory_forest_dark
+node_lake_mist,Mist Lake,lake,active_new_house,territory_lake_mist
+node_swamp_black,Black Swamp,swamp,active_new_house,territory_swamp_black
+node_mountain_gray,Gray Mountain,mountain,active_new_house,territory_mountain_gray
+node_old_house,Old House,no_play_zone,no_play_excluded,
+node_adjacent_shed,Adjacent Shed,no_play_zone,no_play_excluded,

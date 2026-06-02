@@ -1,0 +1,2 @@
+match_id,challenger_id,target_id,status,stake_json
+match_seed_queued,p_witcher_1,p_witcher_2,queued,"{""asset_type"":""item"",""asset_id"":""item_gwent_marker"",""transfer_on_finish"":true}"

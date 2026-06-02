@@ -1,0 +1,8 @@
+form_type,required_fields_json,recovery_event_type,conflict_policy
+paper_pve_result,"[""paper_form_id"",""source_form_type"",""operator"",""timestamp"",""reason"",""player_id"",""qr_id"",""result"",""conflict_status""]",paper_recovered_pve,review_conflict_no_silent_overwrite
+paper_pvp_stake,"[""paper_form_id"",""source_form_type"",""operator"",""timestamp"",""reason"",""match_id"",""stake_json"",""conflict_status""]",paper_recovered_pvp,review_conflict_no_silent_overwrite
+paper_lord_action,"[""paper_form_id"",""source_form_type"",""operator"",""timestamp"",""reason"",""lord_id"",""territory_id"",""action"",""conflict_status""]",paper_recovered_lord_action,review_conflict_no_silent_overwrite
+paper_lord_battle,"[""paper_form_id"",""source_form_type"",""operator"",""timestamp"",""reason"",""battle_id"",""result"",""losses"",""conflict_status""]",paper_recovered_lord_battle,review_conflict_no_silent_overwrite
+paper_order_resolution,"[""paper_form_id"",""source_form_type"",""operator"",""timestamp"",""reason"",""order_id"",""result"",""conflict_status""]",paper_recovered_order,review_conflict_no_silent_overwrite
+paper_npc_deal,"[""paper_form_id"",""source_form_type"",""operator"",""timestamp"",""reason"",""npc_role"",""target_id"",""price_json"",""conflict_status""]",paper_recovered_npc,review_conflict_no_silent_overwrite
+paper_final_evidence,"[""paper_form_id"",""source_form_type"",""operator"",""timestamp"",""reason"",""evidence_category"",""target_id"",""summary_text"",""conflict_status""]",paper_recovered_final,review_conflict_no_silent_overwrite

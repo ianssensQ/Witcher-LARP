@@ -1,0 +1,16 @@
+territory_id,name,owner_domain_id,bonus_type,tier,neutral_defense_profile_id
+territory_res_north,North Residence,domain_north,residence,1,
+territory_res_river,River Residence,domain_river,residence,1,
+territory_res_forest,Forest Residence,domain_forest,residence,1,
+territory_res_hill,Hill Residence,domain_hill,residence,1,
+territory_fort_east,East Fort,,defense,2,mob_neutral_guard_t2
+territory_fort_west,West Fort,,defense,2,mob_neutral_guard_t2
+territory_field_oats,Oat Fields,,gold_income,1,mob_neutral_patrol_t1
+territory_village_barn,Barn Village,,recruit,1,mob_neutral_patrol_t1
+territory_well_city,Well City,,resource,2,mob_neutral_guard_t2
+territory_magic_corner,Magic Corner,,magic,2,mob_neutral_mage_t2
+territory_science_barn,Science Barn,,research,2,mob_neutral_guard_t2
+territory_forest_dark,Dark Forest,,monster,3,mob_neutral_beast_t3
+territory_lake_mist,Mist Lake,,alchemy,2,mob_neutral_guard_t2
+territory_swamp_black,Black Swamp,,raid_cover,3,mob_neutral_beast_t3
+territory_mountain_gray,Gray Mountain,,rare_metal,3,mob_neutral_beast_t3

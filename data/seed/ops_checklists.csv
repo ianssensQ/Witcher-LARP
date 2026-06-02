@@ -1,0 +1,15 @@
+item_id,phase,owner_role,required
+ops_devices,morning,npc_master,true
+ops_wifi,morning,npc_master,true
+ops_local_ip,morning,npc_master,true
+ops_snapshot,morning,npc_master,true
+ops_act_unlock_codes,morning,npc_master,true
+ops_physical_announcements,per_act,npc_master,true
+ops_qr_manual_ids,morning,npc_master,true
+ops_props,morning,npc_master,true
+ops_player_handouts,morning,npc_master,true
+ops_paper_forms,morning,npc_master,true
+ops_safety_zones,morning,npc_master,true
+ops_pvp_tables,morning,npc_master,true
+ops_final_stations,final_setup,npc_master,true
+ops_morning_smoke,morning,npc_master,true

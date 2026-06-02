@@ -1,0 +1,14 @@
+code_id,player_id,code,enabled
+code_lord_1,p_lord_1,LC-NORTH-7QK2,true
+code_lord_2,p_lord_2,LC-RIVER-8YM4,true
+code_lord_3,p_lord_3,LC-FOREST-3FD9,true
+code_lord_4,p_lord_4,LC-HILL-6VN1,true
+code_sorc_1,p_sorc_1,SC-MOON-4AD8,true
+code_sorc_2,p_sorc_2,SC-EMBER-9JP3,true
+code_sorc_3,p_sorc_3,SC-OWL-2RW7,true
+code_sorc_4,p_sorc_4,SC-STAR-5TN6,true
+code_witcher_1,p_witcher_1,WC-WOLF-6GF4,true
+code_witcher_2,p_witcher_2,WC-CAT-1HN8,true
+code_witcher_3,p_witcher_3,WC-GRIFFIN-7LX2,true
+code_witcher_4,p_witcher_4,WC-BEAR-3SC5,true
+code_witcher_5,p_witcher_5,WC-VIPER-9BZ1,true
