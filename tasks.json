@@ -1,0 +1,1983 @@
+{
+  "project": {
+    "name": "Witcher LARP Core Engine",
+    "task_source": "tasks.json",
+    "created_at": "2026-05-27T19:16:01.475057+03:00",
+    "canonical_docs": [
+      "docs/PRD.md",
+      "docs/architecture.md",
+      "docs/roadmap.md",
+      "docs/game-mechanics.md",
+      "docs/app-technical-plan-v0.1.md",
+      "pyproject.toml"
+    ],
+    "historical_sources": [
+      "docs/core-engine-v1.2.md"
+    ],
+    "stages": [
+      {
+        "id": "STAGE-1",
+        "name": "Core Game Engine",
+        "title": "Основной игровой движок для всех классов",
+        "gate_task": "TASK-018",
+        "goal": "Все базовые роли и механики работают на runtime-движке без зависимости от будущей генерации контента.",
+        "success_criteria": [
+          "Production profile 15 человек всего: 13 игроков (4 лорда, 4 чародейки, 5 ведьмаков) и 2 NPC-мастера проходит scripted role-flow.",
+          "Offline PvE, offline act unlock, reward approvals, sync, PvP/throttle, 3 сюжетных акта + финальный акт, лордская карта/MP/гарнизоны/default building tree/recruit/unit classes/raid/anti-snowball, лордский бой, магия, репутация, NPC и финальная сводка имеют проверяемый runtime-контур.",
+          "Stage можно тестировать на seed fixtures и API/UI smoke без Admin Studio генерации квестов.",
+          "Python/backend/tooling управляются через uv: pyproject.toml, .python-version, uv sync/uv run и игнорируемая .venv являются обязательным dev contract."
+        ]
+      },
+      {
+        "id": "STAGE-2",
+        "name": "Admin Studio",
+        "title": "Полная админ-панель и студия управления",
+        "gate_task": "TASK-023",
+        "goal": "Мастер управляет контентом, актами, событиями, исключениями, NPC, backup и финальной сводкой из браузерной панели.",
+        "success_criteria": [
+          "Admin Studio покрывает import/validation, snapshot, review queue, corrections, acts/timers, lord map ops, pending rewards, raid effects, backups, NPC и final summary.",
+          "Админка становится UI-основой для следующего этапа генерации PvE-контента."
+        ]
+      },
+      {
+        "id": "STAGE-3",
+        "name": "PvE Generation Engine",
+        "title": "Генератор PvE-контента внутри Admin Studio",
+        "gate_task": "TASK-028",
+        "goal": "Admin Studio умеет создавать, валидировать и компилировать PvE/QR-квесты в runtime CSV/snapshot.",
+        "success_criteria": [
+          "Генератор задает tier, scene type, stat checks, combat profile, reward budget, QR mode и flags.",
+          "Сгенерированный тестовый набор импортируется и запускается в PvE engine."
+        ]
+      },
+      {
+        "id": "STAGE-4",
+        "name": "Unique Quest Production",
+        "title": "Генерация и ручная полировка content pack",
+        "gate_task": "TASK-032",
+        "goal": "Собрать полный контент-пак на 10 часов: 40+ QR/PvE-сцен, минимум 15 repeatable/always-available и 25+ unique objects, плюс связанные игровые объекты.",
+        "success_criteria": [
+          "40+ QR/PvE entries включают минимум 15 always-available/repeatable scenes и 25+ unique objects, покрывают tiers 1-4, роли, локации, награды, заказы, артефакты, редкие карты, сюжетные ключи, стратегические предметы, NPC, репутацию и лордские recruit/flavor sources.",
+          "Full content pack импортируется без ошибок и проходит content smoke."
+        ]
+      },
+      {
+        "id": "STAGE-5",
+        "name": "Balance Simulation",
+        "title": "Баланс игры через симуляцию действий",
+        "gate_task": "TASK-037",
+        "goal": "Проверить темп, награды, прокачку, PvP, карту/экономику/рейды лордов, магию и интерес всех ролей через симуляции и rehearsal.",
+        "success_criteria": [
+          "Активный игрок реалистично приходит к уровню 7-9, максимум 10 остается редким достижением.",
+          "Награды ощущаются ценными, лордская карта, постройки, юниты, raid loot/debuffs, potion economy, favorites, order pressure и anti-snowball 30/50 дают интересные решения, нет доминирующих стратегий и провисающих ролей.",
+          "Release scripted run, Final Act timeboxes/load plan, game-day ops checklist, player-facing handouts and fallback approvals готовы."
+        ]
+      }
+    ],
+    "implementation_stack": {
+      "python": "Python 3.12 managed by uv; dependencies live in pyproject.toml; commands run through uv run python",
+      "backend": "FastAPI local server in backend/witcher_larp with SQLite authoritative state",
+      "web_panels": "Static HTML/CSS/JS served by FastAPI for master and lord browser panels; no Node frontend build in Stage 1",
+      "mobile": "Godot 4 mobile client in planned mobile/ project, GDScript, user:// persistence, offline event_queue",
+      "content": "CSV seed/content in data/seed imported into SQLite and exported as mobile snapshots",
+      "testing": "Python unit/API/content/recovery/simulation tests run through uv run pytest or uv run python -m unittest"
+    },
+    "planning_sync": {
+      "last_contract_lock_date": "2026-05-30",
+      "source_of_truth": "tasks.json plus generated TaskOS board; no extra planning appendices",
+      "rule": "Every task note contains a contract block with Inputs, Outputs, Implementation path, Interfaces, Failure/review paths and Required tests.",
+      "hardware_gate": "TASK-001 remains a launch-risk/manual preflight until real device and Wi-Fi facts are captured; it does not hard-block backend/content/mobile shell implementation. Real Android/iOS exported app smoke belongs to TASK-007."
+    }
+  },
+  "agent_instructions": {
+    "before_start": [
+      "Используй tasks.json как источник правды по статусам и зависимостям.",
+      "Python/backend/tooling запускай через uv run python; перед первой работой окружение создается через uv sync.",
+      "Перед реализацией бери ровно одну dependency-ready задачу через uv run python scripts/taskctl.py claim.",
+      "Реализуй только выбранную задачу и не меняй сгенерированные представления вручную."
+    ],
+    "before_finish": [
+      "Запусти проверки, указанные в задаче, и релевантные проверки измененной области.",
+      "Обнови статус через uv run python scripts/taskctl.py done/block/release.",
+      "После ручных правок tasks.json запускай uv run python scripts/taskctl.py sync."
+    ]
+  },
+  "tasks": [
+    {
+      "id": "TASK-000",
+      "title": "Подготовить TaskOS planning baseline",
+      "description": "Установить TaskOS-файлы и создать канонические документы планирования, связанные с core engine и техническим планом.",
+      "status": "done",
+      "priority": "P0",
+      "category": "planning",
+      "dependencies": [],
+      "scope": [
+        "Инициализировать TaskOS в репозитории",
+        "Создать PRD, architecture, roadmap, tasks.json, kanban и dashboard",
+        "Связать TaskOS-документы с исходными core-engine и app-technical-plan",
+        "Зафиксировать uv project contract: pyproject.toml, .python-version, uv run commands and .venv ignore policy"
+      ],
+      "acceptance_criteria": [
+        "TaskOS-команды работают через uv run python scripts/taskctl.py",
+        "Канонические документы существуют в docs/",
+        "tasks.json содержит dependency-aware задачи",
+        "Kanban и dashboard пересобраны",
+        "Python/tooling явно описаны как uv-managed, а ручные python -m venv/pip install не считаются каноном"
+      ],
+      "test_steps": [
+        "uv run python scripts/taskctl.py validate",
+        "uv run python scripts/taskctl.py sync"
+      ],
+      "notes": "Contract:\nInputs: Initial repo, historical core-engine source, technical plan and TaskOS setup.\nOutputs: Completed TaskOS baseline: tasks.json, taskos.toml, generated kanban/dashboard, AGENTS instructions and uv project contract.\nImplementation path: Keep as completed baseline; do not reopen unless TaskOS itself is replaced.\nInterfaces: Task state changes go only through uv run python scripts/taskctl.py claim/done/block/release/sync.\nFailure/review paths: If generated views diverge from tasks.json, rerun sync; if graph is invalid, fix tasks.json before implementation.\nRequired tests: uv run python -m json.tool tasks.json; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py sync; uv run python scripts/taskctl.py doctor",
+      "stage": "BASELINE: TaskOS Planning",
+      "stage_gate": false
+    },
+    {
+      "id": "TASK-001",
+      "title": "Провести platform и local network spike",
+      "description": "Проверить реальные устройства, камеру/QR capability и домашний Wi-Fi/LAN preflight до углубления в mobile runtime; exported Godot app smoke выполняется в TASK-007.",
+      "status": "done",
+      "priority": "P0",
+      "category": "platform",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-000"
+      ],
+      "scope": [
+        "Device inventory/go-no-go: Android/iPhone models, OS versions, browser/camera availability, Mac/Xcode/free provisioning availability without requiring Godot app export",
+        "Камера/QR capability smoke через доступный browser/native camera path или явный launch-risk label до появления Godot shell",
+        "Доступ телефона/лордского ноутбука к local health URL или явный launch-risk/fallback label",
+        "uv-managed backend smoke: uv sync, uv run python -m backend.witcher_larp, /health reachable from phone and lord laptop",
+        "Document Python 3.12/uv version, .venv path, local IP/port, OS firewall and Wi-Fi client-isolation findings"
+      ],
+      "acceptance_criteria": [
+        "Риски устройств и сети задокументированы с датой и моделями",
+        "Каждый blocker имеет fallback или launch-risk label",
+        "Platform spike не блокирует backend/content foundation",
+        "Exported Android/iOS Godot app smoke не является acceptance TASK-001 и перенесен в TASK-007",
+        "Local server launch path is documented through uv, not raw python/pip, and every device smoke references the same command contract"
+      ],
+      "test_steps": [
+        "Start backend on 0.0.0.0 through uv run python -m backend.witcher_larp and open /health from master laptop loopback and LAN IP",
+        "Открыть local health URL с телефона и лордского ноутбука в Wi-Fi, если устройства доступны; иначе зафиксировать launch-risk/fallback label",
+        "Зафиксировать Android/iPhone/Mac/Xcode/free provisioning availability and QR/camera capability/go-no-go",
+        "uv run python scripts\\taskctl.py validate",
+        "Start backend through uv run python -m backend.witcher_larp and open /health from master laptop, lord laptop and phone in Wi-Fi",
+        "uv run python scripts/taskctl.py validate",
+        "uv run python scripts/taskctl.py sync",
+        "uv run python scripts/taskctl.py doctor",
+        "uv run python -m unittest discover -s tests -v",
+        "Phone Wi-Fi /health screenshot: status ok, database.status ok, schema_version 1",
+        "QR/camera smoke: phone opened the health URL from camera flow"
+      ],
+      "notes": "Contract:\nInputs: Master laptop, real Android/iPhone devices when available, Mac/Xcode/free provisioning availability when available, venue/home Wi-Fi and current backend /health command.\nOutputs: Launch-risk facts in this task: device models, OS versions, local IP, firewall state, client-isolation result, QR/camera capability smoke and go/no-go labels. Exported Android/iOS Godot app smoke is TASK-007, not TASK-001.\nImplementation path: Keep blocked until external phone/lord-laptop Wi-Fi facts are tested or explicitly labelled launch-risk with fallback; do not block TASK-003/backend/content/mobile shell work while every untested item has launch-risk and fallback.\nInterfaces: Server smoke command: uv sync; WITCHER_LARP_HOST=0.0.0.0; WITCHER_LARP_PORT=8000; uv run python -m backend.witcher_larp. Health: /health from master laptop, 4 lord laptops and phones.\nCurrent evidence: 2026-05-30 local laptop LAN IP 192.168.1.9; backend on 0.0.0.0:8788 answered /health 200 through 127.0.0.1 and 192.168.1.9; smoke DB schema_version=1; Windows Firewall profiles enabled. Missing evidence: phone Wi-Fi /health, separate lord laptop Wi-Fi /health, QR/camera device smoke, Android/iPhone/Mac/Xcode/free provisioning facts.\nFailure/review paths: If Android/iOS/Wi-Fi/firewall/QR fails, keep launch-risk labels and use fallback: Apple Developer Program/TestFlight, dedicated router, offline snapshot, manual opaque QR-ID or paper_recovered forms.\nRequired tests: Backend /health smoke where possible; phone/lord laptop Wi-Fi health smoke or launch-risk label; QR/camera capability smoke or launch-risk label; TaskOS validate/doctor after notes updates.\n2026-05-30 evidence: iPhone camera/QR path opened http://192.168.1.9:8001/health and returned status=ok, service=Witcher LARP Core Engine, database.status=ok, schema_version=1. Local backend was running on 0.0.0.0:8001; laptop LAN IP 192.168.1.9. Separate lord-laptop smoke and exact phone model/OS are not required to block development; they remain game-day/rehearsal checks with fallback dedicated router/manual QR/paper_recovered."
+    },
+    {
+      "id": "TASK-002",
+      "title": "Собрать FastAPI/SQLite runtime scaffold",
+      "description": "Создать локальный backend scaffold для авторитетного состояния игры.",
+      "status": "done",
+      "priority": "P0",
+      "category": "backend",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-000"
+      ],
+      "scope": [
+        "FastAPI app с /health",
+        "SQLite connection setup",
+        "Команда запуска на мастерском ноутбуке",
+        "Первые health/database tests",
+        "pyproject.toml/.python-version are the canonical backend dependency contract; requirements.txt is legacy compatibility only"
+      ],
+      "acceptance_criteria": [
+        "Сервер стартует локально и отвечает на /health",
+        "SQLite database создается в local data path",
+        "Тесты покрывают startup и database connection",
+        "Backend scaffold can be launched through uv run python -m backend.witcher_larp after uv sync"
+      ],
+      "test_steps": [
+        "Запустить backend test suite",
+        "Стартовать сервер локально и вызвать /health",
+        "uv run python scripts\\taskctl.py validate",
+        "uv run python -m unittest discover -s tests -v; uv run python scripts\\taskctl.py validate",
+        "uv run python -m unittest discover -s tests -v",
+        "uv run python scripts/taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: pyproject.toml, .python-version, backend/witcher_larp package and data/game.db default path.\nOutputs: FastAPI app factory, /health endpoint, SQLite bootstrap, schema_version/event_log scaffold and uv launch path.\nImplementation path: Maintain backend/witcher_larp/app.py, database.py, config.py and __main__.py; dependency messages must reference uv sync and uv run python.\nInterfaces: GET /health returns status/service/database with database.status, path and schema_version. Settings accepts WITCHER_LARP_DB, WITCHER_LARP_HOST and WITCHER_LARP_PORT for launch.\nFailure/review paths: If dependencies are missing, fail with uv guidance; if DB schema is missing, health reports missing_schema until init_database runs.\nRequired tests: uv run python -m unittest discover -s tests -v; /health TestClient contract; database rollback/idempotent init tests."
+    },
+    {
+      "id": "TASK-003",
+      "title": "Описать runtime CSV-схемы и seed fixtures",
+      "description": "Создать source-of-truth CSV для runtime-движка Stage 1 и минимальных seed fixtures всех ролей.",
+      "status": "done",
+      "priority": "P0",
+      "category": "content",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-000"
+      ],
+      "scope": [
+        "players, player_codes, role_tokens, domains, buildings, map_nodes, map_edges, territories",
+        "mobs, pve_scenarios, qr_objects, items, cards, gwent_cards, gwent_decks, gwent_matches, potions, spells, artifacts",
+        "orders, trade_transfers, personal_goals, goal_tracks, goal_flags, final_hooks, acts, act_unlock_codes, physical_announcements, auto_timers, challenge_tokens, pvp_tables, pvp_throttle_rules, pvp_refusal_rules, reward_approval_rules, movement_rules, recruit_markets, potion_markets, raid_rules, anti_snowball_rules, diplomacy_signals, xp_rules, npc_events, reputation_rules, favorite_rules, final_summary, final_procedures, player_handouts, ops_checklists, paper_forms, backup_jobs",
+        "Lord strategy seed: 4 starting residences, neutral non-residence map nodes, movement_pools, territory_claims, pending_tick_rewards, army_reserves, garrisons",
+        "Default building catalog: 4 ветки, named buildings, gold_cost, prerequisites, cross-deps, recruit/capacity/raid unlocks",
+        "Army unit card catalog: infantry, guard, ranged, cavalry, heavy_siege, specialist",
+        "QR modes: unique_object, repeatable_scene, always_available_scene",
+        "Core timing/progression seed: fixed 10-hour schedule with registration/snapshot, Act 1, buffer, Act 2, buffer, Act 3, final lock, Final Act, debrief/export/emergency buffer; physical act announcements, offline act unlock codes, 30-минутный PvE cooldown, 3 challenge tokens per act, 30-minute PvP start window, XP sources, +1 stat per level and slowing level curve",
+        "QR honesty seed: physical-presence-only policy for QR/manual ID and suspected honesty violation review path",
+        "PvE check seed: single_d20 policy, logged modifier sources for advantage/hindrance/items/potions/artifacts/magic and no reroll effects",
+        "Venue map v1 seed: 4 residences in active new house, old house and adjacent shed marked no_play_excluded, weighted graph nodes for forts, fields, villages, resource/magic/science cities, forests, lakes, swamp and mountains",
+        "Personal goals seed: personal_goals, goal_tracks, hidden goal_flags and final_hooks with player/master visibility",
+        "Full Gwent seed: deck minimum 22 unit cards, up to 10 special cards, leader, 10-card hand, 2 mulligan, 3 rows, pass, tie handling, weather/decoy/scorch/horn/core abilities and custom LARP cards",
+        "PvP throttling/refusal seed: default 2 pvp_tables, queued challenges, max 2 started mandatory matches per player per act without master approval, normal/limited/paused modes, active-scene deferred window, safety stop, force majeure, valid-ignore review and final lock behavior",
+        "Reward approval seed: pending_master_approval, approved, corrected/rejected states for cascade-prone offline rewards",
+        "Trade seed: trade_transfers online-only, two confirmations, pending asset locks and atomic owner changes",
+        "Lord battle seed: deterministic 5x6 defaults attack/defense/hp/initiative/move_range/attack_range/tier/unit_class, damage max(1, attack - defense + modifiers), unit_power/deployed_army_power/domain_army_power, partial stack wounds, deployment caps, line of sight, hero targeting, 60s turn timer and auto-resolve",
+        "Spell cards seed для ритуалов и интриг чародеек, hourly mana regen by sorceress level/bonuses, V0 spell roles T1-T4, potion wholesale 8/18/40, resale bands 12-15/25-30/55-70, starting gold 20g witcher/30g sorceress, max 1 potion per scene default and no potion reroll effects",
+        "NPC/final seed: roleplay-first King rulings, Stranger deals, NPC buffer runbook, review severity P0/P1/P2/P3, NPC-led final tournament + final_summary + personal hooks, master final evidence categories, optional lord final scene, optional witcher final scene/evidence for 5 witchers, sorceress favorites/alignment evidence, locked magical intent, sorceress_alignment, Final Act 7:30-9:30 timeboxes, master load plan and personal finals",
+        "Seed для production profile: 15 человек = 13 игроков (4 лорда, 4 чародейки, 5 ведьмаков) и 2 NPC-мастера",
+        "Content mix seed: 40+ QR/PvE, минимум 15 always-available/repeatable scenes и 25+ unique objects",
+        "Order cap seed: максимум 2 public + 1 addressed active orders per lord",
+        "Card conversion seed: personal card tier -> army unit card tier for lord transfer",
+        "V0 balance defaults seed: XP thresholds 0/10/25/45/70/100/135/175/220/270, PvE DC tiers, reward budgets, lord economy defaults, lord HP formula and mana regen/costs",
+        "Rarity rules seed: Common/Uncommon/Rare/Legendary, power_budget, act_cap, visibility, counterplay, rare card/artifact/potion/plot key caps",
+        "Paper fallback seed: paper_pve_result, paper_pvp_stake, paper_lord_action, paper_lord_battle, paper_order_resolution, paper_npc_deal, paper_final_evidence and source=paper_recovered event contract",
+        "Player-facing handout seed: общие правила, QR honesty, single-d20 checks, памятки ведьмака/чародейки/лорда, PvP refusal/safety and NPC scene book",
+        "Game-day ops checklist seed: devices, Wi-Fi, local IP, snapshot, act unlock codes, physical act announcements, QR/manual IDs, props, player-facing handouts, paper forms, safety zones, pvp tables, final stations/staffing and morning smoke",
+        "Opaque QR/manual ID seed: non-guessable IDs, manual-entry rate limit, attempt log and suspected guessing review path",
+        "PvE combat contract seed: player_scene_hp, scene_hp, combat_dc, scene_damage, round_limit, timeout_outcome, base_damage and no persistent player HP",
+        "Order status machine seed: draft, published, addressed_pending, accepted, in_progress, claimed_at_prop, submitted_pending_sync, pending_master_approval, completed, failed_retryable, failed_closed, cancelled_by_lord, expired and contested_review",
+        "Final summary seed: NPC-led final tournament, final_summary, final_master_notes, final lock, evidence by role, missing locks, pending disputes, NPC prices, locked magical intent, personal hooks and export snapshot without automatic winner calculation",
+        "Repository layout seed: data/seed for CSV source, data/snapshots for exported mobile snapshots, data/backups for game backups, tests/fixtures for invalid/valid import packs"
+      ],
+      "acceptance_criteria": [
+        "CSV можно читать и редактировать без знания кода",
+        "Seed покрывает один пример каждой ключевой механики",
+        "role_tokens/player_codes, personal_goals, goal_flags, QR modes, trade_transfers, full Gwent and final_summary явно присутствуют",
+        "Лордская карта описана как weighted graph с map_nodes/map_edges и seed edge costs",
+        "Seed содержит territory bonus types, neutral defense profiles, recruit market и raid rules",
+        "Seed содержит venue_map_profile или эквивалент, где old house and adjacent shed excluded and have no QR/orders/territories/routes",
+        "Seed фиксирует, что лорды начинают только с резиденции, а остальные зоны нейтральны",
+        "Seed содержит минимум 15 repeatable_scene/always_available_scene QR scenes и 25+ unique_object by acts for 15-person profile",
+        "Seed содержит diplomacy_signals для союзов, заговоров и коалиций против лидера",
+        "xp_rules покрывают монстров, автоквесты, заказы, личные цели, значимые события, +1 stat per level, max stat 7 и замедление левелинга",
+        "Seed содержит anti_snowball_rules с default income cuts 30% и 50%",
+        "orders.csv запрещает два активных заказа одного игрока на один object_id и ограничивает лорда 2 public + 1 addressed active orders",
+        "potions.csv/potion_markets.csv отражают wholesale покупку только чародейками, resale bands, starting mobile gold and передачу/продажу ведьмакам/фаворитам",
+        "reputation_rules.csv фиксирует диапазон -5..+5, старт 0, thresholds Тьма/Запятнанный/Нейтральный/Добро/Свет, player descriptors, master numeric/log visibility and threshold access",
+        "favorite_rules.csv или эквивалентный seed фиксирует consent, 1 primary + 1 secondary favorite per sorceress, max 2 sorceresses per favored player, change 1 per act and no passive runtime bonus",
+        "sorceress_alignment_rules.csv или эквивалентный seed фиксирует start_lord_support, independent_intrigue, double_game, declared_new_patron, open_betrayal and evidence requirements",
+        "trade_transfers seed locks assets while pending and prevents double ownership",
+        "final_summary seed фиксирует NPC-led tournament evidence + locked magical intent + personal hooks and hidden flag visibility",
+        "buildings.csv содержит v1 default catalog: Training Yard, Barracks, Archery Range, Stables, Siege Yard, War Academy, Market, Tax Office, Storehouse, Bank, Treasury Hall, Notice Board, Envoy Hall, Map Room, Raid Office, War Council, Mage Study, Alchemy Lab, Scrying Room, Wards, Ritual Chamber",
+        "cards.csv содержит army unit cards для 6 базовых земных unit_class без массовых магов/монстров и personal-card tier conversion to lord army unit card",
+        "docs/game-mechanics.md указан как канон механик",
+        "Seed includes V0 balance defaults for XP, DC, rewards, lord economy, lord HP, mana and spell costs",
+        "Seed includes rarity_rules or equivalent rarity/power_budget/act_cap/visibility/counterplay fields with caps for rare cards, artifacts, potions and plot keys",
+        "Seed includes paper fallback/recovery contract: paper_form_id, source=paper_recovered, source form type including paper_lord_action/paper_lord_battle, operator, timestamp, recovery reason and conflict_status",
+        "Seed includes act_unlock_codes, physical_announcements, reward_approval_rules, pvp_tables/throttle/refusal, QR honesty policy, single_d20 check policy, player_handouts, review severity rubric, final summary evidence categories, NPC-led final tournament scenes/stations, Final Act timeboxes/load plan and game-day ops checklist",
+        "Seed fixture layout on disk is documented and matches importer/snapshot expectations before runtime code depends on it"
+      ],
+      "test_steps": [
+        "Ручная сверка ID между CSV",
+        "Проверить наличие role_tokens, player_codes, qr_objects, auto_timers, backup_jobs",
+        "Проверить venue_map_v1, no_play_excluded zones, map_nodes/map_edges, territories bonus type, movement_rules, recruit_markets, raid_rules",
+        "Проверить 4 starting residences, neutral non-residence nodes и отсутствие стартовых владений кроме резиденций",
+        "Проверить 15+ repeatable_scene/always_available_scene QR scenes и 25+ unique_object by acts",
+        "Проверить acts seed: 3 сюжетных акта + final act",
+        "Проверить fixed 10-hour schedule, physical act announcements, offline act unlock codes, PvE cooldown 30 min, challenge token grant 3 per act, 30-minute PvP start window and timeout/refusal review path",
+        "Проверить QR honesty policy physical-presence-only and suspected violation review path",
+        "Проверить single_d20 check policy, logged modifiers and absence of reroll effects",
+        "Проверить personal_goals, goal_tracks, hidden goal_flags and final_hooks visibility fixtures",
+        "Проверить full Gwent seed: 22 unit minimum, 10 special cap, leader, 10-card hand, mulligan, rows, pass, tie, weather/decoy/scorch/horn",
+        "Проверить PvP throttling/refusal seed: pvp_tables, queued challenge, per-act match cap, normal/limited/paused, active-scene deferred, safety stop, force majeure and final lock behavior",
+        "Проверить reward approval seed: pending_master_approval locks and master approval/correction states",
+        "Проверить trade_transfers pending lock, two confirmations and atomic owner change fixtures",
+        "Проверить anti_snowball_rules 30/50, potion market wholesale/resale bands, starting mobile gold, order cap 2 public + 1 addressed and orders object_id conflict rule",
+        "Проверить NPC seed: King ruling, Stranger deal, roleplay-first NPC-master split, severity rubric, buffers and final_summary fixtures",
+        "Проверить xp_rules sources, +1 stat per level, spell cards for rituals/intrigues, hourly mana regen and diplomacy_signals fixtures",
+        "Проверить seed для neutral territory battle, garrison, pending tick reward, reserve spawn, 60s timer and auto-resolve",
+        "Проверить building prerequisites/cross-deps и отсутствие act cap в data contract",
+        "Проверить unit_class coverage: infantry, guard, ranged, cavalry, heavy_siege, specialist",
+        "Проверить production profile 4/4/5 + 2 NPC, favorite caps/lifecycle, sorceress_alignment values, reputation -5..+5 start 0 thresholds and card tier conversion",
+        "uv run python scripts\\taskctl.py validate",
+        "Check V0 balance defaults: XP thresholds, DC tiers, reward budgets, lord economy, lord HP formula, mana regen and spell costs",
+        "Check rarity caps: rare Gwent cards 6 total/max 2 per act, artifacts 8 total, legendary artifacts 2 total/not before Act 2, potion caps and plot/strategic keys 6 total",
+        "Check paper recovery fixtures for QR/PvE, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence conflict path",
+        "Check final summary evidence categories, Final Act timeboxes/load plan, player-facing handouts and game-day ops checklist fixtures",
+        "Check opaque/non-guessable QR/manual IDs, rate limit and suspected guessing review path",
+        "Check PvE scene_hp combat defaults, timeout_outcome and no persistent player HP",
+        "Check order status machine, cap accounting and escrow/asset lock release rules",
+        "Check final_summary fixtures: NPC-led final tournament, evidence by role, missing locks, pending disputes, NPC prices, locked magical intent, personal hooks and export snapshot without automatic winner calculation",
+        "Check data/seed, data/snapshots, data/backups and tests/fixtures layout assumptions against docs/architecture.md",
+        "uv run python -m unittest discover -s tests -v; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py doctor"
+      ],
+      "notes": "Contract:\nInputs: Canonical docs, current tasks.json, production profile 4 lords/4 sorceresses/5 witchers/2 NPC masters, and Stage 1 acceptance in TASK-018.\nOutputs: Editable seed pack under data/seed plus valid/broken fixtures under tests/fixtures. Required CSVs and headers: profiles(profile_id,total_people,player_count,npc_master_count,lord_count,sorceress_count,witcher_count); players(player_id,role_type,display_name,lord_id,sorceress_start_lord_id,level,xp,gold,reputation,stats_json,player_code_id); player_codes(code_id,player_id,code,enabled); role_tokens(token_id,role_type,owner_id,token,enabled); acts(act_id,sequence,act_type,name,start_offset_min,end_offset_min,buffer_after_min,unlock_required,physical_announcement_required); act_unlock_codes(unlock_id,act_id,code,revealed_after_start); physical_announcements(announcement_id,act_id,required_signal,operator_role); auto_timers(timer_id,act_id,timer_type,offset_min,interval_min,effect_type); domains(domain_id,lord_player_id,name,starting_gold,base_income); map_nodes(node_id,name,node_type,zone_status,territory_id); map_edges(edge_id,from_node_id,to_node_id,mp_cost,bidirectional); territories(territory_id,name,owner_domain_id,bonus_type,tier,neutral_defense_profile_id); movement_rules(rule_id,mp_cap,refill_interval_min,refill_amount); buildings(building_id,branch,name,tier,gold_cost,prerequisite_ids,recruit_unlock_ids,capacity_delta,raid_unlock); army_unit_cards(card_id,unit_class,tier,attack,defense,hp,initiative,move_range,attack_range,cost,source_id); recruit_markets(offer_id,domain_id,card_id,cost,status,refresh_rule); mobs(mob_id,tier,scene_hp,combat_dc,scene_damage,round_limit,special_rule); pve_scenarios(scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome); qr_objects(qr_id,manual_code,scenario_id,qr_mode,act_id,location_node_id,physical_presence_required,rate_limit,consumption_rule); rewards(reward_id,xp,gold,item_ids,card_ids,artifact_ids,rarity,approval_policy); reward_approval_rules(rule_id,reward_type,default_status,locks_assets); items(item_id,item_type,tier,stat_requirement_json,effect_json); gwent_cards(card_id,faction,row,type,strength,effect,rarity); gwent_decks(deck_id,player_id,leader_card_id,card_ids); gwent_matches(match_id,challenger_id,target_id,status,stake_json); challenge_tokens(token_rule_id,act_id,tokens_per_player,start_window_min); pvp_tables(table_id,status,zone_name); pvp_throttle_rules(rule_id,mode,max_tables,max_started_per_player_per_act,final_lock_behavior); pvp_refusal_rules(rule_id,reason,severity,default_outcome); trade_transfers(transfer_id,from_player_id,to_player_id,asset_type,asset_id,status); orders(order_id,lord_id,target_player_id,object_id,visibility,status,escrow_reward_id); potions(potion_id,rarity,wholesale_cost,resale_min,resale_max,effect_json); potion_markets(market_id,seller_role,potion_id,stock,refresh_rule); spells(spell_id,tier,role,cost_mana,target_type,effect_json,counterplay); artifacts(artifact_id,rarity,act_cap,visibility,power_budget,counterplay); personal_goals(goal_id,player_id,act_id,public_text,progress_type,final_hook_id); goal_tracks(track_id,goal_id,state,current_value,target_value,visibility); goal_flags(flag_id,goal_id,flag_key,value,visibility); final_hooks(final_hook_id,role_category,evidence_category,summary_text); reputation_rules(rule_id,min_value,max_value,label,player_descriptor,master_visibility); npc_events(event_id,npc_role,event_type,target_id,price_json,consequence_json,severity); favorite_rules(rule_id,max_primary,max_secondary,max_sorceresses_per_favored,change_limit_per_act,passive_bonus_allowed); sorceress_alignment_rules(rule_id,alignment_state,evidence_required); final_summary_fields(field_id,source_type,evidence_category,visibility,required_for_export); final_procedures(procedure_id,final_act_window,start_offset_min,end_offset_min,station_count,master_role); paper_forms(form_type,required_fields_json,recovery_event_type,conflict_policy); backup_jobs(job_id,trigger_type,include_sqlite,include_event_log); player_handouts(handout_id,audience,required_topics); ops_checklists(item_id,phase,owner_role,required).\nImplementation path: Create data/seed with one valid minimal full-game seed and tests/fixtures/seed_valid plus tests/fixtures/seed_invalid_* packs for duplicate IDs, missing refs, bad QR mode, bad profile counts, future-act unlock, reward approval, order conflict, Gwent deck invalid, building cycle and paper conflict.\nInterfaces: Every CSV uses stable opaque IDs, UTF-8, comma delimiter, header row, no hidden implicit references. Cross-file references must use *_id columns and be validated by TASK-004.\nFailure/review paths: Invalid fixture failures must be intentional and named; hardware launch-risk from TASK-001 does not block seed work.\nRequired tests: Manual CSV/header review; TaskOS validate/doctor; later TASK-004 importer tests must consume these exact files without renaming.\nPlanning contracts are locked; seed CSV implementation has not started, so the task is ready for the next implementation claim."
+    },
+    {
+      "id": "TASK-004",
+      "title": "Реализовать SQLite schema, import и snapshot pipeline",
+      "description": "Превратить runtime CSV в повторяемую SQLite-схему и mobile snapshot для seed-контента Stage 1.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "backend",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-002",
+        "TASK-003"
+      ],
+      "scope": [
+        "SQLite tables для full-game runtime сущностей",
+        "CSV import с duplicate/missing-reference validation",
+        "snapshot_versions и compact mobile content snapshot",
+        "Проверка QR mode values unique_object/repeatable_scene/always_available_scene, fixed 10-hour schedule, 3 story acts + final act, production profile 4/4/5 + 2 NPC, act availability, act_unlock_codes, role/player codes, cooldown/token windows и restart recovery",
+        "Schema/import validation для personal_goals, goal_tracks, hidden goal_flags, final_hooks, full Gwent cards/decks/matches, trade_transfers and final_summary",
+        "Lord strategic tables: map graph, movement pools, territory claims, pending rewards, recruit offers, raids",
+        "Building/unit importer validation: dependency graph, unit classes, recruit unlocks and capacity",
+        "Order/potion/NPC/final validation: object conflict, order cap, reward approval policy, wholesale market, pvp throttle rules, King/Stranger event types, roleplay-first NPC-master split, review severity, favorites lifecycle, final summary evidence categories, Final Act timeboxes and final procedure inputs",
+        "Implement importer/snapshot modules under backend/witcher_larp with clear boundaries: csv loading, validation report, SQLite write transaction, snapshot export",
+        "Use Python stdlib csv/json/sqlite where sufficient; add dependencies only through pyproject.toml and uv lock/sync"
+      ],
+      "acceptance_criteria": [
+        "Fresh DB собирается из seed CSV",
+        "Ошибочные CSV падают с читаемой ошибкой",
+        "Snapshot содержит игроков профиля 4/4/5, QR, PvE, personal goals, items/cards/gwent cards/potions/spells и descriptors",
+        "SQLite schema хранит map_nodes/map_edges, movement_pools, territory_claims, pending_tick_rewards, reward_approvals, recruit_offers, anti_snowball_rules, act_unlock_codes, challenge_tokens, pvp_tables/throttle, trade_transfers, personal_goals, goal_flags, gwent_matches, final_summary и raid_effects",
+        "Importer ловит cycles, missing prerequisites, unknown branch, invalid gold_cost, bad recruit_unlock, invalid unit_class/tier/capacity/range, invalid production profile, invalid stat cap/level rule, invalid act unlock coverage, invalid reward approval policy, invalid reputation range/start/thresholds, invalid mana regen source, invalid full Gwent deck/card rule, invalid PvP throttle rule, invalid card conversion tier, invalid trade transfer lock rule, invalid favorite caps/lifecycle, invalid order cap/status machine, invalid cooldown/token window, invalid XP source, invalid spell-card target/counterplay, invalid final_summary fields/load plan и duplicate active order object rule",
+        "После restart доступны импортированное состояние и snapshot metadata",
+        "Import pipeline has a documented module boundary and can be run from uv without relying on global Python packages"
+      ],
+      "test_steps": [
+        "Importer tests на temporary SQLite DB",
+        "Импортировать seed CSV и проверить import report",
+        "Экспортировать snapshot",
+        "Проверить invalid CSV cases",
+        "Проверить invalid map edge, missing territory bonus, bad building prerequisite и bad raid target",
+        "Проверить invalid act structure, act unlock coverage, fixed 10-hour schedule, production profile count, PvE cooldown duration, challenge token grant/window и duplicate order object rule",
+        "Проверить invalid QR mode values beyond unique_object/repeatable_scene/always_available_scene",
+        "Проверить invalid personal_goals/goal_tracks/goal_flags/final_hooks visibility and references",
+        "Проверить invalid full Gwent deck/card cases: unit minimum, special cap, leader, row/effect/tie rules",
+        "Проверить invalid trade_transfers lock/asset owner/two-confirmation cases",
+        "Проверить invalid XP source, broken level curve, +1 stat/max stat validation и invalid spell-card ritual/intrigue",
+        "Проверить invalid reward approval policy, potion wholesale market, PvP throttle, King/Stranger event type, NPC-master split, review severity и missing final procedure input",
+        "Проверить cyclic building tree, missing cross-dep, invalid unit_class, invalid tier/capacity и bad recruit offer source",
+        "Проверить invalid reputation -5..+5/start 0 thresholds, hourly mana regen, card tier conversion, favorite lifecycle, order cap/status machine and final_summary fields/load plan cases",
+        "uv run python scripts\\taskctl.py validate",
+        "Run importer/snapshot checks through uv run pytest or uv run python -m unittest"
+      ],
+      "notes": "Contract:\nInputs: data/seed CSV pack from TASK-003 and tests/fixtures valid/invalid packs.\nOutputs: SQLite schema, import transaction, validation report and mobile snapshot export in data/snapshots with snapshot_version.\nImplementation path: Implement importer modules under backend/witcher_larp: csv_loader, validation, repository/schema, import_service and snapshot_exporter; use stdlib csv/json/sqlite unless pyproject dependency is justified.\nInterfaces: Tables mirror TASK-003 CSV names plus import_runs, import_errors, snapshot_versions and event_log. Import report: {run_id,status,files,errors,snapshot_version}. Snapshot: {snapshot_version,profile,player,acts,qr_objects,pve_scenarios,items,cards,goals,visibility,generated_at}.\nFailure/review paths: All writes are transactional; missing refs, duplicates, invalid enums/ranges, cycles and profile-count violations fail with readable errors and no partial DB state.\nRequired tests: Importer unit tests on temp DB for valid seed and every invalid fixture; snapshot export test; restart metadata test; TaskOS validate/doctor."
+    },
+    {
+      "id": "TASK-005",
+      "title": "Реализовать idempotent event intake API",
+      "description": "Принимать события от мобильных клиентов и панелей, валидировать и применять их один раз.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "backend",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-004"
+      ],
+      "scope": [
+        "events table и event status model",
+        "POST /api/events/sync",
+        "accepted/rejected/needs_master_review/pending_master_approval",
+        "act_unlocked_offline and reward approval event payloads",
+        "Deduplication по event_id",
+        "Define Pydantic/FastAPI request-response models for event sync, event status, review reason and idempotency response",
+        "Persist raw payload_json and normalized event metadata so future rule engines can replay/review events"
+      ],
+      "acceptance_criteria": [
+        "Повторный event_id не применяет эффект дважды",
+        "Валидное PvE-like событие accepted",
+        "Cascade-prone reward creates pending approval instead of silently applying global asset/state",
+        "Спорное событие сохраняется с reason",
+        "API contract for /api/events/sync is documented enough for Godot client and web panels to implement against it"
+      ],
+      "test_steps": [
+        "API integration tests с FastAPI и SQLite test DB",
+        "Отправить одно событие дважды и проверить single application",
+        "Отправить event with master-code act unlock and pending reward approval path",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: SQLite schema from TASK-004, current player/role auth model and mobile/web event producers.\nOutputs: Idempotent event intake API, event status model and review/approval persistence.\nImplementation path: Add FastAPI/Pydantic models and SQLite repositories for event intake; keep raw payload_json and normalized metadata for replay.\nInterfaces: POST /api/events/sync request: {device_id,actor_id,actor_type,events:[{event_id,client_sequence,created_at,event_type,payload}]}. Response: {server_time,snapshot_version,results:[{event_id,status,reason,server_event_id}]}. Status enum: accepted, duplicate, rejected, needs_master_review, pending_master_approval.\nFailure/review paths: Duplicate event_id returns duplicate without reapplying; invalid actor/act/asset/reward creates rejected or needs_master_review; cascade-prone rewards create pending_master_approval locks.\nRequired tests: FastAPI integration tests for duplicate event, valid event, pending approval, review reason and raw payload persistence."
+    },
+    {
+      "id": "TASK-006",
+      "title": "Реализовать акты, auto timers и backup hooks",
+      "description": "Серверный контур 3 сюжетных актов и финального акта: мастер запускает акт, сервер сам применяет тики от фактического старта.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "gameplay",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-004"
+      ],
+      "scope": [
+        "current act/status для 3 сюжетных актов и final act",
+        "start/switch act API",
+        "act unlock code/QR state for offline phones",
+        "auto_timers от фактического старта",
+        "Доход, мана, challenge tokens по 3 за акт с накоплением, окна армий",
+        "Hourly mana regen uses sorceress level/bonus source values from balance tables",
+        "Backup hook перед сменой акта",
+        "Expose timer/act endpoints consumed by static Admin UI and mobile act unlock flow"
+      ],
+      "acceptance_criteria": [
+        "Можно запустить и переключить Act 1, Act 2, Act 3 и Final Act",
+        "После старта акта сервер выдает/логирует unlock code для offline-телефонов",
+        "Auto_timer применяет due tick без ручного нажатия каждого дохода/маны/жетона, а challenge tokens начисляются по 3 за акт и копятся",
+        "Hourly mana regen applies from sorceress level/bonus source and persists across restart",
+        "Ticks и act state сохраняются после restart",
+        "Act/timer engine records operator, source, server timestamp and physical announcement state before unlock code reveal"
+      ],
+      "test_steps": [
+        "Act/timer domain tests",
+        "Переключить акт через API",
+        "Проверить offline act unlock code for Act 2/3/Final Act",
+        "Смоделировать due tick и проверить income/mana/3 challenge tokens per act/army window",
+        "Проверить hourly mana regen by sorceress level/bonus source",
+        "Restart check",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Imported acts, timers, backup_jobs, event API and SQLite state.\nOutputs: Server-side act state, auto tick service, unlock-code release rules and backup hooks.\nImplementation path: Implement act_service, timer_service and backup_service under backend/witcher_larp; all act/tick/backup mutations write event_log rows.\nInterfaces: APIs: POST /api/master/acts/{act_id}/start, GET /api/master/acts/{act_id}/unlock-code, POST /api/backups/run. Timer effects cover income, mana, challenge tokens, MP refill and final lock transitions.\nFailure/review paths: Unlock code remains hidden until act start plus physical announcement log; missed ticks are applied once after restart; backup failure reports needs_master_review if it affects a transition.\nRequired tests: Unit/integration tests for act start, unlock gating, tick idempotency, restart catch-up, backup artifact creation and final lock behavior."
+    },
+    {
+      "id": "TASK-007",
+      "title": "Собрать Godot mobile shell и player-code login",
+      "description": "Создать мобильный shell для ведьмаков и чародеек с локальным snapshot и persistence.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "mobile",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-003"
+      ],
+      "scope": [
+        "Godot 4 project structure",
+        "Экран ввода player_code",
+        "Скачать или загрузить bundled snapshot",
+        "Local persistence в user://",
+        "Показ персонажа, роли, ресурсов и описательной репутации",
+        "Create planned mobile/ Godot 4 project with export presets, GDScript app shell, connection settings and API base URL/QR connection screen",
+        "Document Android/iOS export assumptions and local network permission prompts in project notes",
+        "Android APK export/install/launch smoke when Android SDK/Godot export template is available",
+        "iOS export/free provisioning/TestFlight go-no-go for the Godot shell when Mac/Xcode path is available"
+      ],
+      "acceptance_criteria": [
+        "Mobile shell запускается на целевых устройствах или desktop smoke",
+        "player_code привязывает устройство к персонажу",
+        "snapshot_version отображается и сохраняется",
+        "После restart персонаж/snapshot доступны без сети",
+        "Godot project structure and export path are explicit enough for Android/iOS smoke without guessing folders or commands",
+        "Real Android/iOS exported app smoke passes or is explicitly marked launch-risk with fallback and owner"
+      ],
+      "test_steps": [
+        "Mobile shell smoke",
+        "Ввести seed player_code",
+        "Скачать snapshot или загрузить fallback",
+        "Перезапустить приложение и проверить state",
+        "Export/install/launch Android APK smoke if Android export tooling is available",
+        "Run iPhone free provisioning/TestFlight smoke or record blocker/go-no-go if Mac/Xcode path is unavailable",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: TASK-001 platform facts/launch-risk labels when available, TASK-003 seed auth rows and TASK-004 snapshot API contract.\nOutputs: Godot 4 mobile shell under mobile/ with player_code login, snapshot download, local user:// persistence and explicit Android/iOS export smoke path.\nImplementation path: Create minimal Godot project with screens: connection settings, player code login, snapshot status, character home. Keep UI functional and offline-first. Unresolved TASK-001 launch-risk labels do not block desktop/mocked shell implementation, but real device sign-off remains required before release.\nInterfaces: Client calls POST /api/auth/player-code and GET /api/content/snapshot; stores server_url, device_id, player_id, snapshot_version and snapshot payload in user://. Android/iOS exported app smoke records device model, OS, export preset, install method, camera permission and /health/snapshot behavior.\nFailure/review paths: If server is unreachable, app shows offline state and keeps last snapshot; invalid code gives readable error without clearing local data. If Android/iOS export fails, record blocker/go-no-go with fallback: Android-only launch, TestFlight/Apple Developer Program, browser/manual QR flow or paper_recovered.\nRequired tests: Godot desktop smoke; repository check for project files; mocked API contract until server exists; Android APK export/install/launch smoke when tooling exists; iPhone provisioning/TestFlight smoke or explicit launch-risk label."
+    },
+    {
+      "id": "TASK-008",
+      "title": "Реализовать mobile event_queue и sync status",
+      "description": "Хранить офлайн-события локально и синхронизировать их при доступности сервера.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "mobile",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-005",
+        "TASK-007"
+      ],
+      "scope": [
+        "Local event_queue в user://",
+        "event_id и client_sequence",
+        "Payload с roll log/result/timestamps",
+        "Statuses: offline, pending, synced, sync_error, needs_master_review",
+        "Define local event_queue storage schema in user:// as JSON records matching backend /api/events/sync payload"
+      ],
+      "acceptance_criteria": [
+        "Offline event остается после restart",
+        "Повторная отправка event_id не дублирует эффект",
+        "Sync status меняется предсказуемо",
+        "PvE roll log отправляется серверу",
+        "Godot event_queue schema is compatible with FastAPI event intake contract and supports replay after restart"
+      ],
+      "test_steps": [
+        "Создать offline event и restart app",
+        "Sync success и sync retry error path",
+        "Duplicate event_id check",
+        "Проверить roll_log payload на сервере",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Godot shell from TASK-007 and /api/events/sync from TASK-005.\nOutputs: Persistent mobile event_queue and sync status UI.\nImplementation path: Implement user:// event queue storage with append, retry, status update and compacted history.\nInterfaces: Local event shape mirrors server: event_id, device_id, player_id, client_sequence, created_at, event_type, payload, local_status. UI statuses: offline, pending, synced, sync_error, needs_master_review.\nFailure/review paths: Network failure leaves events pending; server rejected/review statuses stay visible and never delete the local log silently.\nRequired tests: Godot tests for queue persistence across restart; mocked sync success/reject/review; server integration once API exists."
+    },
+    {
+      "id": "TASK-009",
+      "title": "Реализовать QR/manual ID runtime flow",
+      "description": "Позволить игрокам открывать физические QR-пропы через QR scan или короткий manual ID.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "mobile",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-004",
+        "TASK-007"
+      ],
+      "scope": [
+        "QR scan",
+        "Manual short QR-ID",
+        "Lookup в local snapshot",
+        "Показ QR type, consumption mode and physical-presence-only honesty notice",
+        "Offline instruction: success забрал QR, failure оставил",
+        "Suspected honesty violation event context for master review"
+      ],
+      "acceptance_criteria": [
+        "Valid QR открывает linked scenario/object",
+        "Manual ID работает как fallback",
+        "Unknown QR дает понятную ошибку",
+        "QR mode попадает в event context",
+        "Manual ID/QR flow требует player confirmation физического присутствия у prop/локации"
+      ],
+      "test_steps": [
+        "Сканировать seed QR каждого режима",
+        "Ввести тот же QR через manual ID",
+        "Unknown QR path",
+        "Проверить QR mode and physical-presence confirmation in local event context",
+        "Проверить suspected honesty violation review payload",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Seed qr_objects/manual codes, Godot shell, event_queue and importer validation.\nOutputs: QR/manual ID runtime flow with opaque IDs, rate limit, physical-presence confirmation and review event path.\nImplementation path: Implement mobile QR/manual entry screen and backend lookup/validation service for qr_objects.\nInterfaces: Manual code input emits qr_attempt event; valid launch emits qr_scene_started; suspected guessing/honesty violation emits needs_master_review with reason honesty_violation_suspected or manual_rate_limit.\nFailure/review paths: Future-act QR without unlock is blocked locally; repeated bad manual IDs lock input for configured cooldown and preserve attempt log.\nRequired tests: Mobile mocked tests for valid/manual/future-act/bad attempts; backend validation tests for QR mode, rate limit and review status."
+    },
+    {
+      "id": "TASK-010",
+      "title": "Реализовать offline PvE runtime engine",
+      "description": "Собрать PvE rule engine: один QR = один квест, single-d20 проверки с логируемыми modifiers, короткий бой на HP сцены, result/30-minute cooldown/sync log.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "gameplay",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-008",
+        "TASK-009"
+      ],
+      "scope": [
+        "Scenario card из snapshot",
+        "single_d20 + stat + item/potion/artifact/magic bonuses + logged advantage/hindrance modifiers офлайн",
+        "1-3 checks и короткий round combat",
+        "Scene HP, success/failure/partial success",
+        "QR modes: unique_object, repeatable_scene, always_available_scene",
+        "Act availability and offline act unlock source in local event context",
+        "30-minute cooldown per QR on failure for the failed player only",
+        "pending_master_approval locks for cascade-prone rewards",
+        "Ordinary QR quests always available to avoid idle players",
+        "Witchers/sorceresses can run QR/PvE in any zone regardless of territory owner",
+        "Visible personal_goals/goal_tracks progress and hidden goal_flags emitted only for master/final hooks",
+        "XP rewards from monsters, autoquests, lord orders, personal goals and significant events",
+        "Level-up grants +1 stat, respects max stat 7, and balances 5 witchers + 4 field-active sorceresses",
+        "Reward draft and roll_log",
+        "No reroll effects in PvE check resolution; rare aids modify result through logged modifiers or hindrance downgrade",
+        "Temporary player_scene_hp: default 6 + level + armor_or_ward_bonus, minimum 7, reset after scene",
+        "Scene combat fields: scene_hp, combat_dc, scene_damage, round_limit, timeout_outcome and base_damage",
+        "Tier defaults: scene_hp T1/T2/T3/T4 = 6/10/14/18, default round_limit = 5",
+        "Combat action contract: attack/check, defend/prepare, item/potion, valid magic, abandon scene",
+        "Opaque manual ID validation, rate limit and attempt log for offline QR/manual input"
+      ],
+      "acceptance_criteria": [
+        "PvE работает без Wi-Fi и сразу показывает результат",
+        "Провал ставит cooldown 30 минут на конкретный QR только для провалившего игрока",
+        "Roll log достаточен для server validation",
+        "Каждая проверка использует ровно один d20; все преимущества/помехи учтены как modifiers",
+        "Territory owner does not block witcher/sorceress PvE",
+        "XP source, +1 stat per level, max stat 7 and slowed level curve are applied by scenario rewards",
+        "PvE flow is balanced for 5 witchers plus 4 hybrid field sorceresses in the current 15-person production profile",
+        "PvE modes support unique_object, repeatable_scene and always_available_scene behavior",
+        "Future-act content does not open without server sync or master unlock code",
+        "Unique/rare/order/final rewards stay locked until master approval",
+        "PvE can update personal_goals/goal_tracks and master-only goal_flags without revealing hidden data to player",
+        "Stage 5 can consume role-load tags instead of a single QR/hour norm",
+        "Одноразовый/artifact/order QR объясняет забрать или оставить физический QR"
+      ],
+      "test_steps": [
+        "Пройти seed PvE offline",
+        "Закрыть/открыть app и проверить сохранность результата",
+        "Синхронизировать событие в Wi-Fi",
+        "Проверить success/failure/cooldown 30 min paths",
+        "Проверить single_d20 roll with multiple advantage/hindrance modifier sources and no reroll",
+        "Проверить PvE on territory owned by different lord",
+        "Проверить unique_object, repeatable_scene and always_available_scene fixtures",
+        "Проверить future-act QR without unlock is blocked and with master unlock code is allowed",
+        "Проверить pending_master_approval blocks trade/stake/lord conversion/final summary until approved",
+        "Проверить personal_goals visible progress and hidden goal_flags sync payload",
+        "Проверить XP rewards for monster, autoquest/order and significant event fixtures",
+        "Проверить level-up +1 stat, max stat 7 and 5-witcher/4-field-sorceress role-load fixture",
+        "uv run python scripts\\taskctl.py validate",
+        "Check player_scene_hp reset after success/failure and no persistent HP penalty",
+        "Check scene_hp T1-T4 defaults, combat_dc, scene_damage, round_limit and timeout_outcome",
+        "Check opaque manual ID rate limit and suspected guessing review payload"
+      ],
+      "notes": "Contract:\nInputs: pve_scenarios, mobs, rewards, QR flow, event_queue and event sync.\nOutputs: Offline PvE engine with single_d20, scene_hp, cooldown, local result and server replay/approval path.\nImplementation path: Implement shared deterministic PvE calculation in backend and equivalent Godot logic or generated rule payload for mobile.\nInterfaces: PvE result event payload: {scenario_id,qr_id,act_id,unlock_source,roll,stat,modifiers,total,dc,rounds,scene_hp_remaining,player_scene_hp_remaining,outcome,reward_id,cooldown_until}.\nFailure/review paths: No rerolls; failure sets 30-minute player+QR cooldown; cascade rewards lock as pending_master_approval until server/master confirms.\nRequired tests: Unit tests for roll math, modifier log, scene_hp, timeout_outcome, cooldown, reward lock and server replay mismatch review."
+    },
+    {
+      "id": "TASK-011",
+      "title": "Собрать lord runtime panel shell",
+      "description": "Создать браузерную панель лорда с role-token login и изолированной видимостью домена.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "web",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-004"
+      ],
+      "scope": [
+        "Lord role_token login",
+        "Показ domain state, resources, territories, armies",
+        "Visibility только своего владения",
+        "Browser smoke для 4 lord panels",
+        "Serve lord panel as static HTML/CSS/JS from FastAPI in Stage 1 without Node build tooling",
+        "Define browser API calls and polling/refresh strategy for lord state and battle updates"
+      ],
+      "acceptance_criteria": [
+        "Лорд открывает свою панель по role_token",
+        "Чужие домены не раскрываются",
+        "4 панели работают одновременно в Wi-Fi",
+        "Lord panel technical implementation path is static FastAPI-served web UI with no separate frontend build step"
+      ],
+      "test_steps": [
+        "Открыть lord panel с валидным role_token",
+        "Проверить invalid token",
+        "Проверить 4 browser sessions",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Stage 1 backend, role token auth and lord state tables from importer.\nOutputs: Static FastAPI-served lord panel shell with login, state summary and placeholder action surfaces.\nImplementation path: Place HTML/CSS/JS under backend/witcher_larp/web and serve through FastAPI without Node build tooling.\nInterfaces: Panel consumes POST /api/auth/role-token and GET /api/lords/{lord_id}/state; all future actions call JSON APIs, no direct DB writes.\nFailure/review paths: Invalid token cannot see lord data; panel degrades to read-only/error if action APIs are unavailable.\nRequired tests: Browser/static asset smoke, auth visibility test and no Node/Vite dependency check."
+    },
+    {
+      "id": "TASK-012",
+      "title": "Реализовать territories, economy, buildings и orders runtime",
+      "description": "Собрать цифровую стратегию лордов: weighted map, movement pool, территории, гарнизоны, экономика, recruit market, резиденции, рейды, публичные/адресные заказы и escrow.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "gameplay",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-006",
+        "TASK-011"
+      ],
+      "scope": [
+        "Weighted map graph, 4 starting residences, neutral non-residence territories, movement pool refill to cap and route validation",
+        "Digital territories ownership, contested claims, garrisons, defense and income",
+        "Pending tick rewards for battles crossing hourly income/influence tick",
+        "Residence building tree, gold-only costs, prerequisites and anti-snowball constraints with 30%/50% income cuts",
+        "Recruit market refresh, hold offers, reserve spawn and active army capacity",
+        "Default catalog runtime for 4 building branches and named building prerequisites/cross-deps",
+        "Army unit unlock runtime for infantry, guard, ranged, cavalry, heavy_siege, specialist",
+        "Raid engine as non-battle debuffs and optional gold/cards/influence loot with tokens, gold, resistance and expiry",
+        "Public/addressed orders with cap 2 public + 1 addressed active orders per lord",
+        "Diplomacy signals for alliances, conspiracies and coalitions against the leader",
+        "Escrow ledger",
+        "Order race support for mobile QR success sync",
+        "Prevent one player from holding two active orders for the same object_id",
+        "Lord progression remains playable through map/recruit/raid/economy/NPC when witcher availability is low",
+        "Order status machine and cap accounting across published/addressed_pending/accepted/in_progress/claimed_at_prop/submitted_pending_sync/pending_master_approval/completed/failed/cancelled/expired/contested_review",
+        "Escrow and asset lock release rules for cancel, expire, retryable failure, closed failure and contested review"
+      ],
+      "acceptance_criteria": [
+        "Movement pool пополняется до cap каждые 30 минут и не копится выше cap",
+        "Лорд стартует только со своей резиденцией, остальные территории нейтральны до захвата",
+        "Route по map_edges тратит MP, а бой не тратит оставшийся MP",
+        "Первый arrival создает contested territory, факт захвата сразу виден всем лордам",
+        "Territory state меняется только после победы и оставленного гарнизона",
+        "Доход и влияние считаются из цифровой карты, pending tick reward достается победителю один раз и сохраняется после restart",
+        "Чужой гарнизон скрыт от других лордов, но owner и primary bonus type видны",
+        "Recruit market refresh создает offers, hold сохраняет выбранное предложение, покупка отправляет юнитов в reserve резиденции",
+        "Building tree проверяет gold cost, prerequisites и редкие cross-deps без act cap",
+        "Training Yard/Barracks/Market/Notice Board/Mage Study seed flow открывает базовые эффекты, а advanced buildings открывают recruit/capacity/raid effects",
+        "Здания и territory recruit sources открывают новые army unit cards, старые стеки не апгрейдятся автоматически",
+        "Recruit market может выдать offer для каждого из 6 базовых земных unit_class",
+        "Anti-snowball применяет default income cut 30%/50% при силе армии выше средней по заданным порогам",
+        "Diplomacy signals показывают standings, influence, order history, raids and contested pressure для союзов/заговоров/коалиций",
+        "Raid engine применяет timed debuff или loot gold/cards/influence через raid token, gold cost и defense/magic resistance",
+        "Лорд создает public/addressed order, reward reserved in escrow, within cap 2 public + 1 addressed active orders",
+        "Успешный sync первого исполнителя закрывает заказ для остальных",
+        "Один игрок не может держать два активных заказа на один object_id",
+        "Лордский прогресс не блокируется отсутствием ведьмаков: route/recruit/building/raid/economy loop работает без выполненных заказов"
+      ],
+      "test_steps": [
+        "Domain economy and weighted map fixture",
+        "Проверить MP refill to cap, отсутствие overflow и route cost по map_edges",
+        "Проверить starting state: 4 residences owned, all other nodes neutral",
+        "Проверить, что после боя остаток MP сохранен",
+        "Создать contested claim первым arrival и проверить публичный in_battle state",
+        "Провести neutral capture, оставить 1 army unit card в гарнизоне и проверить owner/bonus",
+        "Смоделировать hourly tick во время боя и проверить pending reward winner once",
+        "Проверить hidden garrison visibility из двух lord sessions",
+        "Проверить recruit refresh, hold, purchase to reserve и transfer в active army в резиденции",
+        "Купить building по prerequisites и отклонить покупку без prerequisites/gold",
+        "Проверить cross-dep: Siege Yard требует Barracks + Storehouse, War Academy требует Archery Range + Stables + War Council",
+        "Проверить, что Stables/Archery Range/Siege Yard открывают cavalry/ranged/heavy_siege offers",
+        "Проверить, что territory recruit source добавляет flavor offer без создания отдельной фракции",
+        "Проверить, что existing stack не апгрейдится автоматически после покупки здания",
+        "Проверить anti-snowball 30% и 50% income cut thresholds",
+        "Проверить diplomacy/coalition signal report против лидера",
+        "Запустить raid token+gold, проверить resistance check, debuff/loot visibility и expiry",
+        "Создать 2 публичных и 1 адресный заказ, затем получить отказ на превышение cap",
+        "Принять заказ двумя игроками, sync успеха первого, проверить второго",
+        "Попробовать принять два заказа на один object_id одним игроком и получить отказ/conflict",
+        "Пройти лордский map/recruit/raid/economy flow без завершенных ведьмачьих заказов",
+        "Restart check",
+        "uv run python scripts\\taskctl.py validate",
+        "Check order status transitions draft -> published/addressed_pending -> accepted -> in_progress -> pending_master_approval -> completed",
+        "Check failed_retryable/failed_closed/cancelled_by_lord/expired/contested_review cap and escrow behavior"
+      ],
+      "notes": "Contract:\nInputs: Map/building/unit/order seed, act timers and lord panel shell.\nOutputs: Territory, economy, building, recruit, raid and order runtime services.\nImplementation path: Implement server-side services and APIs for movement, claims, garrisons, buildings, recruit, raids and orders; lord panel is a thin client.\nInterfaces: APIs: GET /api/lords/{lord_id}/state; POST move, garrisons/transfer, buildings, recruit, raids, orders. State machines: territory_claim, order statuses from TASK-003, recruit offer hold/buy, raid effect expiry.\nFailure/review paths: Reject invalid MP, route, ownership, garrison, prerequisite, capacity, order cap or duplicate object; contested/pending states go to review instead of silent overwrite.\nRequired tests: Unit/API tests for route MP, contested claim, garrison requirement, income tick, building prerequisites, recruit reserve, order cap/object conflict, raid effect and anti-snowball."
+    },
+    {
+      "id": "TASK-013",
+      "title": "Реализовать lord battle runtime engine 5x6",
+      "description": "Создать синхронный лордский бой HoMM+Гвинт для нейтральной обороны, гарнизонов и столкновения армий: поле 5x6, стеки-юниты, инициатива, ответки, surrender, burned cards.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "gameplay",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-012"
+      ],
+      "scope": [
+        "Battle creation from two digital armies, neutral defense profile or garrison+active army defense",
+        "5x6 board, start lines, hero cells",
+        "Deployment hand from available active army/garrison army unit cards",
+        "Army unit card stacks",
+        "V1 deterministic fields: attack, defense, hp, initiative, move_range, attack_range, tier, unit_class",
+        "Damage formula max(1, attack - defense + modifiers)",
+        "Initiative tiebreaker: initiative desc, tier desc, deterministic battle seed",
+        "Orthogonal movement, attack_range, line of sight and retaliation once per unit per round",
+        "60s turn timer, timeout auto-defend/skip and repeated-timeout auto-resolve/master takeover",
+        "Six v1 unit classes: infantry, guard, ranged, cavalry, heavy_siege, specialist",
+        "Initiative rounds and one retaliation per unit per round",
+        "Hero HP formula from deployed army size with min/max cap",
+        "Surrender on own turn",
+        "Neutral server AI and optional master takeover",
+        "Retreat of defeated active army",
+        "Capture result requires garrison selection",
+        "Battle log and burned army cards"
+      ],
+      "acceptance_criteria": [
+        "Два лорда завершают бой через web/API flow",
+        "Каждый из 6 базовых unit_class имеет deterministic 5x6 fixture",
+        "Маги и монстры не используются как массовые lord unit classes в v1 fixtures",
+        "Лорд завершает neutral battle 5x6 против server AI, а мастер может подключиться к нейтральной стороне",
+        "Защитник чужой территории может использовать гарнизон плюс active army, если она находится на этой территории",
+        "Победа возможна через surrender, unit wipe или hero HP, рассчитанный от размера выставленной армии",
+        "Победа атакующего возвращает capture decision в territory runtime и требует выбрать гарнизон",
+        "Проигравшая active army отступает на предыдущую свою территорию или в резиденцию",
+        "Потери и burned cards сохраняются после restart",
+        "Battle log виден лордам и мастеру через runtime API",
+        "Battle log фиксирует deployment hand, выставленные карты и HP formula inputs",
+        "Damage, initiative order, movement, line of sight and retaliation are deterministic and reproducible from battle seed",
+        "Neutral target completes within <=10 min target or triggers auto-resolve path; lord-vs-lord within <=20 min target or triggers auto-resolve path",
+        "Timeout path logs 60s turn timeout, auto-defend/skip and repeated-timeout auto-resolve"
+      ],
+      "test_steps": [
+        "Deterministic battle fixture на 5x6",
+        "Провести neutral defense battle с server AI",
+        "Подключить мастера к neutral battle и проверить takeover",
+        "Провести territory defense с garrison + active army",
+        "Прогнать battle fixture для infantry, guard, ranged, cavalry, heavy_siege, specialist",
+        "Проверить deployment hand/start lines и невозможность выставить карту вне доступной руки",
+        "Проверить damage max(1, attack - defense + modifiers), initiative tiebreaker, movement, line of sight and retaliation",
+        "Проверить 60s timeout auto-defend/skip and repeated-timeout auto-resolve",
+        "Проверить neutral <=10 min and lord-vs-lord <=20 min duration target report",
+        "Проверить surrender/unit wipe/hero HP formula results",
+        "Проверить capture handoff в TASK-012 и обязательный garrison selection",
+        "Проверить retreat defeated active army",
+        "Restart persisted losses",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Army unit cards, territories/garrisons, lord panel and battle seed defaults.\nOutputs: Deterministic 5x6 lord battle engine with persistence and browser actions.\nImplementation path: Implement battle_service with board state, deployment, initiative, legal actions, timeout and result application.\nInterfaces: APIs: POST /api/lord-battles, GET /api/lord-battles/{id}, POST /api/lord-battles/{id}/actions. Battle state includes seed, board 5x6, turn, initiative_order, stacks, wounds, hero_hp, timeout_at, status.\nFailure/review paths: Illegal move/target/ownership/action rejected; repeated timeout triggers auto-resolve/master takeover; duplicate action idempotent; destroyed cards burned and retreat/capture applied once.\nRequired tests: Deterministic unit tests for initiative, damage, movement/LOS, timeout, auto-resolve, surrender, persistence after restart and two-session API smoke."
+    },
+    {
+      "id": "TASK-014",
+      "title": "Реализовать personal PvP runtime engine",
+      "description": "Реализовать личный PvP как full Gwent по core rules Witcher 3 Gwent с кастомным LARP-набором карт в online-зоне.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "gameplay",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-006",
+        "TASK-008",
+        "TASK-011"
+      ],
+      "scope": [
+        "Challenge, 3 tokens per act with accumulation, token spend, max 1 active challenge per player and stake validation",
+        "Full Gwent deck validation: minimum 22 unit cards, up to 10 special cards and 1 leader",
+        "10-card hand, up to 2 mulligan, 3 rows, pass and best-of-3 rounds",
+        "Tie handling: tied round means both players lose the round; double-loss match edge goes to master review",
+        "Weather, clear weather, decoy, scorch, commander's horn and core abilities with custom LARP cards",
+        "Cards do not burn in personal PvP",
+        "Permanent card-to-lord conversion path by personal card tier",
+        "Assigned online battle zone and 30-minute PvP start window; after match start no separate match time limit",
+        "PvP throttling: default 2 pvp_tables, queued challenges, max 2 started mandatory matches per player per act without master approval, normal/limited/paused modes and final lock behavior",
+        "PvP refusal/safety table: active-scene deferred, unsafe route/force majeure, safety stop, valid-ignore review and overload throttle behavior",
+        "Timeout/refusal/tie master review paths, stake transfer and 15-person full Gwent volume balance hook",
+        "Idempotent result application"
+      ],
+      "acceptance_criteria": [
+        "PvP проходит как full Gwent with custom LARP card set, not simplified round card picking",
+        "Обязательный вызов тратит challenge token, 3 токена начисляются за акт и копятся",
+        "У игрока не может быть больше 1 active challenge одновременно",
+        "Runtime enforces pvp_tables, queued challenge state, throttle mode and final lock behavior",
+        "Вызов вне места боя назначает online-зону и 30-minute PvP окно на явку/старт, просрочка/отказ/ничья попадает в master review",
+        "Active scene, unsafe route, force majeure or safety/comfort stop never create automatic punishment; runtime supports deferred/review state",
+        "После gwent_match_started матч не имеет отдельного лимита времени, но runtime пишет timestamps для Stage 5 duration report",
+        "Deck rules enforce 22 unit minimum, 10 special cap, leader, 10-card hand and 2 mulligan",
+        "Round engine supports 3 rows, pass, tie both lose round, weather/decoy/scorch/horn/core abilities",
+        "Ставка фиксируется до боя и применяется один раз",
+        "Личные карты не сгорают после раунда",
+        "Передача карты лорду навсегда делает army unit card по тиру карты",
+        "Runtime сохраняет данные для Stage 5 full Gwent PvP volume, no-match-limit risk, timeout/refusal/tie and stake transfer report по 15-person profile"
+      ],
+      "test_steps": [
+        "Проверить grant 3 challenge tokens per act и накопление между актами",
+        "Провести full Gwent fixture with deck validation, hand, mulligan, rows, pass, weather/decoy/scorch/horn and tie handling",
+        "Создать второй active challenge на того же игрока и получить отказ",
+        "Создать вызов вне battle zone и проверить assigned zone + 30-minute PvP start window timeout/refusal/tie review",
+        "Проверить pvp_tables capacity, queued challenge, normal/limited/paused throttle and final lock rejection",
+        "Проверить PvP refusal/safety table: active scene deferred, unsafe route, safety stop, valid-ignore review and overload throttle",
+        "Проверить no match time limit after start and timestamp capture for duration report",
+        "Проверить stake application once",
+        "Duplicate result ignored",
+        "Проверить card-to-lord conversion by tier",
+        "Проверить PvP event data for 15-person profile balance report",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Gwent cards/decks/matches, challenge tokens, pvp tables/throttle and event API.\nOutputs: Online-zone personal PvP/full Gwent runtime with stakes and review paths.\nImplementation path: Implement pvp_service, gwent_match_service and table allocation over SQLite; mobile/web clients use APIs, not local authority.\nInterfaces: APIs: POST /api/pvp/challenges, GET /api/pvp/tables, POST /api/pvp/challenges/{id}/start, POST /api/pvp/matches/{id}/rounds, POST /api/pvp/matches/{id}/finish. Payloads include challenge_id, players, stake_json, table_id, round_state, passed flags, row scores and outcome.\nFailure/review paths: No table/token/window/refusal/tie/timeout conflict resolves automatically if rules require master review; asset stake transfer is atomic with trade/lock checks.\nRequired tests: Tests for deck validation, token spend, table queue, 30-minute start window, throttle modes, tie/refusal/timeout review, stake transfer and duplicate finish."
+    },
+    {
+      "id": "TASK-015",
+      "title": "Реализовать runtime контур чародеек",
+      "description": "Сделать чародеек полноценной ролью Stage 1: PvE/PvP, мана, зелья, заклинания, фавориты и интриги.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "gameplay",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-005",
+        "TASK-010",
+        "TASK-012"
+      ],
+      "scope": [
+        "Sorceress hybrid mobile field/support role state",
+        "Mana economy, hourly mana regen by level/bonuses and potion wholesale market",
+        "Only sorceresses can buy potions from NPC/magic market at wholesale price",
+        "Potion sell/exchange/gift flow to witchers and favorites through online trade_transfers",
+        "V0 potion catalog roles with wholesale 8/18/40 and max 1 potion per scene default",
+        "Spell cards for spells, rituals and intrigues with target validation, visibility and counterplay",
+        "V0 spell catalog roles T1-T4: hint, boost, reveal, ward, curse and ritual effects",
+        "Favorite lifecycle: consent required, max 1 primary + 1 secondary per sorceress, max 2 sorceresses per favored player, change 1 per act, no passive runtime bonus, final signal",
+        "Magic effects on player/favorite/lord/territory/order/visibility",
+        "Sorceress PvE magic options"
+      ],
+      "acceptance_criteria": [
+        "Чародейка проходит PvE/PvP как самостоятельная гибридная field/support роль",
+        "Hourly mana regen applies from sorceress level/bonuses and persists after restart",
+        "Spell card применяется сразу при валидной цели и достаточной мане",
+        "Ритуалы и интриги оформлены как spell cards с логом результата",
+        "Видимость эффекта соответствует role rules",
+        "Favorite primary/secondary caps, consent, change limit and no-passive-runtime-bonus rule apply, and favorite history попадает в downstream/final summary",
+        "Чародейка может купить зелье wholesale и передать/продать/подарить его ведьмаку или фавориту",
+        "Spell/potion catalog covers required V0 roles and potion scene cap"
+      ],
+      "test_steps": [
+        "Sorceress domain tests",
+        "PvE scene with magic option for hybrid field sorceress",
+        "Проверить wholesale potion buy только чародейкой и отказ ведьмаку на прямую покупку",
+        "Проверить potion wholesale 8/18/40 and max 1 potion per scene default",
+        "Проверить potion transfer/sell/gift to witcher/favorite через trade_transfers",
+        "Spell/ritual/intrigue card targets fixture",
+        "Проверить T1-T4 spell roles fixture",
+        "Invalid target/insufficient mana path",
+        "Hourly mana regen by level/bonus fixture",
+        "Favorite flow: consent, 1 primary + 1 secondary per sorceress, max 2 sorceresses per favored player, change 1 per act, no passive runtime bonus",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Sorceress players, mana rules, spells, potions, favorites, trade_transfers and visibility rules.\nOutputs: Sorceress runtime for mana, spells, potion market, favorites, alignment and locked magical intent.\nImplementation path: Implement sorceress_service and APIs/events reusing event intake and trade lock services.\nInterfaces: Interfaces: spell_cast event/API with spell_id,target_type,target_id,cost_mana,effect; potion buy/transfer through trade_transfers; favorites APIs POST /api/favorites and /api/favorites/{id}/accept; alignment evidence events.\nFailure/review paths: Reject insufficient mana, invalid target, favorite cap violations, passive bonuses not explicitly granted and potion overuse; ambiguous magical intent after final lock goes to review.\nRequired tests: Tests for hourly mana, spell cost/visibility, potion wholesale/resale/transfer, favorite consent/caps/change limit, alignment evidence and locked magical intent."
+    },
+    {
+      "id": "TASK-016",
+      "title": "Реализовать reputation и NPC runtime",
+      "description": "Добавить Добро/Зло для ведьмаков/чародеек и NPC-события Короля/Странника.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "gameplay",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-005",
+        "TASK-006"
+      ],
+      "scope": [
+        "Reputation score range -5..+5, start 0 and change log",
+        "Reputation thresholds: -5..-4 Тьма, -3..-2 Запятнанный, -1..+1 Нейтральный, +2..+3 Добро, +4..+5 Свет",
+        "Symmetric Good/Evil benefits with different costs",
+        "Player-visible descriptors without exact number",
+        "Master-visible numeric/log state through API",
+        "reputation_rules application with threshold access",
+        "NPC addressed/global events",
+        "Roleplay-first NPC runbook: King/order/admin-review vs Wanderer/deals/field interventions, review severity P0/P1/P2/P3 and buffers for review except P0/P1 blockers",
+        "King/Light rulings: political approval, dispute judgment, major поручения, influence awards",
+        "Wanderer/Darkness-Devil deals: hidden price, temptations, dark artifacts and alternate victory hooks",
+        "NPC deal capture"
+      ],
+      "acceptance_criteria": [
+        "Событие меняет репутацию ведьмака или чародейки в диапазоне -5..+5 от старта 0",
+        "Игрок видит описание threshold state, мастер видит точное значение, threshold access и причины",
+        "Rules cover Тьма, Запятнанный, Нейтральный, Добро, Свет and Good/Evil tradeoffs",
+        "NPC event может быть адресным или глобальным",
+        "NPC runbook keeps masters roleplay first and routes non-blocking admin-review to act buffers",
+        "P0/P1 are explained as severity labels: P0 stop-now, P1 before next act/final",
+        "King event может выдать ruling/influence/поручение, Wanderer event может выдать сделку со скрытой ценой или темным артефактом",
+        "NPC deal сохраняет цену, цель, условие, последствия и final flag"
+      ],
+      "test_steps": [
+        "Reputation/NPC domain tests",
+        "King ruling/dispute/influence fixtures and Wanderer hidden-price/dark-artifact fixtures",
+        "Player descriptor vs master numeric/log check, including -5..+5 clamp, start 0 and threshold names",
+        "Good/Evil symmetric benefit/cost fixtures",
+        "NPC runbook fixture: severity P0/P1/P2/P3 and buffer review vs P0/P1 blocker",
+        "Threshold access fixture",
+        "NPC deal capture fixture",
+        "Restart check",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Reputation rules, NPC events, event log, act buffers and master review severity.\nOutputs: Reputation/NPC runtime with King/Wanderer events, hidden prices and severity queue.\nImplementation path: Implement npc_service, reputation_service and review_queue queries for master UI and final_summary.\nInterfaces: NPC event payload: {npc_role,event_type,target_ids,price_json,consequence_json,reputation_delta,visibility,severity,final_flag}. Player sees descriptor; master sees numeric value and reason log.\nFailure/review paths: Out-of-range reputation clamps/rejects per rule; P0/P1 events require immediate/buffer review; hidden prices stay master-only until revealed.\nRequired tests: Tests for thresholds, player/master visibility, King ruling, Wanderer deal, severity routing, hidden price and final flag persistence."
+    },
+    {
+      "id": "TASK-017",
+      "title": "Реализовать final summary runtime",
+      "description": "Собрать финальную мастерскую сводку без автоматического объявления победителей и без обязательной числовой формулы.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "gameplay",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-013",
+        "TASK-014",
+        "TASK-015",
+        "TASK-016"
+      ],
+      "scope": [
+        "final_summary evidence grouped by role: lords, witchers, sorceresses, NPC/story and disputed objects",
+        "Missing evidence, pending locks, unresolved P0/P1, paper recovery events and contested reviews",
+        "Final lock state: new orders/challenges blocked except master override or paper final evidence",
+        "NPC prices, King/Wanderer deals, reputation changes, personal_goals, goal_flags and final_hooks",
+        "Lord evidence: territories, army, garrisons, battles, raids, buildings, economy, orders and artifacts",
+        "Witcher evidence: XP, level, stats, gear, PvE, orders, objects, PvP, reputation and personal goals",
+        "Sorceress evidence: mana, spells, potions, favorites, alignment, intrigue, lord support/betrayal and NPC price",
+        "Optional final scene notes and master_final_notes, without automatic winner calculation",
+        "Post-game export snapshot"
+      ],
+      "acceptance_criteria": [
+        "Final summary содержит NPC-led final tournament/final_summary входные данные всех ролей и процедур: master final evidence sections, optional final scenes, sorceress favorites evidence, locked magical intent and personal hooks",
+        "Final summary exposes role-specific weight inputs, missing evidence and final timebox state to masters",
+        "Final summary exposes staffing/station ownership so no scoring station is unmanned",
+        "Players know general categories, but hidden goal_flags remain master-only",
+        "Personal arcs can affect tone/edge cases but cannot silently erase 10 hours of visible play",
+        "Сводка не автообъявляет спорных победителей",
+        "Данные финала сохраняются после restart",
+        "Export пригоден для post-game review"
+      ],
+      "test_steps": [
+        "Final summary deterministic fixture",
+        "Check role evidence sections for lords, witchers and sorceresses",
+        "Check missing locks, pending disputes, unresolved P0/P1 and paper recovery visibility",
+        "Check final lock behavior blocks new orders/challenges except master override",
+        "Check NPC prices, reputation, personal_goals, goal_flags and final_hooks sections",
+        "Check master_final_notes can record ruling/epilogue without automatic winner calculation",
+        "Restart/export check",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: All Stage 1 runtime state: players, lords, PvE, PvP, trade, goals, NPC, artifacts, locks and paper recovery.\nOutputs: final_summary read model/export without automatic winner calculation.\nImplementation path: Implement final_summary_service aggregating evidence and export JSON/HTML/CSV as needed for master panel.\nInterfaces: GET /api/master/final-summary returns {snapshot_version,final_lock_state,evidence_by_role,missing_locks,pending_disputes,npc_prices,locked_magical_intent,personal_hooks,paper_recovery,export_generated_at}.\nFailure/review paths: Missing or disputed evidence appears as missing_locks/pending_disputes; system never computes or announces winner automatically.\nRequired tests: Tests for aggregation, visibility, pending disputes, paper_recovered inclusion, final lock state and export after restart."
+    },
+    {
+      "id": "TASK-018",
+      "title": "STAGE 1 GATE: core game engine scripted role-flow",
+      "description": "Принять Stage 1 отдельно: основной игровой движок всех классов работает на seed fixtures без Admin Studio генерации контента.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "qa",
+      "stage": "STAGE-1: Core Game Engine",
+      "stage_gate": true,
+      "dependencies": [
+        "TASK-010",
+        "TASK-013",
+        "TASK-014",
+        "TASK-015",
+        "TASK-017"
+      ],
+      "scope": [
+        "Production profile seed flow: 4 lords, 4 sorceresses, 5 witchers and 2 NPC masters",
+        "Fixed 10-hour schedule, personal_goals, goal_flags, trade_transfers, full Gwent and final_summary seed flow",
+        "Scripted role-flow на seed content",
+        "Witcher offline PvE -> sync",
+        "Sorceress hybrid PvE/magic/hourly mana/consent favorite",
+        "Lord weighted map, MP, contested capture, garrison, default building tree, recruit, six unit classes, raid debuff/loot, anti-snowball, order cap/economy/deterministic battle",
+        "NPC reputation thresholds/deal event with roleplay-first buffer runbook",
+        "Final summary after runtime events with evidence by role, missing locks, pending disputes, NPC prices, personal hooks and export snapshot without automatic winner calculation",
+        "Seed scripted role-flow includes V0 balance defaults, rarity fields/caps and paper_recovered recovery event path",
+        "Seed scripted role-flow includes physical act announcements, opaque QR/manual IDs, QR honesty policy, single-d20 checks, PvP refusal/safety table and player-facing handouts",
+        "Implementation stack check: uv-managed Python backend/tooling, FastAPI/SQLite server, static web panels, Godot mobile shell and CSV/snapshot pipeline are all exercised in the seed role-flow"
+      ],
+      "acceptance_criteria": [
+        "Core Game Engine можно тестировать независимо от будущей Admin Studio и генератора",
+        "Все основные классы имеют рабочий runtime-контур",
+        "Seed role-flow confirms current 15-person profile and role counts",
+        "Лордский strategic runtime проходит route -> contested claim -> neutral/territory battle -> garrison -> income/pending reward -> building prerequisites -> recruit/unit unlock -> reserve transfer -> anti-snowball -> raid debuff/loot",
+        "PvE cooldown 30 min, QR modes, personal goals, full Gwent PvP challenge tokens/window, trade_transfers, order cap, hourly mana, potion wholesale flow, favorite lifecycle, King/Wanderer event и final_summary inputs проверены на seed flow",
+        "Physical act announcements, QR honesty policy, single-d20 checks, PvP refusal/safety table, player-facing handouts and NPC-led Final Act tournament load plan проверены на seed flow",
+        "Seed scripted role-flow проходит без ручного изменения базы",
+        "State survives restart",
+        "Stage 1 runtime supports paper_recovered critical event recovery without silent overwrite",
+        "Seed role-flow exposes V0 balance defaults and rarity fields required by later content/balance stages",
+        "Stage 1 gate confirms not only gameplay logic but the technical architecture: uv commands, local server, SQLite, static panels, Godot shell, snapshot/event sync and recovery path"
+      ],
+      "test_steps": [
+        "Check seed profile 4 lords + 4 sorceresses + 5 witchers + 2 NPC masters",
+        "Run scripted flow: registration/snapshot -> start Act 1 with physical announcement/buffer/Act 2 announcement/buffer/Act 3 announcement/final lock/final announcement -> auto tick -> grant 3 challenge tokens -> hourly mana -> lord MP refill -> route -> contested neutral capture -> 5x6 neutral battle with 60s timer/auto-resolve -> garrison -> pending tick reward -> buy Training Yard/Barracks/Market/Notice Board/Mage Study -> recruit market unlock -> buy unit -> reserve transfer -> anti-snowball check -> raid debuff/loot -> opaque QR/PvE single_d20 with modifiers -> QR honesty review path -> PvE scene_hp/failure cooldown 30 min -> personal_goals/goal_flags -> sync -> trade_transfers lock/accept -> order status/cap/object conflict check -> full Gwent PvP token/assigned zone/30-minute PvP start window/tie/timeout-refusal/safety table/stake transfer -> lord battle -> sorceress wholesale potion + spell + consent primary/secondary favorite -> locked magical intent -> roleplay-first King/Wanderer event -> NPC-led final tournament/final_summary evidence/export without automatic winner calculation",
+        "Restart после scripted flow и проверить state",
+        "uv run python scripts\\taskctl.py validate",
+        "uv run python scripts\\taskctl.py doctor",
+        "Run paper_recovered event fixture for one critical event, including paper_lord_action or paper_lord_battle, and verify duplicate/conflict goes to master review",
+        "Check seed runtime exposes V0 XP/DC/reward/lord economy/lord HP/mana defaults and rarity fields",
+        "Check uv command contract: uv sync documented, uv run server command documented, TaskOS checks use uv run python"
+      ],
+      "notes": "Contract:\nInputs: Completed TASK-003 through TASK-017 and blocked/launch-risk record for TASK-001.\nOutputs: Stage 1 scripted role-flow evidence proving runtime, stack and recovery path.\nImplementation path: Run one seed-level scripted flow through APIs/UI/mobile shell mocks or real clients where available; record verification in task checks.\nInterfaces: Covers uv launch, FastAPI/SQLite, CSV import/snapshot, event sync, static panels, Godot shell, PvE, PvP, lord map/battle, sorceress, NPC, final_summary and paper_recovered.\nFailure/review paths: Any failed core mechanic blocks the gate; missing physical devices remain TASK-001 launch-risk only if mocked/local contracts pass and fallback exists.\nRequired tests: Full scripted test suite, restart recovery, paper conflict fixture, TaskOS validate/sync/doctor and generated board review."
+    },
+    {
+      "id": "TASK-019",
+      "title": "Собрать Admin Studio shell и role access",
+      "description": "Создать браузерную Admin Studio как отдельный Stage 2 и будущую UI-основу генерации контента.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "admin",
+      "stage": "STAGE-2: Admin Studio",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-018"
+      ],
+      "scope": [
+        "Admin shell navigation",
+        "Master role_token login",
+        "Dashboard layout for content, game ops, events, NPC, backups, final",
+        "Visibility model for master-only data",
+        "Serve Admin Studio Stage 2 as static HTML/CSS/JS from FastAPI unless a later task explicitly introduces a frontend build tool"
+      ],
+      "acceptance_criteria": [
+        "Мастер входит в Admin Studio по role_token",
+        "Навигация разделяет content prep и game-day ops",
+        "Master-only данные не доступны lord/player views",
+        "Admin shell has a documented static web layout and API boundary, avoiding an implicit React/Node dependency"
+      ],
+      "test_steps": [
+        "Browser smoke Admin Studio login",
+        "Проверить invalid role_token",
+        "Проверить навигацию основных разделов",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Stage 1 FastAPI server, role token auth and static web convention.\nOutputs: Admin Studio static shell with master login and navigation.\nImplementation path: Serve Admin Studio from FastAPI static HTML/CSS/JS; no frontend build tool unless a later explicit task changes architecture.\nInterfaces: Uses POST /api/auth/role-token and placeholder/read APIs for content, ops, events, NPC, backups and final sections.\nFailure/review paths: Invalid/non-master token cannot see master-only screens; missing backend endpoints show disabled states, not fake success.\nRequired tests: Static asset/browser smoke, master token auth, visibility check and no Node dependency check."
+    },
+    {
+      "id": "TASK-020",
+      "title": "Реализовать Admin content import/validation UI",
+      "description": "Дать мастеру UI для импорта runtime CSV, просмотра validation report, snapshot_version и QR checklist.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "admin",
+      "stage": "STAGE-2: Admin Studio",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-019"
+      ],
+      "scope": [
+        "Upload/select content pack",
+        "Import report UI",
+        "Validation errors with file/row/id",
+        "Snapshot build/export controls",
+        "QR/manual code checklist view",
+        "Player-facing handout checklist view",
+        "Lord map CSV validation: map_nodes, map_edges, territories, buildings, cards/army units, recruit_markets, raid_rules",
+        "Core mechanics validation: 3 acts + final act, physical act announcements, QR honesty policy, single_d20 checks/no reroll, PvE cooldown 30 min, challenge token rules, PvP refusal/safety, potion wholesale market, anti-snowball 30/50, final procedures/staffing"
+      ],
+      "acceptance_criteria": [
+        "Контент импортируется из UI без CLI",
+        "Ошибки CSV читаемы мастеру",
+        "Snapshot_version можно собрать и проверить",
+        "QR checklist показывает mode, act, location, print/manual info",
+        "Handout checklist показывает общие правила, QR honesty, single-d20, role sheets, PvP refusal/safety and NPC scene book readiness",
+        "Map/building/unit/recruit/raid validation показывает file/row/id ошибки для broken graph, bonus type, prerequisite, unit class или target",
+        "Validation показывает readable errors для bad cooldown/token window, missing physical announcement, missing QR honesty/check policy, reroll effect, missing handout, potion market access, anti-snowball threshold и missing final procedure/staffing input"
+      ],
+      "test_steps": [
+        "Импортировать valid seed pack через UI",
+        "Импортировать broken CSV и проверить readable errors",
+        "Собрать snapshot из UI",
+        "Проверить QR checklist",
+        "Проверить player-facing handout checklist",
+        "Импортировать broken lord map/building/unit CSV и проверить readable graph/building/unit/recruit/raid errors",
+        "Импортировать broken cooldown/token/potion/anti-snowball/final/handout/check-policy CSV и проверить readable errors",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: TASK-004 importer/snapshot service and Admin shell.\nOutputs: Admin content import/validation UI, snapshot controls, QR checklist and handout checklist.\nImplementation path: UI calls existing importer/report APIs; it must not implement a second parser.\nInterfaces: Screens: select/upload pack, import report, row errors, snapshot build/export, QR/manual checklist, player handout checklist. API dependency: importer report shape from TASK-004.\nFailure/review paths: Broken CSV displays file/row/id/code/message; failed import does not change active DB; missing handout/QR policy appears as validation error.\nRequired tests: Browser/API tests for valid import, invalid fixture report, snapshot build, QR checklist and handout readiness."
+    },
+    {
+      "id": "TASK-021",
+      "title": "Реализовать Admin game ops dashboard",
+      "description": "Собрать game-day управление: акты, таймеры, лордская карта, contested battles, pending rewards, рейды, события, review queue, corrections, backups.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "admin",
+      "stage": "STAGE-2: Admin Studio",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-019"
+      ],
+      "scope": [
+        "Current act/timer/tick status",
+        "Start/switch act controls",
+        "Act unlock code display after master starts and physically announces Act 2/3/Final Act",
+        "Physical act announcement log/control",
+        "Recent events and sync statuses",
+        "needs_master_review queue",
+        "Reward approval queue with approve/correct/reject and severity P0/P1/P2/P3",
+        "Lord map state: owner, bonus type, MP, active army location, garrisons, contested claims",
+        "Lord residence state: purchased buildings, available prerequisites, reserve, recruit offers, army capacity",
+        "Pending tick reward, anti-snowball status, raid effect/loot, PvP throttle mode and PvP timeout review/correction",
+        "approve/reject/correct with reason",
+        "Backup status and manual backup"
+      ],
+      "acceptance_criteria": [
+        "Мастер запускает акт и видит auto_timer/tick status",
+        "Мастер запускает акт, логирует физическое объявление и только после этого видит act unlock code",
+        "Мастер видит act unlock code and can resolve reward approvals with reason/operator",
+        "Мастер видит contested territory, MP state, pending reward, garrison state, purchased buildings, recruit offers, reserve, capacity, anti-snowball state, raid effects/loot и PvP timeout reviews",
+        "Мастер может поправить owner/garrison/MP/pending reward/building/recruit offer/reserve/raid effect/loot/PvP timeout с reason/operator",
+        "Review queue решается из браузера",
+        "Мастер может переключить PvP throttle normal/limited/paused",
+        "Correction требует reason/operator",
+        "Backup status и manual backup доступны из UI"
+      ],
+      "test_steps": [
+        "Browser smoke: start act, trigger/observe tick",
+        "Проверить physical act announcement log before act unlock code display and reward approval resolution",
+        "Открыть lord map ops и проверить owner/bonus/garrison/MP/claim/building/recruit/reserve/anti-snowball visibility",
+        "Создать correction для owner/garrison/MP/pending reward/building/recruit offer/reserve/raid effect/loot/PvP timeout",
+        "Переключить PvP throttle mode and verify queued challenge visibility",
+        "Создать needs_master_review event и решить его",
+        "Создать correction и проверить persistence",
+        "Запустить manual backup",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Admin shell, act/timer services, event/review queues, lord runtime services and backup service.\nOutputs: Game ops dashboard for acts, events, review, reward approvals, PvP throttle, lord map ops and backups.\nImplementation path: Implement dashboard as static UI over explicit JSON endpoints; all corrections require reason/operator.\nInterfaces: Core dependency: GET /api/master/state plus mutation endpoints for act start, physical announcement log, review, reward approval, pvp throttle, corrections and backups.\nFailure/review paths: P0/P1 review remains visible until resolved; corrections are audited; backup/action failures surface as blocking UI alerts.\nRequired tests: Browser smoke for act start/unlock display, review resolution, reward approval, map correction, throttle switch and backup status."
+    },
+    {
+      "id": "TASK-022",
+      "title": "Реализовать Admin NPC, visibility и final tools",
+      "description": "Добавить инструменты Короля/Странника, точную репутацию, visibility audit и final summary view.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "admin",
+      "stage": "STAGE-2: Admin Studio",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-020",
+        "TASK-021"
+      ],
+      "scope": [
+        "NPC addressed/global event UI",
+        "King ruling/influence/dispute UI",
+        "Wanderer hidden-price/dark-artifact deal UI",
+        "NPC deal capture UI",
+        "Master reputation numeric/log view",
+        "Artifact visibility/reveal audit",
+        "Lord map visibility audit for hidden garrisons and raid effects",
+        "Final summary browser view/export for master final evidence sections, optional final scenes, sorceress evidence and personal hooks"
+      ],
+      "acceptance_criteria": [
+        "Мастер создает King/Wanderer event из UI",
+        "King UI фиксирует ruling/influence/dispute, Wanderer UI фиксирует hidden price/dark artifact/temptation",
+        "NPC deal сохраняет price/target/condition/consequences/final flag",
+        "Репутация видна мастеру точно, игроку описательно",
+        "Мастер видит полный audit скрытых гарнизонов и raid effects, лорды видят только разрешенную часть",
+        "Final summary открывается и экспортируется из Admin Studio с bracket/trials/personal final inputs"
+      ],
+      "test_steps": [
+        "Создать King ruling/influence и Wanderer hidden-price/dark-artifact events через UI",
+        "Проверить NPC deal capture",
+        "Проверить reputation visibility",
+        "Проверить hidden garrison и raid effect visibility",
+        "Открыть/export final summary and verify bracket/trials/personal final inputs",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: NPC/reputation/final_summary services, Admin shell and visibility rules.\nOutputs: Admin NPC tools, visibility audit and final summary export screens.\nImplementation path: Implement UI forms for King/Wanderer events and read models for reputation, artifacts, hidden garrisons, raid effects and final summary.\nInterfaces: APIs: POST /api/master/npc-events, GET reputation/audit views through /api/master/state or dedicated endpoints, GET /api/master/final-summary.\nFailure/review paths: Master-only data never leaks into lord/player views; export is deterministic and includes enough metadata for post-game review.\nRequired tests: Tests for NPC event creation, visibility audit, final_summary export and role-based access."
+    },
+    {
+      "id": "TASK-023",
+      "title": "STAGE 2 GATE: Admin Studio acceptance",
+      "description": "Принять Stage 2 отдельно: мастер может управлять игрой, контентом и исключениями из браузерной Admin Studio.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "qa",
+      "stage": "STAGE-2: Admin Studio",
+      "stage_gate": true,
+      "dependencies": [
+        "TASK-020",
+        "TASK-021",
+        "TASK-022"
+      ],
+      "scope": [
+        "Admin Studio end-to-end smoke",
+        "Import/validation/snapshot",
+        "Act/timer/event/review/correction",
+        "Lord map ops: MP, owner, garrison, contested claims, pending rewards, buildings, recruit market, reserve, capacity, anti-snowball and raid effects/loot",
+        "NPC deal/event, King rulings, Wanderer hidden prices",
+        "Backup/restart/final summary"
+      ],
+      "acceptance_criteria": [
+        "Admin Studio готова как UI-основа для PvE generator",
+        "Мастер может провести game ops без CLI для штатных операций",
+        "Мастер может просмотреть и исправить лордскую карту, гарнизоны, purchased buildings, recruit offers, reserve, pending rewards, anti-snowball, raid effects/loot и PvP timeouts из UI",
+        "Stage 2 проходит отдельно от уникального контент-пака",
+        "Документирован чеклист приемки админки"
+      ],
+      "test_steps": [
+        "Пройти Admin smoke: import -> snapshot -> start act -> lord map ops -> building/recruit/reserve correction -> contested/pending reward correction -> anti-snowball review -> raid effect/loot correction -> PvP timeout review -> event review -> correction -> King ruling -> Wanderer deal -> backup -> final summary",
+        "Открыть Admin Studio с другого ноутбука в Wi-Fi",
+        "Restart server и проверить состояние",
+        "uv run python scripts\\taskctl.py validate",
+        "uv run python scripts\\taskctl.py doctor"
+      ],
+      "notes": "Contract:\nInputs: Completed TASK-019 through TASK-022 and Stage 1 runtime.\nOutputs: Stage 2 Admin Studio acceptance evidence.\nImplementation path: Run browser smoke covering import/validation/snapshot, ops dashboard, NPC tools, visibility, backups and final summary.\nInterfaces: No CLI required for штатные master operations; Admin uses the existing FastAPI/SQLite server and static web stack.\nFailure/review paths: Any missing master-critical operation blocks Stage 2; cosmetic UI polish does not block if workflow and audit are complete.\nRequired tests: Browser smoke, API integration checks, backup/restart check and TaskOS validate/sync/doctor."
+    },
+    {
+      "id": "TASK-024",
+      "title": "Спроектировать UI data model PvE generator",
+      "description": "Встроить в Admin Studio модель генерации PvE-контента: templates, knobs, authoring matrix и runtime output.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "generator",
+      "stage": "STAGE-3: PvE Generation Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-023"
+      ],
+      "scope": [
+        "Quest template types",
+        "Authoring matrix fields",
+        "Draft/published/tested statuses",
+        "Versioning for generated drafts"
+      ],
+      "acceptance_criteria": [
+        "Admin Studio хранит draft quest data без runtime import",
+        "Модель покрывает поля docs/game-mechanics.md authoring matrix",
+        "Draft можно открыть, изменить и сохранить"
+      ],
+      "test_steps": [
+        "Создать draft quest data fixture",
+        "Проверить required fields validation",
+        "Проверить draft edit/save flow",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Admin Studio, runtime CSV contracts and PvE mechanics.\nOutputs: Draft quest data model stored separately from runtime CSV until compiled.\nImplementation path: Add draft quest tables/files with version, status and stable IDs; no runtime import side effects when saving drafts.\nInterfaces: Draft fields: draft_id,version,status,template_type,act_id,location_node_id,tier,scene_type,primary_stat,secondary_stat,dc,combat_profile,reward_budget,qr_mode,flags_json,success_text,failure_text,manual_polish_json.\nFailure/review paths: Invalid draft values are validation errors, not silent defaults; published runtime CSV is produced only by compiler task.\nRequired tests: Model unit tests and Admin save/load smoke for create/edit/status/version."
+    },
+    {
+      "id": "TASK-025",
+      "title": "Реализовать PvE generator UI controls",
+      "description": "Собрать UI генератора: выбор шаблона, tier, статов, наград, QR mode, flags и preview текста.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "generator",
+      "stage": "STAGE-3: PvE Generation Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-024"
+      ],
+      "scope": [
+        "Template selection",
+        "Tier/stat/DC/reward controls",
+        "Artifact/order/reputation/NPC flags",
+        "Success/failure text preview",
+        "Scene combat profile preview",
+        "Manual polish fields"
+      ],
+      "acceptance_criteria": [
+        "Мастер создает PvE draft из UI без редактирования CSV",
+        "UI явно показывает reward budget и tier pressure",
+        "QR mode и flags нельзя потерять при сохранении",
+        "Preview помогает проверить, что игрок поймет результат"
+      ],
+      "test_steps": [
+        "Создать drafts разных scene types",
+        "Проверить tier/reward/stat controls",
+        "Проверить artifact/order/reputation/NPC flags",
+        "Проверить preview success/failure text",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Draft quest model from TASK-024 and Admin Studio shell.\nOutputs: Generator UI controls mapped one-to-one to draft fields.\nImplementation path: Implement forms for template, tier/stat/DC/reward, flags, combat profile and preview; keep manual polish fields explicit.\nInterfaces: UI writes draft quest API; preview reads same draft object and does not create runtime CSV.\nFailure/review paths: Missing required fields, invalid QR mode or impossible reward budget prevent save/publish and show inline validation.\nRequired tests: Browser tests for create/edit/save validation, preview and persistence of flags/manual polish fields."
+    },
+    {
+      "id": "TASK-026",
+      "title": "Реализовать compiler generator -> runtime CSV",
+      "description": "Скомпилировать PvE drafts из Admin Studio в authoring matrix и runtime CSV/snapshot-compatible структуры.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "generator",
+      "stage": "STAGE-3: PvE Generation Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-025"
+      ],
+      "scope": [
+        "Export authoring matrix rows",
+        "Compile qr_objects, pve_scenarios, mobs, rewards and links",
+        "Stable IDs and duplicate checks",
+        "Import pipeline compatibility",
+        "Diff/report generated vs manual fields"
+      ],
+      "acceptance_criteria": [
+        "Generated pack импортируется существующим CSV importer",
+        "Compiler сохраняет связь QR -> scenario/order/artifact/reputation/NPC flags",
+        "Duplicate/missing fields дают readable errors",
+        "Manual polish fields не теряются"
+      ],
+      "test_steps": [
+        "Compile sample drafts to runtime CSV",
+        "Run importer validation on generated output",
+        "Проверить duplicate quest_id/qr_id errors",
+        "Проверить links in generated CSV",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Validated draft quests, runtime CSV schema from TASK-003 and importer from TASK-004.\nOutputs: Compiler from draft model to authoring/runtime CSV with diff/report.\nImplementation path: Implement compiler service that emits the same CSV files and headers as TASK-003; generated IDs are stable and duplicate-checked.\nInterfaces: Compiler report: {compile_id,status,drafts,files,created_rows,updated_rows,warnings,errors,diff_summary}. Output pack can be imported by TASK-004 without special path.\nFailure/review paths: Manual polish fields are preserved; compiler failure leaves existing runtime pack untouched.\nRequired tests: Compiler tests for valid draft, duplicate ID, missing required field, manual polish retention and import compatibility."
+    },
+    {
+      "id": "TASK-027",
+      "title": "Реализовать generator validation и sample quest run",
+      "description": "Добавить test harness генератора: баланс тиров, reward budgets, required texts, QR checklist и запуск sample quest.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "generator",
+      "stage": "STAGE-3: PvE Generation Engine",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-026",
+        "TASK-010"
+      ],
+      "scope": [
+        "Coverage report by tier/stat/scene_type/reward/QR mode",
+        "Required fields validation",
+        "Sample generated quest mobile/runtime smoke",
+        "Player-understands-result checklist",
+        "Generator regression fixtures"
+      ],
+      "acceptance_criteria": [
+        "Validation ловит missing reward_budget, invalid tier, missing success/failure text, invalid QR mode и missing 30-minute cooldown clarity on failure",
+        "Sample generated quest импортируется и проходится в PvE engine",
+        "Report показывает перекосы тиров/статов/наград"
+      ],
+      "test_steps": [
+        "Запустить generator validation на valid and broken drafts",
+        "Импортировать generated sample pack",
+        "Пройти generated QR/PvE scene in runtime smoke",
+        "Проверить coverage report",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Compiler output, importer, PvE runtime and sample generated quest.\nOutputs: Generator validation harness and sample quest run.\nImplementation path: Run draft -> compile -> import -> snapshot -> mobile/API PvE sample using deterministic fixtures.\nInterfaces: Validation report covers tier/stat/reward/QR mode coverage, missing text, missing policies, missing personal/final hooks and player-understands-result checklist.\nFailure/review paths: Generated quest with invalid fields fails before import; runtime mismatch goes to readable report.\nRequired tests: End-to-end generator fixture test plus validation report assertions."
+    },
+    {
+      "id": "TASK-028",
+      "title": "STAGE 3 GATE: PvE generator acceptance",
+      "description": "Принять Stage 3 отдельно: из Admin Studio создается тестовый набор PvE-квестов, валидируется, компилируется и запускается в runtime.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "qa",
+      "stage": "STAGE-3: PvE Generation Engine",
+      "stage_gate": true,
+      "dependencies": [
+        "TASK-027"
+      ],
+      "scope": [
+        "Create generated test pack in UI",
+        "Compile to authoring matrix/runtime CSV",
+        "Import and snapshot",
+        "Run at least one generated QR/PvE quest",
+        "Review validation/balance report"
+      ],
+      "acceptance_criteria": [
+        "PvE Generation Engine работает внутри Admin Studio",
+        "Генератор можно тестировать отдельно от полного уникального контент-пака",
+        "Сгенерированный квест проходит draft -> compile -> import -> mobile PvE -> sync",
+        "Ошибки генерации понятны мастеру"
+      ],
+      "test_steps": [
+        "Создать 5 generated PvE drafts через UI",
+        "Скомпилировать и импортировать generated test pack",
+        "Пройти один generated QR/PvE в mobile/runtime smoke",
+        "Проверить validation report",
+        "uv run python scripts\\taskctl.py validate",
+        "uv run python scripts\\taskctl.py doctor"
+      ],
+      "notes": "Contract:\nInputs: Completed TASK-024 through TASK-027.\nOutputs: Stage 3 generator acceptance evidence.\nImplementation path: Create one test pack in Admin UI, compile it, import it, export snapshot and run at least one generated PvE quest.\nInterfaces: The generator remains inside Admin Studio and uses the existing importer/runtime contracts.\nFailure/review paths: Stage 3 blocks if generated content needs manual DB edits or a separate importer.\nRequired tests: Browser/API generated pack smoke, sample PvE flow and TaskOS validate/sync/doctor."
+    },
+    {
+      "id": "TASK-029",
+      "title": "Сгенерировать 40+ QR/PvE-сцен",
+      "description": "Использовать Stage 3 generator для первичного набора 40+ самостоятельных QR/PvE сцен на 10 часов.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "content",
+      "stage": "STAGE-4: Unique Quest Production",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-028"
+      ],
+      "scope": [
+        "40+ QR/PvE entries for 10-hour 15-person profile",
+        "Target mix: minimum 15 repeatable_scene/always_available_scene entries and 25+ unique_object entries",
+        "Balanced mix: always-available ordinary QR, monsters, investigations, moral choices, puzzles, artifacts, orders, rare cards, plot keys and strategic items",
+        "Tiers 1-4 by acts",
+        "Stat distribution across 5 stats",
+        "QR modes and locations",
+        "single_d20 check policy and modifier sources for every check",
+        "physical-presence honesty policy for QR/manual ID",
+        "personal_goals hooks, goal_flags, final_hooks and role_load_tag coverage",
+        "Initial reward budgets",
+        "XP sources distributed across monsters, autoquests, lord orders, personal goals and significant events",
+        "PvE failure text with 30-minute cooldown clarity"
+      ],
+      "acceptance_criteria": [
+        "Есть минимум 40 generated quest drafts",
+        "Каждый draft имеет act, location, tier, scene_type, hook, reward_budget, QR mode, check_policy single_d20, modifier sources, honesty policy and success/failure text with 30-minute cooldown clarity",
+        "Coverage report не показывает пустые tiers/roles/major scene types",
+        "Pack includes at least 15 repeatable_scene/always_available_scene QR scenes and 25+ unique_object entries",
+        "Pack includes personal goal hooks, hidden goal_flags, final_hooks and role-load tags for Stage 5",
+        "Pack contains enough always-available ordinary QR quests to prevent idle players",
+        "Coverage explicitly checks idle risk for 5 witchers + 4 hybrid field sorceresses"
+      ],
+      "test_steps": [
+        "Generate full draft pack",
+        "Check content mix: count>=40, repeatable_scene+always_available_scene>=15, unique_object>=25, 9 mobile role idle coverage",
+        "Проверить coverage report: count>=40, tiers 1-4, scene mix, stat mix, always-available QR count",
+        "Проверить QR modes, locations, personal goal hooks, goal_flags and final_hooks",
+        "Проверить single_d20 policy, no reroll effects and physical-presence honesty policy",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Accepted generator, content matrix, production profile and role-load goals.\nOutputs: 40+ generated QR/PvE drafts with coverage report.\nImplementation path: Generate drafts through Admin generator; do not hand-create runtime DB state.\nInterfaces: Output artifact is generator draft set plus compiler report; must target minimum 15 repeatable/always_available and 25 unique_object entries across Act 1/2/3 = 12/14/14.\nFailure/review paths: Coverage gaps block this task; weak prose is allowed here only if marked for TASK-030 manual polish.\nRequired tests: Generator coverage report for acts, tiers, stats, scene types, role_load_tags, reward budgets, QR modes and idle-risk."
+    },
+    {
+      "id": "TASK-030",
+      "title": "Отполировать уникальные квесты вручную",
+      "description": "Провести мастерскую правку generated quests: тексты, моральные развилки, скрытая правда, последствия, уникальность.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "content",
+      "stage": "STAGE-4: Unique Quest Production",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-029"
+      ],
+      "scope": [
+        "Manual polish hooks/hidden_truth/success/failure",
+        "Moral choice consequences",
+        "Artifact/reputation/NPC/order links",
+        "Player clarity pass",
+        "Remove repetitive generated-feeling text"
+      ],
+      "acceptance_criteria": [
+        "Каждый QR-квест читается как уникальная сцена, а не шаблон",
+        "Игрок понимает результат успеха/провала",
+        "Скрытый контент умеренный, основной квест проходим",
+        "Последствия явно связаны с reward/reputation/order/artifact/final"
+      ],
+      "test_steps": [
+        "Manual review checklist for all 40+ quests",
+        "Spot-playtest минимум 8 сцен разных типов",
+        "Проверить success/failure clarity",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Generated draft pack from TASK-029.\nOutputs: Polished quest text/consequences without changing stable IDs or breaking references.\nImplementation path: Edit draft/manual polish fields or CSV authoring layer, preserving IDs, links, policies and reward references.\nInterfaces: Every scene keeps hook, choices/checks, success/failure, reward/approval policy, QR mode, role-load tag and final/personal hooks where promised.\nFailure/review paths: If polishing changes mechanics, rerun validation and mark balance-sensitive changes for Stage 5.\nRequired tests: Content validation report, link/reference checks and sample read-through checklist."
+    },
+    {
+      "id": "TASK-031",
+      "title": "Собрать полный unique content pack",
+      "description": "Дополнить квесты полным набором предметов, карт, зелий, заклинаний, артефактов, заказов, NPC-событий и QR checklist.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "content",
+      "stage": "STAGE-4: Unique Quest Production",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-030"
+      ],
+      "scope": [
+        "Production profile content: 4 lords, 4 sorceresses, 5 witchers, 2 NPC masters",
+        "QR mix lock: minimum 15 repeatable_scene/always_available_scene entries and 25+ unique_object entries",
+        "Personal goal hooks, goal_flags, final_hooks and role-load tags aligned with quests",
+        "Act unlock policy, reward approval policy, final score category, PvP throttle tags and ops checklist tags aligned with quests/props",
+        "Physical act announcement runbook aligned with Act 1/2/3/Final Act unlock flow",
+        "single_d20 check policy, modifier sources and no-reroll rule aligned with every PvE check",
+        "QR/manual ID honesty policy aligned with every physical prop",
+        "Items/custom full Gwent cards/potions/spells/artifacts aligned with quests",
+        "Unique objects by acts: artifacts, rare cards, gold, plot keys and strategic items",
+        "Always-available ordinary QR quest layer so witchers/sorceresses do not idle",
+        "Named army unit cards for 6 v1 unit classes",
+        "Territory recruit sources and flavor offers for lord content",
+        "Building catalog entries aligned with default residence tree",
+        "Lord order content respects cap 2 public + 1 addressed active order per lord",
+        "Public/addressed orders, object_id conflict rules and escrow rewards",
+        "Trade content supports online-only trade_transfers, pending locks and asset ownership audit",
+        "Favorite content supports consent, primary/secondary links, change 1 per act, no passive runtime bonus and max 2 sorceresses per favored player",
+        "NPC events, King rulings, Wanderer deals, reputation thresholds and Good/Evil tradeoffs",
+        "NPC master split: roleplay-first King/order/admin-review vs Wanderer/deals/field interventions with fallback overlap and buffer review",
+        "Spell cards for sorceress rituals and intrigues with V0 T1-T4 role coverage",
+        "Potion catalog with wholesale 8/18/40, resale bands 12-15/25-30/55-70, per-scene cap rules, no-reroll effects and rare potion caps",
+        "Sorceress alignment content for start_lord_support, independent_intrigue, double_game, declared_new_patron and open_betrayal",
+        "Final_summary NPC-led tournament content, role-specific weights and flags for optional lord final scene, optional witcher final scene/evidence for 5 witchers, sorceress favorites/alignment evidence, locked magical intent, 7:30-9:30 timeboxes, master load plan and personal finals",
+        "QR print/manual-code checklist",
+        "Player-facing handouts: общие правила, QR honesty policy, single-d20 checks, памятки ведьмака/чародейки/лорда, PvP refusal/safety and NPC scene book",
+        "Artifact owner/master visibility and reveal rules",
+        "Full CSV import package",
+        "Content matrix lock: Act 1 = 12 slots, Act 2 = 14 slots, Act 3 = 14 slots with required scene hooks per act",
+        "Rarity caps and power budget for Common/Uncommon/Rare/Legendary cards, artifacts, potions, plot keys and strategic items",
+        "Paper fallback forms manifest aligned with critical game actions and final evidence"
+      ],
+      "acceptance_criteria": [
+        "Full content pack matches 4/4/5 + 2 NPC production profile",
+        "QR/PvE content contains at least 15 repeatable_scene/always_available_scene entries and 25+ unique_object entries",
+        "Full content pack contains personal_goals hooks, hidden goal_flags, final_hooks and custom full Gwent card content",
+        "Every relevant QR/prop has act unlock policy, reward approval policy and ops checklist tag",
+        "Every relevant QR/prop has physical-presence honesty policy and single_d20/no-reroll check policy",
+        "Lord order content supports cap 2 public + 1 addressed active orders per lord",
+        "Trade content supports trade_transfers pending locks and no double ownership",
+        "Favorite content supports consent, primary/secondary caps, change limit, no passive runtime bonus, max 2 sorceresses per favored player and final traces",
+        "Final summary content includes NPC-led final tournament/final_summary, optional lord final scene, optional witcher final scenes/evidence for 5 witchers, sorceress favorites/alignment evidence, locked magical intent, master load plan and personal finals",
+        "NPC runbook content covers roleplay-first King/order/admin-review and Wanderer/deals/field interventions with buffer review",
+        "Full content imports без validation errors",
+        "Есть игровые цепочки для ведьмаков, чародеек, лордов и NPC",
+        "Full content pack содержит army unit cards для infantry/guard/ranged/cavalry/heavy_siege/specialist",
+        "Territory recruit sources добавляют flavor без превращения лордов в полностью разные фракции",
+        "Artifact visibility проверена в content data",
+        "Digital order race content готов, включая запрет двух активных заказов одного игрока на один object_id",
+        "Ordinary QR layer is available across zones regardless of territory owner",
+        "Potion market content поддерживает wholesale покупку чародейками, resale bands, gifts/debt logs and передачу/продажу ведьмакам/фаворитам",
+        "Spell/potion content covers V0 roles, wholesale defaults, resale defaults, max 1 potion per scene default and rare potion caps",
+        "Final summary content содержит NPC-led final tournament/final_summary fields/load plan, optional final scene hooks, locked magical intent/alignment evidence and personal final hooks",
+        "QR/manual checklist пригоден setup operator",
+        "Content pack follows Act 1/2/3 slot matrix 12/14/14 and covers monster hunt, investigation, moral choice, puzzle/check, order object, artifact/rare card, sorceress magic hook and lord strategic hook in each act",
+        "Rarity caps pass: rare Gwent cards 6 total/max 2 per act, artifacts 8 total, legendary artifacts 2 total/not before Act 2, potion caps by tier and plot/strategic keys 6 total",
+        "Paper fallback forms are ready for QR/PvE result, PvP stake, order resolution, NPC deal and final evidence",
+        "Player-facing handouts are ready for print and match runtime rules"
+      ],
+      "test_steps": [
+        "Run CSV import on full content pack",
+        "Check production profile 4/4/5 + 2 NPC and QR mix 15+ repeatable_scene/always_available_scene + 25+ unique_object",
+        "Проверить personal_goals hooks, goal_flags, final_hooks and custom full Gwent cards",
+        "Проверить building catalog, army unit catalog и territory recruit source coverage",
+        "Проверить QR consumption modes по checklist",
+        "Проверить act unlock policy, physical act announcement, reward approval policy, QR honesty policy, single_d20/no-reroll and physical QR no-parallel-attempt checklist",
+        "Content smoke: ordinary QR PvE in any owner zone, order, artifact, NPC/reputation, sorceress potion/spell-card effect",
+        "Проверить unique objects by act: rare cards, gold, plot keys and strategic items",
+        "Check lord order cap 2 public + 1 addressed, trade_transfers pending locks and favorite primary/secondary caps",
+        "Проверить order object_id conflict and full Gwent personal PvP interception path",
+        "Проверить final_summary content/flags for optional witcher final scenes/evidence, sorceress primary/secondary favorites and locked magical intent",
+        "Проверить final summary evidence categories, 7:30-9:30 Final Act timeboxes and master load plan",
+        "Check NPC split: roleplay-first King/order/admin-review vs Wanderer/deals/field interventions with buffer review",
+        "Проверить artifact flow find -> owner/master visibility -> reveal/delivery/stake",
+        "uv run python scripts\\taskctl.py validate",
+        "Check content matrix Act 1/2/3 = 12/14/14 and required per-act scene hooks",
+        "Run rarity coverage report for rare cards, artifacts, legendary artifacts, potions and plot/strategic keys",
+        "Review paper fallback forms/checklist against content actions and final evidence needs",
+        "Review player-facing handouts and NPC scene book against canonical runtime rules"
+      ],
+      "notes": "Contract:\nInputs: Polished quests, item/card/spell/artifact/order/NPC/lord content requirements and runtime CSV schema.\nOutputs: Full unique content pack importable by runtime with QR checklist, handouts and paper form manifest.\nImplementation path: Compile/export final content pack through generator/import pipeline; no manual runtime DB state.\nInterfaces: Artifacts: runtime CSV pack, compiler/import reports, QR print/manual-code checklist, player_handouts rows, ops_checklists rows and paper_forms rows.\nFailure/review paths: Any missing cap, policy, handout, final hook, QR mode, object conflict rule or lord content dependency blocks pack acceptance.\nRequired tests: Full import/content smoke, coverage reports, rarity caps, order/favorite/final hooks, QR checklist and player handout readiness."
+    },
+    {
+      "id": "TASK-032",
+      "title": "STAGE 4 GATE: full unique content pack acceptance",
+      "description": "Принять Stage 4 отдельно: уникальный content pack готов, импортируется и проходит content smoke.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "qa",
+      "stage": "STAGE-4: Unique Quest Production",
+      "stage_gate": true,
+      "dependencies": [
+        "TASK-031"
+      ],
+      "scope": [
+        "Full content import",
+        "40+ QR/PvE verification with 15+ always-available/repeatable and 25+ unique objects",
+        "Digital orders, object conflict and escrow smoke",
+        "Order cap, favorites cap and final_summary content smoke",
+        "Lord building/unit/recruit source smoke",
+        "Artifacts and visibility smoke",
+        "NPC/reputation/final summary smoke",
+        "QR print/setup checklist",
+        "40-slot matrix verification: Act 1/2/3 = 12/14/14 with required hooks per act",
+        "Rarity cap verification for cards, artifacts, potions, plot keys and strategic items",
+        "Paper fallback forms/readiness smoke",
+        "Player-facing handouts and NPC scene book readiness smoke",
+        "QR honesty policy, single_d20/no-reroll and physical act announcement coverage",
+        "Opaque QR/manual ID coverage and rate-limit metadata",
+        "Order status machine coverage for order content",
+        "Final_summary evidence hooks instead of mandatory final trial scoring content"
+      ],
+      "acceptance_criteria": [
+        "Stage 4 можно тестировать отдельно от balance simulation",
+        "Полный контент-пак импортируется без ошибок",
+        "40+ QR/PvE entries покрывают tiers, roles, scene mix, stat mix and reward budgets",
+        "40+ QR/PvE entries include minimum 15 always-available/repeatable scenes and 25+ unique objects",
+        "Army unit catalog покрывает 6 unit classes, а recruit sources связаны со зданиями/территориями",
+        "Content smoke подтверждает основные игровые цепочки",
+        "Content pack содержит unique objects по актам: artifacts, rare cards, gold, plot keys and strategic items",
+        "Content smoke includes order cap 2 public + 1 addressed per lord and favorite primary/secondary caps",
+        "Final summary inputs готовы для optional lord final scene, optional witcher final scenes/evidence for 5 witchers, sorceress favorites/alignment evidence and personal finals",
+        "Final summary inputs include master load plan for two NPC masters",
+        "Coverage report confirms Act 1/2/3 = 12/14/14 slots and required per-act scene hooks",
+        "Coverage report confirms rarity caps, power budget, visibility and counterplay for Rare/Legendary rewards",
+        "Critical paper fallback forms exist and are usable by setup/operator",
+        "Player-facing handouts are printable and match runtime rules",
+        "QR honesty policy, single_d20/no-reroll and physical act announcements are covered in content/runbook"
+      ],
+      "test_steps": [
+        "Импортировать full content pack",
+        "Проверить count>=40 and coverage report",
+        "Проверить QR mix: always_available_or_repeatable>=15 and unique_objects>=25",
+        "Проверить building/unit/recruit source coverage report",
+        "Пройти content smoke: generated PvE -> sync -> order cap/conflict/close -> favorite primary/secondary cap -> lord recruit flavor offer -> artifact/rare card/plot key reveal -> NPC/reputation event -> final_summary hook",
+        "Проверить QR print/manual checklist, honesty policy and single_d20/no-reroll coverage",
+        "uv run python scripts\\taskctl.py validate",
+        "uv run python scripts\\taskctl.py doctor",
+        "Check coverage report for 40-slot matrix Act 1/2/3 = 12/14/14 and required hooks",
+        "Check rarity cap report for rare Gwent cards, artifacts, legendary artifacts, potions and plot/strategic keys",
+        "Smoke paper fallback forms for QR/PvE, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence",
+        "Review player-facing handouts, NPC scene book, physical act announcement runbook and NPC-led Final Act tournament load plan"
+      ],
+      "notes": "Contract:\nInputs: Full content pack from TASK-031 and Stage 1 runtime importer/smoke tools.\nOutputs: Stage 4 full content acceptance evidence.\nImplementation path: Run content pack import, snapshot, coverage checks and selected runtime sample flows.\nInterfaces: Stage 4 validates content artifacts only; balance tuning remains Stage 5 unless content is structurally invalid.\nFailure/review paths: If full pack cannot import or lacks required coverage/caps/handouts, block gate.\nRequired tests: Content smoke, coverage report, runtime sample flows, TaskOS validate/sync/doctor."
+    },
+    {
+      "id": "TASK-033",
+      "title": "Собрать balance simulator для archetype players",
+      "description": "Создать симулятор действий игроков и ролей для проверки темпа 10-часовой игры.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "balance",
+      "stage": "STAGE-5: Balance Simulation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-032"
+      ],
+      "scope": [
+        "Production profile scenario: 4 lords, 4 hybrid sorceresses, 5 witchers and 2 NPC masters",
+        "Fixed 10-hour schedule model with registration, buffers, final lock, Final Act and debrief/export",
+        "9 mobile roles model: 5 witchers + 4 field-active sorceresses",
+        "Archetypes: active/casual witcher, sorceress, lord, risk-seeker, support player",
+        "Action budgets by act/time and role-load model, not one QR/hour norm",
+        "Quest selection, personal goals, order race, full Gwent PvP frequency, trade conflicts, lord economy, magic usage",
+        "Offline act unlock, pending reward approval and cascade-lock impact",
+        "PvP throttle model: pvp_tables, queued challenges, per-act cap and normal/limited/paused modes",
+        "Order pressure, favorites impact and 3 challenge tokens per act full Gwent PvP volume inputs",
+        "NPC-master load model for roleplay-first King/order/admin-review and Wanderer/deals/field interventions with buffer review and severity P0/P1/P2/P3",
+        "Deterministic seeds and reports"
+      ],
+      "acceptance_criteria": [
+        "Simulator runs repeatable scenarios on full content pack",
+        "Reports include XP, gold, gear, cards, reputation, order completion, lord economy",
+        "Reports include role-load idle risk for 9 mobile roles, order pressure, offline act unlock friction, pending reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact and NPC-master load",
+        "Assumptions are documented and adjustable"
+      ],
+      "test_steps": [
+        "Run deterministic simulation seed",
+        "Run 15-person profile seed with 4 lords, 4 hybrid sorceresses, 5 witchers and 2 NPC masters",
+        "Проверить reports for all archetypes",
+        "Check role-load idle risk, order pressure, offline act unlock, reward approval locks, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact and NPC-master load reports",
+        "Изменить action budget и проверить report changes",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Accepted content pack, runtime formulas and fixed 10-hour profile.\nOutputs: Deterministic archetype simulator and baseline reports.\nImplementation path: Implement simulation code using runtime CSV/formulas under backend/witcher_larp/simulation or scripts; avoid divergent copied math.\nInterfaces: Simulator input: content pack + scenario config. Output reports: xp, gold, gear, cards, reputation, order completion, lord economy, PvP volume, idle risk, NPC-master load.\nFailure/review paths: Assumptions must be explicit and adjustable; nondeterministic runs require seed value.\nRequired tests: Simulation unit tests for deterministic seed and report schema; baseline run on accepted content pack."
+    },
+    {
+      "id": "TASK-034",
+      "title": "Настроить reward/progression balance simulation",
+      "description": "Проверить, что награды стоят усилий, прокачка приятная, активный игрок достигает 7-9 уровня, максимум 10 редок.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "balance",
+      "stage": "STAGE-5: Balance Simulation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-033"
+      ],
+      "scope": [
+        "XP curve and level distribution",
+        "Level-up grant +1 stat per level with max stat 7",
+        "15-person pacing with 9 mobile roles and 15+25 QR mix",
+        "Role-load model using QR, orders, personal goals, magic, trade, NPC and PvP action sources",
+        "Gold/reward budget by tier",
+        "Gear/stat requirement pacing",
+        "30-minute QR cooldown/failure impact",
+        "Idle-risk report for 5 witchers + 4 field sorceresses",
+        "PvE -> progression/gold/cards -> stronger PvE/PvP loop"
+      ],
+      "acceptance_criteria": [
+        "Active players land around level 7-9 in simulation",
+        "Level 10 is rare and requires exceptional route",
+        "Every level-up grants exactly +1 stat and stat values never exceed 7",
+        "9 mobile roles have enough repeatable_scene/always_available_scene QR capacity and non-QR role actions without expecting completion of all 40+ scenes",
+        "XP from monsters, autoquests, orders, personal goals and significant events creates a slowed but pleasant level curve",
+        "Rewards are meaningful without runaway snowball",
+        "30-minute failure cooldown does not stall player for too long"
+      ],
+      "test_steps": [
+        "Run progression simulations across archetypes",
+        "Check level-up +1 stat/max 7 in progression report",
+        "Check 15-person/9-mobile-role role-load idle-risk report against 15+ repeatable_scene/always_available_scene + 25+ unique_object QR mix and non-QR actions",
+        "Проверить level distribution and reward value report",
+        "Проверить XP source distribution and slowed leveling curve",
+        "Tune content tables if thresholds fail",
+        "Re-run until report passes",
+        "uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Simulator from TASK-033 and XP/reward/progression rules.\nOutputs: Reward/progression reports and tuning recommendations.\nImplementation path: Run archetypes across multiple seeds/configs; output machine-readable JSON and readable summary.\nInterfaces: Report fields: level_distribution, xp_sources, stat_gain, reward_value, cooldown_impact, idle_risk_by_role, tuning_recommendations.\nFailure/review paths: If active players miss level 7-9 target or level 10 is common, mark tuning blockers for content/rules.\nRequired tests: Report assertion tests for level target, +1 stat/max 7, idle risk and reward runaway thresholds."
+    },
+    {
+      "id": "TASK-035",
+      "title": "Настроить combat/economy/magic balance simulation",
+      "description": "Проверить PvP, лордскую карту/экономику, бои, рейды, резиденции, артефакты и магию на доминирующие стратегии.",
+      "status": "pending",
+      "priority": "P1",
+      "category": "balance",
+      "stage": "STAGE-5: Balance Simulation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-033",
+        "TASK-034"
+      ],
+      "scope": [
+        "Full Gwent outcomes, challenge token pacing, 30-minute PvP start window, no-match-limit risk after start and custom card value",
+        "PvP-volume go/no-go report: 90th percentile table wait, matches over 25 minutes, per-act mandatory starts, buffer/review load and tuning knobs for tokens/throttle/tables/card complexity",
+        "PvP throttle report: pvp_tables, queued challenges, per-act mandatory match cap, normal/limited/paused modes and final lock behavior",
+        "15-person full Gwent PvP volume report for 3 challenge tokens per act, including timeout/refusal/tie rates, stake transfer, table wait percentiles and over-25-minute rate",
+        "Trade_transfers conflict report: pending locks, double ownership prevention and order-object transfers",
+        "Lord weighted map movement, MP cap, route pressure and territory race",
+        "Lord order pressure with cap 2 public + 1 addressed and low witcher availability",
+        "Lord battle 5x6 unit balance, deployment hand, 60s timer/auto-resolve, hero HP formula, burned cards",
+        "Territory income, pending tick rewards, named residence building tree and anti-snowball 30/50",
+        "Diplomacy, alliances, conspiracies and coalition pressure against runaway leader",
+        "Recruit market refresh/hold/reserve, territory flavor offers and active army/garrison capacity",
+        "Six unit classes stats, counters and battlefield roles",
+        "Raid token/gold cost, resistance checks, debuff/loot duration and counterplay",
+        "Sorceress mana/spells/favorites and wholesale potion economy impact",
+        "Spell/potion V0 catalog impact, max 1 potion per scene and potion wholesale 8/18/40",
+        "Favorites impact/cap/dogpile report for primary/secondary favorites",
+        "Artifact power and reveal incentives",
+        "NPC deal prices/consequences, King influence/rulings and final_summary inputs",
+        "Optional witcher final evidence, NPC-led final tournament/final_summary, locked magical intent and sorceress primary/secondary final input balance",
+        "V0 numeric defaults balance report: XP curve, PvE DC/rewards, lord economy, lord HP, mana and spell costs",
+        "Rarity/power-budget exploit report for rare cards, artifacts, legendary objects, potions and plot/strategic keys",
+        "Personal PvP soft-cap report: target 20 min and master acceleration/review from 25 min",
+        "Final summary evidence categories and Final Act 7:30-9:30 timebox report"
+      ],
+      "acceptance_criteria": [
+        "Нет очевидной доминирующей стратегии для full Gwent PvP/lord economy/magic",
+        "Full Gwent PvP report confirms 3 challenge tokens per act do not create excessive PvP volume for 15-person profile, including no-match-limit risk, timeout/refusal/tie handling and stake transfer",
+        "PvP throttle normal/limited/paused, 2 pvp tables, queued challenges and per-act match cap do not create deadlocks",
+        "Trade_transfers report confirms pending locks do not create double ownership or stuck assets",
+        "Лордам интересно двигаться по карте, атаковать, защищаться, гарнизонить, строиться, рейдить, нанимать войска и делать заказы",
+        "Lord strategy remains interesting when witcher availability is low, with orders useful but not the only progress path",
+        "Order pressure remains playable under cap 2 public + 1 addressed active order per lord",
+        "MP, edge costs, income values, anti-snowball thresholds, unit caps, building prices and raid durations имеют playable defaults/ranges для карты участка",
+        "Building prerequisites/cross-deps не создают одну обязательную ветку развития",
+        "6 unit classes имеют понятные роли и ни один класс не доминирует во всех battle fixtures",
+        "Pending tick rewards, contested locks, challenge tokens, trade_transfers, order object conflicts and raid loot не создают exploit, double income or double ownership",
+        "Diplomacy/coalition signals make leader pressure visible without forcing an automatic alliance",
+        "Чародейки имеют влияние через магию, фаворитов и potion economy без поломки баланса",
+        "Spell/potion catalog gives influence without infinite spam or potion exploit",
+        "Favorite caps prevent dogpiling: max 1 primary + 1 secondary per sorceress and max 2 sorceresses per favored player",
+        "PvP-volume go/no-go passes or produces explicit tuning changes before release: 90th percentile table wait <=10 minutes, over-25-minute matches <=20%, and per-act mandatory starts do not overload buffers/review",
+        "Final procedure balance supports NPC-led final tournament/final_summary, optional final scenes and sorceress favorites/alignment/locked magical intent evidence",
+        "Final summary evidence categories and Final Act timeboxes fit in 7:30-9:30",
+        "Артефакты редкие и сюжетно-механически значимые",
+        "V0 defaults produce playable ranges or are explicitly tuned by Stage 5 reports",
+        "Rare/Legendary rewards have visibility, counterplay or cost and do not create a dominant strategy",
+        "Personal PvP soft cap keeps match pacing playable without automatic scene cutoff"
+      ],
+      "test_steps": [
+        "Run full Gwent/lord map/battle/raid/magic simulation fixtures",
+        "Check 15-person full Gwent PvP volume report for token use, no-match-limit risk, timeout/refusal/tie rate, stake transfer, table wait percentiles and over-25-minute rate",
+        "If PvP-volume report fails, tune tokens/throttle/table count/card complexity and re-run",
+        "Check PvP throttle report for pvp_tables, queue, per-act cap, normal/limited/paused and final lock behavior",
+        "Check trade_transfers conflict report for pending locks and double ownership",
+        "Check lord order pressure under cap 2 public + 1 addressed with low witcher availability",
+        "Проверить lord movement graph, territory race and economy snowball 30/50 report",
+        "Проверить diplomacy/coalition pressure report против лидера",
+        "Проверить recruit market, named building tree, prerequisites/cross-deps, capacity and raid resistance/loot report",
+        "Проверить unit-class matchup report для infantry/guard/ranged/cavalry/heavy_siege/specialist",
+        "Проверить pending tick reward exploit cases",
+        "Проверить full Gwent PvP token/window and order object conflict report",
+        "Проверить sorceress potion economy and primary/secondary favorites impact report",
+        "Проверить spell/potion catalog report and potion per-scene cap",
+        "Проверить NPC-led final tournament/final_summary input report for optional witcher final scenes/evidence, sorceress favorites and locked magical intent",
+        "Tune tables and re-run failed scenarios",
+        "uv run python scripts\\taskctl.py validate",
+        "Review V0 balance report for XP thresholds, DC tiers, rewards, lord economy, lord HP and mana/spell costs",
+        "Review rarity exploit report for rare Gwent cards, artifacts, potions and plot/strategic keys",
+        "Check personal PvP duration report for 20-minute target and 25-minute master acceleration/review behavior",
+        "Check final summary evidence categories and Final Act timebox report"
+      ],
+      "notes": "Contract:\nInputs: Simulator, content pack, PvP/lord/magic/economy formulas and Stage 5 thresholds.\nOutputs: Combat/economy/magic balance reports and explicit go/no-go tuning decisions.\nImplementation path: Reuse runtime formulas for Gwent, lord battles, raids, buildings, mana, potions, favorites and anti-snowball.\nInterfaces: Reports: pvp_volume, table_wait_percentiles, over_25_min_matches, trade_lock_conflicts, lord_economy, unit_matchups, raid_value, magic_impact, rarity_exploits, final_timebox.\nFailure/review paths: If thresholds fail, record exact tuning knob and rerun; do not bury failures in narrative summary.\nRequired tests: Simulation report tests for schema and threshold assertions; rerun evidence after any tuning."
+    },
+    {
+      "id": "TASK-036",
+      "title": "Провести full rehearsal и game-day hardening",
+      "description": "Проверить всю игру на реальных устройствах, обновить runbook, backups, fallback и release scripted run.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "operations",
+      "stage": "STAGE-5: Balance Simulation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-035"
+      ],
+      "scope": [
+        "Real hardware rehearsal",
+        "15-person fixed 10-hour runbook: registration/snapshot, Act 1, buffer, Act 2, buffer, Act 3, final lock, Final Act, debrief/export",
+        "Physical act announcement rehearsal for Act 1/2/3/Final Act before unlock code reveal",
+        "QR honesty policy and single_d20/no-reroll check rehearsal",
+        "NPC-master split rehearsal: roleplay-first King/order/admin-review vs Wanderer/deals/field interventions with fallback overlap and buffer review",
+        "Scripted run across 3 story acts + final act, PvE cooldown, personal goals, sync, trade_transfers, order object conflict/interception, full Gwent PvP token/window, lord movement/capture/default building/recruit/unit/reserve/anti-snowball/raid/battle, potion economy, magic, locked magical intent, NPC, NPC-led final tournament/final_summary procedures",
+        "Order pressure, favorites impact, offline act unlock, reward approvals, full Gwent PvP volume/throttle, trade conflicts, locked magical intent and NPC-led final tournament/final_summary rehearsal",
+        "Final Act 7:30-9:30 timebox and master load plan rehearsal",
+        "Game-day ops checklist and player-facing handout rehearsal",
+        "Autobackup and restart recovery",
+        "Game-day smoke checklist 10-15 minutes",
+        "Fallbacks and post-game export",
+        "Immediate paper fallback drill for QR/PvE result, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence",
+        "paper_recovered recovery input, idempotency and conflict review rehearsal including lord paper continuation"
+      ],
+      "acceptance_criteria": [
+        "Full scripted run passes on real hardware",
+        "Full scripted run covers 15-person production profile and fixed 10-hour pacing with buffers/final lock",
+        "Runbook covers roleplay-first NPC-master split, order/admin review, field interventions, buffer review and fallback overlap",
+        "Rehearsal evidence covers order pressure, 9 mobile role idle risk, offline act unlock, pending reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact, locked magical intent and NPC-led final tournament/final_summary",
+        "Runbook covers game-day ops checklist, severity rubric, final timeboxes and master approvals",
+        "Runbook covers physical act announcements, QR honesty policy, single_d20 checks, PvP refusal/safety table, player-facing handouts and NPC-led Final Act tournament load plan",
+        "Server restart does not lose rehearsal state",
+        "Runbook lets master start/restore game without code changes",
+        "Unresolved blockers have owner, severity and fallback",
+        "Runbook lets masters switch a critical action to paper immediately when app/network path is unavailable",
+        "Paper recovery creates source=paper_recovered with paper_form_id/source form type/operator/timestamp/reason and does not silently overwrite digital state"
+      ],
+      "test_steps": [
+        "Run rehearsal on venue-like Wi-Fi",
+        "Check production profile during rehearsal: 4 lords, 4 hybrid sorceresses, 5 witchers, 2 NPC masters",
+        "Scripted run: registration/snapshot -> start Act 1 with physical announcement/buffer/Act 2 announcement/buffer/Act 3 announcement/final lock/final announcement -> offline act unlock code -> auto tick -> challenge tokens -> lord MP refill -> weighted route -> contested neutral capture -> neutral AI/master takeover battle -> garrison -> pending tick reward -> buy building with prerequisites -> recruit unit offer -> reserve transfer -> anti-snowball 30/50 check -> raid debuff/loot -> QR/PvE single_d20/no-reroll + honesty policy -> failure cooldown 30 min -> pending reward approval -> personal_goals/goal_flags -> sync -> trade_transfers lock/accept -> digital order cap/race/object conflict -> full Gwent PvP token/30-minute PvP start window/PvP throttle/interception/timeout-refusal-tie/refusal-safety table -> lord battle 5x6 with 60s timer, auto-resolve and 6 unit-class fixture coverage -> paper_lord_action/paper_lord_battle recovery drill -> sorceress wholesale potion + spell + consent primary/secondary favorite -> locked magical intent -> artifact/plot key reveal -> roleplay-first King ruling/order/admin-review buffer -> Wanderer deal/field intervention -> NPC-led final tournament/final_summary evidence/export and Final Act load plan",
+        "Check fixed 10-hour pacing, 9 mobile role idle risk, order pressure, offline act unlock, reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact and NPC-master load",
+        "Backup/restore check",
+        "4 lord panels simultaneous check",
+        "Game-day smoke dry run",
+        "Game-day ops checklist dry run: devices, Wi-Fi, local IP, act unlock codes, physical act announcement, QR/manual IDs, honesty policy, player-facing handouts, props, paper forms, safety zones, pvp tables and final stations/staffing",
+        "uv run python scripts\\taskctl.py validate",
+        "During rehearsal, force one critical paper fallback action and recover it through Admin Studio",
+        "Check paper_recovered duplicate/conflict handling, including paper_lord_action/paper_lord_battle, goes to master review without silent overwrite"
+      ],
+      "notes": "Contract:\nInputs: Passed simulations, full content pack, real hardware/network and game-day staffing.\nOutputs: Full rehearsal evidence, game-day runbook facts inside task notes/checks and unresolved blocker list.\nImplementation path: Run rehearsal on venue-like Wi-Fi with master laptop, 4 lord panels and real phones; capture exact IP, server command, devices, backups and fallback drills in task checks/notes.\nInterfaces: Evidence includes fixed 10-hour flow, physical act announcements, QR honesty, single_d20, PvP refusal/safety, paper_recovered drills and NPC-master split.\nFailure/review paths: Any P0/P1 launch blocker without fallback blocks release; lower risks need owner, severity and fallback.\nRequired tests: Rehearsal checklist, backup/restore, paper recovery conflict, 4 lord panels, mobile sync and game-day smoke."
+    },
+    {
+      "id": "TASK-037",
+      "title": "STAGE 5 GATE: balance simulation and release readiness",
+      "description": "Принять Stage 5: баланс симуляцией подтвержден, rehearsal пройден, игра готова к проведению.",
+      "status": "pending",
+      "priority": "P0",
+      "category": "qa",
+      "stage": "STAGE-5: Balance Simulation",
+      "stage_gate": true,
+      "dependencies": [
+        "TASK-036"
+      ],
+      "scope": [
+        "15-person production profile sign-off",
+        "Balance reports sign-off",
+        "Idle risk, order pressure, NPC load, offline act unlock, reward approvals, full Gwent PvP volume/throttle, trade conflicts, favorites, locked magical intent and final_summary sign-off",
+        "Full rehearsal sign-off",
+        "Runbook and fallback sign-off",
+        "Generated views/dashboard sync check",
+        "Final release gate checklist",
+        "Rarity caps, V0 balance defaults and rare reward exploit sign-off",
+        "Immediate paper fallback, lord paper continuation and paper_recovered recovery sign-off",
+        "Final Act timeboxes/load plan, final summary evidence categories, player-facing handouts and game-day ops checklist sign-off"
+      ],
+      "acceptance_criteria": [
+        "Simulation confirms pacing, rewards and role interest",
+        "Simulation and rehearsal confirm 15-person profile: 4 lords, 4 hybrid sorceresses, 5 witchers and 2 NPC masters",
+        "9 mobile role idle risk is acceptable with 15+ repeatable_scene/always_available_scene QR scenes, 25+ unique_object entries and non-QR role actions",
+        "Offline act unlock and reward approval locks do not create idle risk or cascade exploits",
+        "Active player level target 7-9 holds; level 10 remains rare",
+        "Lord strategy simulation confirms movement, territory control, named building tree, recruit market, unit class roster, raid pacing/loot and anti-snowball 30/50 are interesting without runaway snowball",
+        "Lord order pressure remains playable under cap 2 public + 1 addressed active orders per lord",
+        "Full Gwent PvP token/window, no-match-limit risk, timeout/refusal/tie handling, trade_transfers, potion economy, locked magical intent, NPC deal prices and final_summary inputs pass balance/rehearsal review",
+        "PvP throttle and table capacity prevent schedule overload without deadlocking object interceptions",
+        "Favorites impact stays within caps and does not create dogpiling",
+        "Final procedures use NPC-led final tournament/final_summary, master final evidence categories, Final Act timeboxes, optional final scenes and sorceress favorites/alignment/locked magical intent evidence",
+        "Final procedures include a feasible master load plan for two NPC masters",
+        "NPC-master split is feasible for roleplay-first King/order/admin-review and Wanderer/deals/field interventions with fallback overlap and buffer review",
+        "No unresolved P0/P1 balance or launch blockers without fallback",
+        "Release scripted run passes end-to-end",
+        "Dashboard/kanban/tasks are synchronized",
+        "V0 balance defaults or tuned replacements are signed off for XP, DC, rewards, lord economy, lord HP, mana and spell costs",
+        "Rare reward caps and power budgets are signed off without dominant strategy or final-breaking hidden rewards",
+        "Paper fallback/recovery is proven for critical events and no unresolved P0/P1 launch blocker lacks fallback",
+        "Game-day ops checklist is rehearsed on real hardware and venue-like Wi-Fi",
+        "Physical act announcements, QR honesty policy, single_d20/no-reroll checks, PvP refusal/safety table and player-facing handouts are signed off"
+      ],
+      "test_steps": [
+        "Review balance simulation reports",
+        "Review 15-person production profile, fixed 10-hour schedule, 9 mobile role idle risk and 15+25 QR mix reports",
+        "Review lord movement/economy/recruit/building/unit/raid/anti-snowball reports",
+        "Review order pressure, full Gwent PvP token/window/no-match-limit/timeout/refusal/tie, trade_transfers, favorites, locked magical intent, potion economy, NPC/final_summary reports",
+        "Review rehearsal evidence, physical act announcement, QR honesty, single_d20/no-reroll, act unlock/reward approval/PvP throttle/refusal/final timebox/load plan reports and blockers",
+        "Run game-day smoke from runbook",
+        "uv run python -m json.tool tasks.json",
+        "uv run python scripts\\taskctl.py validate",
+        "uv run python scripts\\taskctl.py sync",
+        "uv run python scripts\\taskctl.py doctor",
+        "Review V0/tuned balance defaults sign-off",
+        "Review rarity cap/power budget exploit sign-off",
+        "Review paper fallback/recovery drill evidence for QR/PvE, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence",
+        "Review player-facing handouts and NPC scene book sign-off"
+      ],
+      "notes": "Contract:\nInputs: All Stage 1-5 gates, reports, rehearsal evidence and launch-risk decisions.\nOutputs: Release readiness sign-off in tasks/board with no unresolved P0/P1 blocker without fallback.\nImplementation path: Review generated board, simulation reports, rehearsal checks, launch risks and final game-day command/checklist.\nInterfaces: Release gate references existing artifacts and task checks only; no new planning appendix required.\nFailure/review paths: If dashboard/tasks are stale or any required sign-off missing, block release and name owner/fallback.\nRequired tests: json.tool, TaskOS validate/sync/doctor, report review, game-day smoke and final generated board inspection."
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+project_name = "Witcher LARP Core Engine"
+tasks_file = "tasks.json"
+progress_file = "progress.txt"
+lock_file = ".taskos.lock"
+generated_kanban = "docs/kanban.md"
+generated_dashboard = "docs/helpers/task-board.html"
+generated_dashboard_entrypoint = "docs/task-board.html"
+taskctl_script = "scripts/taskctl.py"
+canonical_docs = [
+  "docs/PRD.md",
+  "docs/architecture.md",
+  "docs/roadmap.md",
+  "docs/game-mechanics.md",
+  "docs/app-technical-plan-v0.1.md",
+  "pyproject.toml",
+]
+priority_order = ["P0", "P1", "P2", "P3"]
+command_name = "uv run python scripts/taskctl.py"

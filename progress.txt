@@ -1,0 +1,147 @@
+# Progress Log
+
+2026-05-29 22:01 +03:00 TASK-002 Claim
+-------------------------------------
+Task: TASK-002 - Собрать FastAPI/SQLite runtime scaffold.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 17 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-05-29 22:05 +03:00 TASK-002 Done
+------------------------------------
+Task: TASK-002 - Собрать FastAPI/SQLite runtime scaffold.
+
+Done:
+- Собран backend scaffold: пакет backend.witcher_larp, FastAPI factory с /health, SQLite bootstrap/schema/event_log, команда запуска python -m backend.witcher_larp и requirements.txt.
+
+Verification:
+- python -m unittest discover -s tests -v; python scripts\taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+Next Dependency-Ready Pending Task:
+- TASK-001 - Провести platform и local network spike
+
+2026-05-30 14:33 +03:00 TASK-001 Claim
+-------------------------------------
+Task: TASK-001 - Провести platform и local network spike.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 23 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-05-30 14:41 +03:00 TASK-001 Blocked
+---------------------------------------
+Task: TASK-001 - Провести platform и local network spike.
+
+Blocked:
+- Local backend/network planning documented in docs/platform-network-spike.md, but real Android APK smoke, iOS free provisioning, QR camera and venue Wi-Fi client access require physical devices/Mac/venue network. Launch risks and fallbacks are documented; backend/content foundation can continue.
+
+Verification:
+- uv run python scripts/taskctl.py validate
+- uv run python scripts/taskctl.py sync
+- uv run python scripts/taskctl.py doctor
+- uv run python -m unittest discover -s tests -v
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-05-30 14:58 +03:00 TASK-003 Claim
+-------------------------------------
+Task: TASK-003 - Описать runtime CSV-схемы и seed fixtures.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 23 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-05-30 15:10 +03:00 TASK-003 Released
+----------------------------------------
+Task: TASK-003 - Описать runtime CSV-схемы и seed fixtures.
+
+Released:
+- Planning contracts are locked; seed CSV implementation has not started, so the task is ready for the next implementation claim.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-05-30 16:33 +03:00 TASK-001 Done
+------------------------------------
+Task: TASK-001 - Провести platform и local network spike.
+
+Done:
+- Platform/network preflight closed: phone reached local /health through Wi-Fi from QR/camera path; remaining exported Android/iOS app smoke moved to TASK-007.
+
+Verification:
+- Phone Wi-Fi /health screenshot: status ok, database.status ok, schema_version 1
+- QR/camera smoke: phone opened the health URL from camera flow
+- uv run python scripts/taskctl.py validate
+- uv run python scripts/taskctl.py sync
+- uv run python scripts/taskctl.py doctor
+
+Notes:
+- 2026-05-30 evidence: iPhone camera/QR path opened http://192.168.1.9:8001/health and returned status=ok, service=Witcher LARP Core Engine, database.status=ok, schema_version=1. Local backend was running on 0.0.0.0:8001; laptop LAN IP 192.168.1.9. Separate lord-laptop smoke and exact phone model/OS are not required to block development; they remain game-day/rehearsal checks with fallback dedicated router/manual QR/paper_recovered.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+Next Dependency-Ready Pending Task:
+- TASK-003 - Описать runtime CSV-схемы и seed fixtures
+
+2026-05-30 16:54 +03:00 TASK-003 Claim
+-------------------------------------
+Task: TASK-003 - Описать runtime CSV-схемы и seed fixtures.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 23 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-05-30 17:08 +03:00 TASK-003 Done
+------------------------------------
+Task: TASK-003 - Описать runtime CSV-схемы и seed fixtures.
+
+Done:
+- Created runtime CSV seed pack under data/seed, fixture manifests and invalid overlays under tests/fixtures, and seed contract tests.
+
+Verification:
+- uv run python -m unittest discover -s tests -v; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py doctor
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+Next Dependency-Ready Pending Task:
+- TASK-004 - Реализовать SQLite schema, import и snapshot pipeline
