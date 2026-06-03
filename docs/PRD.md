@@ -2,15 +2,16 @@
 
 ## Product delivery path
 
-Проект реализуется через пять жестких stage-gates, чтобы каждый слой можно было тестировать отдельно и не смешивать движок, админку, генерацию контента, производство квестов и баланс.
+Проект реализуется через шесть жестких stage-gates, чтобы каждый слой можно было тестировать отдельно и не смешивать движок, админку, игровые UI, генерацию контента, производство квестов и баланс.
 
 1. **Core Game Engine** - основной runtime-движок для всех классов: ведьмаки, чародейки, лорды и мастерский NPC-слой. Gate: `TASK-018`.
 2. **Admin Studio** - полная браузерная админ-панель/студия для content import, game ops, актов, событий, backups, NPC, visibility и final summary. Gate: `TASK-023`.
-3. **PvE Generation Engine** - генератор PvE/QR-контента внутри Admin Studio с templates, tier/reward/stat controls, flags, compiler и validation. Gate: `TASK-028`.
-4. **Unique Quest Production** - генерация и ручная полировка 40+ QR/PvE-сцен: минимум 15 repeatable/always-available сцен и 25+ unique objects, плюс заказы, артефакты, предметы, карты, зелья, заклинания, NPC-события и QR checklist. Gate: `TASK-032`.
-5. **Balance Simulation** - симуляция действий игроков и ролей, настройка наград, прокачки, PvP, лордской экономики, магии, rehearsal и release readiness. Gate: `TASK-037`.
+3. **Playable Role UI** - полноценные игровые интерфейсы ролей: мобильное приложение ведьмаков/чародеек на реальных iOS/Android устройствах, лордские action-панели с валидной картой, personal PvP/Gwent UI и paper recovery/correction формы. Gate: `TASK-050`.
+4. **PvE Generation Engine** - генератор PvE/QR-контента внутри Admin Studio с templates, tier/reward/stat controls, flags, compiler и validation. Gate: `TASK-028`.
+5. **Unique Quest Production** - генерация и ручная полировка 40+ QR/PvE-сцен: минимум 15 repeatable/always-available сцен и 25+ unique objects, плюс заказы, артефакты, предметы, карты, зелья, заклинания, NPC-события и QR checklist. Gate: `TASK-032`.
+6. **Balance Simulation** - симуляция действий игроков и ролей, настройка наград, прокачки, PvP, лордской экономики, магии, rehearsal и release readiness. Gate: `TASK-037`.
 
-Целевой playable full-game build считается готовым только после Stage 5, но Stage 1-4 должны иметь самостоятельные приемочные проверки и быть демонстрируемыми без ожидания финального баланса.
+Целевой playable full-game build считается готовым только после Stage 5, но Stage 1-4 и Stage 2B должны иметь самостоятельные приемочные проверки и быть демонстрируемыми без ожидания финального баланса. После `TASK-050` функциональные проверки для игроков и лордов должны идти через приложение/панели, а Swagger, curl и ручная правка SQLite остаются только developer diagnostics. Stage 2B отдельно доказывает, что весь задуманный gameplay без generated/full PvE content можно гонять как приложение: реальные Android/iOS телефоны, 4 лордские панели, personal Gwent, заказы/trade, магия/зелья/фавориты, Admin recovery и валидная лордская карта.
 
 ## Назначение
 
@@ -38,6 +39,8 @@
 - Лорды используют веб-панели: цифровые территории, армии, доходы, влияние, резиденции, заказы, escrow и синхронные бои лордов.
 - Ведьмаки используют мобильное приложение: персонаж, QR/manual input, offline PvE, предметы/карты, заказы, репутация, PvP в online-зоне.
 - Чародейки используют мобильное приложение как полноценная роль: PvE/PvP, мана, зелья, заклинания, фавориты, интриги и стратегические эффекты.
+
+Playable UI acceptance (`TASK-050`) означает, что ведьмак, чародейка и лорд могут пройти свои штатные игровые маршруты без Swagger/ручных API: UI закрывает QR/PvE smoke, offline unlock, sync, награды, инвентарь, заказы, trade, магию/зелья/фаворитов, лордскую карту/экономику/бои/заказы/рейды и personal PvP/Gwent. Android APK и iOS build должны быть установлены и проверены на реальных телефонах до приемки Stage 2B; отсутствие device smoke является blocker, а не launch-risk fallback. Мастерские ручные API не считаются приемкой player/lord workflow.
 
 Игрок входит в мобильное приложение по предвыданному коду персонажа. Лорды и мастера входят в панели по простым игровым role-кодам. Внешние аккаунты и интернет-identity не нужны.
 
@@ -193,6 +196,8 @@ SQLite хранит авторитетное состояние партии и 
 - Offline act unlock, master-approved cascade rewards, PvP throttling, spell/potion catalog и game-day ops checklist одинаково описаны в канонических документах.
 - Rule hardening одинаково описан в канонических документах: opaque QR/manual ID, жесткое правило честности QR/manual ID, физическое объявление актов, single-d20 checks, PvP refusal/safety table и player-facing handouts.
 - Offline PvE, online PvP, лордский бой, магия, NPC-событие и финальная сводка проходят в scripted run.
+- После `TASK-050` release-critical workflows проходят через реальные UI-поверхности: mobile gameplay UI на Android/iOS, lord action UI с валидной картой, personal PvP/Gwent UI и Admin Studio paper recovery/correction forms; Swagger/manual API не считается штатным пользовательским интерфейсом.
+- Перед Stage 3 нет известных P0/P1 и блокирующих P2 дефектов в non-PvE gameplay; бумажный fallback проверяется как outage recovery, но не заменяет отсутствующий штатный UI.
 - Полная e2e-репетиция проходит на мастерском ноутбуке, 4 лордских ноутбуках и реальных телефонах, включая locked magical intent и бумажный лордский fallback.
 - Симуляция и rehearsal проверяют 10-часовой темп для 15 человек, 9 мобильных ролей, idle risk, нагрузку 2 NPC-мастеров, order pressure и мастерский финальный runbook.
 - Rehearsal включает outage drill: критичное бумажное событие заносится обратно как `paper_recovered` без silent overwrite.

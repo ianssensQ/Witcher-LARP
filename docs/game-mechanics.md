@@ -141,10 +141,10 @@ PvE не должен быть только "убить моба". Хороши�
 - награды, cooldown или последствия;
 - полного локального лога для sync.
 
-Проверка считается по правилу `single_d20`: на одну проверку бросается ровно один d20. Система обязана учесть все применимые источники бонусов и помех в расчете и логе; преимущество/помеха не дают второй куб.
+Проверка считается по правилу `single_d20`: на одну проверку приложение генерирует ровно один d20. Система обязана учесть все применимые источники бонусов и помех в расчете и логе; преимущество/помеха не дают второй куб.
 
 ```text
-d20 + стат + бонусы предметов/зелий/артефактов/магии + situational_modifiers
+app_generated_d20 + стат + бонусы предметов/зелий/артефактов/магии + situational_modifiers
 ```
 
 DC задается сценой и тиром. LARP-испытание, хорошее расследование, правильный предмет, подходящая магия или сильная подготовка могут дать бонус, преимущество как числовой modifier или альтернативный путь. Плохой выбор, неподходящий стат, проклятие или неподготовленность дают помеху как числовой modifier. V0 default для ситуационных модификаторов: minor advantage `+2`, major advantage `+4`, minor hindrance `-2`, major hindrance `-4`; все источники записываются отдельно, затем суммируются системой. Если advantage и hindrance есть одновременно, они не отменяются устно: система считает итоговый modifier по логируемым источникам.
@@ -158,7 +158,7 @@ PvE combat contract v1:
 - Враг или опасность сцены имеет `scene_hp`, `combat_dc`, `scene_damage`, `round_limit` и, если нужно, `special_rule`.
 - Default `scene_hp` по тирам: T1 = 6, T2 = 10, T3 = 14, T4 = 18. Default `round_limit` = 5, чтобы бой оставался коротким.
 - В раунд игрок выбирает одно действие: атаковать/пройти проверку, защититься/подготовиться, использовать предмет/зелье, применить валидную магию или отказаться от сцены.
-- Атака или опасное действие всегда считается через `single_d20` против `combat_dc`. Успех наносит `base_damage` сцены игрока; каждые полные 5 очков margin сверх DC дают +1 damage. Провал наносит игроку `scene_damage` или двигает сцену к плохому исходу.
+- Атака или опасное действие всегда считается через app-generated `single_d20` против `combat_dc`. Успех наносит `base_damage` сцены игрока; каждые полные 5 очков margin сверх DC дают +1 damage. Провал наносит игроку `scene_damage` или двигает сцену к плохому исходу.
 - `base_damage` задается сценой или оружием. V0 default: T1 weapon = 2, T2 = 3, T3 = 4, T4 = 5. Без подходящего оружия default damage = 1.
 - Защита/подготовка не бросает второй куб за уже сделанную проверку. Она дает логируемый modifier к следующему действию, снижает `scene_damage` на 1-2 или открывает альтернативный путь, если это задано сценой.
 - Зелье применяется до броска или в начале раунда, максимум 1 зелье на сцену по default. Оно дает modifier/снятие помехи по тексту эффекта и не дает reroll.
@@ -1178,7 +1178,7 @@ Runtime CSV остаются источником для приложения:
 
 Механическая каноника используется в разных этапах по-разному:
 
-1. **Stage 1 - Core Game Engine.** Реализуются runtime-правила PvE cooldown 30 min, QR modes, opaque manual IDs, physical-presence honesty policy, PvE combat contract, single-d20 checks with logged modifiers, offline act unlock с физическим объявлением актов, pending master approval для cascade-prone rewards, personal goals/goal_flags, trade_transfers, full Gwent challenge tokens/window/throttle/refusal safety table, лордской карты/MP/гарнизонов/recruit/building/raid/anti-snowball, deterministic lord battle 5x6, магии, V0 spell/potion catalog, favorites lifecycle, locked magical intent, репутации, NPC runbook с severity P0/P1/P2/P3, артефактов, order status machine, NPC-led final tournament/final summary, lord paper fallback и game-day ops checklist на seed fixtures. Цель этапа - доказать, что все классы могут играть, даже если уникального контента еще нет.
+1. **Stage 1 - Core Game Engine.** Реализуются runtime-правила PvE cooldown 30 min, QR modes, opaque manual IDs, physical-presence honesty policy, PvE combat contract, app-generated single-d20 checks with logged modifiers, offline act unlock с физическим объявлением актов, pending master approval для cascade-prone rewards, personal goals/goal_flags, trade_transfers, full Gwent challenge tokens/window/throttle/refusal safety table, лордской карты/MP/гарнизонов/recruit/building/raid/anti-snowball, deterministic lord battle 5x6, магии, V0 spell/potion catalog, favorites lifecycle, locked magical intent, репутации, NPC runbook с severity P0/P1/P2/P3, артефактов, order status machine, NPC-led final tournament/final summary, lord paper fallback и game-day ops checklist на seed fixtures. Цель этапа - доказать, что все классы могут играть, даже если уникального контента еще нет.
 2. **Stage 2 - Admin Studio.** Мастер получает UI для импорта, проверки, snapshot, игровых операций, lord map ops, contested/pending rewards, рейдов, anti-snowball, PvP timeout review, NPC, visibility, backups и final summary. Этот этап нужен до генератора, чтобы генерация PvE сразу жила в удобной мастерской модели.
 3. **Stage 3 - PvE Generation Engine.** В Admin Studio появляется генератор PvE/QR: шаблоны, tier/reward/stat controls, QR modes, artifact/reputation/NPC/order flags, preview, compiler и validation. Генератор обязан создавать квесты, которые проходят runtime importer и запускаются в PvE engine.
 4. **Stage 4 - Unique Quest Production.** Генератор используется для 40+ QR/PvE-сцен, включая минимум 15 always-available/repeatable сцен и 25+ unique objects, после чего мастер вручную полирует тексты, моральные развилки, скрытую правду, уникальные последствия, personal goal hooks, кастомные Gwent cards, артефакты, редкие карты, сюжетные ключи, стратегические предметы, NPC-связи, финальные флаги, favorites content, locked magical intent hooks, order cap и player-facing handouts/role packets.

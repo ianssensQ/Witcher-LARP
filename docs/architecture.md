@@ -2,15 +2,16 @@
 
 ## Stage-gate architecture
 
-Архитектура делится на пять проверяемых этапов, которые отражены в `tasks.json` через `project.stages`, поле `stage` и отдельные gate-задачи.
+Архитектура делится на шесть проверяемых этапов, которые отражены в `tasks.json` через `project.stages`, поле `stage` и отдельные gate-задачи.
 
 1. **Core Game Engine** (`TASK-018`) - локальный FastAPI/SQLite runtime, Godot mobile shell, lord runtime panels, event log, rule engines, auto timers, backup hooks и final summary runtime.
 2. **Admin Studio** (`TASK-023`) - браузерная мастерская панель и студия: import/validation UI, snapshot controls, game ops, event review, corrections, NPC tools, visibility audit, backups и final summary view.
-3. **PvE Generation Engine** (`TASK-028`) - генератор внутри Admin Studio: draft quest model, templates, tier/stat/reward controls, QR modes, artifact/reputation/NPC/order flags, compiler в authoring matrix/runtime CSV и validation harness.
-4. **Unique Quest Production** (`TASK-032`) - production-контур контента: 40+ QR/PvE-квестов, ручная полировка, full content pack, QR print/manual checklist и content smoke.
-5. **Balance Simulation** (`TASK-037`) - симулятор archetype players и отчеты по progression, rewards, PvP, lord battles, economy, magic, artifacts, NPC deals и rehearsal readiness.
+3. **Playable Role UI** (`TASK-050`) - полноценные игровые UI поверх Stage 1 runtime и Stage 2 Admin Studio: mobile gameplay UI на реальных Android/iOS устройствах, lord action UI с валидной картой, personal PvP/Gwent UI, paper recovery/correction forms и UI-first acceptance без Swagger для игроков/лордов.
+4. **PvE Generation Engine** (`TASK-028`) - генератор внутри Admin Studio: draft quest model, templates, tier/stat/reward controls, QR modes, artifact/reputation/NPC/order flags, compiler в authoring matrix/runtime CSV и validation harness.
+5. **Unique Quest Production** (`TASK-032`) - production-контур контента: 40+ QR/PvE-квестов, ручная полировка, full content pack, QR print/manual checklist и content smoke.
+6. **Balance Simulation** (`TASK-037`) - симулятор archetype players и отчеты по progression, rewards, PvP, lord battles, economy, magic, artifacts, NPC deals и rehearsal readiness.
 
-Техническая граница важна: Stage 1 не должен зависеть от генератора квестов, Stage 2 должен быть готов до Stage 3, а Stage 5 балансирует уже полный content pack, а не технические заглушки.
+Техническая граница важна: Stage 1 не должен зависеть от генератора квестов, Stage 2 должен быть готов до Stage 2B, Stage 2B доказывает UI-first тестирование ролей без Swagger и готовность всего non-PvE gameplay на реальных игровых поверхностях, Stage 3 строит генератор уже поверх playable UI, а Stage 5 балансирует полный content pack, а не технические заглушки.
 
 ## Ключевые решения
 
@@ -28,7 +29,7 @@
 - Сервер применяет автоматические тики от фактического старта акта.
 - Offline act unlock поддерживается через server sync или мастерский `act_unlock_code`/QR, заранее включенный в snapshot и раскрываемый после старта акта и физического объявления акта на участке.
 - QR/manual ID подчиняется жесткому physical-presence honesty policy: код можно запускать только у соответствующего prop/локации.
-- PvE checks используют `single_d20`: одна проверка = один d20, все преимущества/помехи учитываются как логируемые modifiers.
+- PvE checks используют `single_d20`: одна проверка = один app-generated d20, все преимущества/помехи учитываются как логируемые modifiers.
 - Cascade-prone offline rewards проходят `pending_master_approval` перед торговлей, ставкой, передачей лорду, финальной сводкой или влиянием на других игроков.
 - PvP throttling является runtime-контуром: `pvp_tables`, queued challenges, режим `normal/limited/paused` и запрет новых вызовов после final lock.
 - PvE, full Gwent PvP, trade_transfers, favorites lifecycle, reputation и бои лордов являются rule engines, а финал является master-led summary/export, а не автоматическим подсчетом победителей.
@@ -83,6 +84,16 @@ Stage 1 acceptance should prove this technical shape, not only gameplay logic:
 shell, CSV import, snapshot export, event sync and paper recovery must all have
 at least one seed-level vertical slice.
 
+Stage 2B acceptance proves a different boundary: normal player/lord gameplay
+must be operable through the Godot mobile app and browser panels. Swagger,
+curl, raw API docs and direct SQLite edits remain developer diagnostics and do
+not count as player/lord workflow acceptance after `TASK-050`.
+Stage 2B also closes the mobile hardware gap for gameplay testing: Android APK
+and iOS build/free provisioning smoke must pass on real devices before
+`TASK-050`. Missing device proof is a blocker, not a deferred launch-risk
+fallback. Paper fallback is tested as outage recovery only and does not replace
+missing normal UI.
+
 ### Task implementation contract
 
 Implementation planning is synchronized through `tasks.json`, generated
@@ -123,7 +134,7 @@ python`, а не raw `pip`.
 - отображение известных `personal_goals`, прогресса `goal_tracks` и раскрытых final hooks без hidden `goal_flags`;
 - QR scan и manual QR-ID;
 - offline act unlock через server sync или мастерский unlock code;
-- offline PvE с single-d20 проверками, немедленным результатом и полным логом броска/modifiers;
+- offline PvE с app-generated single-d20 проверками, немедленным результатом и полным логом броска/modifiers;
 - предупреждение physical-presence-only при QR/manual ID и локальный лог подтверждения игрока;
 - локальный cooldown 30 минут на конкретный QR после провала;
 - отображение `pending_master_approval` для наград, которые нельзя тратить/передавать до подтверждения;
@@ -319,7 +330,7 @@ Paper recovery никогда не перетирает уже применен�
 
 ### PvE
 
-Телефон проводит PvE офлайн как один QR = один самостоятельный квест. Сцена поддерживает hook, 1-3 выбора/проверки, короткий бой на временном `scene_hp` при необходимости, награду, 30-минутный cooldown на конкретный QR после провала и полный roll/event log. Проверки используют `single_d20`: один d20 + стат + бонусы предметов/зелий/артефактов/магии + логируемые modifiers преимущества/помехи. PvE combat v1 хранит `player_scene_hp`, `scene_hp`, `combat_dc`, `scene_damage`, `round_limit`, `timeout_outcome`, `base_damage` и не создает постоянного здоровья персонажа. Владение территорией не блокирует прохождение ведьмачьих/чародейских QR-квестов. Будущие акты открываются только через server sync или master `act_unlock_code`, который валидируется при sync; code раскрывается после физического объявления акта. Сервер при sync проверяет QR, opaque/manual ID policy, режим потребления, physical-presence honesty policy, act availability, unlock source, player cooldown, заказной статус и reward approval policy. Cascade-prone rewards получают `pending_master_approval` и asset lock до решения мастера; `auto_approve_safe` награды могут применяться автоматически. Level-up grants +1 stat, max stat 7.
+Телефон проводит PvE офлайн как один QR = один самостоятельный квест. Сцена поддерживает hook, 1-3 выбора/проверки, короткий бой на временном `scene_hp` при необходимости, награду, 30-минутный cooldown на конкретный QR после провала и полный roll/event log. Проверки используют `single_d20`: один app-generated d20 + стат + бонусы предметов/зелий/артефактов/магии + логируемые modifiers преимущества/помехи. PvE combat v1 хранит `player_scene_hp`, `scene_hp`, `combat_dc`, `scene_damage`, `round_limit`, `timeout_outcome`, `base_damage` и не создает постоянного здоровья персонажа. Владение территорией не блокирует прохождение ведьмачьих/чародейских QR-квестов. Будущие акты открываются только через server sync или master `act_unlock_code`, который валидируется при sync; code раскрывается после физического объявления акта. Сервер при sync проверяет QR, opaque/manual ID policy, режим потребления, physical-presence honesty policy, act availability, unlock source, player cooldown, заказной статус и reward approval policy. Cascade-prone rewards получают `pending_master_approval` и asset lock до решения мастера; `auto_approve_safe` награды могут применяться автоматически. Level-up grants +1 stat, max stat 7.
 
 Проверяется после mobile shell и snapshot: QR/order scene -> act unlock -> checks/short combat -> app restart -> sync -> visible master event -> reward approval/cooldown 30 min/order outcome.
 
@@ -430,4 +441,6 @@ Immediate paper fallback включается для конкретного кр
 - Recovery tests: `paper_recovered` import for QR/PvE, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence; duplicate/conflicting recovery must go to review.
 - Browser smoke: master panel, 4 lord panels, синхронный lord battle.
 - Device smoke: player code, snapshot download, QR/manual input, offline PvE, restart, sync retry.
+- UI-first smoke after `TASK-050`: Android/iOS mobile gameplay UI, lord action UI with valid `venue_map_v1`, personal PvP/Gwent UI, Admin Studio paper recovery/corrections and final summary without Swagger for player/lord steps.
+- Non-PvE hardening before `TASK-050`: real-device install/launch/connect/snapshot/restart/sync, 4 lord panels, lord map audit, personal Gwent, orders/trade, sorceress potions/spells/favorites/alignment, Admin recovery and no unresolved P0/P1/blocking P2 defects.
 - Full rehearsal: мастерский ноутбук, 4 лордских ноутбука, реальные телефоны, домашний Wi-Fi, 15-person profile, 10-hour fixed schedule, 9 mobile-role load/idle risk, NPC-master load, order pressure, offline act unlock, pending reward approval, full Gwent volume/throttle, trade conflicts, favorites impact, master-led final summary, final lock and game-day ops checklist.

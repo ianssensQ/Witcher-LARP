@@ -1,6 +1,6 @@
 # Роадмап - Witcher LARP App
 
-Роадмап теперь организован как пять жестких этапов. Каждый этап заканчивается отдельной gate-задачей в `tasks.json`, и следующий этап считается открытым только после приемки предыдущего gate. Исключение - безопасная инфраструктурная подготовка, которая не меняет смысл этапов и не подменяет их приемку.
+Роадмап теперь организован как шесть жестких этапов. Каждый этап заканчивается отдельной gate-задачей в `tasks.json`, и следующий этап считается открытым только после приемки предыдущего gate. Исключение - безопасная инфраструктурная подготовка, которая не меняет смысл этапов и не подменяет их приемку.
 
 `TASK-000` остается выполненным TaskOS baseline. Рабочая очередь после baseline начинается с `TASK-001`, `TASK-002`, `TASK-003`.
 
@@ -14,6 +14,25 @@ launch risk, а не поводом менять архитектуру Stage 1.
 ## Stage 1 - Core Game Engine
 
 Gate: `TASK-018`.
+
+2026-06-02: gate Stage 1 переоткрыт после ревью бизнес-логики. Старый
+remediation/test block `TASK-038`-`TASK-044` закрыт, но повторное ревью нашло
+оставшиеся P0/P1 несостыковки.
+
+2026-06-03: перед повторной приемкой добавлена новая волна задач
+`TASK-051`-`TASK-056` на серьезные issues по auth/secrets, offline
+PvE/QR/act unlock, rewards/locks/paper recovery, PvP/Gwent, lord runtime и
+sorceress/final locks. После них отдельная задача `TASK-057` ревьюит и
+переписывает тесты, которые не поймали эти баги. `TASK-018` снова имеет статус
+`pending` и не считается принятым, пока `TASK-051`-`TASK-057` не завершены.
+
+2026-06-03: после дополнительного полноценного ревью Stage 1 добавлен свежий
+pre-gate блок `TASK-059`-`TASK-065`: app-generated d20, PvE modifier/stat
+authority, QR/act secrecy, mobile offline queue/bundled snapshot fallback,
+PvP/Gwent stake+winner authority, lord orders escrow/route movement и
+master review/reputation scoping. `TASK-066` идет после этих fixes и отдельно
+переписывает тесты, которые не поймали свежие баги. `TASK-018` остается
+`pending`, пока `TASK-059`-`TASK-066` не закрыты.
 
 Цель: реализовать основной runtime-движок игры для всех классов и ролей без зависимости от будущей генерации контента.
 
@@ -30,7 +49,7 @@ Production profile для всех этапов: 15 человек всего, 1
 - offline act unlock seed: server sync или master `act_unlock_code`/QR для Act 2, Act 3 и Final Act;
 - physical act announcement seed: после запуска на сервере каждый акт явно объявляется голосом/криком на участке;
 - QR/manual ID seed: opaque non-guessable IDs, physical-presence-only правило и review path для suspected honesty violation;
-- single-d20 PvE checks: одна проверка = один d20, преимущества/помехи идут как логируемые modifiers, без reroll;
+- single-d20 PvE checks: одна проверка = один app-generated d20, преимущества/помехи идут как логируемые modifiers, без ручного ввода и reroll;
 - venue map v1 seed: 4 резиденции в активном новом доме, excluded old house + adjacent shed, лордский weighted graph по крепостям, полям, деревням, городам ресурса/магии/науки, лесам, озерам, болоту и горам;
 - V0 balance defaults: XP thresholds, PvE DC by tier, reward budgets, lord economy defaults, lord HP formula, mana regen/costs;
 - rarity fields and caps in seed/runtime data: `Common/Uncommon/Rare/Legendary`, `power_budget`, `act_cap`, `visibility`, `counterplay`;
@@ -73,7 +92,7 @@ Production profile для всех этапов: 15 человек всего, 1
 - seed фиксирует physical act announcements, opaque QR/manual IDs, QR honesty policy, single-d20 check policy, PvP refusal/safety table and player-facing handout manifest;
 - телефон скачивает snapshot по `player_code`;
 - offline PvE проходит без Wi-Fi, пишет roll log, ставит 30-минутный cooldown после провала и sync later;
-- offline PvE использует ровно один d20 на проверку и логирует все modifiers преимущества/помехи;
+- offline PvE использует ровно один app-generated d20 на проверку и логирует все modifiers преимущества/помехи;
 - offline PvE будущего акта открывается только через server sync или master unlock code;
 - новый акт физически объявлен на участке до раскрытия unlock code;
 - QR/manual ID opaque/non-guessable, нельзя применить без physical-presence-only подтверждения, suspected violation уходит в review;
@@ -149,11 +168,55 @@ Gate: `TASK-023`.
 - backup запускается и виден мастеру;
 - final summary открывается и экспортируется.
 
+## Stage 2B - Playable Role UI
+
+Gate: `TASK-050`.
+
+Цель: сделать основные игровые интерфейсы ролей полноценными до генерации и балансировки контента, чтобы весь задуманный gameplay без generated/full PvE content можно было тестировать как приложение, а не как Swagger/API smoke.
+
+Что входит:
+
+- UI contract и role journey matrix для мастера, лорда, ведьмака, чародейки и NPC-мастера;
+- no-Swagger acceptance rule: штатные player/lord действия принимаются только через app/panels, а Swagger/curl/manual API остаются developer diagnostics;
+- полноценный lord action UI: валидная `venue_map_v1`, route/MP, contested claims, гарнизоны, reserve, buildings, recruit, orders/escrow, raids и 5x6 lord battle board;
+- mobile gameplay UI для ведьмаков и чародеек: персонаж, snapshot, QR/manual PvE, offline act unlock, single_d20, scene_hp, cooldown, reward approval, inventory, orders, trade, reputation, event_queue/sync;
+- sorceress mobile UI: mana, spells, potion wholesale/transfer/use, favorite consent, alignment evidence and locked magical intent;
+- personal PvP/Gwent UI: challenge, pvp table/queue, deck/hand/mulligan, rows/pass/rounds, stake result, refusal/safety and review paths;
+- Admin paper recovery/correction forms for `paper_pve_result`, `paper_pvp_stake`, `paper_lord_action`, `paper_lord_battle`, `paper_order_resolution`, `paper_npc_deal` and `paper_final_evidence`;
+- hard Android/iOS device gate: APK/iOS build ставятся, запускаются, видят локальный сервер, скачивают snapshot, переживают restart и retry sync на реальных телефонах;
+- non-PvE hardening (`TASK-058`): 4 лордские панели, валидная карта, personal Gwent, заказы/trade, магия/зелья/фавориты, Admin recovery/final_summary и дефект-триаж;
+- UI-first restart/offline/retry/review/locked-state smoke.
+
+Когда тестировать:
+
+- после `TASK-023`, когда Admin Studio уже есть как базовая мастерская панель;
+- после UI contract matrix;
+- после lord action UI;
+- после mobile gameplay UI;
+- после PvP/Gwent UI;
+- после paper recovery/correction forms;
+- после `TASK-058` non-PvE gameplay hardening на реальных поверхностях;
+- перед `TASK-050` одним UI scripted role-flow и отдельным non-PvE gameplay script.
+
+Чем подтверждаем:
+
+- ведьмак проходит login/snapshot -> QR/manual PvE -> cooldown/reward approval -> restart/offline -> sync через мобильный UI;
+- чародейка проходит PvE плюс potion buy/transfer/use, spell, favorite consent and locked magical intent через мобильный UI;
+- Android и iOS real-device smoke проходят до приемки; отсутствие device smoke блокирует Stage 2B и не записывается как launch-risk fallback;
+- лорд проходит route -> contested claim -> battle -> garrison -> building -> recruit -> reserve -> raid -> order через браузерную панель, а карта читаема и совпадает с `venue_map_v1`;
+- два игрока проходят personal PvP/full Gwent через UI, включая stake, pass/rounds, refusal/review edge case and idempotent finish;
+- мастер вводит paper recovery/correction forms из Admin Studio, duplicate/conflict уходит в review без silent overwrite;
+- 4 lord panels открываются одновременно;
+- после restart состояние видно в Admin/mobile/lord UI;
+- ни один player/lord acceptance step не требует Swagger, raw curl, прямого API docs или SQLite edits;
+- бумажный fallback проверяется как outage recovery, но не заменяет отсутствующий штатный UI;
+- перед Stage 3 нет известных P0/P1 и блокирующих P2 дефектов в non-PvE gameplay.
+
 ## Stage 3 - PvE Generation Engine
 
 Gate: `TASK-028`.
 
-Цель: реализовать генератор PvE-контента внутри Admin Studio, а не как отдельный CLI-first инструмент.
+Цель: реализовать генератор PvE-контента внутри Admin Studio, а не как отдельный CLI-first инструмент. Stage 3 открывается после `TASK-050`, чтобы sample generated quests проверялись через mobile gameplay UI и Admin Studio, а не только через API.
 
 Что входит:
 
@@ -182,7 +245,7 @@ Gate: `TASK-028`.
 - validation ловит missing reward_budget, invalid tier, missing texts, invalid QR mode;
 - validation ловит missing act_unlock_policy, reward_approval_policy, final_score_category или ops_checklist_tag для relevant scenes;
 - validation ловит missing personal goal hook/final hook там, где сцена обещает сюжетный или финальный след;
-- один generated QR/PvE квест проходит draft -> compile -> import -> mobile PvE -> sync.
+- один generated QR/PvE квест проходит draft -> compile -> import -> mobile gameplay UI -> sync.
 
 ## Stage 4 - Unique Quest Production
 

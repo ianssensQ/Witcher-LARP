@@ -15,7 +15,7 @@ Production profile текущей игры: 15 человек всего = 13 и
 - fixed schedule: 0:00-0:30 registration/snapshot, 0:30-2:15 Act 1, 2:15-2:30 buffer, 2:30-4:45 Act 2, 4:45-5:00 buffer, 5:00-7:15 Act 3, 7:15-7:30 final lock, 7:30-9:30 Final Act, 9:30-10:00 debrief/export/emergency buffer;
 - offline act unlock: телефоны открывают новый акт через sync в доме или мастерский `act_unlock_code`/QR, раскрываемый только после старта акта и физического объявления акта голосом/криком на участке;
 - QR/manual ID имеет жесткое правило честности: запуск сцены разрешен только при физическом присутствии у prop/локации;
-- PvE checks используют `single_d20`: одна проверка = один d20, а преимущества/помехи/зелья/магия/предметы считаются как системные modifiers с логом;
+- PvE checks используют `single_d20`: одна проверка = один app-generated d20, а преимущества/помехи/зелья/магия/предметы считаются как системные modifiers с логом;
 - NPC-мастера работают roleplay first; admin-review закрывается в буферах, кроме P0/P1 блокеров;
 - P0/P1 означают срочность review: P0 - остановить и решить сейчас, P1 - решить до следующего акта или финала;
 - `personal_goals`, `goal_tracks`, `goal_flags`, `final_hooks`: игрок видит известные цели и прогресс, мастер видит hidden flags;
@@ -138,6 +138,16 @@ Python/backend/tooling окружение управляется через `uv`
 - `data/backups/` - SQLite/export backups;
 - `tests/fixtures/` - valid and broken CSV/API/recovery fixtures.
 
+После `TASK-050` функциональная приемка игроков и лордов идет UI-first:
+ведьмаки/чародейки тестируют мобильное приложение, лорды - браузерные action
+панели, мастера - Admin Studio. Swagger, curl и ручные API остаются
+developer diagnostics и не считаются штатным пользовательским путем.
+Для Stage 2B это жесткий gate: Android APK и iOS build/free provisioning должны
+быть установлены и проверены на реальных телефонах, 4 лордские панели должны
+одновременно пройти browser smoke, а весь gameplay без generated/full PvE
+content должен проходить через UI. Бумажный fallback проверяется как outage
+recovery, но не считается заменой отсутствующего штатного UI.
+
 Сервер отвечает за:
 
 - авторитетное состояние партии;
@@ -233,14 +243,14 @@ PvE - пошаговый нарративный бой, не автобой.
 - визуальную карточку моба;
 - временный `scene_hp` игрока и HP врага/опасности сцены;
 - урон;
-- проверки `single_d20 + стат + бонусы + логируемые modifiers`;
+- проверки `app-generated single_d20 + стат + бонусы + логируемые modifiers`;
 - выбор действий;
 - ветки успеха и провала;
 - награду при победе;
 - cooldown при поражении;
 - запись результата в `event_queue`.
 
-PvE combat v1 не использует постоянное здоровье персонажа. Для каждой сцены клиент считает временный `player_scene_hp = 6 + level + armor_or_ward_bonus`, минимум 7; после исхода сцены это HP сбрасывается. Враг/опасность сцены имеет `scene_hp`, `combat_dc`, `scene_damage`, `round_limit` и `timeout_outcome`. Default `scene_hp` по тирам: T1 = 6, T2 = 10, T3 = 14, T4 = 18; default `round_limit` = 5. Атака или опасное действие - это `single_d20` против `combat_dc`; успех наносит `base_damage`, каждые полные 5 очков margin дают +1 damage, провал наносит `scene_damage` или двигает сцену к плохому исходу. Зелье или подготовка дают только логируемый modifier/снятие помехи, без reroll.
+PvE combat v1 не использует постоянное здоровье персонажа. Для каждой сцены клиент считает временный `player_scene_hp = 6 + level + armor_or_ward_bonus`, минимум 7; после исхода сцены это HP сбрасывается. Враг/опасность сцены имеет `scene_hp`, `combat_dc`, `scene_damage`, `round_limit` и `timeout_outcome`. Default `scene_hp` по тирам: T1 = 6, T2 = 10, T3 = 14, T4 = 18; default `round_limit` = 5. Атака или опасное действие - это app-generated `single_d20` против `combat_dc`; успех наносит `base_damage`, каждые полные 5 очков margin дают +1 damage, провал наносит `scene_damage` или двигает сцену к плохому исходу. Зелье или подготовка дают только логируемый modifier/снятие помехи, без reroll.
 
 Для MVP лучше начать с собственного JSON/CSV-формата сценариев, а Dialogic рассматривать позже. Это снижает риск мобильной сборки и ускоряет импорт контента из таблиц.
 
@@ -423,8 +433,10 @@ Sideloadly или аналогичные инструменты можно де�
 ### Platform/network spike и текущие launch risks
 
 Дата последней локальной проверки: 2026-05-30. Локальная backend-часть
-готова для smoke-проверок, но реальные телефоны, Mac/Xcode и Wi-Fi площадки
-остаются launch-risk до репетиции на железе.
+готова для smoke-проверок. Для Stage 1 реальные телефоны, Mac/Xcode и Wi-Fi
+площадки могли оставаться launch-risk, но Stage 2B закрывает этот разрыв:
+Android/iOS install-launch-connect-snapshot-restart-sync должен быть доказан
+в `TASK-047`/`TASK-058`/`TASK-050`.
 
 Зафиксированный локальный контур:
 
@@ -448,14 +460,15 @@ Health URLs для smoke:
   `http://192.168.1.9:8000/health` для текущего IP; на репетиции IP
   нужно заменить на фактический адрес game-day ноутбука.
 
-Непроверенные hardware/venue risks:
+Ранние hardware/venue risks, которые должны быть закрыты или явно заблокировать
+Stage 2B/rehearsal:
 
 - `launch-risk: android-export-smoke` - APK install/launch, camera permission
-  и QR scan нужно проверить на Android игрока;
+  и QR scan нужно проверить на Android игрока до `TASK-050`;
 - `launch-risk: ios-free-provisioning` - установка через Xcode/free
-  provisioning должна быть проверена на реальных iPhone;
+  provisioning должна быть проверена на реальных iPhone до `TASK-050`;
 - `launch-risk: venue-wifi-client-isolation` - телефоны и 4 лордских ноутбука
-  должны открыть `/health` в домашнем Wi-Fi;
+  должны открыть `/health` в домашнем Wi-Fi до hardening/rehearsal;
 - `launch-risk: firewall` - Windows firewall для порта `8000` должен быть
   явно разрешен на game-day профиле;
 - `launch-risk: qr-camera` - QR scan нужно проверить при освещении площадки.
@@ -494,6 +507,28 @@ Fallbacks:
 
 Актуальная очередь реализации задается `docs/roadmap.md` и `tasks.json`, а не старой MVP-лесенкой. Сейчас фокус - **Stage 1 / Core Game Engine**: доказать, что все роли могут играть на runtime-движке с seed fixtures, без ожидания генератора квестов и финальной балансировки.
 
+2026-06-02: Stage 1 acceptance переоткрыт после ревью соответствия кода
+бизнес-логике. Первый remediation/test block `TASK-038`-`TASK-044` закрыт, но
+повторное ревью показало, что старые тесты все еще пропустили серьезные
+несостыковки.
+
+2026-06-03: перед `TASK-018` добавлен второй remediation/test block:
+`TASK-051` auth/secret leaks, `TASK-052` offline PvE/QR/act unlock integrity,
+`TASK-053` rewards/assets/paper recovery/trade seed, `TASK-054` PvP/Gwent,
+`TASK-055` lord runtime/economy/timers, `TASK-056` sorceress/final locks,
+`TASK-057` review and rewrite of tests that missed those bugs. Stage 2 remains
+blocked by `TASK-018`, and `TASK-018` is pending until `TASK-051`-`TASK-057`
+are complete.
+
+2026-06-03: после дополнительного Stage 1 code review перед `TASK-018`
+добавлен третий remediation/test block: `TASK-059` app-generated d20,
+`TASK-060` PvE modifier/stat authority, `TASK-061` QR/act secrecy,
+`TASK-062` mobile offline queue/bundled snapshot fallback, `TASK-063`
+PvP/Gwent stake/winner authority, `TASK-064` lord order escrow/route movement,
+`TASK-065` master review/reputation scoping, затем `TASK-066` review and
+rewrite of tests that missed these fresh bugs. Stage 2 remains blocked by
+`TASK-018`, and `TASK-018` is pending until `TASK-059`-`TASK-066` are complete.
+
 Core Game Engine должен закрыть:
 
 - platform/network spike для Android, iOS/free provisioning и домашнего Wi-Fi;
@@ -501,7 +536,7 @@ Core Game Engine должен закрыть:
 - runtime CSV/schema/import/snapshot pipeline;
 - player codes, role tokens, Godot mobile shell, local storage, event_queue and sync status;
 - QR/manual ID flow с opaque IDs, physical-presence honesty policy, rate limit and review path;
-- offline PvE engine: `single_d20`, temporary `scene_hp`, tier defaults, 30-minute failure cooldown, reward approval locks and order/object outcomes;
+- offline PvE engine: app-generated `single_d20`, temporary `scene_hp`, tier defaults, 30-minute failure cooldown, reward approval locks and order/object outcomes;
 - personal goals, goal_tracks, hidden goal_flags and final_hooks visibility;
 - online-only trade_transfers with two confirmations, pending asset locks and atomic owner change;
 - lord runtime panel shell, weighted map, MP, territories, garrisons, recruit market, named building tree, orders status machine, raids and anti-snowball;
@@ -511,7 +546,7 @@ Core Game Engine должен закрыть:
 - reputation/NPC runtime: King/Wanderer events, deals, hidden prices, severity P0/P1/P2/P3;
 - NPC-led final tournament/final summary: evidence, missing locks, pending disputes, locked magical intent, personal hooks and export, without automatic winner calculation.
 
-Stage 2-5 remain important, but they build on this core: Admin Studio, PvE generator, full content pack and balance/rehearsal. They should not reintroduce alternative MVP stages or move core runtime rules into "later balance".
+Stage 2-5 remain important, but they build on this core: Admin Studio, Playable Role UI (`TASK-050`), PvE generator, full content pack and balance/rehearsal. They should not reintroduce alternative MVP stages or move core runtime rules into "later balance". Playable Role UI must be accepted before generated PvE/content/balance gates are treated as app-level tests. Stage 2B acceptance is now the hard real-device/non-PvE gameplay gate: Android/iOS install-launch-connect-snapshot-restart-sync, 4 lord panels, valid lord map, personal Gwent, orders/trade, sorceress gameplay and Admin recovery must pass before Stage 3 starts.
 
 ## Тестирование и репетиция
 
@@ -519,6 +554,7 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, PvE gener
 
 - Android APK устанавливается и запускается.
 - iOS-сборка ставится через Mac/Xcode/free provisioning.
+- Android и iOS видят локальный сервер, скачивают snapshot, переживают restart и выполняют sync retry; отсутствие такой проверки блокирует Stage 2B.
 - Приложение запускается после перезагрузки телефона.
 - Камера читает QR.
 - Есть ручной ввод QR-ID.
@@ -526,8 +562,12 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, PvE gener
 - Очередь событий синхронизируется при появлении сервера.
 - Сервер не теряет состояние после перезапуска.
 - 4 ноутбука лордов одновременно работают с веб-панелью.
+- Лордская карта в UI совпадает с `venue_map_v1`: playable nodes/edges, excluded old house/shed, route costs, ownership, contested, garrison and raid states.
 - Мастер может вручную исправить спорное событие.
 - Бой PvE, личный PvP и бой лордов проходят от начала до конца.
+- После `TASK-050` PvE smoke, personal PvP/Gwent, лордские действия, магия/зелья/фавориты и paper recovery проходят через реальные UI-поверхности, а не через Swagger/manual API.
+- Перед `TASK-050` проходит отдельный non-PvE hardening script: orders/trade/inventory/reputation, sorceress potion/spell/favorite/alignment, PvP/Gwent, lord map/economy/battle/raid/order, Admin recovery/final_summary и дефект-триаж.
+- Перед Stage 3 нет известных P0/P1 и блокирующих P2 дефектов в non-PvE gameplay; P2/P3 имеют owner, severity и workaround.
 - Personal goals, goal_flags, trade_transfers, favorites lifecycle, locked magical intent, reputation thresholds and final_summary проходят scripted run.
 - Offline act unlock, reward approval locks, PvP tables/throttle, spell/potion catalog, master-led final summary and final lock проходят scripted run.
 - Paper fallback drill проходит на критичном событии, включая лордское действие или лордский бой: бумажная форма вводится в Admin Studio как `paper_recovered`, а конфликт с уже синхронизированным событием уходит в review.

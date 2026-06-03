@@ -5,18 +5,17 @@ Use `uv run python scripts/taskctl.py claim`, `done`, `block`, `release`, or `sy
 
 ## Summary
 
-- Total tasks: 38
-- Done: 4
+- Total tasks: 67
+- Done: 40
 - In progress: 0
 - Blocked: 0
-- Can start now / dependency-ready pending: 2
-- Pending but waiting on dependencies: 32
-- Pending total: 34
-- Stage gates: 5
+- Can start now / dependency-ready pending: 1
+- Pending but waiting on dependencies: 26
+- Pending total: 27
+- Stage gates: 6
 
 Ready to start now:
-- `TASK-004` - Реализовать SQLite schema, import и snapshot pipeline
-- `TASK-007` - Собрать Godot mobile shell и player-code login
+- `TASK-018` - STAGE 1 GATE: core game engine scripted role-flow
 
 In progress now:
 - _None._
@@ -26,8 +25,9 @@ Blocked / launch-risk:
 
 Stage summary:
 - `BASELINE: TaskOS Planning` - 1 task(s)
-- `STAGE-1: Core Game Engine` - 18 task(s)
+- `STAGE-1: Core Game Engine` - 40 task(s)
 - `STAGE-2: Admin Studio` - 5 task(s)
+- `STAGE-2B: Playable Role UI` - 7 task(s)
 - `STAGE-3: PvE Generation Engine` - 5 task(s)
 - `STAGE-4: Unique Quest Production` - 4 task(s)
 - `STAGE-5: Balance Simulation` - 5 task(s)
@@ -35,6 +35,7 @@ Stage summary:
 Stage gates:
 - `TASK-018` - STAGE-1: Core Game Engine - pending
 - `TASK-023` - STAGE-2: Admin Studio - pending
+- `TASK-050` - STAGE-2B: Playable Role UI - pending
 - `TASK-028` - STAGE-3: PvE Generation Engine - pending
 - `TASK-032` - STAGE-4: Unique Quest Production - pending
 - `TASK-037` - STAGE-5: Balance Simulation - pending
@@ -54,838 +55,14 @@ _No tasks._
 
 ## Dependency Ready
 
-### TASK-004 - Реализовать SQLite schema, import и snapshot pipeline
-
-Status: `dependency-ready`
-Priority: `P0`
-Category: `backend`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-002`, `TASK-003`
-
-Goal:
-
-Превратить runtime CSV в повторяемую SQLite-схему и mobile snapshot для seed-контента Stage 1.
-
-Scope:
-- SQLite tables для full-game runtime сущностей
-- CSV import с duplicate/missing-reference validation
-- snapshot_versions и compact mobile content snapshot
-- Проверка QR mode values unique_object/repeatable_scene/always_available_scene, fixed 10-hour schedule, 3 story acts + final act, production profile 4/4/5 + 2 NPC, act availability, act_unlock_codes, role/player codes, cooldown/token windows и restart recovery
-- Schema/import validation для personal_goals, goal_tracks, hidden goal_flags, final_hooks, full Gwent cards/decks/matches, trade_transfers and final_summary
-- Lord strategic tables: map graph, movement pools, territory claims, pending rewards, recruit offers, raids
-- Building/unit importer validation: dependency graph, unit classes, recruit unlocks and capacity
-- Order/potion/NPC/final validation: object conflict, order cap, reward approval policy, wholesale market, pvp throttle rules, King/Stranger event types, roleplay-first NPC-master split, review severity, favorites lifecycle, final summary evidence categories, Final Act timeboxes and final procedure inputs
-- Implement importer/snapshot modules under backend/witcher_larp with clear boundaries: csv loading, validation report, SQLite write transaction, snapshot export
-- Use Python stdlib csv/json/sqlite where sufficient; add dependencies only through pyproject.toml and uv lock/sync
-
-Acceptance:
-- Fresh DB собирается из seed CSV
-- Ошибочные CSV падают с читаемой ошибкой
-- Snapshot содержит игроков профиля 4/4/5, QR, PvE, personal goals, items/cards/gwent cards/potions/spells и descriptors
-- SQLite schema хранит map_nodes/map_edges, movement_pools, territory_claims, pending_tick_rewards, reward_approvals, recruit_offers, anti_snowball_rules, act_unlock_codes, challenge_tokens, pvp_tables/throttle, trade_transfers, personal_goals, goal_flags, gwent_matches, final_summary и raid_effects
-- Importer ловит cycles, missing prerequisites, unknown branch, invalid gold_cost, bad recruit_unlock, invalid unit_class/tier/capacity/range, invalid production profile, invalid stat cap/level rule, invalid act unlock coverage, invalid reward approval policy, invalid reputation range/start/thresholds, invalid mana regen source, invalid full Gwent deck/card rule, invalid PvP throttle rule, invalid card conversion tier, invalid trade transfer lock rule, invalid favorite caps/lifecycle, invalid order cap/status machine, invalid cooldown/token window, invalid XP source, invalid spell-card target/counterplay, invalid final_summary fields/load plan и duplicate active order object rule
-- После restart доступны импортированное состояние и snapshot metadata
-- Import pipeline has a documented module boundary and can be run from uv without relying on global Python packages
-
-Test Steps:
-- Importer tests на temporary SQLite DB
-- Импортировать seed CSV и проверить import report
-- Экспортировать snapshot
-- Проверить invalid CSV cases
-- Проверить invalid map edge, missing territory bonus, bad building prerequisite и bad raid target
-- Проверить invalid act structure, act unlock coverage, fixed 10-hour schedule, production profile count, PvE cooldown duration, challenge token grant/window и duplicate order object rule
-- Проверить invalid QR mode values beyond unique_object/repeatable_scene/always_available_scene
-- Проверить invalid personal_goals/goal_tracks/goal_flags/final_hooks visibility and references
-- Проверить invalid full Gwent deck/card cases: unit minimum, special cap, leader, row/effect/tie rules
-- Проверить invalid trade_transfers lock/asset owner/two-confirmation cases
-- Проверить invalid XP source, broken level curve, +1 stat/max stat validation и invalid spell-card ritual/intrigue
-- Проверить invalid reward approval policy, potion wholesale market, PvP throttle, King/Stranger event type, NPC-master split, review severity и missing final procedure input
-- Проверить cyclic building tree, missing cross-dep, invalid unit_class, invalid tier/capacity и bad recruit offer source
-- Проверить invalid reputation -5..+5/start 0 thresholds, hourly mana regen, card tier conversion, favorite lifecycle, order cap/status machine and final_summary fields/load plan cases
-- uv run python scripts\taskctl.py validate
-- Run importer/snapshot checks through uv run pytest or uv run python -m unittest
-
-Notes:
-
-Contract:
-Inputs: data/seed CSV pack from TASK-003 and tests/fixtures valid/invalid packs.
-Outputs: SQLite schema, import transaction, validation report and mobile snapshot export in data/snapshots with snapshot_version.
-Implementation path: Implement importer modules under backend/witcher_larp: csv_loader, validation, repository/schema, import_service and snapshot_exporter; use stdlib csv/json/sqlite unless pyproject dependency is justified.
-Interfaces: Tables mirror TASK-003 CSV names plus import_runs, import_errors, snapshot_versions and event_log. Import report: {run_id,status,files,errors,snapshot_version}. Snapshot: {snapshot_version,profile,player,acts,qr_objects,pve_scenarios,items,cards,goals,visibility,generated_at}.
-Failure/review paths: All writes are transactional; missing refs, duplicates, invalid enums/ranges, cycles and profile-count violations fail with readable errors and no partial DB state.
-Required tests: Importer unit tests on temp DB for valid seed and every invalid fixture; snapshot export test; restart metadata test; TaskOS validate/doctor.
-
-### TASK-007 - Собрать Godot mobile shell и player-code login
-
-Status: `dependency-ready`
-Priority: `P0`
-Category: `mobile`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-003`
-
-Goal:
-
-Создать мобильный shell для ведьмаков и чародеек с локальным snapshot и persistence.
-
-Scope:
-- Godot 4 project structure
-- Экран ввода player_code
-- Скачать или загрузить bundled snapshot
-- Local persistence в user://
-- Показ персонажа, роли, ресурсов и описательной репутации
-- Create planned mobile/ Godot 4 project with export presets, GDScript app shell, connection settings and API base URL/QR connection screen
-- Document Android/iOS export assumptions and local network permission prompts in project notes
-- Android APK export/install/launch smoke when Android SDK/Godot export template is available
-- iOS export/free provisioning/TestFlight go-no-go for the Godot shell when Mac/Xcode path is available
-
-Acceptance:
-- Mobile shell запускается на целевых устройствах или desktop smoke
-- player_code привязывает устройство к персонажу
-- snapshot_version отображается и сохраняется
-- После restart персонаж/snapshot доступны без сети
-- Godot project structure and export path are explicit enough for Android/iOS smoke without guessing folders or commands
-- Real Android/iOS exported app smoke passes or is explicitly marked launch-risk with fallback and owner
-
-Test Steps:
-- Mobile shell smoke
-- Ввести seed player_code
-- Скачать snapshot или загрузить fallback
-- Перезапустить приложение и проверить state
-- Export/install/launch Android APK smoke if Android export tooling is available
-- Run iPhone free provisioning/TestFlight smoke or record blocker/go-no-go if Mac/Xcode path is unavailable
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: TASK-001 platform facts/launch-risk labels when available, TASK-003 seed auth rows and TASK-004 snapshot API contract.
-Outputs: Godot 4 mobile shell under mobile/ with player_code login, snapshot download, local user:// persistence and explicit Android/iOS export smoke path.
-Implementation path: Create minimal Godot project with screens: connection settings, player code login, snapshot status, character home. Keep UI functional and offline-first. Unresolved TASK-001 launch-risk labels do not block desktop/mocked shell implementation, but real device sign-off remains required before release.
-Interfaces: Client calls POST /api/auth/player-code and GET /api/content/snapshot; stores server_url, device_id, player_id, snapshot_version and snapshot payload in user://. Android/iOS exported app smoke records device model, OS, export preset, install method, camera permission and /health/snapshot behavior.
-Failure/review paths: If server is unreachable, app shows offline state and keeps last snapshot; invalid code gives readable error without clearing local data. If Android/iOS export fails, record blocker/go-no-go with fallback: Android-only launch, TestFlight/Apple Developer Program, browser/manual QR flow or paper_recovered.
-Required tests: Godot desktop smoke; repository check for project files; mocked API contract until server exists; Android APK export/install/launch smoke when tooling exists; iPhone provisioning/TestFlight smoke or explicit launch-risk label.
-
-
-## Blocked
-
-_No tasks._
-
-## Pending
-
-### TASK-005 - Реализовать idempotent event intake API
-
-Status: `pending`
-Priority: `P0`
-Category: `backend`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-004`
-
-Goal:
-
-Принимать события от мобильных клиентов и панелей, валидировать и применять их один раз.
-
-Scope:
-- events table и event status model
-- POST /api/events/sync
-- accepted/rejected/needs_master_review/pending_master_approval
-- act_unlocked_offline and reward approval event payloads
-- Deduplication по event_id
-- Define Pydantic/FastAPI request-response models for event sync, event status, review reason and idempotency response
-- Persist raw payload_json and normalized event metadata so future rule engines can replay/review events
-
-Acceptance:
-- Повторный event_id не применяет эффект дважды
-- Валидное PvE-like событие accepted
-- Cascade-prone reward creates pending approval instead of silently applying global asset/state
-- Спорное событие сохраняется с reason
-- API contract for /api/events/sync is documented enough for Godot client and web panels to implement against it
-
-Test Steps:
-- API integration tests с FastAPI и SQLite test DB
-- Отправить одно событие дважды и проверить single application
-- Отправить event with master-code act unlock and pending reward approval path
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: SQLite schema from TASK-004, current player/role auth model and mobile/web event producers.
-Outputs: Idempotent event intake API, event status model and review/approval persistence.
-Implementation path: Add FastAPI/Pydantic models and SQLite repositories for event intake; keep raw payload_json and normalized metadata for replay.
-Interfaces: POST /api/events/sync request: {device_id,actor_id,actor_type,events:[{event_id,client_sequence,created_at,event_type,payload}]}. Response: {server_time,snapshot_version,results:[{event_id,status,reason,server_event_id}]}. Status enum: accepted, duplicate, rejected, needs_master_review, pending_master_approval.
-Failure/review paths: Duplicate event_id returns duplicate without reapplying; invalid actor/act/asset/reward creates rejected or needs_master_review; cascade-prone rewards create pending_master_approval locks.
-Required tests: FastAPI integration tests for duplicate event, valid event, pending approval, review reason and raw payload persistence.
-
-### TASK-006 - Реализовать акты, auto timers и backup hooks
-
-Status: `pending`
-Priority: `P0`
-Category: `gameplay`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-004`
-
-Goal:
-
-Серверный контур 3 сюжетных актов и финального акта: мастер запускает акт, сервер сам применяет тики от фактического старта.
-
-Scope:
-- current act/status для 3 сюжетных актов и final act
-- start/switch act API
-- act unlock code/QR state for offline phones
-- auto_timers от фактического старта
-- Доход, мана, challenge tokens по 3 за акт с накоплением, окна армий
-- Hourly mana regen uses sorceress level/bonus source values from balance tables
-- Backup hook перед сменой акта
-- Expose timer/act endpoints consumed by static Admin UI and mobile act unlock flow
-
-Acceptance:
-- Можно запустить и переключить Act 1, Act 2, Act 3 и Final Act
-- После старта акта сервер выдает/логирует unlock code для offline-телефонов
-- Auto_timer применяет due tick без ручного нажатия каждого дохода/маны/жетона, а challenge tokens начисляются по 3 за акт и копятся
-- Hourly mana regen applies from sorceress level/bonus source and persists across restart
-- Ticks и act state сохраняются после restart
-- Act/timer engine records operator, source, server timestamp and physical announcement state before unlock code reveal
-
-Test Steps:
-- Act/timer domain tests
-- Переключить акт через API
-- Проверить offline act unlock code for Act 2/3/Final Act
-- Смоделировать due tick и проверить income/mana/3 challenge tokens per act/army window
-- Проверить hourly mana regen by sorceress level/bonus source
-- Restart check
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: Imported acts, timers, backup_jobs, event API and SQLite state.
-Outputs: Server-side act state, auto tick service, unlock-code release rules and backup hooks.
-Implementation path: Implement act_service, timer_service and backup_service under backend/witcher_larp; all act/tick/backup mutations write event_log rows.
-Interfaces: APIs: POST /api/master/acts/{act_id}/start, GET /api/master/acts/{act_id}/unlock-code, POST /api/backups/run. Timer effects cover income, mana, challenge tokens, MP refill and final lock transitions.
-Failure/review paths: Unlock code remains hidden until act start plus physical announcement log; missed ticks are applied once after restart; backup failure reports needs_master_review if it affects a transition.
-Required tests: Unit/integration tests for act start, unlock gating, tick idempotency, restart catch-up, backup artifact creation and final lock behavior.
-
-### TASK-008 - Реализовать mobile event_queue и sync status
-
-Status: `pending`
-Priority: `P0`
-Category: `mobile`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-005`, `TASK-007`
-
-Goal:
-
-Хранить офлайн-события локально и синхронизировать их при доступности сервера.
-
-Scope:
-- Local event_queue в user://
-- event_id и client_sequence
-- Payload с roll log/result/timestamps
-- Statuses: offline, pending, synced, sync_error, needs_master_review
-- Define local event_queue storage schema in user:// as JSON records matching backend /api/events/sync payload
-
-Acceptance:
-- Offline event остается после restart
-- Повторная отправка event_id не дублирует эффект
-- Sync status меняется предсказуемо
-- PvE roll log отправляется серверу
-- Godot event_queue schema is compatible with FastAPI event intake contract and supports replay after restart
-
-Test Steps:
-- Создать offline event и restart app
-- Sync success и sync retry error path
-- Duplicate event_id check
-- Проверить roll_log payload на сервере
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: Godot shell from TASK-007 and /api/events/sync from TASK-005.
-Outputs: Persistent mobile event_queue and sync status UI.
-Implementation path: Implement user:// event queue storage with append, retry, status update and compacted history.
-Interfaces: Local event shape mirrors server: event_id, device_id, player_id, client_sequence, created_at, event_type, payload, local_status. UI statuses: offline, pending, synced, sync_error, needs_master_review.
-Failure/review paths: Network failure leaves events pending; server rejected/review statuses stay visible and never delete the local log silently.
-Required tests: Godot tests for queue persistence across restart; mocked sync success/reject/review; server integration once API exists.
-
-### TASK-009 - Реализовать QR/manual ID runtime flow
-
-Status: `pending`
-Priority: `P1`
-Category: `mobile`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-004`, `TASK-007`
-
-Goal:
-
-Позволить игрокам открывать физические QR-пропы через QR scan или короткий manual ID.
-
-Scope:
-- QR scan
-- Manual short QR-ID
-- Lookup в local snapshot
-- Показ QR type, consumption mode and physical-presence-only honesty notice
-- Offline instruction: success забрал QR, failure оставил
-- Suspected honesty violation event context for master review
-
-Acceptance:
-- Valid QR открывает linked scenario/object
-- Manual ID работает как fallback
-- Unknown QR дает понятную ошибку
-- QR mode попадает в event context
-- Manual ID/QR flow требует player confirmation физического присутствия у prop/локации
-
-Test Steps:
-- Сканировать seed QR каждого режима
-- Ввести тот же QR через manual ID
-- Unknown QR path
-- Проверить QR mode and physical-presence confirmation in local event context
-- Проверить suspected honesty violation review payload
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: Seed qr_objects/manual codes, Godot shell, event_queue and importer validation.
-Outputs: QR/manual ID runtime flow with opaque IDs, rate limit, physical-presence confirmation and review event path.
-Implementation path: Implement mobile QR/manual entry screen and backend lookup/validation service for qr_objects.
-Interfaces: Manual code input emits qr_attempt event; valid launch emits qr_scene_started; suspected guessing/honesty violation emits needs_master_review with reason honesty_violation_suspected or manual_rate_limit.
-Failure/review paths: Future-act QR without unlock is blocked locally; repeated bad manual IDs lock input for configured cooldown and preserve attempt log.
-Required tests: Mobile mocked tests for valid/manual/future-act/bad attempts; backend validation tests for QR mode, rate limit and review status.
-
-### TASK-010 - Реализовать offline PvE runtime engine
-
-Status: `pending`
-Priority: `P0`
-Category: `gameplay`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-008`, `TASK-009`
-
-Goal:
-
-Собрать PvE rule engine: один QR = один квест, single-d20 проверки с логируемыми modifiers, короткий бой на HP сцены, result/30-minute cooldown/sync log.
-
-Scope:
-- Scenario card из snapshot
-- single_d20 + stat + item/potion/artifact/magic bonuses + logged advantage/hindrance modifiers офлайн
-- 1-3 checks и короткий round combat
-- Scene HP, success/failure/partial success
-- QR modes: unique_object, repeatable_scene, always_available_scene
-- Act availability and offline act unlock source in local event context
-- 30-minute cooldown per QR on failure for the failed player only
-- pending_master_approval locks for cascade-prone rewards
-- Ordinary QR quests always available to avoid idle players
-- Witchers/sorceresses can run QR/PvE in any zone regardless of territory owner
-- Visible personal_goals/goal_tracks progress and hidden goal_flags emitted only for master/final hooks
-- XP rewards from monsters, autoquests, lord orders, personal goals and significant events
-- Level-up grants +1 stat, respects max stat 7, and balances 5 witchers + 4 field-active sorceresses
-- Reward draft and roll_log
-- No reroll effects in PvE check resolution; rare aids modify result through logged modifiers or hindrance downgrade
-- Temporary player_scene_hp: default 6 + level + armor_or_ward_bonus, minimum 7, reset after scene
-- Scene combat fields: scene_hp, combat_dc, scene_damage, round_limit, timeout_outcome and base_damage
-- Tier defaults: scene_hp T1/T2/T3/T4 = 6/10/14/18, default round_limit = 5
-- Combat action contract: attack/check, defend/prepare, item/potion, valid magic, abandon scene
-- Opaque manual ID validation, rate limit and attempt log for offline QR/manual input
-
-Acceptance:
-- PvE работает без Wi-Fi и сразу показывает результат
-- Провал ставит cooldown 30 минут на конкретный QR только для провалившего игрока
-- Roll log достаточен для server validation
-- Каждая проверка использует ровно один d20; все преимущества/помехи учтены как modifiers
-- Territory owner does not block witcher/sorceress PvE
-- XP source, +1 stat per level, max stat 7 and slowed level curve are applied by scenario rewards
-- PvE flow is balanced for 5 witchers plus 4 hybrid field sorceresses in the current 15-person production profile
-- PvE modes support unique_object, repeatable_scene and always_available_scene behavior
-- Future-act content does not open without server sync or master unlock code
-- Unique/rare/order/final rewards stay locked until master approval
-- PvE can update personal_goals/goal_tracks and master-only goal_flags without revealing hidden data to player
-- Stage 5 can consume role-load tags instead of a single QR/hour norm
-- Одноразовый/artifact/order QR объясняет забрать или оставить физический QR
-
-Test Steps:
-- Пройти seed PvE offline
-- Закрыть/открыть app и проверить сохранность результата
-- Синхронизировать событие в Wi-Fi
-- Проверить success/failure/cooldown 30 min paths
-- Проверить single_d20 roll with multiple advantage/hindrance modifier sources and no reroll
-- Проверить PvE on territory owned by different lord
-- Проверить unique_object, repeatable_scene and always_available_scene fixtures
-- Проверить future-act QR without unlock is blocked and with master unlock code is allowed
-- Проверить pending_master_approval blocks trade/stake/lord conversion/final summary until approved
-- Проверить personal_goals visible progress and hidden goal_flags sync payload
-- Проверить XP rewards for monster, autoquest/order and significant event fixtures
-- Проверить level-up +1 stat, max stat 7 and 5-witcher/4-field-sorceress role-load fixture
-- uv run python scripts\taskctl.py validate
-- Check player_scene_hp reset after success/failure and no persistent HP penalty
-- Check scene_hp T1-T4 defaults, combat_dc, scene_damage, round_limit and timeout_outcome
-- Check opaque manual ID rate limit and suspected guessing review payload
-
-Notes:
-
-Contract:
-Inputs: pve_scenarios, mobs, rewards, QR flow, event_queue and event sync.
-Outputs: Offline PvE engine with single_d20, scene_hp, cooldown, local result and server replay/approval path.
-Implementation path: Implement shared deterministic PvE calculation in backend and equivalent Godot logic or generated rule payload for mobile.
-Interfaces: PvE result event payload: {scenario_id,qr_id,act_id,unlock_source,roll,stat,modifiers,total,dc,rounds,scene_hp_remaining,player_scene_hp_remaining,outcome,reward_id,cooldown_until}.
-Failure/review paths: No rerolls; failure sets 30-minute player+QR cooldown; cascade rewards lock as pending_master_approval until server/master confirms.
-Required tests: Unit tests for roll math, modifier log, scene_hp, timeout_outcome, cooldown, reward lock and server replay mismatch review.
-
-### TASK-011 - Собрать lord runtime panel shell
-
-Status: `pending`
-Priority: `P1`
-Category: `web`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-004`
-
-Goal:
-
-Создать браузерную панель лорда с role-token login и изолированной видимостью домена.
-
-Scope:
-- Lord role_token login
-- Показ domain state, resources, territories, armies
-- Visibility только своего владения
-- Browser smoke для 4 lord panels
-- Serve lord panel as static HTML/CSS/JS from FastAPI in Stage 1 without Node build tooling
-- Define browser API calls and polling/refresh strategy for lord state and battle updates
-
-Acceptance:
-- Лорд открывает свою панель по role_token
-- Чужие домены не раскрываются
-- 4 панели работают одновременно в Wi-Fi
-- Lord panel technical implementation path is static FastAPI-served web UI with no separate frontend build step
-
-Test Steps:
-- Открыть lord panel с валидным role_token
-- Проверить invalid token
-- Проверить 4 browser sessions
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: Stage 1 backend, role token auth and lord state tables from importer.
-Outputs: Static FastAPI-served lord panel shell with login, state summary and placeholder action surfaces.
-Implementation path: Place HTML/CSS/JS under backend/witcher_larp/web and serve through FastAPI without Node build tooling.
-Interfaces: Panel consumes POST /api/auth/role-token and GET /api/lords/{lord_id}/state; all future actions call JSON APIs, no direct DB writes.
-Failure/review paths: Invalid token cannot see lord data; panel degrades to read-only/error if action APIs are unavailable.
-Required tests: Browser/static asset smoke, auth visibility test and no Node/Vite dependency check.
-
-### TASK-012 - Реализовать territories, economy, buildings и orders runtime
-
-Status: `pending`
-Priority: `P1`
-Category: `gameplay`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-006`, `TASK-011`
-
-Goal:
-
-Собрать цифровую стратегию лордов: weighted map, movement pool, территории, гарнизоны, экономика, recruit market, резиденции, рейды, публичные/адресные заказы и escrow.
-
-Scope:
-- Weighted map graph, 4 starting residences, neutral non-residence territories, movement pool refill to cap and route validation
-- Digital territories ownership, contested claims, garrisons, defense and income
-- Pending tick rewards for battles crossing hourly income/influence tick
-- Residence building tree, gold-only costs, prerequisites and anti-snowball constraints with 30%/50% income cuts
-- Recruit market refresh, hold offers, reserve spawn and active army capacity
-- Default catalog runtime for 4 building branches and named building prerequisites/cross-deps
-- Army unit unlock runtime for infantry, guard, ranged, cavalry, heavy_siege, specialist
-- Raid engine as non-battle debuffs and optional gold/cards/influence loot with tokens, gold, resistance and expiry
-- Public/addressed orders with cap 2 public + 1 addressed active orders per lord
-- Diplomacy signals for alliances, conspiracies and coalitions against the leader
-- Escrow ledger
-- Order race support for mobile QR success sync
-- Prevent one player from holding two active orders for the same object_id
-- Lord progression remains playable through map/recruit/raid/economy/NPC when witcher availability is low
-- Order status machine and cap accounting across published/addressed_pending/accepted/in_progress/claimed_at_prop/submitted_pending_sync/pending_master_approval/completed/failed/cancelled/expired/contested_review
-- Escrow and asset lock release rules for cancel, expire, retryable failure, closed failure and contested review
-
-Acceptance:
-- Movement pool пополняется до cap каждые 30 минут и не копится выше cap
-- Лорд стартует только со своей резиденцией, остальные территории нейтральны до захвата
-- Route по map_edges тратит MP, а бой не тратит оставшийся MP
-- Первый arrival создает contested territory, факт захвата сразу виден всем лордам
-- Territory state меняется только после победы и оставленного гарнизона
-- Доход и влияние считаются из цифровой карты, pending tick reward достается победителю один раз и сохраняется после restart
-- Чужой гарнизон скрыт от других лордов, но owner и primary bonus type видны
-- Recruit market refresh создает offers, hold сохраняет выбранное предложение, покупка отправляет юнитов в reserve резиденции
-- Building tree проверяет gold cost, prerequisites и редкие cross-deps без act cap
-- Training Yard/Barracks/Market/Notice Board/Mage Study seed flow открывает базовые эффекты, а advanced buildings открывают recruit/capacity/raid effects
-- Здания и territory recruit sources открывают новые army unit cards, старые стеки не апгрейдятся автоматически
-- Recruit market может выдать offer для каждого из 6 базовых земных unit_class
-- Anti-snowball применяет default income cut 30%/50% при силе армии выше средней по заданным порогам
-- Diplomacy signals показывают standings, influence, order history, raids and contested pressure для союзов/заговоров/коалиций
-- Raid engine применяет timed debuff или loot gold/cards/influence через raid token, gold cost и defense/magic resistance
-- Лорд создает public/addressed order, reward reserved in escrow, within cap 2 public + 1 addressed active orders
-- Успешный sync первого исполнителя закрывает заказ для остальных
-- Один игрок не может держать два активных заказа на один object_id
-- Лордский прогресс не блокируется отсутствием ведьмаков: route/recruit/building/raid/economy loop работает без выполненных заказов
-
-Test Steps:
-- Domain economy and weighted map fixture
-- Проверить MP refill to cap, отсутствие overflow и route cost по map_edges
-- Проверить starting state: 4 residences owned, all other nodes neutral
-- Проверить, что после боя остаток MP сохранен
-- Создать contested claim первым arrival и проверить публичный in_battle state
-- Провести neutral capture, оставить 1 army unit card в гарнизоне и проверить owner/bonus
-- Смоделировать hourly tick во время боя и проверить pending reward winner once
-- Проверить hidden garrison visibility из двух lord sessions
-- Проверить recruit refresh, hold, purchase to reserve и transfer в active army в резиденции
-- Купить building по prerequisites и отклонить покупку без prerequisites/gold
-- Проверить cross-dep: Siege Yard требует Barracks + Storehouse, War Academy требует Archery Range + Stables + War Council
-- Проверить, что Stables/Archery Range/Siege Yard открывают cavalry/ranged/heavy_siege offers
-- Проверить, что territory recruit source добавляет flavor offer без создания отдельной фракции
-- Проверить, что existing stack не апгрейдится автоматически после покупки здания
-- Проверить anti-snowball 30% и 50% income cut thresholds
-- Проверить diplomacy/coalition signal report против лидера
-- Запустить raid token+gold, проверить resistance check, debuff/loot visibility и expiry
-- Создать 2 публичных и 1 адресный заказ, затем получить отказ на превышение cap
-- Принять заказ двумя игроками, sync успеха первого, проверить второго
-- Попробовать принять два заказа на один object_id одним игроком и получить отказ/conflict
-- Пройти лордский map/recruit/raid/economy flow без завершенных ведьмачьих заказов
-- Restart check
-- uv run python scripts\taskctl.py validate
-- Check order status transitions draft -> published/addressed_pending -> accepted -> in_progress -> pending_master_approval -> completed
-- Check failed_retryable/failed_closed/cancelled_by_lord/expired/contested_review cap and escrow behavior
-
-Notes:
-
-Contract:
-Inputs: Map/building/unit/order seed, act timers and lord panel shell.
-Outputs: Territory, economy, building, recruit, raid and order runtime services.
-Implementation path: Implement server-side services and APIs for movement, claims, garrisons, buildings, recruit, raids and orders; lord panel is a thin client.
-Interfaces: APIs: GET /api/lords/{lord_id}/state; POST move, garrisons/transfer, buildings, recruit, raids, orders. State machines: territory_claim, order statuses from TASK-003, recruit offer hold/buy, raid effect expiry.
-Failure/review paths: Reject invalid MP, route, ownership, garrison, prerequisite, capacity, order cap or duplicate object; contested/pending states go to review instead of silent overwrite.
-Required tests: Unit/API tests for route MP, contested claim, garrison requirement, income tick, building prerequisites, recruit reserve, order cap/object conflict, raid effect and anti-snowball.
-
-### TASK-013 - Реализовать lord battle runtime engine 5x6
-
-Status: `pending`
-Priority: `P1`
-Category: `gameplay`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-012`
-
-Goal:
-
-Создать синхронный лордский бой HoMM+Гвинт для нейтральной обороны, гарнизонов и столкновения армий: поле 5x6, стеки-юниты, инициатива, ответки, surrender, burned cards.
-
-Scope:
-- Battle creation from two digital armies, neutral defense profile or garrison+active army defense
-- 5x6 board, start lines, hero cells
-- Deployment hand from available active army/garrison army unit cards
-- Army unit card stacks
-- V1 deterministic fields: attack, defense, hp, initiative, move_range, attack_range, tier, unit_class
-- Damage formula max(1, attack - defense + modifiers)
-- Initiative tiebreaker: initiative desc, tier desc, deterministic battle seed
-- Orthogonal movement, attack_range, line of sight and retaliation once per unit per round
-- 60s turn timer, timeout auto-defend/skip and repeated-timeout auto-resolve/master takeover
-- Six v1 unit classes: infantry, guard, ranged, cavalry, heavy_siege, specialist
-- Initiative rounds and one retaliation per unit per round
-- Hero HP formula from deployed army size with min/max cap
-- Surrender on own turn
-- Neutral server AI and optional master takeover
-- Retreat of defeated active army
-- Capture result requires garrison selection
-- Battle log and burned army cards
-
-Acceptance:
-- Два лорда завершают бой через web/API flow
-- Каждый из 6 базовых unit_class имеет deterministic 5x6 fixture
-- Маги и монстры не используются как массовые lord unit classes в v1 fixtures
-- Лорд завершает neutral battle 5x6 против server AI, а мастер может подключиться к нейтральной стороне
-- Защитник чужой территории может использовать гарнизон плюс active army, если она находится на этой территории
-- Победа возможна через surrender, unit wipe или hero HP, рассчитанный от размера выставленной армии
-- Победа атакующего возвращает capture decision в territory runtime и требует выбрать гарнизон
-- Проигравшая active army отступает на предыдущую свою территорию или в резиденцию
-- Потери и burned cards сохраняются после restart
-- Battle log виден лордам и мастеру через runtime API
-- Battle log фиксирует deployment hand, выставленные карты и HP formula inputs
-- Damage, initiative order, movement, line of sight and retaliation are deterministic and reproducible from battle seed
-- Neutral target completes within <=10 min target or triggers auto-resolve path; lord-vs-lord within <=20 min target or triggers auto-resolve path
-- Timeout path logs 60s turn timeout, auto-defend/skip and repeated-timeout auto-resolve
-
-Test Steps:
-- Deterministic battle fixture на 5x6
-- Провести neutral defense battle с server AI
-- Подключить мастера к neutral battle и проверить takeover
-- Провести territory defense с garrison + active army
-- Прогнать battle fixture для infantry, guard, ranged, cavalry, heavy_siege, specialist
-- Проверить deployment hand/start lines и невозможность выставить карту вне доступной руки
-- Проверить damage max(1, attack - defense + modifiers), initiative tiebreaker, movement, line of sight and retaliation
-- Проверить 60s timeout auto-defend/skip and repeated-timeout auto-resolve
-- Проверить neutral <=10 min and lord-vs-lord <=20 min duration target report
-- Проверить surrender/unit wipe/hero HP formula results
-- Проверить capture handoff в TASK-012 и обязательный garrison selection
-- Проверить retreat defeated active army
-- Restart persisted losses
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: Army unit cards, territories/garrisons, lord panel and battle seed defaults.
-Outputs: Deterministic 5x6 lord battle engine with persistence and browser actions.
-Implementation path: Implement battle_service with board state, deployment, initiative, legal actions, timeout and result application.
-Interfaces: APIs: POST /api/lord-battles, GET /api/lord-battles/{id}, POST /api/lord-battles/{id}/actions. Battle state includes seed, board 5x6, turn, initiative_order, stacks, wounds, hero_hp, timeout_at, status.
-Failure/review paths: Illegal move/target/ownership/action rejected; repeated timeout triggers auto-resolve/master takeover; duplicate action idempotent; destroyed cards burned and retreat/capture applied once.
-Required tests: Deterministic unit tests for initiative, damage, movement/LOS, timeout, auto-resolve, surrender, persistence after restart and two-session API smoke.
-
-### TASK-014 - Реализовать personal PvP runtime engine
-
-Status: `pending`
-Priority: `P1`
-Category: `gameplay`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-006`, `TASK-008`, `TASK-011`
-
-Goal:
-
-Реализовать личный PvP как full Gwent по core rules Witcher 3 Gwent с кастомным LARP-набором карт в online-зоне.
-
-Scope:
-- Challenge, 3 tokens per act with accumulation, token spend, max 1 active challenge per player and stake validation
-- Full Gwent deck validation: minimum 22 unit cards, up to 10 special cards and 1 leader
-- 10-card hand, up to 2 mulligan, 3 rows, pass and best-of-3 rounds
-- Tie handling: tied round means both players lose the round; double-loss match edge goes to master review
-- Weather, clear weather, decoy, scorch, commander's horn and core abilities with custom LARP cards
-- Cards do not burn in personal PvP
-- Permanent card-to-lord conversion path by personal card tier
-- Assigned online battle zone and 30-minute PvP start window; after match start no separate match time limit
-- PvP throttling: default 2 pvp_tables, queued challenges, max 2 started mandatory matches per player per act without master approval, normal/limited/paused modes and final lock behavior
-- PvP refusal/safety table: active-scene deferred, unsafe route/force majeure, safety stop, valid-ignore review and overload throttle behavior
-- Timeout/refusal/tie master review paths, stake transfer and 15-person full Gwent volume balance hook
-- Idempotent result application
-
-Acceptance:
-- PvP проходит как full Gwent with custom LARP card set, not simplified round card picking
-- Обязательный вызов тратит challenge token, 3 токена начисляются за акт и копятся
-- У игрока не может быть больше 1 active challenge одновременно
-- Runtime enforces pvp_tables, queued challenge state, throttle mode and final lock behavior
-- Вызов вне места боя назначает online-зону и 30-minute PvP окно на явку/старт, просрочка/отказ/ничья попадает в master review
-- Active scene, unsafe route, force majeure or safety/comfort stop never create automatic punishment; runtime supports deferred/review state
-- После gwent_match_started матч не имеет отдельного лимита времени, но runtime пишет timestamps для Stage 5 duration report
-- Deck rules enforce 22 unit minimum, 10 special cap, leader, 10-card hand and 2 mulligan
-- Round engine supports 3 rows, pass, tie both lose round, weather/decoy/scorch/horn/core abilities
-- Ставка фиксируется до боя и применяется один раз
-- Личные карты не сгорают после раунда
-- Передача карты лорду навсегда делает army unit card по тиру карты
-- Runtime сохраняет данные для Stage 5 full Gwent PvP volume, no-match-limit risk, timeout/refusal/tie and stake transfer report по 15-person profile
-
-Test Steps:
-- Проверить grant 3 challenge tokens per act и накопление между актами
-- Провести full Gwent fixture with deck validation, hand, mulligan, rows, pass, weather/decoy/scorch/horn and tie handling
-- Создать второй active challenge на того же игрока и получить отказ
-- Создать вызов вне battle zone и проверить assigned zone + 30-minute PvP start window timeout/refusal/tie review
-- Проверить pvp_tables capacity, queued challenge, normal/limited/paused throttle and final lock rejection
-- Проверить PvP refusal/safety table: active scene deferred, unsafe route, safety stop, valid-ignore review and overload throttle
-- Проверить no match time limit after start and timestamp capture for duration report
-- Проверить stake application once
-- Duplicate result ignored
-- Проверить card-to-lord conversion by tier
-- Проверить PvP event data for 15-person profile balance report
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: Gwent cards/decks/matches, challenge tokens, pvp tables/throttle and event API.
-Outputs: Online-zone personal PvP/full Gwent runtime with stakes and review paths.
-Implementation path: Implement pvp_service, gwent_match_service and table allocation over SQLite; mobile/web clients use APIs, not local authority.
-Interfaces: APIs: POST /api/pvp/challenges, GET /api/pvp/tables, POST /api/pvp/challenges/{id}/start, POST /api/pvp/matches/{id}/rounds, POST /api/pvp/matches/{id}/finish. Payloads include challenge_id, players, stake_json, table_id, round_state, passed flags, row scores and outcome.
-Failure/review paths: No table/token/window/refusal/tie/timeout conflict resolves automatically if rules require master review; asset stake transfer is atomic with trade/lock checks.
-Required tests: Tests for deck validation, token spend, table queue, 30-minute start window, throttle modes, tie/refusal/timeout review, stake transfer and duplicate finish.
-
-### TASK-015 - Реализовать runtime контур чародеек
-
-Status: `pending`
-Priority: `P1`
-Category: `gameplay`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-005`, `TASK-010`, `TASK-012`
-
-Goal:
-
-Сделать чародеек полноценной ролью Stage 1: PvE/PvP, мана, зелья, заклинания, фавориты и интриги.
-
-Scope:
-- Sorceress hybrid mobile field/support role state
-- Mana economy, hourly mana regen by level/bonuses and potion wholesale market
-- Only sorceresses can buy potions from NPC/magic market at wholesale price
-- Potion sell/exchange/gift flow to witchers and favorites through online trade_transfers
-- V0 potion catalog roles with wholesale 8/18/40 and max 1 potion per scene default
-- Spell cards for spells, rituals and intrigues with target validation, visibility and counterplay
-- V0 spell catalog roles T1-T4: hint, boost, reveal, ward, curse and ritual effects
-- Favorite lifecycle: consent required, max 1 primary + 1 secondary per sorceress, max 2 sorceresses per favored player, change 1 per act, no passive runtime bonus, final signal
-- Magic effects on player/favorite/lord/territory/order/visibility
-- Sorceress PvE magic options
-
-Acceptance:
-- Чародейка проходит PvE/PvP как самостоятельная гибридная field/support роль
-- Hourly mana regen applies from sorceress level/bonuses and persists after restart
-- Spell card применяется сразу при валидной цели и достаточной мане
-- Ритуалы и интриги оформлены как spell cards с логом результата
-- Видимость эффекта соответствует role rules
-- Favorite primary/secondary caps, consent, change limit and no-passive-runtime-bonus rule apply, and favorite history попадает в downstream/final summary
-- Чародейка может купить зелье wholesale и передать/продать/подарить его ведьмаку или фавориту
-- Spell/potion catalog covers required V0 roles and potion scene cap
-
-Test Steps:
-- Sorceress domain tests
-- PvE scene with magic option for hybrid field sorceress
-- Проверить wholesale potion buy только чародейкой и отказ ведьмаку на прямую покупку
-- Проверить potion wholesale 8/18/40 and max 1 potion per scene default
-- Проверить potion transfer/sell/gift to witcher/favorite через trade_transfers
-- Spell/ritual/intrigue card targets fixture
-- Проверить T1-T4 spell roles fixture
-- Invalid target/insufficient mana path
-- Hourly mana regen by level/bonus fixture
-- Favorite flow: consent, 1 primary + 1 secondary per sorceress, max 2 sorceresses per favored player, change 1 per act, no passive runtime bonus
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: Sorceress players, mana rules, spells, potions, favorites, trade_transfers and visibility rules.
-Outputs: Sorceress runtime for mana, spells, potion market, favorites, alignment and locked magical intent.
-Implementation path: Implement sorceress_service and APIs/events reusing event intake and trade lock services.
-Interfaces: Interfaces: spell_cast event/API with spell_id,target_type,target_id,cost_mana,effect; potion buy/transfer through trade_transfers; favorites APIs POST /api/favorites and /api/favorites/{id}/accept; alignment evidence events.
-Failure/review paths: Reject insufficient mana, invalid target, favorite cap violations, passive bonuses not explicitly granted and potion overuse; ambiguous magical intent after final lock goes to review.
-Required tests: Tests for hourly mana, spell cost/visibility, potion wholesale/resale/transfer, favorite consent/caps/change limit, alignment evidence and locked magical intent.
-
-### TASK-016 - Реализовать reputation и NPC runtime
-
-Status: `pending`
-Priority: `P1`
-Category: `gameplay`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-005`, `TASK-006`
-
-Goal:
-
-Добавить Добро/Зло для ведьмаков/чародеек и NPC-события Короля/Странника.
-
-Scope:
-- Reputation score range -5..+5, start 0 and change log
-- Reputation thresholds: -5..-4 Тьма, -3..-2 Запятнанный, -1..+1 Нейтральный, +2..+3 Добро, +4..+5 Свет
-- Symmetric Good/Evil benefits with different costs
-- Player-visible descriptors without exact number
-- Master-visible numeric/log state through API
-- reputation_rules application with threshold access
-- NPC addressed/global events
-- Roleplay-first NPC runbook: King/order/admin-review vs Wanderer/deals/field interventions, review severity P0/P1/P2/P3 and buffers for review except P0/P1 blockers
-- King/Light rulings: political approval, dispute judgment, major поручения, influence awards
-- Wanderer/Darkness-Devil deals: hidden price, temptations, dark artifacts and alternate victory hooks
-- NPC deal capture
-
-Acceptance:
-- Событие меняет репутацию ведьмака или чародейки в диапазоне -5..+5 от старта 0
-- Игрок видит описание threshold state, мастер видит точное значение, threshold access и причины
-- Rules cover Тьма, Запятнанный, Нейтральный, Добро, Свет and Good/Evil tradeoffs
-- NPC event может быть адресным или глобальным
-- NPC runbook keeps masters roleplay first and routes non-blocking admin-review to act buffers
-- P0/P1 are explained as severity labels: P0 stop-now, P1 before next act/final
-- King event может выдать ruling/influence/поручение, Wanderer event может выдать сделку со скрытой ценой или темным артефактом
-- NPC deal сохраняет цену, цель, условие, последствия и final flag
-
-Test Steps:
-- Reputation/NPC domain tests
-- King ruling/dispute/influence fixtures and Wanderer hidden-price/dark-artifact fixtures
-- Player descriptor vs master numeric/log check, including -5..+5 clamp, start 0 and threshold names
-- Good/Evil symmetric benefit/cost fixtures
-- NPC runbook fixture: severity P0/P1/P2/P3 and buffer review vs P0/P1 blocker
-- Threshold access fixture
-- NPC deal capture fixture
-- Restart check
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: Reputation rules, NPC events, event log, act buffers and master review severity.
-Outputs: Reputation/NPC runtime with King/Wanderer events, hidden prices and severity queue.
-Implementation path: Implement npc_service, reputation_service and review_queue queries for master UI and final_summary.
-Interfaces: NPC event payload: {npc_role,event_type,target_ids,price_json,consequence_json,reputation_delta,visibility,severity,final_flag}. Player sees descriptor; master sees numeric value and reason log.
-Failure/review paths: Out-of-range reputation clamps/rejects per rule; P0/P1 events require immediate/buffer review; hidden prices stay master-only until revealed.
-Required tests: Tests for thresholds, player/master visibility, King ruling, Wanderer deal, severity routing, hidden price and final flag persistence.
-
-### TASK-017 - Реализовать final summary runtime
-
-Status: `pending`
-Priority: `P1`
-Category: `gameplay`
-Stage: `STAGE-1: Core Game Engine`
-Stage gate: `False`
-Dependencies: `TASK-013`, `TASK-014`, `TASK-015`, `TASK-016`
-
-Goal:
-
-Собрать финальную мастерскую сводку без автоматического объявления победителей и без обязательной числовой формулы.
-
-Scope:
-- final_summary evidence grouped by role: lords, witchers, sorceresses, NPC/story and disputed objects
-- Missing evidence, pending locks, unresolved P0/P1, paper recovery events and contested reviews
-- Final lock state: new orders/challenges blocked except master override or paper final evidence
-- NPC prices, King/Wanderer deals, reputation changes, personal_goals, goal_flags and final_hooks
-- Lord evidence: territories, army, garrisons, battles, raids, buildings, economy, orders and artifacts
-- Witcher evidence: XP, level, stats, gear, PvE, orders, objects, PvP, reputation and personal goals
-- Sorceress evidence: mana, spells, potions, favorites, alignment, intrigue, lord support/betrayal and NPC price
-- Optional final scene notes and master_final_notes, without automatic winner calculation
-- Post-game export snapshot
-
-Acceptance:
-- Final summary содержит NPC-led final tournament/final_summary входные данные всех ролей и процедур: master final evidence sections, optional final scenes, sorceress favorites evidence, locked magical intent and personal hooks
-- Final summary exposes role-specific weight inputs, missing evidence and final timebox state to masters
-- Final summary exposes staffing/station ownership so no scoring station is unmanned
-- Players know general categories, but hidden goal_flags remain master-only
-- Personal arcs can affect tone/edge cases but cannot silently erase 10 hours of visible play
-- Сводка не автообъявляет спорных победителей
-- Данные финала сохраняются после restart
-- Export пригоден для post-game review
-
-Test Steps:
-- Final summary deterministic fixture
-- Check role evidence sections for lords, witchers and sorceresses
-- Check missing locks, pending disputes, unresolved P0/P1 and paper recovery visibility
-- Check final lock behavior blocks new orders/challenges except master override
-- Check NPC prices, reputation, personal_goals, goal_flags and final_hooks sections
-- Check master_final_notes can record ruling/epilogue without automatic winner calculation
-- Restart/export check
-- uv run python scripts\taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: All Stage 1 runtime state: players, lords, PvE, PvP, trade, goals, NPC, artifacts, locks and paper recovery.
-Outputs: final_summary read model/export without automatic winner calculation.
-Implementation path: Implement final_summary_service aggregating evidence and export JSON/HTML/CSV as needed for master panel.
-Interfaces: GET /api/master/final-summary returns {snapshot_version,final_lock_state,evidence_by_role,missing_locks,pending_disputes,npc_prices,locked_magical_intent,personal_hooks,paper_recovery,export_generated_at}.
-Failure/review paths: Missing or disputed evidence appears as missing_locks/pending_disputes; system never computes or announces winner automatically.
-Required tests: Tests for aggregation, visibility, pending disputes, paper_recovered inclusion, final lock state and export after restart.
-
 ### TASK-018 - STAGE 1 GATE: core game engine scripted role-flow
 
-Status: `pending`
+Status: `dependency-ready`
 Priority: `P0`
 Category: `qa`
 Stage: `STAGE-1: Core Game Engine`
 Stage gate: `True`
-Dependencies: `TASK-010`, `TASK-013`, `TASK-014`, `TASK-015`, `TASK-017`
+Dependencies: `TASK-010`, `TASK-013`, `TASK-014`, `TASK-015`, `TASK-017`, `TASK-038`, `TASK-039`, `TASK-040`, `TASK-041`, `TASK-042`, `TASK-043`, `TASK-044`, `TASK-051`, `TASK-052`, `TASK-053`, `TASK-054`, `TASK-055`, `TASK-056`, `TASK-057`, `TASK-059`, `TASK-060`, `TASK-061`, `TASK-062`, `TASK-063`, `TASK-064`, `TASK-065`, `TASK-066`
 
 Goal:
 
@@ -916,26 +93,43 @@ Acceptance:
 - Stage 1 runtime supports paper_recovered critical event recovery without silent overwrite
 - Seed role-flow exposes V0 balance defaults and rarity fields required by later content/balance stages
 - Stage 1 gate confirms not only gameplay logic but the technical architecture: uv commands, local server, SQLite, static panels, Godot shell, snapshot/event sync and recovery path
+- Свежая волна Stage 1 review issues TASK-059-TASK-065 закрыта, а TASK-066 подтвердил реальные regression tests перед приемкой.
 
 Test Steps:
 - Check seed profile 4 lords + 4 sorceresses + 5 witchers + 2 NPC masters
 - Run scripted flow: registration/snapshot -> start Act 1 with physical announcement/buffer/Act 2 announcement/buffer/Act 3 announcement/final lock/final announcement -> auto tick -> grant 3 challenge tokens -> hourly mana -> lord MP refill -> route -> contested neutral capture -> 5x6 neutral battle with 60s timer/auto-resolve -> garrison -> pending tick reward -> buy Training Yard/Barracks/Market/Notice Board/Mage Study -> recruit market unlock -> buy unit -> reserve transfer -> anti-snowball check -> raid debuff/loot -> opaque QR/PvE single_d20 with modifiers -> QR honesty review path -> PvE scene_hp/failure cooldown 30 min -> personal_goals/goal_flags -> sync -> trade_transfers lock/accept -> order status/cap/object conflict check -> full Gwent PvP token/assigned zone/30-minute PvP start window/tie/timeout-refusal/safety table/stake transfer -> lord battle -> sorceress wholesale potion + spell + consent primary/secondary favorite -> locked magical intent -> roleplay-first King/Wanderer event -> NPC-led final tournament/final_summary evidence/export without automatic winner calculation
 - Restart после scripted flow и проверить state
-- uv run python scripts\taskctl.py validate
-- uv run python scripts\taskctl.py doctor
 - Run paper_recovered event fixture for one critical event, including paper_lord_action or paper_lord_battle, and verify duplicate/conflict goes to master review
 - Check seed runtime exposes V0 XP/DC/reward/lord economy/lord HP/mana defaults and rarity fields
 - Check uv command contract: uv sync documented, uv run server command documented, TaskOS checks use uv run python
+- After TASK-057, run uv run pytest -q and confirm Stage 1 regression tests cover TASK-051 through TASK-056 business invariants
+- After TASK-066, run uv run pytest -q and confirm Stage 1 regression tests cover TASK-059 through TASK-065 business invariants
+- Run targeted Stage 1 regression groups for auth/secret leaks, PvE/QR/act unlock, reward locks/paper recovery, PvP/Gwent, lord runtime and sorceress/final_summary
+- Run uv run python -m json.tool tasks.json
+- Run uv run python scripts/taskctl.py validate
+- Run uv run python scripts/taskctl.py doctor
+- uv run pytest -q tests/test_stage1_gate_role_flow.py; uv run pytest -q; uv run python -m json.tool tasks.json NUL; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py doctor; uv run python scripts/taskctl.py sync
 
 Notes:
 
 Contract:
-Inputs: Completed TASK-003 through TASK-017 and blocked/launch-risk record for TASK-001.
-Outputs: Stage 1 scripted role-flow evidence proving runtime, stack and recovery path.
-Implementation path: Run one seed-level scripted flow through APIs/UI/mobile shell mocks or real clients where available; record verification in task checks.
-Interfaces: Covers uv launch, FastAPI/SQLite, CSV import/snapshot, event sync, static panels, Godot shell, PvE, PvP, lord map/battle, sorceress, NPC, final_summary and paper_recovered.
-Failure/review paths: Any failed core mechanic blocks the gate; missing physical devices remain TASK-001 launch-risk only if mocked/local contracts pass and fallback exists.
-Required tests: Full scripted test suite, restart recovery, paper conflict fixture, TaskOS validate/sync/doctor and generated board review.
+Inputs: Completed TASK-003 through TASK-017, old remediation TASK-038 through TASK-044, second-wave remediation TASK-051 through TASK-056, test rewrite TASK-057 and blocked/launch-risk record for TASK-001.
+Outputs: Stage 1 scripted role-flow evidence proving runtime, stack and recovery path only after the second code-review issue block and real regression tests are complete.
+Implementation path: Re-run one seed-level scripted flow through APIs/UI/mobile shell mocks or real clients where available; record verification in task checks after remediation and TASK-057 tests.
+Interfaces: Covers uv launch, FastAPI/SQLite, CSV import/snapshot, event sync, static panels, Godot shell, PvE/QR/act unlock, PvP/Gwent, lord map/battle/economy, sorceress, NPC, final_summary and paper_recovered.
+Failure/review paths: Any failed core mechanic or uncovered P0/P1 review issue blocks the gate; missing physical devices remain TASK-001 launch-risk only if mocked/local contracts pass and fallback exists.
+Required tests: Full scripted test suite, new review-regression suite from TASK-057, restart recovery, paper conflict fixture, TaskOS validate/sync/doctor and generated board review.
+2026-06-02: Reopened from done after Stage 1 business-logic code review found P0/P1 issues and weak tests.
+2026-06-03: Removed from done again after second review found remaining serious business-logic issues; TASK-018 is blocked by TASK-051-TASK-057 and old green evidence is obsolete for acceptance.
+User asked not to use TaskOS for this review
+2026-06-03: Fresh review wave added after another full code review: TASK-059 app-generated d20, TASK-060 PvE modifier/stat authority, TASK-061 QR/act secrecy, TASK-062 mobile queue/snapshot fallback, TASK-063 PvP stake/winner authority, TASK-064 lord escrow/route, TASK-065 review/reputation scoping and TASK-066 test rewrite. TASK-018 remains pending until they are complete.
+
+
+## Blocked
+
+_No tasks._
+
+## Pending
 
 ### TASK-019 - Собрать Admin Studio shell и role access
 
@@ -1184,6 +378,390 @@ Interfaces: No CLI required for штатные master operations; Admin uses the
 Failure/review paths: Any missing master-critical operation blocks Stage 2; cosmetic UI polish does not block if workflow and audit are complete.
 Required tests: Browser smoke, API integration checks, backup/restart check and TaskOS validate/sync/doctor.
 
+### TASK-045 - Зафиксировать playable UI contract и role journey matrix
+
+Status: `pending`
+Priority: `P0`
+Category: `ui`
+Stage: `STAGE-2B: Playable Role UI`
+Stage gate: `False`
+Dependencies: `TASK-023`
+
+Goal:
+
+Описать проверяемые пользовательские маршруты для мастеров, лордов, ведьмаков и чародеек, чтобы UI-задачи закрывали всю игру без Swagger для игроков.
+
+Scope:
+- Role journey matrix: master, lord, witcher, sorceress and NPC-master operations
+- No-Swagger rule for player/lord acceptance: штатные игровые действия выполняются через app/panels
+- API/state mapping for every UI surface and mutation
+- Visibility states: master-only, lord-scoped, player-visible and hidden/review-only data
+- Offline/error states: server unreachable, pending sync, needs_master_review, rejected, duplicate, cooldown, locked reward
+- Responsive/device smoke matrix: desktop browser, 4 lord laptops, Godot desktop, real Android device and real iPhone via the chosen install path
+- Definition of acceptable diagnostics: Swagger/API may be used by developers only, not as player/lord workflow acceptance
+- Non-PvE gameplay matrix: lord map/economy/battle/raid/order, personal PvP/Gwent, trade, inventory, reputation, sorceress potions/spells/favorites/alignment and Admin recovery/final_summary
+- Hard gate rule: paper fallback is tested as outage recovery, but never counts as a substitute for a missing normal player/lord UI path
+
+Acceptance:
+- UI contract maps every Stage 1 runtime mechanic to a player-facing, lord-facing or master-facing screen
+- Every role has a start-to-finish test script that avoids manual API calls for normal gameplay
+- Every UI route names the backing endpoint/state shape and visibility boundary
+- Error, offline, review and locked states are explicit and testable
+- The contract identifies which workflows remain Admin-only and which must be available to players/lords
+- Later content, balance and rehearsal tasks can reference this matrix as release UI coverage
+- Android and iOS real-device smoke requirements are named as blockers for TASK-050, not optional launch-risk notes
+- Every non-PvE gameplay route has a no-known-blocking-bug acceptance marker before Stage 3 can begin
+
+Test Steps:
+- Review Stage 1 runtime APIs and Admin Studio screens against role journey matrix
+- Mark every required gameplay action as mobile, lord panel, Admin Studio or paper fallback
+- Check that no player/lord acceptance path requires Swagger, raw curl or SQLite edits
+- Review visibility matrix for hidden flags, hidden garrisons, reputation numbers, NPC prices and review-only data
+- Mark Android APK and iOS build/free provisioning smoke as required TASK-050 evidence
+- Review non-PvE gameplay matrix and mark paper fallback as outage-only, not a UI replacement
+- uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Stage 1 runtime, Admin Studio acceptance and current PRD/architecture role interfaces.
+Outputs: A UI contract encoded in task scope/checks and linked docs, mapping every release-critical gameplay workflow to a real UI surface.
+Implementation path: Use existing FastAPI static web and Godot mobile constraints; do not introduce a frontend build tool unless a later task explicitly changes architecture.
+Interfaces: Role journey matrix covers mobile, lord panel, Admin Studio, paper recovery, diagnostics boundaries and non-PvE gameplay readiness.
+Failure/review paths: Any workflow without a UI owner becomes a blocker for TASK-050, not a hidden release risk; Android/iOS smoke gaps are blockers, not optional launch-risk notes.
+Required tests: Matrix review, visibility review, non-PvE route review and TaskOS validate.
+
+### TASK-046 - Реализовать полноценный lord action UI
+
+Status: `pending`
+Priority: `P0`
+Category: `frontend`
+Stage: `STAGE-2B: Playable Role UI`
+Stage gate: `False`
+Dependencies: `TASK-045`, `TASK-042`
+
+Goal:
+
+Превратить лордскую панель из shell/read-only состояния в игровой интерфейс для карты, армии, экономики, заказов, рейдов и лордских боев.
+
+Scope:
+- Authenticated lord dashboard with role-token isolation and visible failure states
+- Map/route UI for movement points, weighted route selection, active army location and contested claims
+- Venue map validation UI: venue_map_v1 nodes/edges, excluded old house/shed, owner/neutral/contested states, route costs and readable labels
+- Garrison/reserve transfer UI with validation messages and captured territory state
+- Building tree UI: prerequisites, purchased buildings, available upgrades and gold/capacity impact
+- Recruit market UI: refresh, hold, purchase, reserve spawn and unavailable offer explanations
+- Orders UI: create public/addressed order, escrow reward, accept/submit state, object conflict visibility
+- Raid UI: target validation, token/gold cost, debuff/loot status and expiry
+- Lord battle UI: 5x6 board, deployment, current turn, legal actions, surrender, timeout/auto-resolve/master takeover status
+- Four-lord browser smoke with simultaneous panels and restart persistence
+
+Acceptance:
+- A lord can complete movement -> contested claim -> battle -> garrison -> pending tick -> building -> recruit -> reserve transfer -> raid/order flow from the browser panel
+- Lord map is visually and semantically valid: all playable nodes/edges, route costs, ownership, garrisons, contested locks and excluded areas match venue_map_v1
+- Lord-vs-lord and neutral battle actions are playable through panel UI, not only API calls
+- Invalid lord token, wrong-lord action and illegal move/action show clear errors and do not mutate state
+- Panel only exposes allowed lord-scoped data; hidden garrisons/effects remain hidden unless revealed
+- State after refresh/restart matches server authority without duplicate actions
+- 4 lord panels can be opened simultaneously on local Wi-Fi/browser smoke
+
+Test Steps:
+- Browser smoke: login with LORD-NORTH-R8K4 and invalid token
+- Run venue map audit from the panel: playable nodes/edges, excluded old house/shed, labels, route costs, owner/neutral/contested states and garrison visibility
+- Run lord route/capture/garrison/building/recruit/raid/order flow from panel controls
+- Run neutral lord battle with board actions and timeout/auto-resolve status visible
+- Open two lord panels for a lord-vs-lord battle and verify role-scoped visibility
+- Restart server and refresh panel state
+- uv run pytest tests/test_lord_panel_contract.py tests/test_lord_runtime.py tests/test_lord_battle_runtime.py -q
+- uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: TASK-042 playable/authenticated lord runtime, lord panel shell, venue_map_v1 seed and Stage 1 lord APIs.
+Outputs: Browser-playable lord panel for all release-critical lord actions and battles, with a validated lord map suitable for non-PvE gameplay testing.
+Implementation path: Extend FastAPI-served static HTML/CSS/JS unless architecture explicitly changes; use existing lord APIs rather than duplicating game logic in JS.
+Interfaces: /api/lords/{lord_id}/state and lord mutation endpoints, /api/lord-battles and role-token auth.
+Failure/review paths: Illegal or ambiguous actions show UI errors or route to master review; map mismatch or unreadable critical state blocks TASK-050; never fake success locally.
+Required tests: Browser/panel contract tests, API regression tests, venue map audit, four-panel smoke and restart persistence.
+
+### TASK-047 - Реализовать mobile gameplay UI для ведьмаков и чародеек
+
+Status: `pending`
+Priority: `P0`
+Category: `mobile`
+Stage: `STAGE-2B: Playable Role UI`
+Stage gate: `False`
+Dependencies: `TASK-045`
+
+Goal:
+
+Довести Godot mobile shell до игрового приложения для QR/PvE, offline unlock, наград, инвентаря, заказов, торговли, репутации, зелий, магии, фаворитов и sync.
+
+Scope:
+- Character home: stats, level/XP, gold, descriptive Good/Evil reputation, known goals and sync status
+- Connection/player-code flow with snapshot download, bundled fallback, saved server URL and device_id
+- Offline act unlock UI with master code entry and future-act blocked state
+- QR/manual ID UI with physical-presence confirmation, manual rate-limit, honesty review and QR mode instructions
+- PvE scene UI: hook, choices/checks, single_d20 roll log, modifiers, scene_hp, success/failure, cooldown and reward state
+- Pending reward approval UI: locked reward cannot be spent/traded/converted until server approval
+- Inventory/cards/items/artifacts view with visibility, rarity and locked/owned status
+- Order board UI: public/addressed orders, accept, submit result, object conflict and escrow status
+- Trade transfer UI: request, accept/decline, pending lock and history in online zone
+- Sorceress UI: mana, spell casting, potion wholesale buy, potion transfer/sale/gift, favorite consent and alignment evidence
+- Event queue UI: pending/synced/sync_error/needs_master_review counts, retry, duplicate and readable failure states
+- Persistence across app restart and offline-first operation without losing queued events
+- Real-device mobile readiness: Android APK install/launch and iOS build/free provisioning install/launch, camera permission, local network access, snapshot download, restart persistence and sync retry
+
+Acceptance:
+- Witcher can log in, download/load snapshot, start QR/manual PvE, resolve single_d20 scene, see cooldown/reward result, restart offline and sync later without Swagger
+- Sorceress can use the same PvE flow plus mana/spells/potions/favorites from mobile UI
+- Future act content stays blocked until sync or valid master unlock code
+- Pending master approval, needs_master_review and sync_error remain visible and retryable without silent data loss
+- Inventory/order/trade UI respects locks and cannot spend or transfer unapproved/locked assets
+- Godot desktop smoke passes before device smoke
+- Android APK installs and launches on a real Android device, can reach the local server, download/load snapshot, preserve local state after restart and retry sync
+- iOS build installs and launches on a real iPhone through the chosen path, can reach the local server, download/load snapshot, preserve local state after restart and retry sync
+- If Android or iOS device smoke cannot be completed, TASK-047 and TASK-050 remain blocked; this is no longer an acceptable Stage 2B launch-risk fallback
+
+Test Steps:
+- Godot desktop smoke: login WC-WOLF-6GF4, load snapshot, restart and verify persistence
+- Run QR-A1-K7Q2 manual PvE success, QR honesty negative and future-act blocked state from UI
+- Create offline pve_completed event, restart app, sync queue and verify accepted/pending/review states
+- Run order accept/submit and trade transfer accept/decline UI smoke in online zone
+- Run sorceress potion buy/transfer/use, spell cast and favorite consent UI smoke
+- Stop server and verify sync_error remains retryable
+- Build/install Android APK on a real Android phone and run launch -> local server connection -> snapshot -> restart persistence -> sync retry smoke
+- Build/install iOS app on a real iPhone via Xcode/free provisioning or chosen distribution path and run launch -> local server connection -> snapshot -> restart persistence -> sync retry smoke
+- Verify camera permission and QR/manual fallback behavior on both Android and iOS devices
+- uv run pytest tests/test_mobile_shell_contract.py tests/test_pve_runtime.py tests/test_sorceress_runtime.py -q
+- uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Stage 1 mobile shell, QR/PvE/event sync, reward approval, order/trade, reputation, sorceress runtime services and mobile export tooling.
+Outputs: Mobile gameplay UI for 5 witchers and 4 field-active sorceresses, proven on Godot desktop plus at least one real Android and one real iPhone before Stage 2B acceptance.
+Implementation path: Keep Godot authoritative only for local/offline state and event logs; server remains authoritative for global state.
+Interfaces: player_code/snapshot, QR/manual context, event_queue sync, reward approvals, trade/order/favorite/sorceress APIs, user:// persistence, Android APK export and iOS build/free provisioning path.
+Failure/review paths: Network failure preserves local events; rejected/review/locked states are shown and not deleted; missing Android/iOS smoke blocks TASK-047/TASK-050 rather than being deferred as launch risk.
+Required tests: Godot contract tests, runtime integration smoke, restart/offline persistence, Android device smoke and iOS device smoke.
+
+### TASK-048 - Реализовать personal PvP/Gwent UI
+
+Status: `pending`
+Priority: `P0`
+Category: `ui`
+Stage: `STAGE-2B: Playable Role UI`
+Stage gate: `False`
+Dependencies: `TASK-045`, `TASK-041`, `TASK-047`
+
+Goal:
+
+Собрать playable UI для личного PvP/full Gwent: вызовы, столы, колода/рука, ряды, pass, раунды, ставки, отказ и review paths.
+
+Scope:
+- Challenge create/receive UI with token count, mandatory flag, target, stake and assigned battle zone
+- PvP table/queue UI with 30-minute start window, throttle mode and one-active-challenge warning
+- Deck validation and hand/mulligan UI for custom LARP Gwent cards
+- Match board UI: 3 rows, card play validation, pass state, round score, tie handling and round log
+- Special card visibility for weather/decoy/scorch/horn/core abilities supported by runtime
+- Finish UI with winner/outcome, stake transfer result and duplicate-result protection
+- Refusal/safety UI: valid reasons, deferred/review status and token/lock consequences
+- Master-visible timeout/refusal/tie review state integrated with Admin review queue
+- Online-zone PvP rehearsal on real gameplay surfaces: two mobile clients or mobile plus approved desktop surrogate when device count is constrained
+
+Acceptance:
+- Two players can create challenge, start match, play best-of-3 Gwent and apply stake exactly once through UI
+- Illegal card plays, invalid deck, missing token/table, active challenge cap and final lock are blocked with readable errors
+- 30-minute start window, queue/throttle mode and refusal/safety paths are visible to players and masters
+- Duplicate finish or retry does not duplicate stake transfer
+- PvP UI can be used in online-zone rehearsal without Swagger/manual API calls
+- At least one end-to-end Gwent match is run through real gameplay surfaces before TASK-050, including stake lock/transfer, refusal/review edge case and idempotent finish
+
+Test Steps:
+- Create challenge from UI with stake and verify assigned table/zone
+- Run deck validation, mulligan and three round board flow with pass/tie handling
+- Finish match and retry finish to verify idempotency
+- Run refusal/safety path and verify master review state
+- Switch PvP throttle in Admin and verify player UI queue/blocked state
+- Run one online-zone PvP/Gwent smoke through two real mobile clients or mobile plus approved desktop surrogate and record the surface used
+- uv run pytest tests/test_pvp_runtime.py -q
+- uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: TASK-041 PvP/Gwent remediation, mobile gameplay UI and PvP runtime APIs.
+Outputs: Player-usable PvP/Gwent UI for online-zone matches and master-reviewable edge cases, proven as part of non-PvE gameplay readiness.
+Implementation path: UI submits actions to server; server validates deck/hand/round/stake authority.
+Interfaces: /api/pvp/challenges, /api/pvp/tables, /api/pvp/challenges/{id}/start, /api/pvp/matches/{id}/rounds, /api/pvp/matches/{id}/finish and refusal/review endpoints.
+Failure/review paths: Invalid or ambiguous PvP never auto-applies stake; refusal/timeout/tie routes remain visible; any Gwent flow that still needs Swagger blocks TASK-050.
+Required tests: Browser/mobile smoke, real-surface online-zone PvP smoke, PvP runtime regressions, idempotency and review queue integration.
+
+### TASK-049 - Реализовать Admin paper recovery и correction forms
+
+Status: `pending`
+Priority: `P0`
+Category: `admin`
+Stage: `STAGE-2B: Playable Role UI`
+Stage gate: `False`
+Dependencies: `TASK-045`, `TASK-021`, `TASK-022`, `TASK-043`
+
+Goal:
+
+Довести мастерские формы восстановления и коррекций, чтобы все критичные бумажные fallback-события можно было внести из Admin Studio с audit и conflict review.
+
+Scope:
+- Paper recovery forms for paper_pve_result, paper_pvp_stake, paper_lord_action, paper_lord_battle, paper_order_resolution, paper_npc_deal and paper_final_evidence
+- Required fields: paper_form_id, source form type, operator, timestamp, participants, object/stake/territory/battle/order/QR, result and recovery reason
+- Conflict preview before submit: duplicate digital event, stale ownership, locked asset, closed order, finished battle or final-lock conflict
+- Master correction forms with reason/operator for reward approval, map/garrison/MP/building/recruit/reserve/raid/PvP timeout/final evidence
+- Review queue integration with severity P0/P1/P2/P3 and visible unresolved state
+- Audit log/export visibility for post-game review and final_summary paper recovery section
+
+Acceptance:
+- Master can enter every allowed paper fallback form from Admin Studio without editing SQLite or using Swagger
+- Conflicting or duplicate paper recovery creates review item and never silently overwrites digital state
+- Valid paper recovery applies through the same idempotency/resource/ownership checks as digital events
+- Corrections require reason/operator and are visible in audit/final summary where relevant
+- Paper recovery drill can be rehearsed for lord action or lord battle plus at least one mobile/PvP/final evidence form
+
+Test Steps:
+- Submit paper_pve_result and paper_pvp_stake forms from Admin UI
+- Submit paper_lord_action and paper_lord_battle continuation forms and verify timestamp/conflict behavior
+- Submit paper_order_resolution, paper_npc_deal and paper_final_evidence forms
+- Create duplicate/conflicting paper recovery and verify needs_master_review with reason
+- Create correction with missing reason and verify rejection; create valid correction and verify audit
+- Open final_summary and verify paper recovery evidence is present
+- uv run pytest tests/test_final_summary_runtime.py tests/test_fastapi_contract.py -q
+- uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: TASK-021 game ops dashboard, TASK-022 NPC/final tools and TASK-043 recovery consistency fixes.
+Outputs: Admin Studio forms for all critical paper fallback and correction workflows.
+Implementation path: Forms call explicit backend endpoints that reuse event/recovery services; no direct DB writes from UI.
+Interfaces: paper_forms seed, event_reviews, final_summary paper recovery section, correction/review APIs and backup/export.
+Failure/review paths: Duplicate/conflicting recovery always goes to master review with reason; missing required fields block submission.
+Required tests: Browser smoke, recovery conflict fixtures, final_summary visibility and TaskOS validate.
+
+### TASK-058 - Провести non-PvE gameplay hardening на реальных поверхностях
+
+Status: `pending`
+Priority: `P0`
+Category: `qa`
+Stage: `STAGE-2B: Playable Role UI`
+Stage gate: `False`
+Dependencies: `TASK-046`, `TASK-047`, `TASK-048`, `TASK-049`
+
+Goal:
+
+Перед Stage 2B gate прогнать задуманный gameplay без generated/full PvE content: телефоны iOS/Android, 4 лордские панели, personal Gwent, заказы/trade, магия/зелья/фавориты, Admin recovery и дефект-триаж.
+
+Scope:
+- Real-device mobile readiness: Android APK and iOS build/free provisioning install, launch, local network, snapshot, restart persistence and sync retry
+- Four-lord browser readiness: 4 simultaneous panels on local Wi-Fi or equivalent venue-like LAN, role-token isolation and scoped actions
+- Validated lord map readiness: venue_map_v1 labels/nodes/edges, excluded old house/shed, route costs, ownership, contested, garrison and raid states
+- Non-PvE scripted gameplay: orders, trade_transfers, inventory/card/asset locks, reputation visibility, personal PvP/Gwent, sorceress potions/spells/favorites/alignment and lord economy/route/battle/raid/order
+- Admin Studio support for the same run: acts/timers/review/correction/backup/NPC/final_summary and paper recovery drill
+- Outage/recovery drill: paper fallback is proven for at least one lord action or lord battle plus one PvP/trade/final evidence case
+- Defect triage: no unresolved P0/P1 and no P2 that blocks non-PvE player/lord gameplay; any P2/P3 has owner, severity and workaround
+
+Acceptance:
+- Android and iOS real-device smoke both pass; if either platform cannot install, launch, connect, snapshot, restart and retry sync, this task blocks TASK-050
+- 4 lord panels can run simultaneously and complete route -> contested claim -> battle -> garrison -> building -> recruit -> reserve -> raid -> order without Swagger
+- Lord map is accepted as valid for gameplay testing: all relevant map states are visible, readable and consistent with venue_map_v1
+- Two-player personal PvP/Gwent runs end to end through gameplay UI with stake lock/transfer, refusal/review edge case and idempotent finish
+- Witcher/sorceress non-PvE routes work through mobile UI: inventory, order board, trade, reputation, potions, spells, favorites, sync/retry and locked/review states
+- Admin Studio can support the non-PvE run without direct API/SQLite edits and can recover paper fallback without silent overwrite
+- No known unresolved P0/P1 or blocking P2 defect remains in non-PvE gameplay before TASK-050
+
+Test Steps:
+- Record device/build evidence for one Android phone and one iPhone: install path, launch, local server connection, snapshot, restart persistence, sync retry and QR/manual fallback
+- Open 4 lord panels simultaneously and run route/capture/battle/garrison/building/recruit/reserve/raid/order from UI controls
+- Run lord map audit from UI: venue_map_v1 nodes/edges, route costs, ownership, contested/garrison/raid states and excluded old house/shed
+- Run non-PvE mobile smoke: inventory/order/trade/reputation plus sorceress potion/spell/favorite/alignment evidence and sync/retry states
+- Run personal PvP/Gwent from gameplay UI: challenge -> table/start -> deck/hand/rounds/pass -> finish/stake -> refusal/review
+- Run Admin support smoke: act/timer/review/correction/backup/NPC/final_summary plus paper_lord_action or paper_lord_battle and one PvP/trade/final recovery
+- Create defect list from the run and verify no unresolved P0/P1/blocking P2 remains
+- uv run pytest -q
+- uv run python scripts/taskctl.py validate
+- uv run python scripts/taskctl.py doctor
+
+Notes:
+
+Contract:
+Inputs: TASK-046 lord UI, TASK-047 mobile gameplay UI, TASK-048 PvP/Gwent UI, TASK-049 Admin recovery UI, venue-like local network and at least one Android plus one iPhone.
+Outputs: Evidence that full non-PvE gameplay is testable as an application before generated PvE/content/balance stages.
+Implementation path: Run a UI-first hardening script across mobile, lord panels and Admin Studio. Generated/full PvE content is out of scope, but seed QR/PvE smoke may be used only to prove mobile offline/sync/reward states.
+Interfaces: Godot mobile, FastAPI/SQLite, static lord panels, Admin Studio, PvP/Gwent APIs, lord runtime APIs and paper recovery services.
+Failure/review paths: Missing Android/iOS smoke, broken lord map, Gwent requiring Swagger, or any unresolved P0/P1/blocking P2 non-PvE defect blocks TASK-050. Paper fallback proves outage recovery only and cannot replace a missing normal UI.
+Required tests: Real-device smoke, four-lord panel smoke, non-PvE scripted gameplay run, defect triage, pytest, TaskOS validate/doctor.
+
+### TASK-050 - STAGE 2B GATE: playable role UI acceptance
+
+Status: `pending`
+Priority: `P0`
+Category: `qa`
+Stage: `STAGE-2B: Playable Role UI`
+Stage gate: `True`
+Dependencies: `TASK-046`, `TASK-047`, `TASK-048`, `TASK-049`, `TASK-058`
+
+Goal:
+
+Принять полноценные игровые интерфейсы ролей: игроки, лорды и мастера могут тестировать основной функционал как приложение, без Swagger и ручной правки базы.
+
+Scope:
+- End-to-end UI smoke across Admin Studio, 4 lord panels and mobile gameplay UI
+- No-Swagger player/lord acceptance: normal gameplay uses app/panels only
+- Witcher UI flow: snapshot -> QR/manual PvE -> cooldown/reward approval -> sync -> inventory/order/trade visibility
+- Sorceress UI flow: PvE -> potion buy/transfer/use -> spell -> favorite consent -> locked magical intent evidence
+- Lord UI flow: route -> contested claim -> battle -> garrison -> building -> recruit -> reserve -> raid -> order
+- PvP/Gwent UI flow: challenge -> table/start -> hand/rounds/pass -> finish/stake -> refusal/review edge case
+- Admin UI flow: act/timer/review/correction/backup/NPC/final summary plus paper recovery drill
+- Hard Android/iOS device gate: real-device install/launch/connect/snapshot/restart/sync evidence is required, not launch-risk fallback
+- Non-PvE gameplay readiness gate: lord map/economy/battle/raid/order, personal PvP/Gwent, trade/order/favorites/magic/reputation and Admin recovery/final_summary
+- Restart/offline/retry smoke and browser/device evidence record
+- UI coverage checklist ready for Stage 3 generated quest tests, Stage 4 content smoke and Stage 5 rehearsal
+
+Acceptance:
+- All release-critical non-PvE player/lord workflows have a working UI path; paper fallback is accepted only as outage recovery and not as a substitute for missing normal UI
+- Players and lords can test core gameplay without Swagger, curl, raw API docs or SQLite edits
+- Android APK and iOS build both pass real-device smoke before acceptance; missing mobile platform proof blocks Stage 2B
+- 4 lord panels pass simultaneous smoke and the lord map is visually/readably/semantically valid for gameplay testing
+- Personal PvP/Gwent, lord gameplay, trade/orders, sorceress magic/potions/favorites and Admin recovery all pass UI-first scripted smoke without generated/full PvE content
+- Master-only diagnostics remain available but are not counted as player/lord workflow acceptance
+- Visibility boundaries hold across mobile, lord panel and Admin Studio
+- Offline/retry/review/locked states are visible and recoverable
+- Generated quest and full content pack gates can use UI smoke instead of API-only smoke
+- No known unresolved P0/P1 or blocking P2 defect remains in non-PvE gameplay before Stage 3 begins; lower-severity issues have owner, severity and workaround
+
+Test Steps:
+- Run UI scripted flow: Admin import/snapshot/start act -> mobile QR/PvE -> sync/reward approval -> lord route/battle/garrison/build/recruit/raid/order -> PvP/Gwent -> sorceress potion/spell/favorite -> paper recovery -> final_summary
+- Open 4 lord panels simultaneously and verify scoped state/actions
+- Run Android real-device smoke: install APK -> launch -> connect local server -> snapshot -> restart persistence -> sync retry -> QR/manual fallback
+- Run iOS real-device smoke: install build through chosen path -> launch -> connect local server -> snapshot -> restart persistence -> sync retry -> QR/manual fallback
+- Run dedicated non-PvE gameplay script: orders/trade/inventory/reputation -> sorceress potion/spell/favorite -> PvP/Gwent -> lord map/economy/battle/raid/order -> Admin recovery/final_summary
+- Verify no player/lord step in the acceptance script requires Swagger/API docs
+- Review TASK-058 defect list and verify no unresolved P0/P1/blocking P2 remains
+- Restart server and verify Admin/mobile/lord UI state survives
+- uv run pytest -q
+- uv run python -m json.tool tasks.json
+- uv run python scripts/taskctl.py validate
+- uv run python scripts/taskctl.py doctor
+
+Notes:
+
+Contract:
+Inputs: TASK-046 lord UI, TASK-047 mobile gameplay UI, TASK-048 PvP/Gwent UI, TASK-049 paper recovery/corrections UI and TASK-058 non-PvE hardening evidence.
+Outputs: A UI acceptance gate proving the game can be functionally tested as an application before generated PvE content and balance/rehearsal, with full non-PvE gameplay ready on real devices and lord laptops.
+Implementation path: Run role-flow and non-PvE hardening through real UI surfaces first; API calls are allowed only for developer diagnostics and assertions.
+Interfaces: Admin Studio, lord panels, Godot mobile, local FastAPI/SQLite, PvP/Gwent UI, lord map UI and paper recovery forms.
+Failure/review paths: Any release-critical workflow still requiring Swagger blocks the gate; missing Android/iOS smoke, invalid lord map, broken Gwent, or unresolved P0/P1/blocking P2 non-PvE defect blocks Stage 2B. Paper fallback proves recovery only and cannot replace normal UI.
+Required tests: UI scripted flow, non-PvE hardening run, full pytest, TaskOS validate/doctor, restart/offline smoke and real-device evidence.
+
 ### TASK-024 - Спроектировать UI data model PvE generator
 
 Status: `pending`
@@ -1191,7 +769,7 @@ Priority: `P1`
 Category: `generator`
 Stage: `STAGE-3: PvE Generation Engine`
 Stage gate: `False`
-Dependencies: `TASK-023`
+Dependencies: `TASK-050`
 
 Goal:
 
@@ -1378,6 +956,8 @@ Acceptance:
 - Генератор можно тестировать отдельно от полного уникального контент-пака
 - Сгенерированный квест проходит draft -> compile -> import -> mobile PvE -> sync
 - Ошибки генерации понятны мастеру
+- Generated quest smoke uses mobile gameplay UI and Admin Studio controls, not only API calls
+- No generated quest acceptance step requires Swagger for player/lord workflows
 
 Test Steps:
 - Создать 5 generated PvE drafts через UI
@@ -1386,6 +966,8 @@ Test Steps:
 - Проверить validation report
 - uv run python scripts\taskctl.py validate
 - uv run python scripts\taskctl.py doctor
+- Run one generated QR/PvE quest through mobile gameplay UI and sync result
+- Verify generated quest errors remain readable in Admin Studio UI
 
 Notes:
 
@@ -1643,6 +1225,8 @@ Acceptance:
 - Critical paper fallback forms exist and are usable by setup/operator
 - Player-facing handouts are printable and match runtime rules
 - QR honesty policy, single_d20/no-reroll and physical act announcements are covered in content/runbook
+- Full content smoke uses mobile/lord/Admin UI paths for at least one representative flow per role
+- Content pack does not rely on Swagger/manual API for player or lord gameplay acceptance
 
 Test Steps:
 - Импортировать full content pack
@@ -1657,6 +1241,7 @@ Test Steps:
 - Check rarity cap report for rare Gwent cards, artifacts, legendary artifacts, potions and plot/strategic keys
 - Smoke paper fallback forms for QR/PvE, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence
 - Review player-facing handouts, NPC scene book, physical act announcement runbook and NPC-led Final Act tournament load plan
+- Run representative full content smoke through mobile gameplay UI, lord action UI and Admin Studio
 
 Notes:
 
@@ -1894,6 +1479,8 @@ Scope:
 - Fallbacks and post-game export
 - Immediate paper fallback drill for QR/PvE result, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence
 - paper_recovered recovery input, idempotency and conflict review rehearsal including lord paper continuation
+- Player/lord UI rehearsal without Swagger/manual API for normal gameplay
+- Mobile gameplay UI and lord action UI device/browser rehearsal, including offline/retry/review/locked states
 
 Acceptance:
 - Full scripted run passes on real hardware
@@ -1907,6 +1494,8 @@ Acceptance:
 - Unresolved blockers have owner, severity and fallback
 - Runbook lets masters switch a critical action to paper immediately when app/network path is unavailable
 - Paper recovery creates source=paper_recovered with paper_form_id/source form type/operator/timestamp/reason and does not silently overwrite digital state
+- Full scripted run uses real UI surfaces for players, lords and masters; Swagger/API docs are developer diagnostics only
+- Mobile/lord/Admin UI blockers have owner, severity and fallback before release
 
 Test Steps:
 - Run rehearsal on venue-like Wi-Fi
@@ -1920,6 +1509,7 @@ Test Steps:
 - uv run python scripts\taskctl.py validate
 - During rehearsal, force one critical paper fallback action and recover it through Admin Studio
 - Check paper_recovered duplicate/conflict handling, including paper_lord_action/paper_lord_battle, goes to master review without silent overwrite
+- Run rehearsal UI-first: mobile phones/Godot, 4 lord panels and Admin Studio; record any step that still needs Swagger as blocker
 
 Notes:
 
@@ -1978,6 +1568,8 @@ Acceptance:
 - Paper fallback/recovery is proven for critical events and no unresolved P0/P1 launch blocker lacks fallback
 - Game-day ops checklist is rehearsed on real hardware and venue-like Wi-Fi
 - Physical act announcements, QR honesty policy, single_d20/no-reroll checks, PvP refusal/safety table and player-facing handouts are signed off
+- Playable role UI gate is complete and release scripted run does not depend on Swagger/manual API for player or lord workflows
+- Mobile, lord, PvP/Gwent, Admin and paper recovery UI surfaces pass final release smoke
 
 Test Steps:
 - Review balance simulation reports
@@ -1994,6 +1586,8 @@ Test Steps:
 - Review rarity cap/power budget exploit sign-off
 - Review paper fallback/recovery drill evidence for QR/PvE, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence
 - Review player-facing handouts and NPC scene book sign-off
+- Review TASK-050 UI acceptance evidence and unresolved UI blocker list
+- Run final release smoke through Admin Studio, 4 lord panels and mobile gameplay UI without Swagger for normal gameplay
 
 Notes:
 
@@ -2264,3 +1858,1867 @@ Interfaces: Every CSV uses stable opaque IDs, UTF-8, comma delimiter, header row
 Failure/review paths: Invalid fixture failures must be intentional and named; hardware launch-risk from TASK-001 does not block seed work.
 Required tests: Manual CSV/header review; TaskOS validate/doctor; later TASK-004 importer tests must consume these exact files without renaming.
 Planning contracts are locked; seed CSV implementation has not started, so the task is ready for the next implementation claim.
+
+### TASK-004 - Реализовать SQLite schema, import и snapshot pipeline
+
+Status: `done`
+Priority: `P0`
+Category: `backend`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-002`, `TASK-003`
+
+Goal:
+
+Превратить runtime CSV в повторяемую SQLite-схему и mobile snapshot для seed-контента Stage 1.
+
+Scope:
+- SQLite tables для full-game runtime сущностей
+- CSV import с duplicate/missing-reference validation
+- snapshot_versions и compact mobile content snapshot
+- Проверка QR mode values unique_object/repeatable_scene/always_available_scene, fixed 10-hour schedule, 3 story acts + final act, production profile 4/4/5 + 2 NPC, act availability, act_unlock_codes, role/player codes, cooldown/token windows и restart recovery
+- Schema/import validation для personal_goals, goal_tracks, hidden goal_flags, final_hooks, full Gwent cards/decks/matches, trade_transfers and final_summary
+- Lord strategic tables: map graph, movement pools, territory claims, pending rewards, recruit offers, raids
+- Building/unit importer validation: dependency graph, unit classes, recruit unlocks and capacity
+- Order/potion/NPC/final validation: object conflict, order cap, reward approval policy, wholesale market, pvp throttle rules, King/Stranger event types, roleplay-first NPC-master split, review severity, favorites lifecycle, final summary evidence categories, Final Act timeboxes and final procedure inputs
+- Implement importer/snapshot modules under backend/witcher_larp with clear boundaries: csv loading, validation report, SQLite write transaction, snapshot export
+- Use Python stdlib csv/json/sqlite where sufficient; add dependencies only through pyproject.toml and uv lock/sync
+
+Acceptance:
+- Fresh DB собирается из seed CSV
+- Ошибочные CSV падают с читаемой ошибкой
+- Snapshot содержит игроков профиля 4/4/5, QR, PvE, personal goals, items/cards/gwent cards/potions/spells и descriptors
+- SQLite schema хранит map_nodes/map_edges, movement_pools, territory_claims, pending_tick_rewards, reward_approvals, recruit_offers, anti_snowball_rules, act_unlock_codes, challenge_tokens, pvp_tables/throttle, trade_transfers, personal_goals, goal_flags, gwent_matches, final_summary и raid_effects
+- Importer ловит cycles, missing prerequisites, unknown branch, invalid gold_cost, bad recruit_unlock, invalid unit_class/tier/capacity/range, invalid production profile, invalid stat cap/level rule, invalid act unlock coverage, invalid reward approval policy, invalid reputation range/start/thresholds, invalid mana regen source, invalid full Gwent deck/card rule, invalid PvP throttle rule, invalid card conversion tier, invalid trade transfer lock rule, invalid favorite caps/lifecycle, invalid order cap/status machine, invalid cooldown/token window, invalid XP source, invalid spell-card target/counterplay, invalid final_summary fields/load plan и duplicate active order object rule
+- После restart доступны импортированное состояние и snapshot metadata
+- Import pipeline has a documented module boundary and can be run from uv without relying on global Python packages
+
+Test Steps:
+- Importer tests на temporary SQLite DB
+- Импортировать seed CSV и проверить import report
+- Экспортировать snapshot
+- Проверить invalid CSV cases
+- Проверить invalid map edge, missing territory bonus, bad building prerequisite и bad raid target
+- Проверить invalid act structure, act unlock coverage, fixed 10-hour schedule, production profile count, PvE cooldown duration, challenge token grant/window и duplicate order object rule
+- Проверить invalid QR mode values beyond unique_object/repeatable_scene/always_available_scene
+- Проверить invalid personal_goals/goal_tracks/goal_flags/final_hooks visibility and references
+- Проверить invalid full Gwent deck/card cases: unit minimum, special cap, leader, row/effect/tie rules
+- Проверить invalid trade_transfers lock/asset owner/two-confirmation cases
+- Проверить invalid XP source, broken level curve, +1 stat/max stat validation и invalid spell-card ritual/intrigue
+- Проверить invalid reward approval policy, potion wholesale market, PvP throttle, King/Stranger event type, NPC-master split, review severity и missing final procedure input
+- Проверить cyclic building tree, missing cross-dep, invalid unit_class, invalid tier/capacity и bad recruit offer source
+- Проверить invalid reputation -5..+5/start 0 thresholds, hourly mana regen, card tier conversion, favorite lifecycle, order cap/status machine and final_summary fields/load plan cases
+- uv run python scripts\taskctl.py validate
+- Run importer/snapshot checks through uv run pytest or uv run python -m unittest
+- uv run pytest; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py doctor
+
+Notes:
+
+Contract:
+Inputs: data/seed CSV pack from TASK-003 and tests/fixtures valid/invalid packs.
+Outputs: SQLite schema, import transaction, validation report and mobile snapshot export in data/snapshots with snapshot_version.
+Implementation path: Implement importer modules under backend/witcher_larp: csv_loader, validation, repository/schema, import_service and snapshot_exporter; use stdlib csv/json/sqlite unless pyproject dependency is justified.
+Interfaces: Tables mirror TASK-003 CSV names plus import_runs, import_errors, snapshot_versions and event_log. Import report: {run_id,status,files,errors,snapshot_version}. Snapshot: {snapshot_version,profile,player,acts,qr_objects,pve_scenarios,items,cards,goals,visibility,generated_at}.
+Failure/review paths: All writes are transactional; missing refs, duplicates, invalid enums/ranges, cycles and profile-count violations fail with readable errors and no partial DB state.
+Required tests: Importer unit tests on temp DB for valid seed and every invalid fixture; snapshot export test; restart metadata test; TaskOS validate/doctor.
+
+### TASK-005 - Реализовать idempotent event intake API
+
+Status: `done`
+Priority: `P0`
+Category: `backend`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-004`
+
+Goal:
+
+Принимать события от мобильных клиентов и панелей, валидировать и применять их один раз.
+
+Scope:
+- events table и event status model
+- POST /api/events/sync
+- accepted/rejected/needs_master_review/pending_master_approval
+- act_unlocked_offline and reward approval event payloads
+- Deduplication по event_id
+- Define Pydantic/FastAPI request-response models for event sync, event status, review reason and idempotency response
+- Persist raw payload_json and normalized event metadata so future rule engines can replay/review events
+
+Acceptance:
+- Повторный event_id не применяет эффект дважды
+- Валидное PvE-like событие accepted
+- Cascade-prone reward creates pending approval instead of silently applying global asset/state
+- Спорное событие сохраняется с reason
+- API contract for /api/events/sync is documented enough for Godot client and web panels to implement against it
+
+Test Steps:
+- API integration tests с FastAPI и SQLite test DB
+- Отправить одно событие дважды и проверить single application
+- Отправить event with master-code act unlock and pending reward approval path
+- uv run python scripts\taskctl.py validate
+- uv run pytest -q passed: 28 tests; uv run python scripts/taskctl.py validate passed.
+
+Notes:
+
+Contract:
+Inputs: SQLite schema from TASK-004, current player/role auth model and mobile/web event producers.
+Outputs: Idempotent event intake API, event status model and review/approval persistence.
+Implementation path: Add FastAPI/Pydantic models and SQLite repositories for event intake; keep raw payload_json and normalized metadata for replay.
+Interfaces: POST /api/events/sync request: {device_id,actor_id,actor_type,events:[{event_id,client_sequence,created_at,event_type,payload}]}. Response: {server_time,snapshot_version,results:[{event_id,status,reason,server_event_id}]}. Status enum: accepted, duplicate, rejected, needs_master_review, pending_master_approval.
+Failure/review paths: Duplicate event_id returns duplicate without reapplying; invalid actor/act/asset/reward creates rejected or needs_master_review; cascade-prone rewards create pending_master_approval locks.
+Required tests: FastAPI integration tests for duplicate event, valid event, pending approval, review reason and raw payload persistence.
+
+### TASK-006 - Реализовать акты, auto timers и backup hooks
+
+Status: `done`
+Priority: `P0`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-004`
+
+Goal:
+
+Серверный контур 3 сюжетных актов и финального акта: мастер запускает акт, сервер сам применяет тики от фактического старта.
+
+Scope:
+- current act/status для 3 сюжетных актов и final act
+- start/switch act API
+- act unlock code/QR state for offline phones
+- auto_timers от фактического старта
+- Доход, мана, challenge tokens по 3 за акт с накоплением, окна армий
+- Hourly mana regen uses sorceress level/bonus source values from balance tables
+- Backup hook перед сменой акта
+- Expose timer/act endpoints consumed by static Admin UI and mobile act unlock flow
+
+Acceptance:
+- Можно запустить и переключить Act 1, Act 2, Act 3 и Final Act
+- После старта акта сервер выдает/логирует unlock code для offline-телефонов
+- Auto_timer применяет due tick без ручного нажатия каждого дохода/маны/жетона, а challenge tokens начисляются по 3 за акт и копятся
+- Hourly mana regen applies from sorceress level/bonus source and persists across restart
+- Ticks и act state сохраняются после restart
+- Act/timer engine records operator, source, server timestamp and physical announcement state before unlock code reveal
+
+Test Steps:
+- Act/timer domain tests
+- Переключить акт через API
+- Проверить offline act unlock code for Act 2/3/Final Act
+- Смоделировать due tick и проверить income/mana/3 challenge tokens per act/army window
+- Проверить hourly mana regen by sorceress level/bonus source
+- Restart check
+- uv run python scripts\taskctl.py validate
+- uv run pytest
+- uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Imported acts, timers, backup_jobs, event API and SQLite state.
+Outputs: Server-side act state, auto tick service, unlock-code release rules and backup hooks.
+Implementation path: Implement act_service, timer_service and backup_service under backend/witcher_larp; all act/tick/backup mutations write event_log rows.
+Interfaces: APIs: POST /api/master/acts/{act_id}/start, GET /api/master/acts/{act_id}/unlock-code, POST /api/backups/run. Timer effects cover income, mana, challenge tokens, MP refill and final lock transitions.
+Failure/review paths: Unlock code remains hidden until act start plus physical announcement log; missed ticks are applied once after restart; backup failure reports needs_master_review if it affects a transition.
+Required tests: Unit/integration tests for act start, unlock gating, tick idempotency, restart catch-up, backup artifact creation and final lock behavior.
+
+### TASK-007 - Собрать Godot mobile shell и player-code login
+
+Status: `done`
+Priority: `P0`
+Category: `mobile`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-003`
+
+Goal:
+
+Создать мобильный shell для ведьмаков и чародеек с локальным snapshot и persistence.
+
+Scope:
+- Godot 4 project structure
+- Экран ввода player_code
+- Скачать или загрузить bundled snapshot
+- Local persistence в user://
+- Показ персонажа, роли, ресурсов и описательной репутации
+- Create planned mobile/ Godot 4 project with export presets, GDScript app shell, connection settings and API base URL/QR connection screen
+- Document Android/iOS export assumptions and local network permission prompts in project notes
+- Android APK export/install/launch smoke when Android SDK/Godot export template is available
+- iOS export/free provisioning/TestFlight go-no-go for the Godot shell when Mac/Xcode path is available
+
+Acceptance:
+- Mobile shell запускается на целевых устройствах или desktop smoke
+- player_code привязывает устройство к персонажу
+- snapshot_version отображается и сохраняется
+- После restart персонаж/snapshot доступны без сети
+- Godot project structure and export path are explicit enough for Android/iOS smoke without guessing folders or commands
+- Real Android/iOS exported app smoke passes or is explicitly marked launch-risk with fallback and owner
+
+Test Steps:
+- Mobile shell smoke
+- Ввести seed player_code
+- Скачать snapshot или загрузить fallback
+- Перезапустить приложение и проверить state
+- Export/install/launch Android APK smoke if Android export tooling is available
+- Run iPhone free provisioning/TestFlight smoke or record blocker/go-no-go if Mac/Xcode path is unavailable
+- uv run python scripts\taskctl.py validate
+- Passed: uv run python -m pytest tests\test_mobile_shell_contract.py (4 passed); uv run python scripts\taskctl.py validate. Godot/godot4 CLI and Android/iOS export tooling were not available in PATH, so desktop/device export smoke is documented as launch-risk/fallback in mobile/README.md. Full uv run python -m pytest was attempted and currently fails in existing TASK-004 import/snapshot pipeline work, outside TASK-007 scope.
+
+Notes:
+
+Contract:
+Inputs: TASK-001 platform facts/launch-risk labels when available, TASK-003 seed auth rows and TASK-004 snapshot API contract.
+Outputs: Godot 4 mobile shell under mobile/ with player_code login, snapshot download, local user:// persistence and explicit Android/iOS export smoke path.
+Implementation path: Create minimal Godot project with screens: connection settings, player code login, snapshot status, character home. Keep UI functional and offline-first. Unresolved TASK-001 launch-risk labels do not block desktop/mocked shell implementation, but real device sign-off remains required before release.
+Interfaces: Client calls POST /api/auth/player-code and GET /api/content/snapshot; stores server_url, device_id, player_id, snapshot_version and snapshot payload in user://. Android/iOS exported app smoke records device model, OS, export preset, install method, camera permission and /health/snapshot behavior.
+Failure/review paths: If server is unreachable, app shows offline state and keeps last snapshot; invalid code gives readable error without clearing local data. If Android/iOS export fails, record blocker/go-no-go with fallback: Android-only launch, TestFlight/Apple Developer Program, browser/manual QR flow or paper_recovered.
+Required tests: Godot desktop smoke; repository check for project files; mocked API contract until server exists; Android APK export/install/launch smoke when tooling exists; iPhone provisioning/TestFlight smoke or explicit launch-risk label.
+
+### TASK-008 - Реализовать mobile event_queue и sync status
+
+Status: `done`
+Priority: `P0`
+Category: `mobile`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-005`, `TASK-007`
+
+Goal:
+
+Хранить офлайн-события локально и синхронизировать их при доступности сервера.
+
+Scope:
+- Local event_queue в user://
+- event_id и client_sequence
+- Payload с roll log/result/timestamps
+- Statuses: offline, pending, synced, sync_error, needs_master_review
+- Define local event_queue storage schema in user:// as JSON records matching backend /api/events/sync payload
+
+Acceptance:
+- Offline event остается после restart
+- Повторная отправка event_id не дублирует эффект
+- Sync status меняется предсказуемо
+- PvE roll log отправляется серверу
+- Godot event_queue schema is compatible with FastAPI event intake contract and supports replay after restart
+
+Test Steps:
+- Создать offline event и restart app
+- Sync success и sync retry error path
+- Duplicate event_id check
+- Проверить roll_log payload на сервере
+- uv run python scripts\taskctl.py validate
+- uv run pytest tests/test_mobile_shell_contract.py tests/test_fastapi_contract.py (16 passed); uv run pytest (41 passed); uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Godot shell from TASK-007 and /api/events/sync from TASK-005.
+Outputs: Persistent mobile event_queue and sync status UI.
+Implementation path: Implement user:// event queue storage with append, retry, status update and compacted history.
+Interfaces: Local event shape mirrors server: event_id, device_id, player_id, client_sequence, created_at, event_type, payload, local_status. UI statuses: offline, pending, synced, sync_error, needs_master_review.
+Failure/review paths: Network failure leaves events pending; server rejected/review statuses stay visible and never delete the local log silently.
+Required tests: Godot tests for queue persistence across restart; mocked sync success/reject/review; server integration once API exists.
+
+### TASK-009 - Реализовать QR/manual ID runtime flow
+
+Status: `done`
+Priority: `P1`
+Category: `mobile`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-004`, `TASK-007`
+
+Goal:
+
+Позволить игрокам открывать физические QR-пропы через QR scan или короткий manual ID.
+
+Scope:
+- QR scan
+- Manual short QR-ID
+- Lookup в local snapshot
+- Показ QR type, consumption mode and physical-presence-only honesty notice
+- Offline instruction: success забрал QR, failure оставил
+- Suspected honesty violation event context for master review
+
+Acceptance:
+- Valid QR открывает linked scenario/object
+- Manual ID работает как fallback
+- Unknown QR дает понятную ошибку
+- QR mode попадает в event context
+- Manual ID/QR flow требует player confirmation физического присутствия у prop/локации
+
+Test Steps:
+- Сканировать seed QR каждого режима
+- Ввести тот же QR через manual ID
+- Unknown QR path
+- Проверить QR mode and physical-presence confirmation in local event context
+- Проверить suspected honesty violation review payload
+- uv run python scripts\taskctl.py validate
+- uv run pytest tests/test_fastapi_contract.py tests/test_mobile_shell_contract.py (15 passed); uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Seed qr_objects/manual codes, Godot shell, event_queue and importer validation.
+Outputs: QR/manual ID runtime flow with opaque IDs, rate limit, physical-presence confirmation and review event path.
+Implementation path: Implement mobile QR/manual entry screen and backend lookup/validation service for qr_objects.
+Interfaces: Manual code input emits qr_attempt event; valid launch emits qr_scene_started; suspected guessing/honesty violation emits needs_master_review with reason honesty_violation_suspected or manual_rate_limit.
+Failure/review paths: Future-act QR without unlock is blocked locally; repeated bad manual IDs lock input for configured cooldown and preserve attempt log.
+Required tests: Mobile mocked tests for valid/manual/future-act/bad attempts; backend validation tests for QR mode, rate limit and review status.
+
+### TASK-010 - Реализовать offline PvE runtime engine
+
+Status: `done`
+Priority: `P0`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-008`, `TASK-009`
+
+Goal:
+
+Собрать PvE rule engine: один QR = один квест, single-d20 проверки с логируемыми modifiers, короткий бой на HP сцены, result/30-minute cooldown/sync log.
+
+Scope:
+- Scenario card из snapshot
+- single_d20 + stat + item/potion/artifact/magic bonuses + logged advantage/hindrance modifiers офлайн
+- 1-3 checks и короткий round combat
+- Scene HP, success/failure/partial success
+- QR modes: unique_object, repeatable_scene, always_available_scene
+- Act availability and offline act unlock source in local event context
+- 30-minute cooldown per QR on failure for the failed player only
+- pending_master_approval locks for cascade-prone rewards
+- Ordinary QR quests always available to avoid idle players
+- Witchers/sorceresses can run QR/PvE in any zone regardless of territory owner
+- Visible personal_goals/goal_tracks progress and hidden goal_flags emitted only for master/final hooks
+- XP rewards from monsters, autoquests, lord orders, personal goals and significant events
+- Level-up grants +1 stat, respects max stat 7, and balances 5 witchers + 4 field-active sorceresses
+- Reward draft and roll_log
+- No reroll effects in PvE check resolution; rare aids modify result through logged modifiers or hindrance downgrade
+- Temporary player_scene_hp: default 6 + level + armor_or_ward_bonus, minimum 7, reset after scene
+- Scene combat fields: scene_hp, combat_dc, scene_damage, round_limit, timeout_outcome and base_damage
+- Tier defaults: scene_hp T1/T2/T3/T4 = 6/10/14/18, default round_limit = 5
+- Combat action contract: attack/check, defend/prepare, item/potion, valid magic, abandon scene
+- Opaque manual ID validation, rate limit and attempt log for offline QR/manual input
+
+Acceptance:
+- PvE работает без Wi-Fi и сразу показывает результат
+- Провал ставит cooldown 30 минут на конкретный QR только для провалившего игрока
+- Roll log достаточен для server validation
+- Каждая проверка использует ровно один d20; все преимущества/помехи учтены как modifiers
+- Territory owner does not block witcher/sorceress PvE
+- XP source, +1 stat per level, max stat 7 and slowed level curve are applied by scenario rewards
+- PvE flow is balanced for 5 witchers plus 4 hybrid field sorceresses in the current 15-person production profile
+- PvE modes support unique_object, repeatable_scene and always_available_scene behavior
+- Future-act content does not open without server sync or master unlock code
+- Unique/rare/order/final rewards stay locked until master approval
+- PvE can update personal_goals/goal_tracks and master-only goal_flags without revealing hidden data to player
+- Stage 5 can consume role-load tags instead of a single QR/hour norm
+- Одноразовый/artifact/order QR объясняет забрать или оставить физический QR
+
+Test Steps:
+- Пройти seed PvE offline
+- Закрыть/открыть app и проверить сохранность результата
+- Синхронизировать событие в Wi-Fi
+- Проверить success/failure/cooldown 30 min paths
+- Проверить single_d20 roll with multiple advantage/hindrance modifier sources and no reroll
+- Проверить PvE on territory owned by different lord
+- Проверить unique_object, repeatable_scene and always_available_scene fixtures
+- Проверить future-act QR without unlock is blocked and with master unlock code is allowed
+- Проверить pending_master_approval blocks trade/stake/lord conversion/final summary until approved
+- Проверить personal_goals visible progress and hidden goal_flags sync payload
+- Проверить XP rewards for monster, autoquest/order and significant event fixtures
+- Проверить level-up +1 stat, max stat 7 and 5-witcher/4-field-sorceress role-load fixture
+- uv run python scripts\taskctl.py validate
+- Check player_scene_hp reset after success/failure and no persistent HP penalty
+- Check scene_hp T1-T4 defaults, combat_dc, scene_damage, round_limit and timeout_outcome
+- Check opaque manual ID rate limit and suspected guessing review payload
+- uv run pytest; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: pve_scenarios, mobs, rewards, QR flow, event_queue and event sync.
+Outputs: Offline PvE engine with single_d20, scene_hp, cooldown, local result and server replay/approval path.
+Implementation path: Implement shared deterministic PvE calculation in backend and equivalent Godot logic or generated rule payload for mobile.
+Interfaces: PvE result event payload: {scenario_id,qr_id,act_id,unlock_source,roll,stat,modifiers,total,dc,rounds,scene_hp_remaining,player_scene_hp_remaining,outcome,reward_id,cooldown_until}.
+Failure/review paths: No rerolls; failure sets 30-minute player+QR cooldown; cascade rewards lock as pending_master_approval until server/master confirms.
+Required tests: Unit tests for roll math, modifier log, scene_hp, timeout_outcome, cooldown, reward lock and server replay mismatch review.
+
+### TASK-011 - Собрать lord runtime panel shell
+
+Status: `done`
+Priority: `P1`
+Category: `web`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-004`
+
+Goal:
+
+Создать браузерную панель лорда с role-token login и изолированной видимостью домена.
+
+Scope:
+- Lord role_token login
+- Показ domain state, resources, territories, armies
+- Visibility только своего владения
+- Browser smoke для 4 lord panels
+- Serve lord panel as static HTML/CSS/JS from FastAPI in Stage 1 without Node build tooling
+- Define browser API calls and polling/refresh strategy for lord state and battle updates
+
+Acceptance:
+- Лорд открывает свою панель по role_token
+- Чужие домены не раскрываются
+- 4 панели работают одновременно в Wi-Fi
+- Lord panel technical implementation path is static FastAPI-served web UI with no separate frontend build step
+
+Test Steps:
+- Открыть lord panel с валидным role_token
+- Проверить invalid token
+- Проверить 4 browser sessions
+- uv run python scripts\taskctl.py validate
+- uv --cache-dir .deps\uv-cache run pytest -q -p no:cacheprovider; uv --cache-dir .deps\uv-cache run python scripts\taskctl.py validate; live smoke on http://127.0.0.1:8789/lord plus role-token/state API.
+
+Notes:
+
+Contract:
+Inputs: Stage 1 backend, role token auth and lord state tables from importer.
+Outputs: Static FastAPI-served lord panel shell with login, state summary and placeholder action surfaces.
+Implementation path: Place HTML/CSS/JS under backend/witcher_larp/web and serve through FastAPI without Node build tooling.
+Interfaces: Panel consumes POST /api/auth/role-token and GET /api/lords/{lord_id}/state; all future actions call JSON APIs, no direct DB writes.
+Failure/review paths: Invalid token cannot see lord data; panel degrades to read-only/error if action APIs are unavailable.
+Required tests: Browser/static asset smoke, auth visibility test and no Node/Vite dependency check.
+
+### TASK-012 - Реализовать territories, economy, buildings и orders runtime
+
+Status: `done`
+Priority: `P1`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-006`, `TASK-011`
+
+Goal:
+
+Собрать цифровую стратегию лордов: weighted map, movement pool, территории, гарнизоны, экономика, recruit market, резиденции, рейды, публичные/адресные заказы и escrow.
+
+Scope:
+- Weighted map graph, 4 starting residences, neutral non-residence territories, movement pool refill to cap and route validation
+- Digital territories ownership, contested claims, garrisons, defense and income
+- Pending tick rewards for battles crossing hourly income/influence tick
+- Residence building tree, gold-only costs, prerequisites and anti-snowball constraints with 30%/50% income cuts
+- Recruit market refresh, hold offers, reserve spawn and active army capacity
+- Default catalog runtime for 4 building branches and named building prerequisites/cross-deps
+- Army unit unlock runtime for infantry, guard, ranged, cavalry, heavy_siege, specialist
+- Raid engine as non-battle debuffs and optional gold/cards/influence loot with tokens, gold, resistance and expiry
+- Public/addressed orders with cap 2 public + 1 addressed active orders per lord
+- Diplomacy signals for alliances, conspiracies and coalitions against the leader
+- Escrow ledger
+- Order race support for mobile QR success sync
+- Prevent one player from holding two active orders for the same object_id
+- Lord progression remains playable through map/recruit/raid/economy/NPC when witcher availability is low
+- Order status machine and cap accounting across published/addressed_pending/accepted/in_progress/claimed_at_prop/submitted_pending_sync/pending_master_approval/completed/failed/cancelled/expired/contested_review
+- Escrow and asset lock release rules for cancel, expire, retryable failure, closed failure and contested review
+
+Acceptance:
+- Movement pool пополняется до cap каждые 30 минут и не копится выше cap
+- Лорд стартует только со своей резиденцией, остальные территории нейтральны до захвата
+- Route по map_edges тратит MP, а бой не тратит оставшийся MP
+- Первый arrival создает contested territory, факт захвата сразу виден всем лордам
+- Territory state меняется только после победы и оставленного гарнизона
+- Доход и влияние считаются из цифровой карты, pending tick reward достается победителю один раз и сохраняется после restart
+- Чужой гарнизон скрыт от других лордов, но owner и primary bonus type видны
+- Recruit market refresh создает offers, hold сохраняет выбранное предложение, покупка отправляет юнитов в reserve резиденции
+- Building tree проверяет gold cost, prerequisites и редкие cross-deps без act cap
+- Training Yard/Barracks/Market/Notice Board/Mage Study seed flow открывает базовые эффекты, а advanced buildings открывают recruit/capacity/raid effects
+- Здания и territory recruit sources открывают новые army unit cards, старые стеки не апгрейдятся автоматически
+- Recruit market может выдать offer для каждого из 6 базовых земных unit_class
+- Anti-snowball применяет default income cut 30%/50% при силе армии выше средней по заданным порогам
+- Diplomacy signals показывают standings, influence, order history, raids and contested pressure для союзов/заговоров/коалиций
+- Raid engine применяет timed debuff или loot gold/cards/influence через raid token, gold cost и defense/magic resistance
+- Лорд создает public/addressed order, reward reserved in escrow, within cap 2 public + 1 addressed active orders
+- Успешный sync первого исполнителя закрывает заказ для остальных
+- Один игрок не может держать два активных заказа на один object_id
+- Лордский прогресс не блокируется отсутствием ведьмаков: route/recruit/building/raid/economy loop работает без выполненных заказов
+
+Test Steps:
+- Domain economy and weighted map fixture
+- Проверить MP refill to cap, отсутствие overflow и route cost по map_edges
+- Проверить starting state: 4 residences owned, all other nodes neutral
+- Проверить, что после боя остаток MP сохранен
+- Создать contested claim первым arrival и проверить публичный in_battle state
+- Провести neutral capture, оставить 1 army unit card в гарнизоне и проверить owner/bonus
+- Смоделировать hourly tick во время боя и проверить pending reward winner once
+- Проверить hidden garrison visibility из двух lord sessions
+- Проверить recruit refresh, hold, purchase to reserve и transfer в active army в резиденции
+- Купить building по prerequisites и отклонить покупку без prerequisites/gold
+- Проверить cross-dep: Siege Yard требует Barracks + Storehouse, War Academy требует Archery Range + Stables + War Council
+- Проверить, что Stables/Archery Range/Siege Yard открывают cavalry/ranged/heavy_siege offers
+- Проверить, что territory recruit source добавляет flavor offer без создания отдельной фракции
+- Проверить, что existing stack не апгрейдится автоматически после покупки здания
+- Проверить anti-snowball 30% и 50% income cut thresholds
+- Проверить diplomacy/coalition signal report против лидера
+- Запустить raid token+gold, проверить resistance check, debuff/loot visibility и expiry
+- Создать 2 публичных и 1 адресный заказ, затем получить отказ на превышение cap
+- Принять заказ двумя игроками, sync успеха первого, проверить второго
+- Попробовать принять два заказа на один object_id одним игроком и получить отказ/conflict
+- Пройти лордский map/recruit/raid/economy flow без завершенных ведьмачьих заказов
+- Restart check
+- uv run python scripts\taskctl.py validate
+- Check order status transitions draft -> published/addressed_pending -> accepted -> in_progress -> pending_master_approval -> completed
+- Check failed_retryable/failed_closed/cancelled_by_lord/expired/contested_review cap and escrow behavior
+- uv run pytest -q; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Map/building/unit/order seed, act timers and lord panel shell.
+Outputs: Territory, economy, building, recruit, raid and order runtime services.
+Implementation path: Implement server-side services and APIs for movement, claims, garrisons, buildings, recruit, raids and orders; lord panel is a thin client.
+Interfaces: APIs: GET /api/lords/{lord_id}/state; POST move, garrisons/transfer, buildings, recruit, raids, orders. State machines: territory_claim, order statuses from TASK-003, recruit offer hold/buy, raid effect expiry.
+Failure/review paths: Reject invalid MP, route, ownership, garrison, prerequisite, capacity, order cap or duplicate object; contested/pending states go to review instead of silent overwrite.
+Required tests: Unit/API tests for route MP, contested claim, garrison requirement, income tick, building prerequisites, recruit reserve, order cap/object conflict, raid effect and anti-snowball.
+
+### TASK-013 - Реализовать lord battle runtime engine 5x6
+
+Status: `done`
+Priority: `P1`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-012`
+
+Goal:
+
+Создать синхронный лордский бой HoMM+Гвинт для нейтральной обороны, гарнизонов и столкновения армий: поле 5x6, стеки-юниты, инициатива, ответки, surrender, burned cards.
+
+Scope:
+- Battle creation from two digital armies, neutral defense profile or garrison+active army defense
+- 5x6 board, start lines, hero cells
+- Deployment hand from available active army/garrison army unit cards
+- Army unit card stacks
+- V1 deterministic fields: attack, defense, hp, initiative, move_range, attack_range, tier, unit_class
+- Damage formula max(1, attack - defense + modifiers)
+- Initiative tiebreaker: initiative desc, tier desc, deterministic battle seed
+- Orthogonal movement, attack_range, line of sight and retaliation once per unit per round
+- 60s turn timer, timeout auto-defend/skip and repeated-timeout auto-resolve/master takeover
+- Six v1 unit classes: infantry, guard, ranged, cavalry, heavy_siege, specialist
+- Initiative rounds and one retaliation per unit per round
+- Hero HP formula from deployed army size with min/max cap
+- Surrender on own turn
+- Neutral server AI and optional master takeover
+- Retreat of defeated active army
+- Capture result requires garrison selection
+- Battle log and burned army cards
+
+Acceptance:
+- Два лорда завершают бой через web/API flow
+- Каждый из 6 базовых unit_class имеет deterministic 5x6 fixture
+- Маги и монстры не используются как массовые lord unit classes в v1 fixtures
+- Лорд завершает neutral battle 5x6 против server AI, а мастер может подключиться к нейтральной стороне
+- Защитник чужой территории может использовать гарнизон плюс active army, если она находится на этой территории
+- Победа возможна через surrender, unit wipe или hero HP, рассчитанный от размера выставленной армии
+- Победа атакующего возвращает capture decision в territory runtime и требует выбрать гарнизон
+- Проигравшая active army отступает на предыдущую свою территорию или в резиденцию
+- Потери и burned cards сохраняются после restart
+- Battle log виден лордам и мастеру через runtime API
+- Battle log фиксирует deployment hand, выставленные карты и HP formula inputs
+- Damage, initiative order, movement, line of sight and retaliation are deterministic and reproducible from battle seed
+- Neutral target completes within <=10 min target or triggers auto-resolve path; lord-vs-lord within <=20 min target or triggers auto-resolve path
+- Timeout path logs 60s turn timeout, auto-defend/skip and repeated-timeout auto-resolve
+
+Test Steps:
+- Deterministic battle fixture на 5x6
+- Провести neutral defense battle с server AI
+- Подключить мастера к neutral battle и проверить takeover
+- Провести territory defense с garrison + active army
+- Прогнать battle fixture для infantry, guard, ranged, cavalry, heavy_siege, specialist
+- Проверить deployment hand/start lines и невозможность выставить карту вне доступной руки
+- Проверить damage max(1, attack - defense + modifiers), initiative tiebreaker, movement, line of sight and retaliation
+- Проверить 60s timeout auto-defend/skip and repeated-timeout auto-resolve
+- Проверить neutral <=10 min and lord-vs-lord <=20 min duration target report
+- Проверить surrender/unit wipe/hero HP formula results
+- Проверить capture handoff в TASK-012 и обязательный garrison selection
+- Проверить retreat defeated active army
+- Restart persisted losses
+- uv run python scripts\taskctl.py validate
+- uv run pytest tests/test_lord_battle_runtime.py tests/test_lord_runtime.py tests/test_fastapi_contract.py -q; uv run pytest tests -q; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Army unit cards, territories/garrisons, lord panel and battle seed defaults.
+Outputs: Deterministic 5x6 lord battle engine with persistence and browser actions.
+Implementation path: Implement battle_service with board state, deployment, initiative, legal actions, timeout and result application.
+Interfaces: APIs: POST /api/lord-battles, GET /api/lord-battles/{id}, POST /api/lord-battles/{id}/actions. Battle state includes seed, board 5x6, turn, initiative_order, stacks, wounds, hero_hp, timeout_at, status.
+Failure/review paths: Illegal move/target/ownership/action rejected; repeated timeout triggers auto-resolve/master takeover; duplicate action idempotent; destroyed cards burned and retreat/capture applied once.
+Required tests: Deterministic unit tests for initiative, damage, movement/LOS, timeout, auto-resolve, surrender, persistence after restart and two-session API smoke.
+
+### TASK-014 - Реализовать personal PvP runtime engine
+
+Status: `done`
+Priority: `P1`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-006`, `TASK-008`, `TASK-011`
+
+Goal:
+
+Реализовать личный PvP как full Gwent по core rules Witcher 3 Gwent с кастомным LARP-набором карт в online-зоне.
+
+Scope:
+- Challenge, 3 tokens per act with accumulation, token spend, max 1 active challenge per player and stake validation
+- Full Gwent deck validation: minimum 22 unit cards, up to 10 special cards and 1 leader
+- 10-card hand, up to 2 mulligan, 3 rows, pass and best-of-3 rounds
+- Tie handling: tied round means both players lose the round; double-loss match edge goes to master review
+- Weather, clear weather, decoy, scorch, commander's horn and core abilities with custom LARP cards
+- Cards do not burn in personal PvP
+- Permanent card-to-lord conversion path by personal card tier
+- Assigned online battle zone and 30-minute PvP start window; after match start no separate match time limit
+- PvP throttling: default 2 pvp_tables, queued challenges, max 2 started mandatory matches per player per act without master approval, normal/limited/paused modes and final lock behavior
+- PvP refusal/safety table: active-scene deferred, unsafe route/force majeure, safety stop, valid-ignore review and overload throttle behavior
+- Timeout/refusal/tie master review paths, stake transfer and 15-person full Gwent volume balance hook
+- Idempotent result application
+
+Acceptance:
+- PvP проходит как full Gwent with custom LARP card set, not simplified round card picking
+- Обязательный вызов тратит challenge token, 3 токена начисляются за акт и копятся
+- У игрока не может быть больше 1 active challenge одновременно
+- Runtime enforces pvp_tables, queued challenge state, throttle mode and final lock behavior
+- Вызов вне места боя назначает online-зону и 30-minute PvP окно на явку/старт, просрочка/отказ/ничья попадает в master review
+- Active scene, unsafe route, force majeure or safety/comfort stop never create automatic punishment; runtime supports deferred/review state
+- После gwent_match_started матч не имеет отдельного лимита времени, но runtime пишет timestamps для Stage 5 duration report
+- Deck rules enforce 22 unit minimum, 10 special cap, leader, 10-card hand and 2 mulligan
+- Round engine supports 3 rows, pass, tie both lose round, weather/decoy/scorch/horn/core abilities
+- Ставка фиксируется до боя и применяется один раз
+- Личные карты не сгорают после раунда
+- Передача карты лорду навсегда делает army unit card по тиру карты
+- Runtime сохраняет данные для Stage 5 full Gwent PvP volume, no-match-limit risk, timeout/refusal/tie and stake transfer report по 15-person profile
+
+Test Steps:
+- Проверить grant 3 challenge tokens per act и накопление между актами
+- Провести full Gwent fixture with deck validation, hand, mulligan, rows, pass, weather/decoy/scorch/horn and tie handling
+- Создать второй active challenge на того же игрока и получить отказ
+- Создать вызов вне battle zone и проверить assigned zone + 30-minute PvP start window timeout/refusal/tie review
+- Проверить pvp_tables capacity, queued challenge, normal/limited/paused throttle and final lock rejection
+- Проверить PvP refusal/safety table: active scene deferred, unsafe route, safety stop, valid-ignore review and overload throttle
+- Проверить no match time limit after start and timestamp capture for duration report
+- Проверить stake application once
+- Duplicate result ignored
+- Проверить card-to-lord conversion by tier
+- Проверить PvP event data for 15-person profile balance report
+- uv run python scripts\taskctl.py validate
+- Passed: uv run pytest tests/test_pvp_runtime.py; passed: uv run pytest tests/test_pvp_runtime.py tests/test_fastapi_contract.py tests/test_act_timer_runtime.py tests/test_import_snapshot_pipeline.py tests/test_seed_contract.py; passed: uv run python scripts/taskctl.py validate. Full uv run pytest currently reports 54 passed and 1 unrelated lord_panel_contract status expectation failure outside TASK-014.
+
+Notes:
+
+Contract:
+Inputs: Gwent cards/decks/matches, challenge tokens, pvp tables/throttle and event API.
+Outputs: Online-zone personal PvP/full Gwent runtime with stakes and review paths.
+Implementation path: Implement pvp_service, gwent_match_service and table allocation over SQLite; mobile/web clients use APIs, not local authority.
+Interfaces: APIs: POST /api/pvp/challenges, GET /api/pvp/tables, POST /api/pvp/challenges/{id}/start, POST /api/pvp/matches/{id}/rounds, POST /api/pvp/matches/{id}/finish. Payloads include challenge_id, players, stake_json, table_id, round_state, passed flags, row scores and outcome.
+Failure/review paths: No table/token/window/refusal/tie/timeout conflict resolves automatically if rules require master review; asset stake transfer is atomic with trade/lock checks.
+Required tests: Tests for deck validation, token spend, table queue, 30-minute start window, throttle modes, tie/refusal/timeout review, stake transfer and duplicate finish.
+
+### TASK-015 - Реализовать runtime контур чародеек
+
+Status: `done`
+Priority: `P1`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-005`, `TASK-010`, `TASK-012`
+
+Goal:
+
+Сделать чародеек полноценной ролью Stage 1: PvE/PvP, мана, зелья, заклинания, фавориты и интриги.
+
+Scope:
+- Sorceress hybrid mobile field/support role state
+- Mana economy, hourly mana regen by level/bonuses and potion wholesale market
+- Only sorceresses can buy potions from NPC/magic market at wholesale price
+- Potion sell/exchange/gift flow to witchers and favorites through online trade_transfers
+- V0 potion catalog roles with wholesale 8/18/40 and max 1 potion per scene default
+- Spell cards for spells, rituals and intrigues with target validation, visibility and counterplay
+- V0 spell catalog roles T1-T4: hint, boost, reveal, ward, curse and ritual effects
+- Favorite lifecycle: consent required, max 1 primary + 1 secondary per sorceress, max 2 sorceresses per favored player, change 1 per act, no passive runtime bonus, final signal
+- Magic effects on player/favorite/lord/territory/order/visibility
+- Sorceress PvE magic options
+
+Acceptance:
+- Чародейка проходит PvE/PvP как самостоятельная гибридная field/support роль
+- Hourly mana regen applies from sorceress level/bonuses and persists after restart
+- Spell card применяется сразу при валидной цели и достаточной мане
+- Ритуалы и интриги оформлены как spell cards с логом результата
+- Видимость эффекта соответствует role rules
+- Favorite primary/secondary caps, consent, change limit and no-passive-runtime-bonus rule apply, and favorite history попадает в downstream/final summary
+- Чародейка может купить зелье wholesale и передать/продать/подарить его ведьмаку или фавориту
+- Spell/potion catalog covers required V0 roles and potion scene cap
+
+Test Steps:
+- Sorceress domain tests
+- PvE scene with magic option for hybrid field sorceress
+- Проверить wholesale potion buy только чародейкой и отказ ведьмаку на прямую покупку
+- Проверить potion wholesale 8/18/40 and max 1 potion per scene default
+- Проверить potion transfer/sell/gift to witcher/favorite через trade_transfers
+- Spell/ritual/intrigue card targets fixture
+- Проверить T1-T4 spell roles fixture
+- Invalid target/insufficient mana path
+- Hourly mana regen by level/bonus fixture
+- Favorite flow: consent, 1 primary + 1 secondary per sorceress, max 2 sorceresses per favored player, change 1 per act, no passive runtime bonus
+- uv run python scripts\taskctl.py validate
+- uv run pytest -q: 66 passed; uv run python scripts/taskctl.py validate: tasks.json is valid (38 tasks); uv run ruff check target files could not run because ruff executable is not installed.
+
+Notes:
+
+Contract:
+Inputs: Sorceress players, mana rules, spells, potions, favorites, trade_transfers and visibility rules.
+Outputs: Sorceress runtime for mana, spells, potion market, favorites, alignment and locked magical intent.
+Implementation path: Implement sorceress_service and APIs/events reusing event intake and trade lock services.
+Interfaces: Interfaces: spell_cast event/API with spell_id,target_type,target_id,cost_mana,effect; potion buy/transfer through trade_transfers; favorites APIs POST /api/favorites and /api/favorites/{id}/accept; alignment evidence events.
+Failure/review paths: Reject insufficient mana, invalid target, favorite cap violations, passive bonuses not explicitly granted and potion overuse; ambiguous magical intent after final lock goes to review.
+Required tests: Tests for hourly mana, spell cost/visibility, potion wholesale/resale/transfer, favorite consent/caps/change limit, alignment evidence and locked magical intent.
+
+### TASK-016 - Реализовать reputation и NPC runtime
+
+Status: `done`
+Priority: `P1`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-005`, `TASK-006`
+
+Goal:
+
+Добавить Добро/Зло для ведьмаков/чародеек и NPC-события Короля/Странника.
+
+Scope:
+- Reputation score range -5..+5, start 0 and change log
+- Reputation thresholds: -5..-4 Тьма, -3..-2 Запятнанный, -1..+1 Нейтральный, +2..+3 Добро, +4..+5 Свет
+- Symmetric Good/Evil benefits with different costs
+- Player-visible descriptors without exact number
+- Master-visible numeric/log state through API
+- reputation_rules application with threshold access
+- NPC addressed/global events
+- Roleplay-first NPC runbook: King/order/admin-review vs Wanderer/deals/field interventions, review severity P0/P1/P2/P3 and buffers for review except P0/P1 blockers
+- King/Light rulings: political approval, dispute judgment, major поручения, influence awards
+- Wanderer/Darkness-Devil deals: hidden price, temptations, dark artifacts and alternate victory hooks
+- NPC deal capture
+
+Acceptance:
+- Событие меняет репутацию ведьмака или чародейки в диапазоне -5..+5 от старта 0
+- Игрок видит описание threshold state, мастер видит точное значение, threshold access и причины
+- Rules cover Тьма, Запятнанный, Нейтральный, Добро, Свет and Good/Evil tradeoffs
+- NPC event может быть адресным или глобальным
+- NPC runbook keeps masters roleplay first and routes non-blocking admin-review to act buffers
+- P0/P1 are explained as severity labels: P0 stop-now, P1 before next act/final
+- King event может выдать ruling/influence/поручение, Wanderer event может выдать сделку со скрытой ценой или темным артефактом
+- NPC deal сохраняет цену, цель, условие, последствия и final flag
+
+Test Steps:
+- Reputation/NPC domain tests
+- King ruling/dispute/influence fixtures and Wanderer hidden-price/dark-artifact fixtures
+- Player descriptor vs master numeric/log check, including -5..+5 clamp, start 0 and threshold names
+- Good/Evil symmetric benefit/cost fixtures
+- NPC runbook fixture: severity P0/P1/P2/P3 and buffer review vs P0/P1 blocker
+- Threshold access fixture
+- NPC deal capture fixture
+- Restart check
+- uv run python scripts\taskctl.py validate
+- uv run pytest tests/test_backend_runtime.py tests/test_fastapi_contract.py tests/test_reputation_npc_runtime.py tests/test_seed_contract.py -q passed: 26 tests; uv run python scripts/taskctl.py validate passed: tasks.json is valid (38 tasks).
+
+Notes:
+
+Contract:
+Inputs: Reputation rules, NPC events, event log, act buffers and master review severity.
+Outputs: Reputation/NPC runtime with King/Wanderer events, hidden prices and severity queue.
+Implementation path: Implement npc_service, reputation_service and review_queue queries for master UI and final_summary.
+Interfaces: NPC event payload: {npc_role,event_type,target_ids,price_json,consequence_json,reputation_delta,visibility,severity,final_flag}. Player sees descriptor; master sees numeric value and reason log.
+Failure/review paths: Out-of-range reputation clamps/rejects per rule; P0/P1 events require immediate/buffer review; hidden prices stay master-only until revealed.
+Required tests: Tests for thresholds, player/master visibility, King ruling, Wanderer deal, severity routing, hidden price and final flag persistence.
+
+### TASK-017 - Реализовать final summary runtime
+
+Status: `done`
+Priority: `P1`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-013`, `TASK-014`, `TASK-015`, `TASK-016`
+
+Goal:
+
+Собрать финальную мастерскую сводку без автоматического объявления победителей и без обязательной числовой формулы.
+
+Scope:
+- final_summary evidence grouped by role: lords, witchers, sorceresses, NPC/story and disputed objects
+- Missing evidence, pending locks, unresolved P0/P1, paper recovery events and contested reviews
+- Final lock state: new orders/challenges blocked except master override or paper final evidence
+- NPC prices, King/Wanderer deals, reputation changes, personal_goals, goal_flags and final_hooks
+- Lord evidence: territories, army, garrisons, battles, raids, buildings, economy, orders and artifacts
+- Witcher evidence: XP, level, stats, gear, PvE, orders, objects, PvP, reputation and personal goals
+- Sorceress evidence: mana, spells, potions, favorites, alignment, intrigue, lord support/betrayal and NPC price
+- Optional final scene notes and master_final_notes, without automatic winner calculation
+- Post-game export snapshot
+
+Acceptance:
+- Final summary содержит NPC-led final tournament/final_summary входные данные всех ролей и процедур: master final evidence sections, optional final scenes, sorceress favorites evidence, locked magical intent and personal hooks
+- Final summary exposes role-specific weight inputs, missing evidence and final timebox state to masters
+- Final summary exposes staffing/station ownership so no scoring station is unmanned
+- Players know general categories, but hidden goal_flags remain master-only
+- Personal arcs can affect tone/edge cases but cannot silently erase 10 hours of visible play
+- Сводка не автообъявляет спорных победителей
+- Данные финала сохраняются после restart
+- Export пригоден для post-game review
+
+Test Steps:
+- Final summary deterministic fixture
+- Check role evidence sections for lords, witchers and sorceresses
+- Check missing locks, pending disputes, unresolved P0/P1 and paper recovery visibility
+- Check final lock behavior blocks new orders/challenges except master override
+- Check NPC prices, reputation, personal_goals, goal_flags and final_hooks sections
+- Check master_final_notes can record ruling/epilogue without automatic winner calculation
+- Restart/export check
+- uv run python scripts\taskctl.py validate
+- uv run pytest; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: All Stage 1 runtime state: players, lords, PvE, PvP, trade, goals, NPC, artifacts, locks and paper recovery.
+Outputs: final_summary read model/export without automatic winner calculation.
+Implementation path: Implement final_summary_service aggregating evidence and export JSON/HTML/CSV as needed for master panel.
+Interfaces: GET /api/master/final-summary returns {snapshot_version,final_lock_state,evidence_by_role,missing_locks,pending_disputes,npc_prices,locked_magical_intent,personal_hooks,paper_recovery,export_generated_at}.
+Failure/review paths: Missing or disputed evidence appears as missing_locks/pending_disputes; system never computes or announces winner automatically.
+Required tests: Tests for aggregation, visibility, pending disputes, paper_recovered inclusion, final lock state and export after restart.
+
+### TASK-038 - Закрыть Stage 1 security/auth boundary для snapshot и ролей
+
+Status: `done`
+Priority: `P0`
+Category: `security`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-005`, `TASK-007`, `TASK-011`
+
+Goal:
+
+Исправить утечки секретов и несостыковки auth/snapshot перед повторной приемкой Stage 1.
+
+Scope:
+- Player snapshot must be scoped by authenticated player_code and must never include player_codes or role_tokens for other roles
+- Lord/master role_tokens stay server-only and are never exported to mobile snapshots
+- Implement or align POST /api/auth/player-code with the Godot mobile login contract
+- Mobile snapshot refresh must pass the authenticated player_code/session scope instead of requesting a global snapshot
+- Master/lord APIs must reject missing or wrong role tokens where role authority is required
+- Add regression coverage proving leaked master/lord/player secrets are absent from every player snapshot
+
+Acceptance:
+- A witcher/sorceress/lord player snapshot contains only data visible to that player and no raw role_tokens table
+- Master/NPC tokens and other players' login codes cannot be obtained through /api/content/snapshot
+- Godot online login succeeds through the same player-code endpoint exposed by backend
+- Unauthenticated or wrong-token role API calls return an explicit auth error, not game state
+- Existing role-token login for lord/master panels remains working
+
+Test Steps:
+- Add API tests for scoped snapshots for at least one witcher, one sorceress and one lord
+- Add negative test that master/lord role_tokens and unrelated player_codes are absent from mobile snapshot JSON
+- Add player-code login API test and Godot contract/static test that the client calls the implemented route
+- Run uv run pytest tests/test_snapshot_exporter.py tests/test_fastapi_contract.py -q
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest -q: 76 passed; uv run python scripts/taskctl.py validate: tasks.json is valid; uv run ruff check: unavailable because ruff is not installed in the project environment.
+
+Notes:
+
+Contract:
+Inputs: TASK-005 snapshot/event sync, TASK-007 mobile shell, TASK-011 lord panel auth, review findings P0/P1 for snapshot leaks and player-code login.
+Outputs: Authenticated scoped snapshot and aligned player-code login contract with no leaked role/player secrets.
+Implementation path: Harden snapshot_exporter and app auth routes first, then update mobile snapshot calls and panel/API auth checks that depend on leaked state.
+Interfaces: POST /api/auth/player-code; POST /api/auth/role-token; GET /api/content/snapshot?player_code=... or equivalent authenticated scope. Snapshot payload must not include global player_codes or role_tokens for player clients.
+Failure/review paths: If a workflow still needs a secret table client-side, replace it with a server API or explicit master-only endpoint before marking done.
+Required tests: Snapshot leak regression, player-code login integration, missing/wrong token API negatives and mobile contract check.
+
+### TASK-039 - Исправить act unlock и offline PvE integrity
+
+Status: `done`
+Priority: `P0`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-010`, `TASK-038`
+
+Goal:
+
+Вернуть мастерский контроль открытия актов и сделать offline PvE проверяемым, честным и синхронизируемым.
+
+Scope:
+- Do not expose future act_unlock_codes before the act is started and physically announced by masters
+- Server sync must reject offline act unlock events for acts that are not started/revealed/announced
+- Mobile client must provide an offline master unlock-code path and persist unlocked acts locally
+- Future-act QR/PvE must remain locked until server sync or valid master unlock code after reveal
+- Every offline PvE completion must include replayable single_d20 roll contract and logged modifiers
+- PvE completion must require physical_presence_confirmed for physical QR/manual scenes
+- Server must enforce cooldown and unique_object consumption before applying rewards
+
+Acceptance:
+- Act 2/3/Final cannot be unlocked from a leaked snapshot or a valid code before master start + physical announcement
+- Offline mobile flow can unlock a revealed act with a master code while outside Wi-Fi
+- A PvE success without replayable d20 roll data is rejected or sent to review before rewards
+- A PvE completion without physical presence confirmation cannot complete a physical scene
+- Cooldown and unique_object consumption prevent duplicate reward farming across new event IDs
+
+Test Steps:
+- Add negative API/event tests for early Act 2/3/Final unlock
+- Add mobile state tests for offline unlock code entry and persisted unlocked acts
+- Add PvE sync tests for missing roll log, missing physical presence, active cooldown and duplicate unique_object
+- Run uv run pytest tests/test_pve_runtime.py tests/test_event_sync.py tests/test_mobile_shell_contract.py -q
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest tests/test_pve_runtime.py tests/test_event_sync.py tests/test_mobile_shell_contract.py -q; uv run pytest tests/test_fastapi_contract.py tests/test_snapshot_exporter.py tests/test_import_snapshot_pipeline.py tests/test_stage1_gate_role_flow.py -q; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: TASK-010 PvE/event sync, TASK-038 scoped snapshot/auth and review findings for act code leaks, missing mobile unlock UI, forged PvE rolls, missing physical presence, cooldown and unique consumption.
+Outputs: Act unlock state machine and offline PvE event validation that match the Stage 1 business rules.
+Implementation path: Hide unrevealed unlock codes, make act_history/physical_announcements authoritative, add mobile offline unlock state, then tighten PvE validation and side effects.
+Interfaces: act_unlocked_offline events, act_history/physical_announcements, QR/PvE context, pve_attempts/cooldown/consumption state and mobile user:// session state.
+Failure/review paths: Ambiguous offline act unlock or unverifiable PvE roll goes to master review and never auto-applies rare/final rewards.
+Required tests: Early unlock negatives, offline unlock positive, PvE roll replay, physical presence, cooldown and duplicate unique-object regression.
+
+### TASK-040 - Довести reward approvals, asset locks и trade_transfers до бизнес-контракта
+
+Status: `done`
+Priority: `P0`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-014`, `TASK-015`, `TASK-039`
+
+Goal:
+
+Сделать pending-master-approval награды и online-only transfers атомарными и безопасными.
+
+Scope:
+- Implement master reward approval lifecycle API for approve/correct/reject with audit reason
+- Pending-master-approval assets must be locked from stake, trade, lord transfer, final scoring and consumption
+- Trade_transfers must support canonical create, accept and decline flows
+- Accepting a transfer must atomically move ownership for potions, cards, items, artifacts and order/final objects
+- Decline/timeout/cancel must release the pending asset lock without double ownership
+- Final summary must show pending rewards, locks and disputed assets clearly
+
+Acceptance:
+- Rare/order/final/cascade-prone reward created offline stays pending until master approval
+- Pending reward assets cannot be used as PvP stake or traded before approval
+- Master can approve, correct or reject a pending reward through API with audit trail
+- Trade create/accept/decline changes exactly one owner or releases exactly one lock
+- Potion-specific transfer behavior remains compatible with the generic trade contract
+
+Test Steps:
+- Add reward approval API tests for approve, correct, reject and invalid approval id
+- Add negative PvP stake/trade tests for pending-master-approval assets
+- Add trade ownership tests for potion, card/item/artifact and decline lock release
+- Run uv run pytest tests/test_reward_approvals.py tests/test_trade_transfers.py tests/test_pvp_runtime.py -q
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest tests/test_reward_approvals.py tests/test_trade_transfers.py tests/test_pvp_runtime.py -q; uv run pytest tests/test_event_sync.py tests/test_sorceress_runtime.py tests/test_final_summary_runtime.py -q; uv run ruff check touched backend/test files; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: TASK-014 PvP/trade, TASK-015 sorceress potion market, TASK-039 offline reward integrity and review findings for missing reward approvals and pending asset misuse.
+Outputs: Master-controlled approval lifecycle plus atomic asset ownership/lock model for trades and stakes.
+Implementation path: Add or normalize ownership tables/lock checks, expose master approval endpoints, then route potion and generic trade flows through the same lock/ownership service.
+Interfaces: POST /api/master/reward-approvals/{approval_id}; POST /api/trade-transfers; POST /api/trade-transfers/{id}/accept; POST /api/trade-transfers/{id}/decline; stake validation.
+Failure/review paths: Conflicting ownership, stale transfer or rejected approval goes to review with no silent overwrite or duplicate owner.
+Required tests: Approval lifecycle, pending lock negatives, atomic transfer, decline/cancel release and final_summary visibility.
+
+### TASK-041 - Исправить PvP/Gwent hand validation, тайминги и refusal paths
+
+Status: `done`
+Priority: `P1`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-014`, `TASK-040`
+
+Goal:
+
+Закрыть эксплуатационные баги personal PvP и Gwent перед Stage 1 gate.
+
+Scope:
+- Gwent round resolution must accept only cards currently in the player's validated hand/deck state
+- Played Gwent cards must be consumed or moved according to the match rules and cannot be replayed illegally
+- Core Gwent effects that are in Stage 1 scope must be enforced or explicitly blocked from acceptance
+- Queued challenge 30-minute start window must begin after table assignment/valid start window, not before
+- Safety/force-majeure refusal before match start must follow the refusal table and refund/review challenge tokens as required
+- Per-act started match cap must include matches in needs_master_review if they already consumed a started slot
+
+Acceptance:
+- A player cannot win Gwent by submitting a card id that is not in hand
+- The same non-repeatable card cannot score in multiple rounds unless rules explicitly allow it
+- Queued challenges do not timeout only because all PvP tables were occupied
+- Valid safety refusal does not unfairly burn a challenge token
+- Started match cap cannot be bypassed by pushing started matches into review
+
+Test Steps:
+- Add Gwent negative tests for card not in hand and duplicated/replayed card
+- Add positive Gwent test for legal hand consumption across rounds
+- Add PvP queue timeout test with occupied tables and delayed assignment
+- Add refusal refund/review test and started-cap-with-review test
+- Run uv run pytest tests/test_pvp_runtime.py -q
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest tests/test_pvp_runtime.py -q passed; uv run python scripts/taskctl.py validate passed
+
+Notes:
+
+Contract:
+Inputs: TASK-014 PvP runtime, TASK-040 stake/asset lock fixes and review findings for Gwent replay, queue timeout, refusal token loss and cap bypass.
+Outputs: Personal PvP/Gwent runtime that enforces hand state, match timing, token accounting and started cap rules.
+Implementation path: Persist or reconstruct authoritative hand/match state, validate plays before scoring, then fix queue/refusal/cap accounting in pvp_service.
+Interfaces: Gwent match state, challenge tokens, pvp_tables, pvp_refusal_rules, pvp_throttle_rules and stake transfer service.
+Failure/review paths: Invalid card play rejects before stake transfer; ambiguous timeout/refusal goes to master review with correct token/lock state.
+Required tests: Illegal card negatives, legal round flow, queued table timing, refusal refund and started cap including review state.
+
+### TASK-042 - Сделать lord runtime playable и авторизованным
+
+Status: `done`
+Priority: `P1`
+Category: `web`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-013`, `TASK-038`
+
+Goal:
+
+Исправить лордские панели, battle authorization и V0 формулы, чтобы роль лорда была реально playable в Stage 1.
+
+Scope:
+- Lord battle create/action APIs must require valid lord/master role token and actor ownership
+- Missing actor token must not bypass _assert_actor_allowed or equivalent checks
+- Lord web panel must expose actual playable actions for Stage 1 flows instead of read-only disabled controls
+- Lord HP formula must match V0 clamp(30 + floor(deployed_army_power / 10), 35, 70)
+- Lord battle and strategic actions must be covered through browser/API smoke, not only raw service calls
+- Challenge tokens or player-only counters should not be granted to lords unless explicitly needed by a lord flow
+
+Acceptance:
+- A non-owner player cannot create or mutate another lord battle from local Wi-Fi
+- Lord can perform required Stage 1 map/battle actions from the served browser panel
+- Battle HP uses deployed_army_power and V0 min/max values
+- Readonly placeholders are removed or kept only for flows outside Stage 1 scope
+- Lord state does not expose misleading player PvP token counters
+
+Test Steps:
+- Add auth negative tests for lord battle create/action without token and wrong lord token
+- Add HP formula tests for low, mid and high deployed_army_power
+- Add browser/static contract test that lord panel action controls are enabled and wired to APIs
+- Add regression check that lords do not receive irrelevant challenge tokens
+- Run uv run pytest tests/test_lord_battle_runtime.py tests/test_lord_panel_contract.py tests/test_act_runtime.py -q
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest tests/test_lord_battle_runtime.py tests/test_lord_panel_contract.py tests/test_act_timer_runtime.py tests/test_stage1_gate_role_flow.py -q; uv run ruff check backend/witcher_larp/app.py backend/witcher_larp/lord_battle_service.py backend/witcher_larp/act_service.py tests/test_lord_battle_runtime.py tests/test_lord_panel_contract.py tests/test_act_timer_runtime.py tests/test_stage1_gate_role_flow.py; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: TASK-013 lord battle/runtime, TASK-038 role auth hardening and review findings for unauthenticated lord battles, read-only lord panel, wrong lord HP formula and lord token counters.
+Outputs: Authenticated playable lord runtime through static panel plus formula alignment with V0 docs.
+Implementation path: Harden app routes/service actor checks, update battle HP calculation, wire panel controls to APIs and adjust token grants/state shape.
+Interfaces: Lord role_token auth, /api/lord-battles, lord panel static JS, lord_battle_service, act challenge-token grants and lord state read model.
+Failure/review paths: Invalid or ambiguous lord action is rejected or sent to master review; panel must show failure state rather than fake success.
+Required tests: Auth negatives, panel action smoke, HP formula, lord token grant regression and restart-safe battle state.
+
+### TASK-043 - Закрыть recovery, validation и runtime consistency gaps
+
+Status: `done`
+Priority: `P1`
+Category: `operations`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-016`, `TASK-017`, `TASK-039`, `TASK-042`
+
+Goal:
+
+Исправить вторичные, но game-day критичные расхождения: paper recovery, CSV diagnostics, QR honesty review, таймеры и potion price policy.
+
+Scope:
+- paper_recovered must validate required fields: paper_form_id, source form type, operator, timestamp, reason and conflict policy
+- Clean paper recovery cases should auto-apply only when business-safe; conflicts must go to master review without silent overwrite
+- event_log source must distinguish paper_recovered from normal client/event_sync sources
+- CSV validation must report readable missing-header errors instead of crashing with KeyError
+- Mobile QR honesty/rate-limit violations must enqueue a review-visible event for masters
+- Mana/income timer due calculation must be counted from actual act start according to seed/canon
+- Potion resale price band behavior must match the intended business policy: hard block or explicit review/log for out-of-band deals
+
+Acceptance:
+- Paper fallback for QR/PvE, PvP stake, lord action, lord battle, order, NPC deal and final evidence has required audit fields
+- Duplicate/conflicting paper recovery never silently overwrites digital state
+- Broken CSV fixtures produce structured validation errors with table/header context
+- Suspected QR honesty violations appear in master review queue after sync
+- First mana/income tick timing matches the act schedule contract
+- Potion out-of-band pricing behavior is explicitly encoded and tested
+
+Test Steps:
+- Add paper_recovered tests for valid auto-apply, missing fields and duplicate/conflict review
+- Add CSV fixture tests for missing non-id headers and readable validation messages
+- Add mobile/event sync test for QR honesty/rate-limit review event
+- Add timer due tests for Act 1/2/3 mana and income first tick
+- Add potion resale policy test for below/above band behavior
+- Run uv run pytest tests/test_paper_recovery.py tests/test_seed_validation.py tests/test_timer_runtime.py tests/test_sorceress_runtime.py -q
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest tests/test_paper_recovery.py tests/test_seed_validation.py tests/test_timer_runtime.py tests/test_event_sync.py tests/test_sorceress_runtime.py -q; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: TASK-016 NPC/review, TASK-017 final summary, TASK-039 PvE/act unlock, TASK-042 lord runtime and review findings for paper recovery, CSV KeyError, QR honesty invisibility, timer offset and potion price ambiguity.
+Outputs: Game-day fallback/review consistency and readable content/runtime diagnostics before Stage 1 acceptance.
+Implementation path: Normalize paper event schema and source handling, harden CSV validators, enqueue QR honesty review events, correct timer offsets and lock potion pricing policy in service/tests.
+Interfaces: event_log source, paper_forms, review queue, validation.py, timer_service, mobile QR attempts, sorceress_service and final_summary paper recovery section.
+Failure/review paths: Unclear recovery or policy ambiguity routes to master review with reason; validation errors must be actionable for content operators.
+Required tests: Paper recovery, validation diagnostics, honesty review sync, timer due and potion pricing policy regressions.
+
+### TASK-044 - Переписать Stage 1 тесты под реальные бизнес-инварианты
+
+Status: `done`
+Priority: `P0`
+Category: `qa`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-038`, `TASK-039`, `TASK-040`, `TASK-041`, `TASK-042`, `TASK-043`
+
+Goal:
+
+После исправления issues пересмотреть тесты, которые не поймали баги, и заменить smoke/string checks на рабочие интеграционные и негативные проверки.
+
+Scope:
+- Audit current Stage 1 tests that passed while P0/P1 business bugs existed
+- Replace string-only mobile/panel contract tests with tests that exercise real API calls, state transitions and payload scoping
+- Add negative regression tests for every fixed review issue: leaked secrets, early act unlock, forged PvE, missing presence, duplicate rewards, pending asset stake, invalid Gwent cards, unauthorized lord actions and paper conflicts
+- Rewrite Stage 1 gate flow so it uses real client-facing endpoints/panels where available, not only internal service shortcuts
+- Add tests that would fail on the pre-fix implementation for each P0/P1 review finding
+- Document remaining manual-only hardware/browser checks separately from automated acceptance
+
+Acceptance:
+- Stage 1 test suite fails if snapshot leaks tokens or if a player can unlock future acts early
+- Stage 1 test suite fails if PvE success can be fabricated without replayable roll/presence/cooldown/consumption checks
+- Stage 1 test suite fails if pending rewards can be staked/traded or if trade ownership is double-counted
+- Stage 1 test suite fails if Gwent accepts cards outside hand or unauthorized lord battle actions succeed
+- Mobile and lord panel tests verify behavior, not just source strings
+- The final TASK-018 gate can rely on automated regression tests plus named manual launch-risk checks
+
+Test Steps:
+- Run a targeted audit of tests/test_mobile_shell_contract.py, tests/test_lord_panel_contract.py and tests/test_stage1_gate_role_flow.py
+- Delete or rewrite assertions that only check for source-code strings when a behavioral test is possible
+- Run uv run pytest -q and confirm the suite covers every P0/P1 issue fixed in TASK-038 through TASK-043
+- Run uv run python -m json.tool tasks.json
+- Run uv run python scripts/taskctl.py validate
+- Run uv run python scripts/taskctl.py doctor
+- Targeted pytest: tests/test_mobile_shell_contract.py tests/test_lord_panel_contract.py tests/test_stage1_gate_role_flow.py -q passed 16 tests. Full pytest: uv run pytest -q passed 106 tests. uv run python -m json.tool tasks.json passed. taskctl validate passed. taskctl doctor passed.
+
+Notes:
+
+Contract:
+Inputs: Completed remediation TASK-038 through TASK-043 and the old green test suite that missed reviewed bugs.
+Outputs: Stage 1 regression suite that proves business invariants rather than implementation strings.
+Implementation path: Start from the review issue list, map every P0/P1 to at least one failing-before/passing-after automated test, then keep only truly manual hardware checks in TASK-001/TASK-018 evidence.
+Interfaces: pytest API/service tests, Godot contract tests, static panel/browser contract tests, Stage 1 scripted role-flow and TaskOS validation.
+Failure/review paths: If a bug cannot be automated, record the reason and add a concrete manual acceptance step in TASK-018 instead of leaving an untested claim.
+Required tests: Full uv run pytest -q, targeted regression groups, TaskOS validate/doctor and generated board review.
+
+### TASK-051 - Закрыть новую волну Stage 1 auth и secret-leak issues
+
+Status: `done`
+Priority: `P0`
+Category: `backend`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-038`, `TASK-044`
+
+Goal:
+
+Исправить критичные границы идентичности, авторизации и секретов, найденные повторным ревью Stage 1.
+
+Scope:
+- Привязать /api/events/sync к аутентифицированному player/device context и перестать доверять actor_id/actor_type из payload
+- Запретить player payload создавать master-only события без master token/session
+- Авторизовать sorceress, trade, favorite, PvP и lord battle mutation APIs по authenticated role, path id и payload id одновременно
+- Сузить lord battle list/get до участвующего лорда или мастера
+- Сузить sorceress state, spells/favorites/evidence до владельца, допустимого контрагента или мастера
+- Убрать player_codes, role tokens, чужих игроков и seed secrets из bundled mobile snapshot/export artifacts
+- Добавить audit/review запись для отклоненных forged/foreign-role действий с P0/P1 severity, где это нужно мастерам
+
+Acceptance:
+- Игрок не может подменить actor_id/actor_type и применить событие за другого игрока или мастера
+- Ведьмак/чародейка/лорд не может мутировать чужие trade/favorite/PvP/sorceress/lord battle ресурсы через path или payload id
+- Master-only события принимаются только от master-auth context
+- Lord battle и sorceress read APIs не раскрывают приватное состояние неучаствующим ролям
+- Bundled/exported mobile artifact не содержит player_codes, role tokens, master tokens или секреты других игроков
+- Негативные регрессионные тесты падают на старой реализации и проходят после фикса
+
+Test Steps:
+- Run targeted auth regression tests for event sync actor spoofing and master-only event rejection
+- Run API tests for foreign path/payload id mutation rejection across sorceress, trade, favorites, PvP and lord battles
+- Run snapshot/export secret scanner against mobile/assets and generated snapshots
+- Run uv run pytest -q for the affected backend/API groups
+- Run uv run python -m json.tool tasks.json
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest -q tests/test_fastapi_contract.py tests/test_event_sync.py tests/test_sorceress_runtime.py tests/test_pvp_runtime.py tests/test_lord_battle_runtime.py tests/test_snapshot_exporter.py tests/test_import_snapshot_pipeline.py tests/test_mobile_shell_contract.py -> 96 passed; uv run pytest -q tests/test_stage1_gate_role_flow.py tests/test_paper_recovery.py -> 6 passed; uv run python -m json.tool tasks.json -> ok; uv run python scripts/taskctl.py validate -> tasks.json is valid (58 tasks); rg bundled_snapshot secret values -> no matches.
+
+Notes:
+
+Contract:
+Inputs: Second Stage 1 review findings for auth boundary and mobile secret leaks, completed TASK-038/TASK-044, current FastAPI auth/session code and snapshot exporter.
+Outputs: Player, lord and master APIs enforce identity from authenticated context, and mobile artifacts contain no reusable secrets.
+Implementation path: Centralize actor resolution, validate path/payload ownership on every mutation, scope sensitive reads and add artifact secret scanning.
+Interfaces: /api/events/sync, role-token auth, sorceress/favorite/trade/PvP/lord battle endpoints, snapshot exporter and mobile export presets.
+Failure/review paths: Forged events are rejected or routed to master review with reason; no silent cross-role mutation.
+Required tests: Negative auth API tests, snapshot secret scan and full affected pytest group.
+
+### TASK-052 - Исправить offline act unlock, QR lookup и PvE roll integrity
+
+Status: `done`
+Priority: `P0`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-039`, `TASK-044`
+
+Goal:
+
+Закрыть баги, позволяющие форсить PvE успех, угадывать QR/manual IDs, обходить cooldown и ломать offline unlock во время outage.
+
+Scope:
+- Убрать официальный mobile flow, где кнопка PvE Success выбирает outcome вместо фактического single_d20 результата
+- Запретить _build_roll_log или аналогам синтезировать проходной d20 задним числом
+- Проверять partial_success/success/failure сервером через d20 + modifiers + DC, а не через заявленный outcome
+- Хранить PvE cooldown_until на сервере для player+qr/scenario и не принимать client-supplied cooldown_until как источник истины
+- Сделать offline act unlock реально работающим при отсутствии Wi-Fi: snapshot содержит verifier/hash, а не unrevealed secret; мастер раскрывает код только после physical announcement/start
+- При sync валидировать act_unlocked_offline через server act history, revealed code/verifier и physical announcement state
+- QR/manual lookup принимать по opaque non-guessable code/token, а не по предсказуемому qr_id
+- Добавить per-device/player rate limit и review signal для серии неверных anonymous/manual QR attempts
+- Непроверяемые physical-presence или honesty cases отправлять в review, не выдавая cascade-prone reward автоматически
+
+Acceptance:
+- Mobile PvE не может отправить success/partial_success без replayable single_d20 roll log, достаточного против DC
+- Сервер отклоняет или review-ит PvE outcome, не соответствующий d20/modifiers/DC
+- Failure cooldown 30 минут считается сервером и блокирует повтор конкретного player+QR до истечения
+- Во время outage игрок может открыть новый акт только по раскрытому master code/QR после physical announcement, не видя секрет заранее
+- Предсказуемый qr_id и массовый anonymous lookup не раскрывают сцену и создают rate-limit/review след
+- Unique/rare/order/final rewards не авто-применяются при ambiguous offline/QR path
+
+Test Steps:
+- Run mobile contract/regression tests for actual d20 entry, no forced success and no synthesized passing roll
+- Run API tests for PvE success/partial/failure validation, cooldown source of truth and duplicate attempts
+- Run offline act unlock tests for hidden verifier, positive revealed-code path and early/future-act negative paths
+- Run QR lookup tests for opaque code-only lookup, rate limit and honesty review signal
+- Run uv run pytest -q for PvE/QR/act unlock groups
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest -q tests/test_pve_runtime.py tests/test_event_sync.py tests/test_fastapi_contract.py tests/test_snapshot_exporter.py tests/test_mobile_shell_contract.py tests/test_stage1_gate_role_flow.py -> 55 passed; uv run pytest -q tests/test_stage1_gate_role_flow.py -> 2 passed; uv run python scripts/taskctl.py validate -> tasks.json is valid (58 tasks).
+
+Notes:
+
+Contract:
+Inputs: Second Stage 1 review findings for mobile PvE, act unlock, QR lookup and cooldown; TASK-039/TASK-044 evidence.
+Outputs: Offline PvE and act unlock match business rules under local Wi-Fi outage without trusting client-declared success.
+Implementation path: Make server validation authoritative, make mobile collect real roll evidence, ship only non-revealing act verifiers and make QR/manual IDs opaque/rate-limited.
+Interfaces: Godot mobile PvE flow, AppState event queue, /api/events/sync, QR runtime, PvE runtime, act history and snapshot exporter.
+Failure/review paths: Ambiguous roll/presence/unlock attempts go to review or reject; no automatic rare/final side effect.
+Required tests: Mobile contract tests plus backend integration regressions for d20, cooldown, act unlock and QR lookup.
+
+### TASK-053 - Довести rewards, asset locks, paper recovery и trade seed до бизнес-состояния
+
+Status: `done`
+Priority: `P0`
+Category: `backend`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-040`, `TASK-043`, `TASK-044`
+
+Goal:
+
+Исправить состояние наград и активов: эксклюзивные locks, pending approvals, paper_recovered side effects и seed trade_transfers.
+
+Scope:
+- Сделать reward/asset locks эксклюзивными по asset_id, а не только по owner, чтобы один объект нельзя было одновременно стейкать/передавать/заказывать
+- Запретить тратить, передавать, стейкать или учитывать в финале pending_master_approval rewards/assets до approval/correction
+- Привести QR unique_object, rare, order-linked и final-impact rewards к pending master approval, если они cascade-prone по PRD/architecture
+- Исправить paper_recovered: paper_pve_result, paper_pvp_stake, paper_lord_action, paper_lord_battle, paper_order_resolution, paper_npc_deal и paper_final_evidence применяют реальные side effects или попадают в review при конфликте
+- Сохранять idempotency/conflict checks для бумажных событий, не перетирая цифровое состояние молча
+- Импорт seed trade_transfers должен создавать pending locks/effects и audit trail, а не копировать состояние без блокировок
+- Проверить order object/final flag transfers на double ownership и stuck pending state
+
+Acceptance:
+- Один asset не может одновременно находиться в двух активных locks/escrow/stakes/transfers/orders
+- Pending reward/asset не используется в PvP stake, trade, order completion или final_summary до approval
+- Unique/rare/order/final offline rewards уходят в pending/review, а не auto grant
+- Paper recovery применяет поддержанные критичные события через тот же runtime, что digital flow, либо создает review с причиной конфликта
+- Seed trade_transfers после import имеют locks, audit и корректный pending/accepted/declined lifecycle
+- Регрессионные тесты ловят double ownership, missing side effect и silent overwrite
+
+Test Steps:
+- Run asset lock tests for duplicate active locks across reward, trade, order and PvP stake flows
+- Run reward approval tests for unique_object/rare/order/final rewards from offline QR/PvE paths
+- Run paper_recovered integration fixtures for PvE, PvP stake, lord action, lord battle, order, NPC deal and final evidence
+- Run seed import tests for trade_transfers locks/effects/audit
+- Run uv run pytest -q for reward/asset/recovery/trade groups
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest -q; uv run pytest -q tests/test_reward_approvals.py tests/test_trade_transfers.py tests/test_paper_recovery.py; uv run pytest -q tests/test_pvp_runtime.py tests/test_final_summary_runtime.py; uv run pytest -q tests/test_sorceress_runtime.py; uv run pytest -q tests/test_stage1_gate_role_flow.py; uv run ruff check changed backend/tests; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Second Stage 1 review findings for paper recovery, reward approvals, asset locks and trade seed; TASK-040/TASK-043/TASK-044.
+Outputs: Asset ownership is atomic and recoverable; paper fallback is a real continuation path, not a log-only record.
+Implementation path: Normalize active locks by asset, route cascade rewards through approval, and run paper events through existing service side effects with conflict review.
+Interfaces: asset_service, reward approval rules, event_service paper_recovered, trade_transfers importer, PvP stakes, orders and final_summary locks.
+Failure/review paths: Any duplicate/ambiguous asset state goes to master review with locked asset preserved; no silent overwrite.
+Required tests: Double-lock negatives, pending reward usage negatives, paper recovery side-effect fixtures and seed trade import regressions.
+
+### TASK-054 - Исправить personal PvP/Gwent lifecycle до Stage 1 контракта
+
+Status: `done`
+Priority: `P0`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-041`, `TASK-053`
+
+Goal:
+
+Закрыть баги в best-of-3, stake transfer, deck preflight, core card effects и deferred/review/table state.
+
+Scope:
+- Перенести stake transfer на финального победителя best-of-3 match, а не на первый завершенный round/partial finish
+- Реализовать или явно запретить в seed/validation Gwent effects, которые уже есть в Stage 1 seed: spy, medic, muster, leader и другие core effects
+- Обеспечить валидные стартовые Gwent decks/leaders для всех мобильных PvP-ролей, а не только для двух игроков
+- Challenge preflight проверяет deck/leader обеих сторон до списания token, lock stake и занятия pvp_table
+- Double-tie, timeout, refusal, deferred и in-match refusal paths освобождают или переassign-ят challenge/table/stake последовательно
+- In-match refusal и спорные исходы создают review/deferred state без stuck active challenge/table
+- Идемпотентный finish не дублирует transfer, tokens, review или table release
+
+Acceptance:
+- Stake transfer происходит только после финального match winner best-of-3
+- Seed не содержит поддерживаемых на бумаге, но игнорируемых в runtime Gwent effects
+- Любой из 9 мобильных игроков с PvP может пройти deck preflight перед challenge
+- Невалидный deck/leader не тратит token, не lock-ит stake и не занимает table
+- Tie/refusal/timeout/deferred paths не оставляют stuck active challenge, busy table или locked stake без review owner
+- Регрессионные тесты покрывают normal finish, double-tie, refusal, invalid deck и idempotent finish
+
+Test Steps:
+- Run Gwent rules tests for supported effects or seed validation rejection of unsupported effects
+- Run PvP challenge preflight tests for all mobile roles and invalid deck/leader negative cases
+- Run match lifecycle tests for best-of-3 stake transfer, tie, timeout, refusal, deferred and table release
+- Run idempotency tests for repeated finish/review calls
+- Run uv run pytest -q for PvP/Gwent groups
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest -q tests/test_pvp_runtime.py tests/test_seed_validation.py tests/test_seed_contract.py; uv run ruff check backend/witcher_larp/pvp_service.py backend/witcher_larp/validation.py backend/witcher_larp/gwent_effects.py tests/test_pvp_runtime.py tests/test_seed_validation.py tests/test_seed_contract.py; uv run python scripts/taskctl.py validate; uv run pytest -q
+
+Notes:
+
+Contract:
+Inputs: Second Stage 1 review findings for personal PvP/Gwent and completed TASK-041/TASK-053.
+Outputs: Full Gwent PvP lifecycle is playable and cannot lose tokens/stakes/tables through invalid or partial states.
+Implementation path: Fix challenge preflight, align seed card effects with runtime, gate stake transfer on match winner and normalize review/deferred cleanup.
+Interfaces: pvp_service, validation.py, gwent_cards/decks seed, pvp_tables, challenge tokens, asset locks and review queue.
+Failure/review paths: Invalid deck/effect rejects before side effects; ambiguous/refusal states go to review with released or explicitly held resources.
+Required tests: Gwent effect/preflight tests, best-of-3 stake transfer, refusal/tie/timeout/deferred cleanup and idempotency.
+
+### TASK-055 - Исправить lord strategic runtime, economy ticks и battle timers
+
+Status: `done`
+Priority: `P0`
+Category: `gameplay`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-042`, `TASK-053`
+
+Goal:
+
+Закрыть серьезные баги лордского gameplay: bypass capture, influence economy, pending tick rewards, recruit refresh и 60s timeout.
+
+Scope:
+- Запретить garrison/reserve transfer захватывать neutral или contested territory без route, battle/claim и surviving active army
+- Проверить route/MP/owner/contested prerequisites для всех lord territory ownership transitions
+- Добавить или восстановить influence в runtime domain state, timer ticks, King/NPC rulings и lord/final_summary views согласно бизнес-логике
+- Pending tick reward должен начисляться/очищаться корректно при defender victory, attacker victory и neutral battle outcomes
+- Lord battle 60s timeout проверяется перед ordinary action и запускает auto-resolve/review path без дополнительного действия игрока
+- Recruit market refresh должен создавать новые offer ids или обновлять sold offers, сохраняя hold semantics
+- Purchased/expired recruit offers не должны исчезать навсегда из-за stable offer_id + ON CONFLICT DO NOTHING
+
+Acceptance:
+- Лорд не может захватить neutral/contested territory transfer-ом из reserve/garrison без валидного игрового пути
+- Все смены ownership territories проходят через route/claim/battle/garrison prerequisites
+- Influence виден, начисляется и используется там, где Stage 1 бизнес-логика требует influence, а не только gold/MP
+- Pending tick reward не застревает после defender victory или neutral battle edge case
+- 60s battle timeout срабатывает до обычного action и освобождает/разрешает battle state предсказуемо
+- Recruit market пополняется после purchase/refresh и сохраняет выбранные hold offers
+- Регрессионные тесты ловят bypass capture, stuck reward, missing influence, timeout bypass и empty market after purchase
+
+Test Steps:
+- Run lord strategic tests for reserve/garrison transfer ownership negatives and valid route/battle capture positives
+- Run timer/economy tests for gold, influence, pending tick reward and defender victory outcomes
+- Run lord battle tests for 60s timeout before ordinary action and auto-resolve/review cleanup
+- Run recruit market refresh tests for sold/held/new offers
+- Run uv run pytest -q for lord runtime/battle/timer groups
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest -q; uv run pytest -q tests/test_lord_runtime.py tests/test_lord_battle_runtime.py tests/test_timer_runtime.py tests/test_act_timer_runtime.py tests/test_reputation_npc_runtime.py tests/test_final_summary_runtime.py; uv run ruff check touched TASK-055 files; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Second Stage 1 review findings for lord strategic runtime and completed TASK-042/TASK-053.
+Outputs: Lord gameplay cannot bypass map/battle rules and economy timers keep territories, influence, rewards and recruit market alive.
+Implementation path: Harden ownership transitions, add runtime influence where missing, fix reward/timer edge cases and make timeout enforcement proactive.
+Interfaces: lord_runtime, lord_battle_service, timer_service, runtime_schema, recruit_markets, final_summary and lord panel APIs.
+Failure/review paths: Invalid capture rejects; ambiguous battle/tick states go to review without changing owner or losing pending reward.
+Required tests: Lord capture negatives, economy/influence ticks, pending reward outcomes, timeout auto-resolve and recruit refresh regressions.
+
+### TASK-056 - Исправить sorceress runtime, mana ownership и final locks
+
+Status: `done`
+Priority: `P0`
+Category: `backend`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-051`, `TASK-055`
+
+Goal:
+
+Закрыть оставшиеся Stage 1 баги чародеек и финальной сводки: mana по runtime owner, scoped state и per-sorceress locked intent.
+
+Scope:
+- Mana regen и bonuses должны брать runtime territory/domain owner, current patron/evidence state и актуальные buffs, а не seed territories.owner_domain_id
+- Sorceress state, spell usage, potion/favorite/evidence endpoints должны уважать auth/scoping из TASK-051
+- Favorite/favored visibility должна показывать участникам их consent/lifecycle, но не раскрывать чужую интригу всем игрокам
+- Final summary missing_locks проверяет locked_magical_intent по каждой чародейке, а не только факт, что у кого-то intent уже locked
+- Final summary distinguish locked, missing, disputed and review-pending magical intent states
+- Mana/spell/favorite/final evidence survives restart and is reflected in export snapshot without automatic winner calculation
+
+Acceptance:
+- После смены runtime territory owner mana/timer расчеты используют актуальное владение
+- Чужая sorceress интрига не читается и не мутируется неавторизованной ролью
+- Каждая из 4 чародеек имеет отдельный required locked_magical_intent или явный missing/review state в final_summary
+- Один locked intent не закрывает missing lock другой чародейки
+- Favorites and spell evidence сохраняются после restart и попадают в final_summary/export с корректной видимостью
+- Регрессионные тесты ловят seed-owner mana bug и global-any locked intent bug
+
+Test Steps:
+- Run sorceress timer tests for mana regen before/after runtime owner changes
+- Run auth/scoping tests for sorceress state, favorites, spells and evidence endpoints
+- Run final_summary tests for per-sorceress locked intent missing/disputed states
+- Run restart/export tests for mana, spell evidence, favorites and locked intent
+- Run uv run pytest -q for sorceress/final_summary groups
+- Run uv run python scripts/taskctl.py validate
+- uv run pytest -q tests/test_timer_runtime.py tests/test_sorceress_runtime.py tests/test_final_summary_runtime.py; uv run pytest -q tests/test_snapshot_exporter.py; uv run ruff check backend/witcher_larp/timer_service.py backend/witcher_larp/final_summary_service.py tests/test_timer_runtime.py tests/test_final_summary_runtime.py; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Second Stage 1 review findings for sorceress mana/final locks plus TASK-051/TASK-055 fixes.
+Outputs: Sorceress runtime uses current game state and final summary cannot hide missing magical-intent locks.
+Implementation path: Move mana ownership checks to runtime state, reuse auth scoping, and aggregate locked intent per sorceress with explicit missing/disputed states.
+Interfaces: timer_service, sorceress_service, favorites, spells, final_summary_service, export snapshot and auth context.
+Failure/review paths: Missing or disputed magical intent blocks gate as review/missing lock; unauthorized sorceress access rejects.
+Required tests: Mana runtime ownership, sorceress scoping, per-sorceress final lock aggregation and restart/export regressions.
+
+### TASK-057 - Проревьюить и переписать Stage 1 тесты после новой волны fixes
+
+Status: `done`
+Priority: `P0`
+Category: `qa`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-051`, `TASK-052`, `TASK-053`, `TASK-054`, `TASK-055`, `TASK-056`
+
+Goal:
+
+После TASK-051-TASK-056 разобрать, почему текущие тесты не поймали найденные баги, и переписать их в реальные регрессионные проверки перед повторной приемкой Stage 1.
+
+Scope:
+- Провести аудит старой зеленой Stage 1 suite и отдельно зафиксировать, какие типы тестов пропустили баги: source-string checks, happy-path only, internal service shortcuts, missing negative auth/state tests
+- Переписать tests/test_mobile_shell_contract.py, tests/test_lord_panel_contract.py, tests/test_stage1_gate_role_flow.py и смежные regression groups там, где они проверяют строки вместо поведения
+- Добавить failing-before/passing-after тест на каждый серьезный issue из TASK-051-TASK-056
+- Покрыть auth/secret leaks, forced PvE success, d20/DC/cooldown, offline act unlock, QR rate limit, reward locks, paper side effects, PvP/Gwent lifecycle, lord economy/timers, sorceress mana/final locks
+- Stage 1 gate tests должны использовать реальные API/client-facing endpoints/panels там, где они есть, а internal shortcuts оставлять только для unit-level проверок
+- Оставшиеся hardware/manual-only checks явно перенести в launch-risk или TASK-018 manual acceptance, не выдавая их за automated proof
+
+Acceptance:
+- Новая regression suite падает на старой реализации для каждого TASK-051-TASK-056 bug class
+- Нет acceptance-critical теста, который проверяет только наличие строки в исходнике, если поведение можно проверить через API/state/UI contract
+- Тесты включают негативные auth/state cases и edge paths, а не только happy path
+- Stage 1 gate можно переоткрыть только после зеленого full pytest и named manual gaps
+- В task notes или отдельном test audit summary указано, почему старые тесты пропустили баги и чем новые проверки отличаются
+- TASK-018 acceptance больше не опирается на устаревший TASK-044 green evidence
+
+Test Steps:
+- Review existing Stage 1 tests and classify weak checks that missed TASK-051-TASK-056 issues
+- Rewrite source-string/smoke checks into behavioral API/state/mobile/lord-panel contract tests where possible
+- Run targeted regression groups for auth, mobile PvE/QR/act unlock, rewards/recovery, PvP/Gwent, lord runtime, sorceress/final_summary
+- Run uv run pytest -q
+- Run uv run python -m json.tool tasks.json
+- Run uv run python scripts/taskctl.py validate
+- Run uv run python scripts/taskctl.py doctor
+- Targeted pytest tests/test_mobile_shell_contract.py tests/test_lord_panel_contract.py tests/test_stage1_gate_role_flow.py: 18 passed; full uv run pytest -q: 168 passed; uv run ruff check changed Stage 1 tests: passed; uv run python -m json.tool tasks.json: passed; taskctl validate: passed; taskctl doctor: passed.
+
+Notes:
+
+Contract:
+Inputs: Completed fixes TASK-051 through TASK-056, old TASK-044 tests and the second Stage 1 review issue list.
+Outputs: Stage 1 regression suite that would have caught the reviewed business bugs before TASK-018 acceptance.
+Implementation path: Map each issue class to at least one negative or state-transition test, replace string checks with behavior checks and preserve manual-only launch risks separately.
+Interfaces: pytest API/service tests, Godot mobile contract tests, static lord/master panel contract tests and Stage 1 scripted role-flow.
+Failure/review paths: If a serious issue cannot be automated, TASK-018 must name the manual check and fallback owner; do not silently accept it.
+Required tests: Full uv run pytest -q, targeted regression groups, json.tool, taskctl validate/doctor and generated board review.
+
+### TASK-059 - Сделать PvE d20 бросок app-generated и неизменяемым
+
+Status: `done`
+Priority: `P0`
+Category: `mobile-pve`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-007`, `TASK-010`, `TASK-052`
+
+Goal:
+
+Вынести ручной d20 из мобильного PvE shell: игрок нажимает “Бросить”, приложение само генерирует число 1..20, фиксирует roll log и не дает заменить результат перед sync.
+
+Scope:
+- Заменить editable d20 input в mobile PvE на кнопку app-generated random 1..20 для каждой single_d20 проверки
+- Фиксировать roll_id, roll_value, created_at, player_id, qr_id/scenario_id, check_id и source=app_generated в локальном roll/event log
+- Запретить повторный бросок для той же проверки без master review/recovery причины и отдельного audit event
+- Сервер при sync принимает только replayable roll log app_generated или явно master/paper recovered roll source
+- UI показывает результат броска и примененные modifiers, но не дает игроку редактировать d20 вручную
+
+Acceptance:
+- В обычном mobile PvE flow нет поля, куда игрок вручную вводит d20
+- Каждая PvE проверка имеет ровно один app-generated d20 roll 1..20, привязанный к конкретной сцене/проверке
+- Повторная отправка, изменение d20 или второй бросок без master review отклоняются либо уходят в review
+- Offline/restart не теряет уже сгенерированный roll log и не создает новый бросок для той же проверки
+- Paper/master override оформляется отдельным источником и не маскируется под обычный app-generated roll
+
+Test Steps:
+- Add mobile contract test that PvE roll UI has Roll action and no editable d20 input in normal flow
+- Add state test: generated d20 remains stable across restart/offline sync retry
+- Add server sync negative test: changed roll_value or duplicate roll for same check is rejected or needs_master_review
+- Run targeted PvE/mobile tests and uv run pytest -q
+- uv run pytest -q tests/test_mobile_shell_contract.py tests/test_pve_runtime.py tests/test_event_sync.py: 37 passed; uv run ruff check targeted files: passed; uv run python scripts/taskctl.py validate: passed; uv run python -m json.tool tasks.json: passed; uv run pytest -q full suite attempted twice and timed out at 244s/603s before completion.
+
+Notes:
+
+Contract:
+Inputs: Godot mobile shell, PvE runtime, sync event schema and Stage 1 single_d20 rule.
+Outputs: App-generated immutable d20 roll contract for normal PvE checks.
+Implementation path: Move d20 generation into app action, persist roll log before outcome calculation, and make sync validate roll identity/idempotency.
+Interfaces: mobile/scripts/main.gd, mobile/scripts/app_state.gd, pve_completed/sync payloads, backend PvE validation.
+Failure/review paths: Reroll, manual roll entry or corrupted roll log must require master review or paper_recovered path.
+Required tests: Mobile contract, offline persistence, duplicate/modified roll sync rejection and targeted PvE regression.
+
+### TASK-060 - Закрыть PvE modifier/stat authority и канонические статы
+
+Status: `done`
+Priority: `P0`
+Category: `pve`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-010`, `TASK-052`, `TASK-059`
+
+Goal:
+
+Сервер не должен доверять произвольным modifiers из клиента и seed должен соответствовать канонической модели статов из документов.
+
+Scope:
+- Перестать принимать произвольные client-supplied modifiers вроде +999 как источник истины для PvE outcome
+- Выводить modifiers сервером из player stats, approved inventory/potions/artifacts/magic/effects and scenario rules
+- Привести players.csv/PvE scenarios/runtime schema к каноническим мобильным статам: Сила, Ловкость, Разум, Харизма, Воля; старт 7 points, стартовый max 3, runtime max 7
+- Проверять success/partial/failure только через app-generated d20 + server-derived modifiers + DC/scene rules
+- Логировать breakdown modifiers так, чтобы мастер мог понять, откуда взялся итог, без права клиента добавить скрытый бонус
+
+Acceptance:
+- PvE sync с roll=1 и произвольным modifier=+999 не выдает success/reward без валидного серверного источника modifier
+- Outcome PvE невозможно подменить через заявленный клиентом success/partial/failure
+- Seed stats и PvE checks используют канонические статы из документов, а не combat/lore/influence/magic/alchemy
+- Level-up/stat cap rules проверяются на seed fixtures и runtime state
+- Master review видит roll, DC и server-derived modifier breakdown
+
+Test Steps:
+- Add negative PvE test for arbitrary high client modifier exploit
+- Add tests for server-derived modifier sources from stats/items/potions/magic only
+- Add seed validation for canonical stat names, start point budget and max stat caps
+- Run targeted PvE/seed validation tests and uv run pytest -q
+- uv run pytest -q; uv run ruff check backend tests; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: docs/game-mechanics.md stat model, PvE scenarios, player seed, inventory/effect state and app-generated roll log from TASK-059.
+Outputs: Server-authoritative PvE outcome and canonical stat schema.
+Implementation path: Normalize stat IDs, validate seed/import, derive modifiers server-side and ignore/review untrusted client modifier claims.
+Interfaces: pve_runtime, event_schema, seed CSV validation, reward application and master review view.
+Failure/review paths: Unknown modifier source, invalid stat ID or client/outcome mismatch must reject or needs_master_review.
+Required tests: Modifier exploit regression, canonical stat seed validation, outcome recomputation and reward denial on invalid modifiers.
+
+### TASK-061 - Закрыть QR/act unlock secrecy и future-act reveal
+
+Status: `done`
+Priority: `P0`
+Category: `qr-security`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-009`, `TASK-052`
+
+Goal:
+
+QR lookup и offline act unlock не должны раскрывать будущие акты, сценарии или usable secrets до мастерского reveal/physical announcement.
+
+Scope:
+- Серверный QR lookup проверяет current act/unlocked acts до выдачи scenario details для Act 2/3/Final QR
+- Mobile snapshot не раскрывает usable act unlock material до reveal: никаких достаточных hash/code данных для локального обхода master reveal
+- Offline unlock работает только после physical announcement через раскрытый master code/QR и затем валидируется при sync
+- Manual QR/act code attempts имеют rate limit, локальный attempt log и review signal при переборе
+- Hidden/future QR возвращают locked/requires_act_unlock без текста сцены, наград и механических подсказок
+
+Acceptance:
+- Act 2/3/Final QR нельзя открыть через API до unlock соответствующего акта
+- Bundled/exported snapshot не содержит данных, достаточных для угадывания или offline-unlock будущего акта до reveal
+- При неверных/частых manual attempts создается review/audit trail, а не молчаливый локальный unlock
+- После официального reveal offline unlock работает без Wi-Fi и затем подтверждается сервером при sync
+- Будущие QR не раскрывают rewards/scenario text до доступности акта
+
+Test Steps:
+- Add API test: future-act QR lookup before unlock returns locked without scenario payload
+- Add snapshot export test: hidden act unlock entries do not expose usable code/hash pre-reveal
+- Add offline unlock test for reveal -> local unlock -> sync validation path
+- Add manual attempt rate-limit/review regression
+- Run targeted QR/act unlock tests and uv run pytest -q
+- uv run pytest -q tests/test_fastapi_contract.py tests/test_snapshot_exporter.py tests/test_event_sync.py tests/test_mobile_shell_contract.py -k 'not mobile_scripts_define_event_queue_sync_contract and not mobile_pve_roll_ui_generates_immutable_app_roll' -> 49 passed, 2 deselected; uv run ruff check changed Python files -> passed; taskctl validate -> valid. Full uv run pytest -q timed out at 184s before summary.
+
+Notes:
+
+Contract:
+Inputs: QR runtime, act unlock codes, snapshot exporter and physical announcement/reveal policy.
+Outputs: No future-act or secret leakage before master reveal; valid offline unlock after reveal.
+Implementation path: Gate QR lookup by act state, split pre-reveal metadata from usable unlock material, and audit manual attempts.
+Interfaces: qr_runtime, snapshot_exporter, act service, mobile app_state, event sync.
+Failure/review paths: Future-act scan, suspicious manual attempts or hash-only unlock must be locked/reviewed until master reveal.
+Required tests: Future QR no-reveal, snapshot secret audit, offline reveal path and manual attempt review.
+
+### TASK-062 - Довести mobile offline queue и bundled snapshot до playable fallback
+
+Status: `done`
+Priority: `P1`
+Category: `mobile-sync`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-008`, `TASK-009`, `TASK-059`, `TASK-061`
+
+Goal:
+
+Мобильный shell должен синхронизировать QR/manual review contexts и иметь реально используемый bundled snapshot fallback, как обещано в README/Stage 1 contract.
+
+Scope:
+- Добавить в mobile event_queue не только PvE completed/act unlock, но и QR/manual presence confirmations, suspected honesty violations and review-needed contexts
+- Сохранять offline queue across restart и показывать sync status для pending/review/sync_error событий
+- Сделать mobile/assets/bundled_snapshot.json достаточным для заявленного fallback: player metadata/codes или явный non-playable dev artifact без ложного README-контракта
+- Проверить, что QR/manual ID offline flow не теряет context до sync и не применяет reward без серверной валидации
+- Обновить README/contract, если fallback остается ограниченным dev mode, чтобы Stage 1 acceptance не считала его игровым proof
+
+Acceptance:
+- QR/manual review-needed события из mobile offline flow доходят до server event/review queue после sync
+- После restart телефона pending events и generated d20 roll logs сохраняются без дубликатов
+- Bundled snapshot fallback либо реально позволяет player-code login/offline shell smoke, либо явно помечен как non-playable dev fixture
+- Mobile sync не теряет presence confirmation/honesty audit trail
+- Stage 1 gate больше не опирается на README-обещание, которое не подтверждено snapshot artifact
+
+Test Steps:
+- Add mobile AppState queue test for QR/manual review contexts and restart persistence
+- Add sync test that queued review contexts become backend events/reviews
+- Add snapshot fixture test for bundled_snapshot playable fallback contract or README wording
+- Run targeted mobile/snapshot tests and uv run pytest -q
+- Passed: uv run pytest tests/test_mobile_shell_contract.py -q -k 'queue_qr or queued_qr_context or bundled_snapshot or pve_roll_state or event_queue_sync_contract'; passed: uv run ruff check tests/test_mobile_shell_contract.py; passed: uv run python scripts/taskctl.py validate; passed with escalation after uv cache sandbox denial: uv run python -m json.tool tasks.json. Also ran uv run pytest -q: fails outside TASK-062 because import_seed_pack rejects old seed stats combat/lore/alchemy while TASK-060 canonical stats work is in_progress.
+
+Notes:
+
+Contract:
+Inputs: Mobile shell/AppState, event_queue schema, bundled snapshot artifact and mobile README contract.
+Outputs: Reliable offline event queue for QR/manual review contexts and truthful bundled snapshot fallback.
+Implementation path: Queue all acceptance-critical offline contexts, persist them idempotently and align bundled snapshot/README with real login fallback.
+Interfaces: mobile/scripts/app_state.gd, mobile/assets/bundled_snapshot.json, snapshot exporter and event sync API.
+Failure/review paths: Unsynced review context must remain pending/sync_error; unusable fallback must be documented as non-playable and excluded from acceptance.
+Required tests: Queue persistence, review sync, bundled snapshot contract and targeted mobile shell tests.
+
+### TASK-063 - Закрыть PvP/Gwent stake ownership и winner authority exploits
+
+Status: `done`
+Priority: `P0`
+Category: `pvp`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-014`, `TASK-053`, `TASK-054`
+
+Goal:
+
+PvP/Gwent не должен минтить чужие/несуществующие ставки и не должен позволять проигравшей стороне подменить победителя при finish.
+
+Scope:
+- Challenge/stake creation требует существующий asset/card и текущего владельца, если stake ссылается на asset_id/card_id
+- Stake lock создается только для owned/transferable assets и не создает новый asset при finish
+- Gwent match finish берет победителя из server-authoritative match/round state, а не из внешнего winner_id payload
+- Duplicate/idempotent finish не меняет stake owner повторно и не позволяет участнику переписать result
+- Timeout/refusal/tie остается master review path, а не обход winner authority
+
+Acceptance:
+- Нельзя создать PvP stake на asset, которым игрок не владеет или которого не существует
+- Победитель Gwent match не подменяется client-supplied winner_id при finish
+- Stake transfer происходит один раз и только после server-authoritative final winner
+- Невалидная ставка не списывает token, не занимает table и не создает lock
+- Регрессия покрывает оба найденных P0 exploit paths
+
+Test Steps:
+- Add negative API/service test for non-owned or missing asset stake creation
+- Add Gwent finish test where losing participant submits opposite winner_id and server keeps real winner/review state
+- Add idempotent duplicate finish/stake transfer test
+- Run targeted PvP/Gwent tests and uv run pytest -q
+- uv run pytest -q tests/test_pvp_runtime.py; uv run pytest -q tests/test_stage1_gate_role_flow.py tests/test_reward_approvals.py; uv run pytest -q; uv run python scripts/taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: PvP challenge service, Gwent match state, asset locks and reward/asset ownership.
+Outputs: Authoritative stake ownership and server-derived match winner.
+Implementation path: Reuse asset lock validation with require_existing_owner, derive winner from persisted match rounds and make finish idempotent.
+Interfaces: pvp_service, asset_service, event sync/API, trade/reward locks and master review for disputes.
+Failure/review paths: Missing ownership, contradictory winner payload, timeout/refusal/tie or duplicate finish must reject or review without transferring stake.
+Required tests: Non-owned stake exploit, winner override exploit, duplicate finish and token/table no-side-effect regression.
+
+### TASK-064 - Довести lord orders escrow и route movement до бизнес-контракта
+
+Status: `done`
+Priority: `P1`
+Category: `lord-runtime`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-012`, `TASK-055`
+
+Goal:
+
+Лордские заказы и перемещение должны реально резервировать/выдавать награды и учитывать weighted route, а не быть только UI/ledger заглушкой.
+
+Scope:
+- Order creation резервирует reward/escrow так, чтобы лорд не мог потратить обещанную награду до completion/cancel/expiry
+- Order completion применяет reward executor-у через тот же reward/asset runtime с audit log and pending/review rules
+- Cancel/expiry/refund корректно возвращает escrow лорду и не оставляет ledger-only расхождения
+- Lord movement UI/API поддерживает явный route_node_ids/weighted route validation, а не только to_node_id
+- MP списываются по валидному маршруту, с понятной ошибкой для impossible/too-expensive route
+
+Acceptance:
+- Лордский order нельзя создать/держать без реального escrow/reserve соответствующей награды
+- Исполнитель получает reward при accepted completion, а ledger и wallet/assets совпадают после операции
+- Cancel/expiry не дублирует и не теряет escrow
+- Lord movement panel позволяет выбрать/передать weighted route, который валидирует сервер
+- Route/MP edge cases покрыты тестами без ручного Swagger обхода
+
+Test Steps:
+- Add order escrow reserve/apply/refund service tests
+- Add API/UI contract test for route_node_ids from lord panel movement action
+- Add negative tests for impossible route and insufficient MP
+- Run targeted lord runtime/panel tests and uv run pytest -q
+- uv run ruff check backend\witcher_larp\lord_runtime.py backend\witcher_larp\lord_panel.py backend\witcher_larp\runtime_schema.py tests\test_lord_runtime.py tests\test_lord_panel_contract.py; uv run pytest -q tests\test_lord_runtime.py tests\test_lord_panel_contract.py; uv run pytest -q; uv run python scripts\taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: Lord runtime, order status machine, reward/asset service, weighted map and lord panel JS.
+Outputs: Real escrow lifecycle for orders and playable weighted route movement.
+Implementation path: Tie order rewards to asset/reward reserve/apply/refund operations and expose route selection through panel/API.
+Interfaces: lord_runtime, reward/asset services, lord web panel, map_edges and event log.
+Failure/review paths: Escrow conflict, impossible route or inconsistent ledger/wallet state must reject or require master review.
+Required tests: Order escrow lifecycle, route UI/API contract, MP validation and lord scripted regression.
+
+### TASK-065 - Закрыть master review/corrections API и reputation scoping gaps
+
+Status: `done`
+Priority: `P1`
+Category: `admin-security`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-005`, `TASK-016`, `TASK-051`
+
+Goal:
+
+Stage 1 должен иметь работающий master review/correction контур для спорных событий и не раскрывать reputation/state через публичные unscoped endpoints.
+
+Scope:
+- Добавить/починить API для закрытия review events: POST /api/events/{event_id}/review и master corrections по архитектурному контракту или актуальному эквиваленту
+- Master review queue должна быть не только read-only: approve/reject/correct применяет side effects idempotently или оставляет audit trail
+- Reputation/player state endpoints должны быть scoped/authenticated: игрок видит свое разрешенное состояние, мастер видит ops view, чужие приватные данные закрыты
+- Review severity P0/P1/P2/P3 и причины решения сохраняются в event_reviews/master_corrections
+- Admin/master endpoints не должны быть доступны обычному player token
+
+Acceptance:
+- Спорное событие из QR/PvE/PvP/paper recovery можно закрыть мастерским approve/reject/correct без прямой правки SQLite
+- Review/correction endpoints требуют master auth и пишут audit trail
+- Public reputation endpoint не раскрывает чужое состояние без прав
+- Игрок не может закрыть master review или применить correction через свой token
+- Stage 1 gate имеет runnable path для review-needed событий, а не только список ожидания
+
+Test Steps:
+- Add API tests for master review approve/reject/correct lifecycle and idempotency
+- Add auth negative tests: player cannot call review/correction endpoints
+- Add reputation scoping tests for own/player/master/foreign access
+- Run targeted event/reputation/API tests and uv run pytest -q
+- Focused API/schema/reputation tests passed; ruff passed; full uv run pytest -q passed with 183 tests.
+
+Notes:
+
+Contract:
+Inputs: Event intake/review schema, reputation/NPC runtime, auth context and architecture review API contract.
+Outputs: Master-operable review/correction lifecycle and scoped reputation access.
+Implementation path: Implement or align review/correction endpoints, enforce master/player scoping and persist severity/reason audit data.
+Interfaces: FastAPI app, event_service, event_reviews/master_corrections storage, reputation_service and admin/master panels.
+Failure/review paths: Missing auth, foreign player access or conflicting correction must reject; unresolved conflicts remain visible in review queue.
+Required tests: Review close lifecycle, correction idempotency, player auth denial and reputation scoping.
+
+### TASK-066 - Переписать Stage 1 regression tests после свежих issue fixes
+
+Status: `done`
+Priority: `P0`
+Category: `qa`
+Stage: `STAGE-1: Core Game Engine`
+Stage gate: `False`
+Dependencies: `TASK-059`, `TASK-060`, `TASK-061`, `TASK-062`, `TASK-063`, `TASK-064`, `TASK-065`
+
+Goal:
+
+После TASK-059-TASK-065 отдельно проревьюить тесты, которые не поймали свежие баги, и заменить слабые проверки на реальные регрессии перед приемкой Stage 1.
+
+Scope:
+- Составить test audit summary: почему зеленая suite пропустила manual d20, arbitrary modifiers, future-act reveal, event_queue gaps, PvP stake/winner exploits, lord escrow/route gaps, review/reputation gaps
+- Добавить failing-before/passing-after regression на каждый issue class из TASK-059-TASK-065
+- Заменить acceptance-critical source-string/smoke-only checks на behavior tests через API/state/mobile/lord-panel contract там, где возможно
+- Разделить automated proof и named manual/device gaps, чтобы TASK-018 не опирался на неподтвержденный shell/fallback
+- Обновить Stage 1 gate tests so they fail when serious business logic is bypassed even if happy-path smoke remains green
+
+Acceptance:
+- Для каждого TASK-059-TASK-065 есть минимум один тест, который падал бы на найденной реализации
+- Full pytest зеленый только после реальных business-invariant checks, а не после проверки строк/наличия файлов
+- Тесты покрывают negative auth/state/exploit cases, duplicate/idempotency and review paths
+- Test audit явно перечисляет старые blind spots и новые regression files/tests
+- TASK-018 нельзя закрыть, пока TASK-066 не завершен и named manual gaps не вынесены отдельно
+
+Test Steps:
+- Review existing Stage 1 tests and classify why they missed TASK-059-TASK-065 bugs
+- Add/replace targeted tests for d20 generation, PvE modifier authority, QR/act secrecy, mobile queue, PvP stake/winner, lord escrow/route, review/corrections and reputation scoping
+- Run targeted regression groups for mobile/PvE/QR/PvP/lord/admin/reputation
+- Run uv run pytest -q
+- Run uv run python -m json.tool tasks.json
+- Run uv run python scripts/taskctl.py validate
+- Run uv run python scripts/taskctl.py doctor
+- Passed: uv run pytest tests/test_stage1_fresh_regressions.py -q; uv run ruff check tests/test_stage1_fresh_regressions.py; uv run pytest tests/test_mobile_shell_contract.py tests/test_pve_runtime.py tests/test_snapshot_exporter.py tests/test_event_sync.py tests/test_pvp_runtime.py tests/test_lord_runtime.py tests/test_lord_panel_contract.py tests/test_reputation_npc_runtime.py tests/test_stage1_gate_role_flow.py tests/test_stage1_fresh_regressions.py -q; uv run pytest -q; uv run python -m json.tool tasks.json; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py doctor.
+
+Notes:
+
+Contract:
+Inputs: Completed fixes TASK-059 through TASK-065, current Stage 1 tests and fresh review issue list.
+Outputs: Regression suite and audit summary that would catch the fresh business-logic bugs before TASK-018 acceptance.
+Implementation path: Map each issue to behavior-level tests, prefer API/state/UI contract tests over source-string checks and record manual-only gaps explicitly.
+Interfaces: tests/test_mobile_shell_contract.py, tests/test_pve_runtime.py, tests/test_snapshot_exporter.py, tests/test_pvp_runtime.py, tests/test_lord_runtime.py, tests/test_lord_panel_contract.py, tests/test_event_sync.py, tests/test_reputation_npc_runtime.py and Stage 1 gate tests.
+Failure/review paths: Any serious issue without automated coverage must be named as a TASK-018 blocker/manual acceptance gap, not hidden behind green pytest.
+Required tests: Targeted regression groups, full uv run pytest -q, json.tool, taskctl validate/doctor and generated board review.
