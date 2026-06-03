@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Lord Panel</title>
+    <link rel="stylesheet" href="/static/lord/lord.css">
+  </head>
+  <body data-app="lord-panel">
+    <main class="shell">
+      <section class="login" id="login-panel">
+        <div class="brand">
+          <span class="mark" aria-hidden="true">LP</span>
+          <div>
+            <h1>Lord Panel</h1>
+            <p>Local command surface</p>
+          </div>
+        </div>
+        <form id="token-form" class="token-form">
+          <label for="role-token">Role token</label>
+          <div class="token-row">
+            <input
+              id="role-token"
+              name="role-token"
+              autocomplete="off"
+              placeholder="LORD-NORTH-R8K4"
+              required
+            >
+            <button type="submit">Enter</button>
+          </div>
+        </form>
+        <p class="status-line" id="login-status" role="status"></p>
+      </section>
+
+      <section class="dashboard" id="dashboard" hidden>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Runtime</p>
+            <h2 id="lord-name">Lord</h2>
+          </div>
+          <div class="top-actions">
+            <button type="button" id="refresh-button" title="Refresh state">Refresh</button>
+            <button type="button" id="logout-button" title="Clear role token">Logout</button>
+          </div>
+        </header>
+
+        <section class="summary-grid" aria-label="State summary">
+          <article class="metric">
+            <span>Domain</span>
+            <strong id="domain-name">-</strong>
+          </article>
+          <article class="metric">
+            <span>Gold</span>
+            <strong id="gold-value">-</strong>
+          </article>
+          <article class="metric">
+            <span>Influence</span>
+            <strong id="influence-value">-</strong>
+          </article>
+          <article class="metric">
+            <span>MP</span>
+            <strong id="mp-value">-</strong>
+          </article>
+          <article class="metric">
+            <span>Orders</span>
+            <strong id="orders-value">-</strong>
+          </article>
+        </section>
+
+        <div class="content-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <h3>Territories</h3>
+              <span id="territory-count">0</span>
+            </div>
+            <div class="territory-list" id="territory-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <h3>Orders</h3>
+              <span id="active-orders">0 active</span>
+            </div>
+            <div class="order-list" id="order-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <h3>Recruit</h3>
+              <span id="recruit-count">0 offers</span>
+            </div>
+            <div class="compact-list" id="recruit-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <h3>Actions</h3>
+              <span id="action-status">ready</span>
+            </div>
+            <div class="action-forms">
+              <form class="action-card" data-action-form="move">
+                <h4>Move</h4>
+                <label for="move-target">Target node</label>
+                <select id="move-target" name="to_node_id" required></select>
+                <p class="route-preview" id="move-route-preview">-</p>
+                <button type="submit">Move</button>
+              </form>
+
+              <form class="action-card" data-action-form="garrison">
+                <h4>Garrison</h4>
+                <label for="garrison-operation">Operation</label>
+                <select id="garrison-operation" name="operation">
+                  <option value="garrison">Place garrison</option>
+                  <option value="reserve_to_active">Reserve to active army</option>
+                </select>
+                <label for="garrison-territory">Territory</label>
+                <select id="garrison-territory" name="territory_id" required></select>
+                <label for="garrison-card">Unit</label>
+                <select id="garrison-card" name="card_id" required></select>
+                <label for="garrison-count">Count</label>
+                <input id="garrison-count" name="count" type="number" min="1" value="1" required>
+                <button type="submit">Apply</button>
+              </form>
+
+              <form class="action-card" data-action-form="building">
+                <h4>Building</h4>
+                <label for="building-id">Building</label>
+                <select id="building-id" name="building_id" required></select>
+                <button type="submit">Buy</button>
+              </form>
+
+              <form class="action-card" data-action-form="recruit">
+                <h4>Recruit</h4>
+                <label for="recruit-offer">Offer</label>
+                <select id="recruit-offer" name="offer_id"></select>
+                <div class="button-row">
+                  <button type="submit" data-recruit-action="refresh">Refresh</button>
+                  <button type="submit" data-recruit-action="hold">Hold</button>
+                  <button type="submit" data-recruit-action="purchase">Buy</button>
+                </div>
+              </form>
+
+              <form class="action-card" data-action-form="raid">
+                <h4>Raid</h4>
+                <label for="raid-target">Target</label>
+                <select id="raid-target" name="target_territory_id" required></select>
+                <button type="submit">Start raid</button>
+              </form>
+
+              <form class="action-card" data-action-form="order">
+                <h4>Order</h4>
+                <label for="order-object">Object</label>
+                <input id="order-object" name="object_id" required>
+                <label for="order-target">Target player</label>
+                <input id="order-target" name="target_player_id">
+                <label for="order-visibility">Visibility</label>
+                <select id="order-visibility" name="visibility">
+                  <option value="public">Public</option>
+                  <option value="addressed">Addressed</option>
+                </select>
+                <label for="order-reward">Escrow reward</label>
+                <input id="order-reward" name="escrow_reward_id">
+                <button type="submit">Create</button>
+              </form>
+
+              <form class="action-card" data-action-form="battle-create">
+                <h4>Battle</h4>
+                <label for="battle-id">Battle id</label>
+                <input id="battle-id" name="battle_id">
+                <label for="battle-territory">Territory</label>
+                <select id="battle-territory" name="territory_id" required></select>
+                <label for="battle-defender">Defender domain</label>
+                <input id="battle-defender" name="defender_domain_id" placeholder="empty for neutral">
+                <button type="submit">Create battle</button>
+              </form>
+
+              <form class="action-card" data-action-form="battle-action">
+                <h4>Battle action</h4>
+                <label for="battle-action-id">Battle id</label>
+                <input id="battle-action-id" name="battle_id" required>
+                <label for="battle-action-type">Action</label>
+                <select id="battle-action-type" name="action_type">
+                  <option value="defend">Defend</option>
+                  <option value="timeout">Timeout</option>
+                  <option value="auto_resolve">Auto-resolve</option>
+                  <option value="surrender">Surrender</option>
+                  <option value="attack">Attack</option>
+                  <option value="move">Move</option>
+                  <option value="deploy">Deploy</option>
+                </select>
+                <label for="battle-action-side">Side</label>
+                <select id="battle-action-side" name="actor_side">
+                  <option value="attacker">Attacker</option>
+                  <option value="defender">Defender</option>
+                </select>
+                <label for="battle-payload">Payload JSON</label>
+                <textarea id="battle-payload" name="payload_json" rows="3"></textarea>
+                <button type="submit">Send action</button>
+              </form>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/lord/lord.js" defer></script>
+  </body>
+</html>
