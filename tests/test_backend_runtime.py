@@ -38,6 +38,9 @@ class DatabaseRuntimeTests(unittest.TestCase):
 
         self.assertIn("schema_version", tables)
         self.assertIn("event_log", tables)
+        self.assertIn("events", tables)
+        self.assertIn("event_reviews", tables)
+        self.assertIn("master_corrections", tables)
 
     def test_init_database_is_idempotent(self) -> None:
         settings = self.make_settings("idempotent")

@@ -1,2 +1,2 @@
 policy_id,die_policy,modifier_sources,no_rerolls,log_required
-single_d20,single_d20,advantage;hindrance;items;potions;artifacts;magic,true,true
+single_d20,single_d20,items;potions;artifacts;magic;system,true,true

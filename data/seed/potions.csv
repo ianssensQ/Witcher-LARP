@@ -1,4 +1,4 @@
 potion_id,rarity,wholesale_cost,resale_min,resale_max,effect_json
 potion_common_swallow,Common,8,12,15,"{""effect"":""minor_heal_scene_hp"",""reroll"":false}"
-potion_uncommon_thunderbolt,Uncommon,18,25,30,"{""effect"":""combat_modifier_plus_2"",""reroll"":false}"
+potion_uncommon_thunderbolt,Uncommon,18,25,30,"{""effect"":""strength_modifier_plus_2"",""reroll"":false}"
 potion_rare_oriole,Rare,40,55,70,"{""effect"":""ignore_poison_scene"",""reroll"":false}"

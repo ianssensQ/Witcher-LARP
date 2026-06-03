@@ -9,6 +9,9 @@ import sqlite3
 from typing import Iterator
 
 from .config import Settings
+from .event_schema import ensure_event_schema
+from .repository import ensure_import_schema
+from .runtime_schema import ensure_runtime_schema
 
 
 SCHEMA_VERSION = 1
@@ -77,6 +80,9 @@ def init_database(settings: Settings | None = None) -> DatabaseHealth:
             );
             """
         )
+        ensure_import_schema(connection)
+        ensure_event_schema(connection)
+        ensure_runtime_schema(connection)
 
     return healthcheck_database(runtime_settings)
 

@@ -9,12 +9,14 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATABASE_PATH = PROJECT_ROOT / "data" / "game.db"
+DEFAULT_BACKUP_DIR = PROJECT_ROOT / "data" / "backups"
 
 
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "Witcher LARP Core Engine"
     database_path: Path = DEFAULT_DATABASE_PATH
+    backup_dir: Path = DEFAULT_BACKUP_DIR
     sqlite_timeout_seconds: float = 5.0
 
     @classmethod

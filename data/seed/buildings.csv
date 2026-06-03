@@ -3,8 +3,8 @@ b_training_yard,military,Training Yard,1,40,,unit_infantry_t1;unit_guard_t1,2,fa
 b_barracks,military,Barracks,2,75,b_training_yard,unit_ranged_t1,3,false
 b_archery_range,military,Archery Range,2,75,b_training_yard,unit_ranged_t1,1,false
 b_stables,military,Stables,2,75,b_training_yard,unit_cavalry_t2,1,false
-b_siege_yard,military,Siege Yard,3,120,b_barracks; b_archery_range,unit_heavy_siege_t3,1,true
-b_war_academy,military,War Academy,4,180,b_siege_yard; b_envoy_hall,unit_specialist_t3,2,true
+b_siege_yard,military,Siege Yard,3,120,b_barracks; b_storehouse,unit_heavy_siege_t3,1,true
+b_war_academy,military,War Academy,4,180,b_archery_range; b_stables; b_war_council,unit_specialist_t3,2,true
 b_market,economy,Market,1,40,,unit_infantry_t1,0,false
 b_tax_office,economy,Tax Office,2,75,b_market,,0,false
 b_storehouse,economy,Storehouse,2,75,b_market,,4,false
@@ -14,7 +14,7 @@ b_notice_board,order,Notice Board,1,40,,unit_infantry_t1,0,false
 b_envoy_hall,order,Envoy Hall,2,75,b_notice_board,,0,false
 b_map_room,order,Map Room,2,75,b_notice_board,,0,false
 b_raid_office,order,Raid Office,3,120,b_map_room; b_stables,,0,true
-b_war_council,order,War Council,4,180,b_raid_office; b_war_academy,,1,true
+b_war_council,order,War Council,4,180,b_raid_office; b_envoy_hall,,1,true
 b_mage_study,magic,Mage Study,1,40,,unit_specialist_t3,0,false
 b_alchemy_lab,magic,Alchemy Lab,2,75,b_mage_study,,0,false
 b_scrying_room,magic,Scrying Room,2,75,b_mage_study,,0,false

@@ -11,6 +11,7 @@ from backend.witcher_larp.config import PROJECT_ROOT
 
 SEED_ROOT = PROJECT_ROOT / "data" / "seed"
 FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures"
+CANONICAL_STATS = {"Сила", "Ловкость", "Разум", "Харизма", "Воля"}
 
 
 REQUIRED_HEADERS = {
@@ -574,6 +575,10 @@ class SeedContractTests(unittest.TestCase):
         player_code_ids = self.ids("player_codes.csv", "code_id")
         for player in self.rows["players.csv"]:
             self.assertIn(player["player_code_id"], player_code_ids)
+            stats = json.loads(player["stats_json"])
+            self.assertEqual(set(stats), CANONICAL_STATS)
+            self.assertEqual(sum(stats.values()), 7)
+            self.assertLessEqual(max(stats.values()), 3)
 
         token_roles = Counter(row["role_type"] for row in self.rows["role_tokens.csv"])
         self.assertEqual(token_roles["lord"], 4)
@@ -612,6 +617,7 @@ class SeedContractTests(unittest.TestCase):
         mob_ids = self.ids("mobs.csv", "mob_id")
         check_policy_ids = self.ids("check_policies.csv", "policy_id")
         for scenario in self.rows["pve_scenarios.csv"]:
+            self.assertIn(scenario["primary_stat"], CANONICAL_STATS)
             self.assertIn(scenario["reward_id"], reward_ids)
             self.assertIn(scenario["combat_profile_id"], mob_ids)
             self.assertIn(scenario["check_policy"], check_policy_ids)
@@ -734,6 +740,25 @@ class SeedContractTests(unittest.TestCase):
             10,
         )
         self.assertEqual(cards[deck["leader_card_id"]]["type"], "leader")
+        pvp_player_ids = {
+            row["player_id"]
+            for row in self.rows["players.csv"]
+            if row["role_type"] in {"witcher", "sorceress"}
+        }
+        deck_player_ids = {row["player_id"] for row in self.rows["gwent_decks.csv"]}
+        self.assertEqual(pvp_player_ids, deck_player_ids)
+        for deck in self.rows["gwent_decks.csv"]:
+            with self.subTest(deck=deck["deck_id"]):
+                deck_cards = [cards[card_id] for card_id in split_ids(deck["card_ids"])]
+                self.assertGreaterEqual(
+                    sum(1 for card in deck_cards if card["type"] == "unit"),
+                    22,
+                )
+                self.assertLessEqual(
+                    sum(1 for card in deck_cards if card["type"] == "special"),
+                    10,
+                )
+                self.assertEqual(cards[deck["leader_card_id"]]["type"], "leader")
 
         self.assertEqual(len(self.rows["pvp_tables.csv"]), 2)
         self.assertEqual(
