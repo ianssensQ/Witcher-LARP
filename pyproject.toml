@@ -12,6 +12,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8,<9",
+    "ruff>=0.15.15",
 ]
 
 [tool.uv]
@@ -21,3 +22,10 @@ default-groups = ["dev"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["tools/taskos"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/taskctl.py" = ["E402"]

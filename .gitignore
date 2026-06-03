@@ -17,3 +17,4 @@ data/backups/*
 !data/backups/.gitkeep
 *.db
 *.sqlite3
+.coverage
