@@ -10,6 +10,17 @@
 
 `docs/PRD.md`, `docs/architecture.md`, `docs/roadmap.md` и `tasks.json` должны ссылаться на этот документ как на уточненную механику-канонику.
 
+## Visual reference and asset canon
+
+Референсы пользователя фиксируются как механико-визуальные контракты, а не как источники копируемого контента:
+
+- лордская резиденция в UI должна работать как оригинальный castle/city-development screen с Olden Era-like building tree: здания видны как узлы дерева с prerequisite lines, locked/unlocked/purchased states, cost/resources, detail card, доходом, наймом, raid/order effects и развитием без копирования официального арта;
+- личный Гвинт ведьмаков и чародеек использует экранную грамматику Witcher 3 Gwent: лидер, колода, рука, кладбище/discard, weather/special slots, три ряда, pass и score, но карты, имена, портреты, редкости и баланс являются кастомным LARP-контентом;
+- лордский PvP/бой использует отдельный стратегический 5x6 army board: он может брать у гвинтового стола читаемость поля и карт, но визуально отличается от личного Гвинта и не использует deck/hand/graveyard/weather/pass как личный PvP;
+- карта участка отображается как illustrated fantasy strategy map поверх `venue_map_v1`, `map_nodes` и `map_edges` для перемещения лордских героев/армий; лорды не используют QR, а QR/manual physical-presence confirmation относится к ведьмакам и чародейкам на физических локациях и не требует online-карты;
+- каждая захватываемая территория имеет тематический `territory_fort`: одну оригинальную картинку/карточку форта, garrison slots/capacity и UI для переброски текущих войск активной армии в форт и обратно;
+- production assets должны быть original/local/generated. Официальные арты, логотипы, скриншоты, галерейные изображения и чужие карты не попадают в runtime/content pack.
+
 ## Production profile
 
 Текущий production profile игры рассчитан на 15 человек всего: 13 игроков и 2 NPC-мастера. Игровой состав фиксируется так:
@@ -311,6 +322,8 @@ Transactional flow:
 
 Личный PvP ведьмаков и чародеек проходит как full Gwent по core rules Witcher 3 Gwent из official CDPR manual (`https://cdn-l-thewitcher.cdprojektred.com/media/TW3/Pdf/GwentManuals/en-Manual-Gwent-ONLINE.pdf`), но с кастомным LARP-набором карт. Документ копирует ruleset, а не официальный контент карт, названия, иллюстрации или баланс CDPR.
 
+UI Гвинта должен быть узнаваем как стол с лидером, колодой, рукой, кладбищем/discard, weather/special slots, тремя рядами, pass и score, но это экранная грамматика, а не копирование карточек. Это личный PvP-экран ведьмаков и чародеек; лордский 5x6 battle board не должен выглядеть как тот же матч с переименованными рядами. Контент-пак задает rows, leader, weather/special effects, rarity, power_budget, deck limits, `visual_tag` and original art prompt для каждой карты. Stage 5 отдельно проверяет deck complexity: слишком много weather/special/leader swing-cards может растянуть матчи или создать доминирующую колоду.
+
 Перед боем:
 
 - участники валидируются в online-зоне дома или у лордов;
@@ -377,14 +390,17 @@ V1 должен поддерживать core Gwent effects: weather, clear weat
 
 ## Стратегическая карта лордов
 
-Лордский слой строится на цифровой карте, а не на физической карте как источнике истины. 4 комнаты в активном новом доме считаются резиденциями 4 лордов. Лорды начинают только со своей резиденцией; все остальные постройки и зоны стартуют как нейтральные территории, пока их не захватят через игровую карту. Реальная карта участка нужна для атмосферы и подготовки, но runtime хранит карту как weighted graph:
+Лордский слой строится на цифровой карте, а не на физической карте как источнике истины. 4 комнаты в активном новом доме считаются резиденциями 4 лордов. Лорды начинают только со своей резиденцией; все остальные постройки и зоны стартуют как нейтральные территории, пока их не захватят через игровую карту. Реальная карта участка нужна для атмосферы, подготовки и навигации лордского слоя, но runtime хранит карту как weighted graph:
 
 - `map_nodes` - резиденции, нейтральные земли, деревни, форты, поля, горы, болота, леса, Оксенфурт, город магии, город ресурсодобычи и другие особые места карты;
 - `map_edges` - связи между узлами и стоимость перехода в movement points;
-- `territories` - игровые земли с владельцем, тиром, типом бонуса, обороной и visibility;
-- `garrisons` - карты-войска, оставленные для удержания земли;
+- `territories` - игровые земли с владельцем, тиром, типом бонуса, обороной, visibility и ссылкой на тематический форт;
+- `territory_forts` - визуальный и механический форт каждой захватываемой территории: `fort_id`, `territory_id`, `theme`, `visual_tag`, `art_prompt`, `garrison_capacity`, optional `defense_bonus`;
+- `garrisons` - карты-войска, размещенные в форте для удержания земли;
 - `movement_pools` - текущие movement points активной армии;
 - `territory_claims` - contested/in_battle состояние, если кто-то уже начал захват.
+
+Иллюстрированная карта участка в лордской панели и бумажном fallback является visual layer над этими таблицами. Она показывает route costs, ownership, contested/garrison/raid overlays, тематический форт каждой территории and route hints для лордских героев/армий. Она не является GPS-трекингом, не требует интернета и не содержит QR-привязок для лордов. Ведьмаки и чародейки ходят по физическим локациям через QR/manual ID, которые мастера расставляют отдельно; этим ролям online-карта необязательна.
 
 ### Карта участка v1 для лордского графа
 
@@ -445,13 +461,13 @@ V1 edge cost defaults: короткое соседнее ребро стоит 1
 
 Нейтральные территории защищены обороной тира 1-3. В отличие от авторасчета, нейтральный захват разыгрывается как короткий 5x6 бой против `neutral_defense_profile`. По умолчанию нейтральной стороной управляет серверный AI по простым deterministic правилам, но мастер может подключиться к бою и взять управление.
 
-Чужая территория защищается гарнизоном. Если активная армия владельца находится на этой же территории, защитник может использовать гарнизон и активную армию в setup боя. Потери применяются к конкретным выбранным картам.
+Чужая территория защищается гарнизоном в тематическом форте. Если активная армия владельца находится на этой же территории, защитник может использовать гарнизон форта и активную армию в setup боя. Потери применяются к конкретным выбранным картам.
 
-После победы атакующий должен оставить минимум одну выжившую army unit card как гарнизон. Без гарнизона территория не считается удержанной и не дает доход/бонус. Победитель выбирает, какие карты остаются в гарнизоне, а какие остаются в активной армии с учетом capacity.
+После победы атакующий должен оставить минимум одну выжившую army unit card в форте как гарнизон. Без гарнизона территория не считается удержанной и не дает доход/бонус. Победитель выбирает, какие карты остаются в форте, а какие остаются в активной армии с учетом capacity.
 
 Если активная армия проиграла, выжившие карты отступают на предыдущую свою территорию. Если она недоступна, армия возвращается в резиденцию. Уничтоженные army unit cards сгорают навсегда.
 
-Гарнизоны можно забирать обратно, если активная армия находится на той же территории. Transfer между активной армией, резервом и гарнизоном не тратит MP, но ограничен capacity активной армии и гарнизонным cap территории.
+Гарнизоны можно забирать обратно, если активная армия находится на той же своей территории. Transfer между активной армией и фортом не тратит MP, но ограничен capacity активной армии и `garrison_capacity` форта. Transfer запрещен, если территория чужая, contested, находится в активном бою или если в результате собственная захваченная территория остается без минимального гарнизона. Резерв остается отдельным контуром резиденции: активная армия может забирать юнитов из reserve только в резиденции, а не из любого форта.
 
 ## Доход, влияние и pending tick rewards
 
@@ -503,7 +519,7 @@ V0 economy defaults для лордов:
 
 ## Резиденция, building tree и рейды
 
-Резиденция лорда развивается за gold. В текущем ruleset нет act cap на строительство: если хватает золота и выполнены prerequisites, лорд может купить несколько зданий подряд. Чем сильнее здание, тем выше цена и требования по dependency tree.
+Резиденция лорда развивается за gold. В текущем ruleset нет act cap на строительство: если хватает золота и выполнены prerequisites, лорд может купить несколько зданий подряд. Чем сильнее здание, тем выше цена и требования по dependency tree. В UI резиденция отображается как оригинальный castle/city-development screen: Olden Era-like дерево узлов показывает branches, prerequisite lines, locked/unlocked/purchased state, cost, required buildings, recruit/economy/raid/order effects and visual_tag/art prompt; выбранное здание открывает detail card с эффектом и кнопкой постройки.
 
 Core-ветки резиденции:
 
@@ -565,7 +581,7 @@ Raid subtree находится внутри ветки Совета. Здани
 
 ## Бои лордов
 
-Бой лордов сочетает упрощенный Heroes of Might and Magic и визуальный язык Гвинта. Этот engine используется для захвата нейтральных/чужих территорий, защиты гарнизонов и столкновения активных армий. Рейды считаются отдельным стратегическим engine и не запускают 5x6 бой.
+Бой лордов сочетает упрощенный Heroes of Might and Magic и читаемость настольного поля, которую можно брать из референса Гвинта, но визуально это не личный Гвинт. Этот engine используется для захвата нейтральных/чужих территорий, защиты гарнизонов и столкновения активных армий. Рейды считаются отдельным стратегическим engine и не запускают 5x6 бой.
 
 Поле:
 
@@ -1181,7 +1197,7 @@ Runtime CSV остаются источником для приложения:
 1. **Stage 1 - Core Game Engine.** Реализуются runtime-правила PvE cooldown 30 min, QR modes, opaque manual IDs, physical-presence honesty policy, PvE combat contract, app-generated single-d20 checks with logged modifiers, offline act unlock с физическим объявлением актов, pending master approval для cascade-prone rewards, personal goals/goal_flags, trade_transfers, full Gwent challenge tokens/window/throttle/refusal safety table, лордской карты/MP/гарнизонов/recruit/building/raid/anti-snowball, deterministic lord battle 5x6, магии, V0 spell/potion catalog, favorites lifecycle, locked magical intent, репутации, NPC runbook с severity P0/P1/P2/P3, артефактов, order status machine, NPC-led final tournament/final summary, lord paper fallback и game-day ops checklist на seed fixtures. Цель этапа - доказать, что все классы могут играть, даже если уникального контента еще нет.
 2. **Stage 2 - Admin Studio.** Мастер получает UI для импорта, проверки, snapshot, игровых операций, lord map ops, contested/pending rewards, рейдов, anti-snowball, PvP timeout review, NPC, visibility, backups и final summary. Этот этап нужен до генератора, чтобы генерация PvE сразу жила в удобной мастерской модели.
 3. **Stage 3 - PvE Generation Engine.** В Admin Studio появляется генератор PvE/QR: шаблоны, tier/reward/stat controls, QR modes, artifact/reputation/NPC/order flags, preview, compiler и validation. Генератор обязан создавать квесты, которые проходят runtime importer и запускаются в PvE engine.
-4. **Stage 4 - Unique Quest Production.** Генератор используется для 40+ QR/PvE-сцен, включая минимум 15 always-available/repeatable сцен и 25+ unique objects, после чего мастер вручную полирует тексты, моральные развилки, скрытую правду, уникальные последствия, personal goal hooks, кастомные Gwent cards, артефакты, редкие карты, сюжетные ключи, стратегические предметы, NPC-связи, финальные флаги, favorites content, locked magical intent hooks, order cap и player-facing handouts/role packets.
-5. **Stage 5 - Balance Simulation.** Полный контент-пак прогоняется через симуляции: 10-часовой fixed schedule, offline act unlock friction, pending reward approvals, темп прокачки, ценность наград, PvE tiers, cooldown 30 min, role-load idle risk для 9 мобильных ролей, full Gwent volume/no-match-limit/throttle risk, trade conflicts, движение по карте, экономика лордов без критической зависимости от 5 ведьмаков, recruit market, building tree, anti-snowball 30/50, рейды, lord battle 5x6 с 60s timer, магия и potion economy чародеек, V0 spell/potion catalog, primary/secondary favorites, locked magical intent, NPC-master load с severity P0/P1/P2/P3, артефакты, NPC-сделки, NPC-led Final Act tournament load, game-day ops checklist, lord paper fallback drill и финальная сводка без автоматического победителя.
+4. **Stage 4 - Unique Quest Production.** Генератор используется для 40+ QR/PvE-сцен, включая минимум 15 always-available/repeatable сцен и 25+ unique objects, после чего мастер вручную полирует тексты, моральные развилки, скрытую правду, уникальные последствия, personal goal hooks, кастомные Gwent cards с row/leader/weather/special taxonomy and original art prompts, артефакты, редкие карты, сюжетные ключи, strategic items, building/unit visual tags, territory fort manifest, venue map manifest, NPC-связи, финальные флаги, favorites content, locked magical intent hooks, order cap и player-facing handouts/role packets.
+5. **Stage 5 - Balance Simulation.** Полный контент-пак прогоняется через симуляции: 10-часовой fixed schedule, offline act unlock friction, pending reward approvals, темп прокачки, ценность наград, PvE tiers, cooldown 30 min, role-load idle risk для 9 мобильных ролей, full Gwent volume/no-match-limit/throttle/deck-complexity risk, trade conflicts, лордское движение по карте с physical route assumptions and no GPS/internet/QR dependency, экономика лордов без критической зависимости от 5 ведьмаков, recruit market, Heroes-like building tree depth, anti-snowball 30/50, рейды, lord battle 5x6 с 60s timer, visual-content readability, магия и potion economy чародеек, V0 spell/potion catalog, primary/secondary favorites, locked magical intent, NPC-master load с severity P0/P1/P2/P3, артефакты, NPC-сделки, NPC-led Final Act tournament load, game-day ops checklist, lord paper fallback drill и финальная сводка без автоматического победителя.
 
 Переход между этапами фиксируется отдельной gate-задачей в `tasks.json`. Это защищает проект от ситуации, где есть много квестов, но не проверен runtime, или есть движок, но не доказано, что игрокам будет интересно 10 часов.

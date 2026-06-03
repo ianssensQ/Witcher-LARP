@@ -30,6 +30,9 @@ Production profile текущей игры: 15 человек всего = 13 и
 - PvP throttling: default 2 `pvp_tables`, queued challenges, max 2 started mandatory matches per player per act без master approval, режимы `normal/limited/paused` и запрет новых вызовов после final lock;
 - online-only `trade_transfers`: two confirmations, pending asset lock, atomic owner change, audit log;
 - venue map v1: 4 резиденции находятся в активном новом доме; старый дом и соседний сарай исключены из игры; лордский weighted graph использует беседки-крепости, поля, деревни-сараи, колодец-город ресурсодобычи, испанский уголок-город магии, двухэтажный сарай-город науки, леса, озера, болото и горы;
+- territory forts v1: каждая захватываемая территория имеет тематический форт с одной original/local/generated картинкой/карточкой, garrison capacity и transfer active army <-> fort, если активная армия находится на своей не-contested территории;
+- visual direction v1: `TASK-067` фиксирует пять IP-safe референсных поверхностей - Heroes Olden Era-like castle/city-development и точное Olden Era-like building-tree взаимодействие для лордов, thematic territory forts, Witcher 3 Gwent-like table grammar для личного PvP ведьмаков/чародеек, visually distinct 5x6 lord battle board и illustrated fantasy strategy map для лордского `venue_map_v1`; это layout/interaction references only, все production assets должны быть original/local/generated, без копирования официальных артов, логотипов, скриншотов или gallery images;
+- map tech rule: иллюстрированная карта участка является UI-слоем поверх `map_nodes`/`map_edges` и route costs для лордского графа перемещения героев/армий; лорды не используют QR, а QR/manual physical-presence confirmation относится к ведьмакам и чародейкам на локациях и не требует online-карты;
 - deterministic lord battle 5x6: `attack`, `defense`, `hp`, `initiative`, `move_range`, `attack_range`, `tier`, `unit_class`, damage `max(1, attack - defense + modifiers)`, 60s turn timer, auto-resolve;
 - lord battle appendix: V1 фиксирует `unit_power`, `deployed_army_power`, `domain_army_power`, partial stack wounds, deployment caps, line of sight, hero targeting, neutral AI priority and auto-resolve score;
 - lord defaults: старт `80g`, base income `25g/hour`, territory income T1/T2/T3 = `8/14/22g`, building cost T1/T2/T3/T4 = `40/75/120/180g`, lord HP `clamp(30 + floor(deployed_army_power / 10), 35, 70)`, anti-snowball `>=130%/-30%` и `>=170%/-50%`;
@@ -143,7 +146,8 @@ Python/backend/tooling окружение управляется через `uv`
 панели, мастера - Admin Studio. Swagger, curl и ручные API остаются
 developer diagnostics и не считаются штатным пользовательским путем.
 Для Stage 2B это жесткий gate: Android APK и iOS build/free provisioning должны
-быть установлены и проверены на реальных телефонах, 4 лордские панели должны
+быть установлены и проверены на реальных телефонах, включая camera QR scan
+физического QR и ручной QR-ID fallback, 4 лордские панели должны
 одновременно пройти browser smoke, а весь gameplay без generated/full PvE
 content должен проходить через UI. Бумажный fallback проверяется как outage
 recovery, но не считается заменой отсутствующего штатного UI.
@@ -319,7 +323,7 @@ PvE combat v1 не использует постоянное здоровье п
 - `gwent_cards.csv`, `gwent_decks.csv`, `gwent_matches.csv` - full Gwent карты, колоды, матчевые fixtures.
 - `pvp_tables.csv`, `pvp_throttle_rules.csv` - столы, очереди, throttle modes and final lock behavior.
 - `army_unit_cards.csv` - карты-отряды лордов с параметрами 5x6.
-- `territories.csv`, `map_nodes.csv`, `map_edges.csv`, `movement_rules.csv` - территории, граф, доходы, защита, владелец.
+- `territories.csv`, `territory_forts.csv`, `map_nodes.csv`, `map_edges.csv`, `movement_rules.csv` - территории, тематические форты/гарнизонные capacity, граф, доходы, защита, владелец.
 - `orders.csv` - шаблоны заказов, escrow, order caps и object conflict.
 - `trade_transfers.csv` - online-only transfer rules, pending locks and audit.
 - `favorite_rules.csv` - consent, caps, change limits and final trace.
@@ -539,7 +543,7 @@ Core Game Engine должен закрыть:
 - offline PvE engine: app-generated `single_d20`, temporary `scene_hp`, tier defaults, 30-minute failure cooldown, reward approval locks and order/object outcomes;
 - personal goals, goal_tracks, hidden goal_flags and final_hooks visibility;
 - online-only trade_transfers with two confirmations, pending asset locks and atomic owner change;
-- lord runtime panel shell, weighted map, MP, territories, garrisons, recruit market, named building tree, orders status machine, raids and anti-snowball;
+- lord runtime panel shell, weighted map, MP, territories, thematic forts with active army <-> fort transfer, garrisons, recruit market, named Olden Era-like building tree, orders status machine, raids and anti-snowball;
 - deterministic lord battle 5x6 with stack wounds, line of sight, 60s timer, auto-resolve and persistence;
 - full Gwent personal PvP in online zone with challenge tokens, pvp_tables, throttle, refusal/safety and stake transfer;
 - sorceress runtime: mana, spells, potion market, favorites lifecycle and `sorceress_alignment`;
@@ -554,7 +558,7 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, Playable 
 
 - Android APK устанавливается и запускается.
 - iOS-сборка ставится через Mac/Xcode/free provisioning.
-- Android и iOS видят локальный сервер, скачивают snapshot, переживают restart и выполняют sync retry; отсутствие такой проверки блокирует Stage 2B.
+- Android и iOS видят локальный сервер, сканируют физический QR камерой, имеют ручной QR-ID fallback, скачивают snapshot, переживают restart и выполняют sync retry; отсутствие такой проверки блокирует Stage 2B.
 - Приложение запускается после перезагрузки телефона.
 - Камера читает QR.
 - Есть ручной ввод QR-ID.
@@ -562,11 +566,12 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, Playable 
 - Очередь событий синхронизируется при появлении сервера.
 - Сервер не теряет состояние после перезапуска.
 - 4 ноутбука лордов одновременно работают с веб-панелью.
-- Лордская карта в UI совпадает с `venue_map_v1`: playable nodes/edges, excluded old house/shed, route costs, ownership, contested, garrison and raid states.
+- Лордская карта в UI совпадает с `venue_map_v1`: playable nodes/edges, excluded old house/shed, route costs, ownership, contested, thematic fort/garrison and raid states.
+- Visual reference smoke passes before `TASK-050`: lord castle/city-development screen with Olden Era-like building tree, thematic territory forts, visually distinct lord battle board, personal PvP/Gwent table and illustrated lord venue map are readable on target surfaces, data-bound to runtime state and use only original/local/generated assets.
 - Мастер может вручную исправить спорное событие.
-- Бой PvE, личный PvP и бой лордов проходят от начала до конца.
+- Бой PvE, личный PvP на двух реальных мобильных клиентах и бой лордов проходят от начала до конца.
 - После `TASK-050` PvE smoke, personal PvP/Gwent, лордские действия, магия/зелья/фавориты и paper recovery проходят через реальные UI-поверхности, а не через Swagger/manual API.
-- Перед `TASK-050` проходит отдельный non-PvE hardening script: orders/trade/inventory/reputation, sorceress potion/spell/favorite/alignment, PvP/Gwent, lord map/economy/battle/raid/order, Admin recovery/final_summary и дефект-триаж.
+- Перед `TASK-050` проходит отдельный non-PvE hardening script: orders/trade/inventory/reputation, sorceress potion/spell/favorite/alignment, PvP/Gwent, lord map/fort transfer/economy/battle/raid/order, Admin recovery/final_summary и дефект-триаж.
 - Перед Stage 3 нет известных P0/P1 и блокирующих P2 дефектов в non-PvE gameplay; P2/P3 имеют owner, severity и workaround.
 - Personal goals, goal_flags, trade_transfers, favorites lifecycle, locked magical intent, reputation thresholds and final_summary проходят scripted run.
 - Offline act unlock, reward approval locks, PvP tables/throttle, spell/potion catalog, master-led final summary and final lock проходят scripted run.

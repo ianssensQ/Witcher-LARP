@@ -60,7 +60,7 @@ Production profile для всех этапов: 15 человек всего, 1
 - online-only trade_transfers: two confirmations, pending asset lock, atomic owner change and audit log;
 - свободный ведьмачий/чародейский PvE в любых зонах независимо от владельца территории;
 - 3 сюжетных акта + финальный акт, auto timers, backup hooks;
-- лордская weighted map, movement pool, territories, гарнизоны, recruit market, default building tree, 6 классов army unit cards, raid engine, заказы, escrow, anti-snowball 30/50 и deterministic battle engine 5x6 с 60s turn timer/auto-resolve, V1 power formulas, stack wounds, deployment caps, line of sight and hero targeting;
+- лордская weighted map, movement pool, territories, тематические форты с active army <-> fort transfer, гарнизоны, recruit market, default building tree, 6 классов army unit cards, raid engine, заказы, escrow, anti-snowball 30/50 и deterministic battle engine 5x6 с 60s turn timer/auto-resolve, V1 power formulas, stack wounds, deployment caps, line of sight and hero targeting;
 - full Gwent personal PvP, 3 challenge tokens per act, накопление токенов, max 1 active challenge, timeout/refusal/tie review и 30-minute PvP window на явку/старт в назначенной online-зоне;
 - PvP throttling: default 2 `pvp_tables`, queued challenges, max 2 started mandatory matches per player per act без master approval, режимы `normal/limited/paused`, final lock behavior;
 - PvP refusal/safety table: active scene/deferred, unsafe route/force majeure, safety stop, valid-ignore review and overload throttle behavior;
@@ -103,8 +103,9 @@ Production profile для всех этапов: 15 человек всего, 1
 - первый arrival создает contested territory, факт захвата виден всем лордам;
 - нейтральная территория захватывается через 5x6 бой против server AI с возможностью master takeover;
 - победитель оставляет гарнизон, а income/influence tick и pending reward начисляются корректно;
+- владелец территории может перебросить текущие войска из активной армии в тематический форт и обратно без MP, если армия стоит на этой территории и состояние не contested/in_battle;
 - recruit market обновляется, hold сохраняет выбранное предложение, новые войска попадают в reserve;
-- default building tree покупается за gold по prerequisites, открывает recruit/capacity/raid effects и не имеет act cap;
+- default building tree покупается за gold по prerequisites, открывает recruit/capacity/raid effects, не имеет act cap и отображается как Olden Era-like дерево узлов с prerequisite lines/detail card;
 - каждый из 6 классов юнитов (`infantry`, `guard`, `ranged`, `cavalry`, `heavy_siege`, `specialist`) имеет smoke fixture в 5x6;
 - raid engine применяет timed debuff или loot gold/cards/influence через token/gold/resistance check;
 - anti-snowball rule применяет 30%/50% income cut при слишком сильной армии;
@@ -177,13 +178,14 @@ Gate: `TASK-050`.
 Что входит:
 
 - UI contract и role journey matrix для мастера, лорда, ведьмака, чародейки и NPC-мастера;
+- `TASK-067` visual reference/asset brief: лордский замок/город и точное building-tree взаимодействие в логике Heroes Olden Era, thematic territory forts, personal PvP/Gwent стол ведьмаков/чародеек в экранной грамматике Witcher 3 Gwent, визуально отдельный 5x6 lord battle board и карта участка как иллюстрированная fantasy strategy map поверх лордского `venue_map_v1`; все production assets оригинальные/local/generated, без копирования официальных артов, логотипов и скриншотов;
 - no-Swagger acceptance rule: штатные player/lord действия принимаются только через app/panels, а Swagger/curl/manual API остаются developer diagnostics;
-- полноценный lord action UI: валидная `venue_map_v1`, route/MP, contested claims, гарнизоны, reserve, buildings, recruit, orders/escrow, raids и 5x6 lord battle board;
-- mobile gameplay UI для ведьмаков и чародеек: персонаж, snapshot, QR/manual PvE, offline act unlock, single_d20, scene_hp, cooldown, reward approval, inventory, orders, trade, reputation, event_queue/sync;
+- полноценный lord action UI: валидная иллюстрированная `venue_map_v1`, route/MP, contested claims, thematic forts, active army <-> fort transfer, гарнизоны, reserve, Heroes-like castle/city-development screen/building tree для buildings, recruit, orders/escrow, raids и 5x6 lord battle board;
+- mobile gameplay UI для ведьмаков и чародеек: персонаж, snapshot, QR/manual PvE на физических локациях, offline act unlock, single_d20, scene_hp, cooldown, reward approval, inventory, orders, trade, reputation, event_queue/sync; online-карта для этих ролей не является обязательной;
 - sorceress mobile UI: mana, spells, potion wholesale/transfer/use, favorite consent, alignment evidence and locked magical intent;
 - personal PvP/Gwent UI: challenge, pvp table/queue, deck/hand/mulligan, rows/pass/rounds, stake result, refusal/safety and review paths;
 - Admin paper recovery/correction forms for `paper_pve_result`, `paper_pvp_stake`, `paper_lord_action`, `paper_lord_battle`, `paper_order_resolution`, `paper_npc_deal` and `paper_final_evidence`;
-- hard Android/iOS device gate: APK/iOS build ставятся, запускаются, видят локальный сервер, скачивают snapshot, переживают restart и retry sync на реальных телефонах;
+- hard Android/iOS device gate: APK/iOS build ставятся, запускаются, видят локальный сервер, сканируют физический QR камерой, имеют ручной QR-ID fallback, скачивают snapshot, переживают restart и retry sync на реальных телефонах;
 - non-PvE hardening (`TASK-058`): 4 лордские панели, валидная карта, personal Gwent, заказы/trade, магия/зелья/фавориты, Admin recovery/final_summary и дефект-триаж;
 - UI-first restart/offline/retry/review/locked-state smoke.
 
@@ -191,6 +193,7 @@ Gate: `TASK-050`.
 
 - после `TASK-023`, когда Admin Studio уже есть как базовая мастерская панель;
 - после UI contract matrix;
+- после `TASK-067` visual reference/asset brief;
 - после lord action UI;
 - после mobile gameplay UI;
 - после PvP/Gwent UI;
@@ -202,9 +205,10 @@ Gate: `TASK-050`.
 
 - ведьмак проходит login/snapshot -> QR/manual PvE -> cooldown/reward approval -> restart/offline -> sync через мобильный UI;
 - чародейка проходит PvE плюс potion buy/transfer/use, spell, favorite consent and locked magical intent через мобильный UI;
-- Android и iOS real-device smoke проходят до приемки; отсутствие device smoke блокирует Stage 2B и не записывается как launch-risk fallback;
-- лорд проходит route -> contested claim -> battle -> garrison -> building -> recruit -> reserve -> raid -> order через браузерную панель, а карта читаема и совпадает с `venue_map_v1`;
-- два игрока проходят personal PvP/full Gwent через UI, включая stake, pass/rounds, refusal/review edge case and idempotent finish;
+- Android и iOS real-device smoke проходят до приемки, включая camera QR scan физического QR и ручной QR-ID fallback; отсутствие device smoke блокирует Stage 2B и не записывается как launch-risk fallback;
+- лорд проходит route -> contested claim -> battle -> garrison -> fort transfer -> building -> recruit -> reserve -> raid -> order через браузерную панель, а карта читаема и совпадает с `venue_map_v1`;
+- лордский замок/city-development screen/building tree, thematic territory forts, визуально отдельный lord battle board, personal Gwent table и illustrated lord venue map проходят screenshot/readability/IP-safe asset acceptance на целевых поверхностях;
+- два игрока проходят personal PvP/full Gwent через UI на двух реальных мобильных клиентах, включая stake, pass/rounds, refusal/review edge case and idempotent finish;
 - мастер вводит paper recovery/correction forms из Admin Studio, duplicate/conflict уходит в review без silent overwrite;
 - 4 lord panels открываются одновременно;
 - после restart состояние видно в Admin/mobile/lord UI;
@@ -263,9 +267,12 @@ Gate: `TASK-032`.
 - personal goal hooks, hidden goal_flags, final_hooks and role-load tags;
 - act unlock policy, reward approval policy, final score category, PvP throttle tags and ops checklist tags;
 - предметы, редкие карты, зелья, заклинания, артефакты, сюжетные ключи и стратегические предметы;
-- custom full Gwent card pack без копирования официального контента CDPR;
+- custom full Gwent card pack без копирования официального контента CDPR: row/leader/weather/special taxonomy, rarity, deck limits, power budget, original LARP names/portraits and art prompts;
 - XP sources: монстры, автоквесты, заказы, личные цели и значимые события;
 - именованные army unit cards, territory recruit sources и flavor offers для лордов;
+- building/unit visual tags and art prompts для Heroes-like castle UI/building tree: экономика, найм, оборона, совет/заказы, магия/наука, reserve/capacity and raid support;
+- territory fort manifest: one original fort image/card per capturable territory, `fort_theme`, `visual_tag`, `art_prompt`, `garrison_capacity`, optional defense bonus and transfer labels;
+- venue map content manifest: node labels, physical landmarks, route flavor, print fallback and art prompt notes for the lord graph; QR props are handled in the QR checklist, not as lord map anchors;
 - public/addressed orders, escrow rewards и cap 2 public + 1 addressed active orders per lord;
 - NPC events, King rulings, Stranger deals, reputation rules, favorites lifecycle, final_summary fields, master final hooks and flags;
 - master-led Final Act runbook and review severity rubric;
@@ -291,7 +298,9 @@ Gate: `TASK-032`.
 - coverage report покрывает tiers, scene mix, stat distribution, rewards и QR modes;
 - content pack импортируется без ошибок;
 - content pack содержит personal goal hooks, hidden goal_flags, final_hooks and custom Gwent cards;
-- full content pack включает building catalog, army unit catalog, recruit sources и territory flavor для лордов;
+- full content pack включает building catalog, army unit catalog, recruit sources, visual tags/art prompts, territory fort manifest и territory flavor для лордов;
+- custom Gwent card coverage проверяет rows, leaders, weather/special effects, rarity, deck limits, power budget and original art prompts;
+- venue map manifest проверен против `venue_map_v1`, physical landmarks, route flavor and printed fallback; QR props are checked separately;
 - artifact visibility проверена;
 - rarity caps, power budget, visibility and counterplay проверены для редких карт, артефактов, зелий и сюжетных ключей;
 - digital order race проходит через app-first flow;
@@ -314,12 +323,14 @@ Gate: `TASK-037`.
 - 15-person profile simulator: 5 witchers, 4 hybrid sorceresses, 4 lords, 2 NPC-master load;
 - reward/progression reports;
 - PvE tier pressure и 30-минутный cooldown impact;
-- full Gwent outcomes, challenge token pacing, 30-minute PvP start window, no-match-limit risk after match start and custom card value;
+- full Gwent outcomes, challenge token pacing, 30-minute PvP start window, no-match-limit risk after match start, custom card value and deck complexity from weather/special/leader cards;
 - PvP-volume go/no-go report with 90th percentile table wait, matches over 25 minutes, per-act mandatory starts, review load and tuning knobs for tokens/throttle/tables/card complexity;
 - trade conflict/asset lock report;
 - PvP timeout/refusal/tie volume для 3 challenge tokens per act;
 - deterministic lord battle 5x6, 60s timeout/auto-resolve, economy и anti-snowball 30/50 reports;
-- lord movement graph, recruit market, building tree prices/prerequisites, unit classes/stats/caps, raid debuffs и pending tick rewards;
+- lord movement graph, physical route assumptions, thematic fort transfer/capacity, recruit market, Heroes-like building tree depth/prerequisites, unit classes/stats/caps, raid debuffs и pending tick rewards;
+- lord venue map playability report: node density, edge costs, route legibility, physical route assumptions, printed fallback and no GPS/internet/QR dependency for lord movement;
+- visual-content readability report: castle/building tree, thematic forts, lord battle board, personal Gwent and lord map surfaces do not hide costs, locks, counters, route costs, garrison capacity or state labels;
 - diplomacy/coalition pressure против лидера;
 - sorceress mana/spell/favorite impact;
 - sorceress wholesale potion economy impact;
@@ -353,11 +364,13 @@ Gate: `TASK-037`.
 - challenge tokens, potion economy, raid loot и 30/50 anti-snowball не создают exploit;
 - rare rewards, legendary artifacts, plot keys and potion caps не создают exploit или доминирующую стратегию;
 - 3 challenge tokens per act не создают чрезмерный PvP volume в 15-person profile: 90-й перцентиль ожидания стола <=10 минут, не больше 20% матчей уходят за 25 минут, per-act mandatory starts не перегружают буферы, а отсутствие лимита времени после старта Gwent не ломает расписание;
+- custom Gwent decks имеют читаемую row/special/leader distribution and no single card family creates a dominant or overlong match pattern;
 - PvP throttle normal/limited/paused, 2 pvp tables, queued challenges and per-act match cap do not create deadlocks;
 - trade_transfers не создают double ownership, lost assets или конфликтные locks;
 - 15 always-available/repeatable сцен и 25+ unique objects не создают idle risk для 9 мобильных ролей;
 - offline act unlock and pending reward approval do not create idle risk or cascade exploits;
-- лордам интересно двигаться по карте, атаковать, защищаться, гарнизонить, строиться, рейдить, нанимать войска и создавать заказы;
+- лордам интересно двигаться по карте, атаковать, защищаться, перебрасывать войска в тематические форты и обратно, гарнизонить, строиться, рейдить, нанимать войска и создавать заказы;
+- movement по карте участка остается играбельным для лордов без GPS/интернета/QR: illustrated map, route costs, physical route assumptions and paper fallback agree with runtime map data;
 - цены зданий, prerequisites, recruit refresh, unit stats и caps дают осмысленный выбор без обязательной единственной ветки;
 - чародейки влияют на игру без поломки баланса;
 - primary/secondary favorites дают влияние без dogpile и без поломки финала;

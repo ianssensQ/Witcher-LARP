@@ -94,6 +94,17 @@ and iOS build/free provisioning smoke must pass on real devices before
 fallback. Paper fallback is tested as outage recovery only and does not replace
 missing normal UI.
 
+Stage 2B also has a visual/asset boundary in `TASK-067`. The lord panel uses an
+original castle/city-development screen with an Olden Era-like building tree,
+each capturable territory has a thematic fort image/card, personal PvP for
+witchers/sorceresses uses a Gwent-like table grammar, the lord battle uses a
+visually distinct 5x6 army board, and the plot map is an illustrated layer over
+`venue_map_v1` for lord/count hero-army movement only. Lords do not use QR for
+movement; witcher/sorceress QR/manual location flows do not require an online
+map. These are data-bound UI treatments, not new rule engines: no production
+screen may depend on copied third-party art, official card images, logos,
+screenshots, GPS, cloud services, or internet access during the game.
+
 ### Task implementation contract
 
 Implementation planning is synchronized through `tasks.json`, generated
@@ -216,11 +227,12 @@ python`, а не raw `pip`.
 - `goal_flags.csv` - hidden/master-only флаги, источники, причины, unlock conditions и финальные последствия.
 - `final_hooks.csv` - связь целей, артефактов, NPC-сделок, репутации и заказов с финальной процедурой.
 - `domains.csv` - 4 владения, лорды, стартовые ресурсы, влияние.
-- `buildings.csv` - именованное дерево резиденций: `building_id`, `branch`, `name`, `gold_cost`, `prerequisites`, `effects`, `unlock_tags`, `capacity_delta`, `raid_unlock`, `recruit_unlock`.
+- `buildings.csv` - именованное дерево резиденций: `building_id`, `branch`, `name`, `gold_cost`, `prerequisites`, `effects`, `unlock_tags`, `capacity_delta`, `raid_unlock`, `recruit_unlock`, `visual_tag`, `art_prompt`.
 - `venue_map_profile.csv` или seed manifest - физические зоны участка, игровые названия, `no_play_excluded`, safety notes, online/offline hints и связь с map node IDs.
-- `map_nodes.csv` - узлы стратегической карты: 4 стартовые резиденции в активном новом доме, нейтральные территории, города, форты, особые места; старый дом и соседний сарай помечаются как excluded и не становятся игровыми узлами.
-- `map_edges.csv` - связи узлов, movement point cost, terrain tags, travel/safety notes и ограничения маршрута.
-- `territories.csv` - цифровые территории, owner, tier, primary bonus type, defense profile, visibility, special effect.
+- `map_nodes.csv` - узлы стратегической карты: 4 стартовые резиденции в активном новом доме, нейтральные территории, города, форты, особые места; старый дом и соседний сарай помечаются как excluded и не становятся игровыми узлами; для лордского UI/печати фиксируются `visual_label`, physical landmark, route flavor and art prompt, без QR-привязок.
+- `map_edges.csv` - связи узлов, movement point cost, terrain tags, travel/safety notes, route flavor и ограничения маршрута.
+- `territories.csv` - цифровые территории, owner, tier, primary bonus type, defense profile, visibility, special effect and linked `fort_id`.
+- `territory_forts.csv` - тематический форт каждой захватываемой территории: `fort_id`, `territory_id`, `theme`, `visual_tag`, `art_prompt`, `garrison_capacity`, optional `defense_bonus`; каждая территория получает одну оригинальную картинку/карточку форта.
 - `movement_rules.csv` - default movement pool cap, refill interval, act modifiers.
 - `recruit_markets.csv` - источники найма, refresh rules, hold slots, offer weights, required building/territory tags, reserve spawn.
 - `raid_rules.csv` - raid subtree, token/gold costs, targets, defense/magic checks, debuff duration, optional loot effects `gold/cards/influence`.
@@ -229,9 +241,9 @@ python`, а не raw `pip`.
 - `qr_objects.csv` - opaque QR/manual ID, тип, `qr_mode` (`unique_object`, `repeatable_scene`, `always_available_scene`), act availability, linked scenario/object, failure cooldown, manual-entry rate-limit policy и role load tags.
 - `items.csv` - предметы, требования, бонусы.
 - `cards.csv` - общий реестр card assets и conversion tiers; личные карты при передаче лорду конвертируются в army unit card по тиру.
-- `gwent_cards.csv` - кастомные LARP-карты full Gwent: faction/tag, row, strength, unit/special/leader type, weather/decoy/scorch/horn/core ability, deck limits и visibility.
+- `gwent_cards.csv` - кастомные LARP-карты full Gwent: faction/tag, row, strength, unit/special/leader type, weather/decoy/scorch/horn/core ability, deck limits, rarity, power_budget, `visual_tag`, `art_prompt` и visibility.
 - `gwent_decks.csv` - стартовые и валидируемые колоды: минимум 22 unit cards, до 10 special cards, 1 leader.
-- `army_unit_cards.csv` - army unit cards; обязательны `unit_class`, `tier`, `count`, `attack`, `hp`, `defense`, `initiative`, `move_range`, `attack_range`, `tags`, `source`.
+- `army_unit_cards.csv` - army unit cards; обязательны `unit_class`, `tier`, `count`, `attack`, `hp`, `defense`, `initiative`, `move_range`, `attack_range`, `tags`, `source`, `visual_tag`, `art_prompt`.
 - `potions.csv` - зелья, эффекты, wholesale price, recommended resale band, stock policy и правила передачи/продажи чародейками.
 - `spells.csv` - spell cards для заклинаний, ритуалов и интриг: мана, цели, окна применения, видимость, стратегические эффекты и counterplay; mana regen зависит от уровня чародейки и бонусов.
 - `artifacts.csv` - редкие предметы, условия, финальное влияние.
@@ -255,8 +267,9 @@ python`, а не raw `pip`.
 - `reputation_rules.csv` - изменения Добро/Зло, диапазон -5..+5, старт 0, описательные состояния, видимость и threshold access.
 - `backup_jobs.csv` - расписание и триггеры резервных копий, если нужно задавать их контентом.
 - `paper_forms.csv` или runbook-only manifest - разрешенные бумажные формы: `paper_pve_result`, `paper_pvp_stake`, `paper_lord_action`, `paper_lord_battle`, `paper_order_resolution`, `paper_npc_deal`, `paper_final_evidence`.
+- `visual_assets.csv` или asset manifest - original/local/generated UI assets for lord castle/building tree, territory forts, lord battle board, lord venue map, personal Gwent table/cards, buildings, units, artifacts, spells and potions; stores owner/source, license_status, file path, target surfaces and screenshot acceptance notes.
 
-Импорт проверяет обязательные поля, уникальность ID, ссылки между CSV, валидность `qr_mode`, opaque/non-guessable manual IDs, валидность production profile, venue map exclusions, stat caps/level rules, `single_d20` check policy, отсутствие reroll-эффектов в PvE check rules, PvE scene HP/combat defaults, physical-presence honesty policy для QR/manual ID, act unlock coverage, physical announcement coverage, reward approval policy, reputation range/start/thresholds, mana regen source, spell/potion catalog минимумов и resale bands, full Gwent deck/card constraints, card conversion tier, PvP throttle/refusal rules, rarity caps, power budget, trade transfer lock rules, favorites caps/lifecycle, sorceress alignment values, order caps/status machine, 10-hour schedule, final summary inputs, player-facing handout coverage, валидность токенов и выдает читаемый отчет. Для лордского каталога importer дополнительно ловит циклы building tree, missing prerequisites, unknown `branch`, invalid `gold_cost`, bad `recruit_unlock`, invalid `unit_class`, invalid tier/capacity/range и recruit offers, которые ссылаются на несуществующие здания, территории или карты.
+Импорт проверяет обязательные поля, уникальность ID, ссылки между CSV, валидность `qr_mode`, opaque/non-guessable manual IDs, валидность production profile, venue map exclusions, stat caps/level rules, `single_d20` check policy, отсутствие reroll-эффектов в PvE check rules, PvE scene HP/combat defaults, physical-presence honesty policy для QR/manual ID, act unlock coverage, physical announcement coverage, reward approval policy, reputation range/start/thresholds, mana regen source, spell/potion catalog минимумов и resale bands, full Gwent deck/card constraints, card conversion tier, PvP throttle/refusal rules, rarity caps, power budget, trade transfer lock rules, favorites caps/lifecycle, sorceress alignment values, order caps/status machine, 10-hour schedule, final summary inputs, player-facing handout coverage, валидность токенов и выдает читаемый отчет. Для лордского каталога importer дополнительно ловит циклы building tree, missing prerequisites, unknown `branch`, invalid `gold_cost`, bad `recruit_unlock`, invalid `unit_class`, invalid tier/capacity/range, territory without `territory_fort`, bad `garrison_capacity` и recruit offers, которые ссылаются на несуществующие здания, территории или карты.
 
 ## SQLite model
 
@@ -265,7 +278,7 @@ Core tables:
 - `players`, `devices`, `player_codes`, `role_tokens`;
 - `snapshot_versions`, `client_sync_state`;
 - `acts`, `act_unlock_codes`, `auto_timers`, `timer_ticks`, `global_modifiers`, `pending_tick_rewards`;
-- `domains`, `buildings`, `venue_map_profiles`, `map_nodes`, `map_edges`, `territories`, `movement_pools`, `territory_claims`;
+- `domains`, `buildings`, `venue_map_profiles`, `map_nodes`, `map_edges`, `territories`, `territory_forts`, `movement_pools`, `territory_claims`;
 - `armies`, `army_cards`, `army_reserves`, `garrisons`, `recruit_markets`, `recruit_offers`;
 - `qr_objects`, `pve_scenarios`, `mobs`, `items`, `cards`, `potions`, `spells`, `artifacts`;
 - `personal_goals`, `goal_tracks`, `goal_progress`, `goal_flags`, `final_hooks`;
@@ -342,13 +355,13 @@ PvP валиден в доме/у лордов и считается как full
 
 ### Lord strategic map
 
-Стратегическая карта лордов хранится как weighted graph. Venue map v1 фиксирует 4 резиденции в активном новом доме и исключает старый дом с соседним сараем через `no_play_excluded`; excluded zones не получают QR, territory ownership, orders, raids or battle routes. Сервер валидирует route по `map_edges`, списывает movement points только за передвижение, пополняет movement pool каждые 30 минут до cap и не дает копить MP выше cap. Arrival на нейтральную или чужую территорию создает `territory_claim`; первый валидный claim переводит территорию в contested/in_battle и делает этот факт видимым всем лордам.
+Стратегическая карта лордов хранится как weighted graph. Venue map v1 фиксирует 4 резиденции в активном новом доме и исключает старый дом с соседним сараем через `no_play_excluded`; excluded zones не получают QR, territory ownership, orders, raids or battle routes. Каждая захватываемая территория имеет linked `territory_fort` с theme/art prompt и garrison capacity. Сервер валидирует route по `map_edges`, списывает movement points только за передвижение, пополняет movement pool каждые 30 минут до cap и не дает копить MP выше cap. Arrival на нейтральную или чужую территорию создает `territory_claim`; первый валидный claim переводит территорию в contested/in_battle и делает этот факт видимым всем лордам.
 
-Владение землей требует гарнизон. После победы атакующий должен оставить минимум одну выжившую army unit card; без гарнизона доход и основной бонус не активны. Чужие гарнизоны скрыты от других лордов, но owner и primary bonus type видны. Если hourly income/influence tick попадает на ongoing claim, сервер создает `pending_tick_reward` и применяет его победителю боя ровно один раз без сдвига расписания.
+Владение землей требует гарнизон в тематическом форте. После победы атакующий должен оставить минимум одну выжившую army unit card в fort garrison; без гарнизона доход и основной бонус не активны. Owner может перебрасывать текущие army unit cards между активной армией и фортом, если активная армия находится на этой территории; transfer не тратит MP, но логируется, проверяет ownership, non-contested state, active battle lock, active army capacity, fort `garrison_capacity` и правило minimum garrison. Чужие гарнизоны скрыты от других лордов, но owner и primary bonus type видны. Если hourly income/influence tick попадает на ongoing claim, сервер создает `pending_tick_reward` и применяет его победителю боя ровно один раз без сдвига расписания.
 
 Recruit market обновляется на hourly tick по зданиям, казармам и территориям. Купленные юниты попадают в reserve резиденции; active army забирает их только в резиденции. Building tree покупается за gold по prerequisites без act cap. Default catalog v1 содержит 4 ветки: казармы (`Training Yard`, `Barracks`, `Archery Range`, `Stables`, `Siege Yard`, `War Academy`), казна (`Market`, `Tax Office`, `Storehouse`, `Bank`, `Treasury Hall`), совет (`Notice Board`, `Envoy Hall`, `Map Room`, `Raid Office`, `War Council`), башня мага (`Mage Study`, `Alchemy Lab`, `Scrying Room`, `Wards`, `Ritual Chamber`). Anti-snowball rule режет income на 30% или 50%, если сила армии сильно или огромно выше средней. Diplomacy signals показывают мастеру/лордам поводы для союзов, заговоров и коалиций против лидера. Raid engine отделен от battle engine: raid token + gold -> target validation -> defense/magic check -> timed debuff and optional gold/cards/influence loot. Orders capped at 2 public + 1 addressed active orders per lord, and lord progression remains playable without witcher availability.
 
-Проверяется после lord panels и act timers: movement refill to cap -> route spends MP -> contested claim visible -> neutral battle -> garrison required -> pending tick winner -> recruit refresh/hold/reserve -> building prerequisite -> anti-snowball 30/50 -> raid debuff/loot expiry.
+Проверяется после lord panels и act timers: movement refill to cap -> route spends MP -> contested claim visible -> neutral battle -> fort garrison required -> active army <-> fort transfer -> pending tick winner -> recruit refresh/hold/reserve -> building prerequisite -> anti-snowball 30/50 -> raid debuff/loot expiry.
 
 ### Lord battle
 
@@ -434,13 +447,14 @@ Immediate paper fallback включается для конкретного кр
 
 ## Проверки
 
-- Unit tests: PvE, offline act unlock, reward approval locks, +1 stat level-up, personal_goals/goal_flags visibility, full Gwent deck/round/tie/effects, PvP challenge tokens/window/refusal/tie/throttle, trade_transfers lock/accept/decline, deterministic lord battle 60s timeout/auto-resolve, escrow, order object conflict and order cap, cooldown 30 min, QR consumption, auto timers, anti-snowball, reputation -5..+5 thresholds, hourly mana, favorites lifecycle and potion economy.
+- Unit tests: PvE, offline act unlock, reward approval locks, +1 stat level-up, personal_goals/goal_flags visibility, full Gwent deck/round/tie/effects, PvP challenge tokens/window/refusal/tie/throttle, trade_transfers lock/accept/decline, deterministic lord battle 60s timeout/auto-resolve, fort garrison transfer/capacity/minimum rules, escrow, order object conflict and order cap, cooldown 30 min, QR consumption, auto timers, anti-snowball, reputation -5..+5 thresholds, hourly mana, favorites lifecycle and potion economy.
 - Content tests: authoring matrix coverage, 40 QR slots with Act 1/2/3 = 12/14/14, 15+ always-available/repeatable and 25+ unique objects, `repeatable_scene`/`always_available_scene`/`unique_object` mix, opaque manual IDs, PvE tiers 1-4, PvE scene HP defaults, reward budgets, act unlock policy, reward approval policy, rarity caps, personal goal hooks, custom Gwent cards, unique objects, artifact visibility, spell/potion minimum catalog, NPC deal flags and final_summary inputs.
 - Import tests: валидные seed CSV и ошибочные CSV.
 - API integration tests: idempotent events, codes, snapshot, act unlock, reward approvals, review, timers, PvP throttle, backups.
 - Recovery tests: `paper_recovered` import for QR/PvE, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence; duplicate/conflicting recovery must go to review.
 - Browser smoke: master panel, 4 lord panels, синхронный lord battle.
 - Device smoke: player code, snapshot download, QR/manual input, offline PvE, restart, sync retry.
-- UI-first smoke after `TASK-050`: Android/iOS mobile gameplay UI, lord action UI with valid `venue_map_v1`, personal PvP/Gwent UI, Admin Studio paper recovery/corrections and final summary without Swagger for player/lord steps.
+- UI-first smoke after `TASK-050`: Android/iOS mobile gameplay UI, lord action UI with valid illustrated `venue_map_v1`, personal PvP/Gwent UI, Admin Studio paper recovery/corrections and final summary without Swagger for player/lord steps.
+- Visual/reference smoke after `TASK-067`/before `TASK-050`: screenshots for lord castle/city-development screen with Olden Era-like building tree, thematic territory forts, lord battle board, personal Gwent table and lord venue map; check readability, state labels, data bindings, visual distinction between PvP surfaces and IP-safe original/local assets.
 - Non-PvE hardening before `TASK-050`: real-device install/launch/connect/snapshot/restart/sync, 4 lord panels, lord map audit, personal Gwent, orders/trade, sorceress potions/spells/favorites/alignment, Admin recovery and no unresolved P0/P1/blocking P2 defects.
-- Full rehearsal: мастерский ноутбук, 4 лордских ноутбука, реальные телефоны, домашний Wi-Fi, 15-person profile, 10-hour fixed schedule, 9 mobile-role load/idle risk, NPC-master load, order pressure, offline act unlock, pending reward approval, full Gwent volume/throttle, trade conflicts, favorites impact, master-led final summary, final lock and game-day ops checklist.
+- Full rehearsal: мастерский ноутбук, 4 лордских ноутбука, реальные телефоны, домашний Wi-Fi, 15-person profile, 10-hour fixed schedule, 9 mobile-role load/idle risk, NPC-master load, order pressure, offline act unlock, pending reward approval, full Gwent volume/throttle, trade conflicts, favorites impact, visual/readability proof, master-led final summary, final lock and game-day ops checklist.
