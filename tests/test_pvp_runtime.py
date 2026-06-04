@@ -16,6 +16,7 @@ from backend.witcher_larp.pvp_service import convert_personal_card_to_lord
 from backend.witcher_larp.pvp_service import create_pvp_challenge, finish_gwent_match
 from backend.witcher_larp.pvp_service import record_gwent_round, record_pvp_refusal
 from backend.witcher_larp.pvp_service import set_pvp_throttle_mode, start_pvp_challenge
+from backend.witcher_larp.reward_service import create_pending_reward_approval
 
 try:
     from fastapi.testclient import TestClient
@@ -374,6 +375,327 @@ class PvpRuntimeTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(winner_quantity, 1)
         self.assertEqual(active_stake_locks, 0)
+
+    def test_gold_stakes_reserve_refund_settle_and_reject_insufficient_balance(self) -> None:
+        settings = self.prepare_seed(
+            "pvp_gold_stakes",
+            extra_deck_players=(
+                "p_witcher_2",
+                "p_witcher_3",
+                "p_witcher_4",
+                "p_witcher_5",
+                "p_sorc_1",
+            ),
+        )
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE player_runtime_state
+                SET gold = CASE player_id
+                    WHEN 'p_witcher_1' THEN 25
+                    WHEN 'p_witcher_3' THEN 50
+                    WHEN 'p_witcher_4' THEN 20
+                    WHEN 'p_witcher_5' THEN 4
+                    ELSE gold
+                END
+                WHERE player_id IN ('p_witcher_1', 'p_witcher_3', 'p_witcher_4', 'p_witcher_5')
+                """
+            )
+
+            cancelled = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenge_id="challenge_gold_cancel",
+                    challenger_id="p_witcher_1",
+                    target_id="p_witcher_2",
+                    stake={"asset_type": "gold", "amount": 10},
+                ),
+            )
+            reserved_gold = connection.execute(
+                "SELECT gold FROM player_runtime_state WHERE player_id = 'p_witcher_1'"
+            ).fetchone()["gold"]
+            refused = record_pvp_refusal(
+                connection,
+                cancelled["challenge_id"],
+                reason="safety_stop",
+                actor_id="p_witcher_2",
+            )
+            refunded_gold = connection.execute(
+                "SELECT gold FROM player_runtime_state WHERE player_id = 'p_witcher_1'"
+            ).fetchone()["gold"]
+            refunded_stake = connection.execute(
+                """
+                SELECT status, asset_type, asset_id, quantity
+                FROM pvp_stake_ledger
+                WHERE challenge_id = 'challenge_gold_cancel'
+                """
+            ).fetchone()
+
+            self.assertEqual(cancelled["stake"]["asset_type"], "gold")
+            self.assertEqual(cancelled["stake"]["quantity"], 10)
+            self.assertEqual(reserved_gold, 15)
+            self.assertEqual(refused["status"], "needs_master_review")
+            self.assertEqual(refunded_gold, 25)
+            self.assertEqual(
+                dict(refunded_stake),
+                {
+                    "status": "refunded",
+                    "asset_type": "gold",
+                    "asset_id": "gold",
+                    "quantity": 10,
+                },
+            )
+
+            p5_tokens_before = connection.execute(
+                "SELECT challenge_tokens FROM player_runtime_state WHERE player_id = 'p_witcher_5'"
+            ).fetchone()["challenge_tokens"]
+            with self.assertRaisesRegex(PvpError, "does not have enough gold"):
+                create_pvp_challenge(
+                    connection,
+                    ChallengeCreateInput(
+                        challenge_id="challenge_gold_insufficient",
+                        challenger_id="p_witcher_5",
+                        target_id="p_sorc_1",
+                        stake={"asset_type": "gold", "amount": 6},
+                    ),
+                )
+            p5_tokens_after = connection.execute(
+                "SELECT challenge_tokens FROM player_runtime_state WHERE player_id = 'p_witcher_5'"
+            ).fetchone()["challenge_tokens"]
+            rejected_count = connection.execute(
+                "SELECT COUNT(*) FROM pvp_challenges WHERE challenge_id = 'challenge_gold_insufficient'"
+            ).fetchone()[0]
+
+            challenge = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenge_id="challenge_gold_finish",
+                    challenger_id="p_witcher_3",
+                    target_id="p_witcher_4",
+                    stake={"asset_type": "gold", "amount": 15},
+                ),
+            )
+            started = start_pvp_challenge(
+                connection,
+                ChallengeStartInput(challenge_id=challenge["challenge_id"]),
+            )
+            match_id = started["match"]["match_id"]
+            record_gwent_round(
+                connection,
+                match_id,
+                {
+                    "plays": [
+                        {"player_id": "p_witcher_3", "card_id": "gwent_unit_01"},
+                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_02"},
+                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_03"},
+                    ],
+                    "passed": {"p_witcher_3": True, "p_witcher_4": True},
+                },
+                round_number=1,
+            )
+            second_round = record_gwent_round(
+                connection,
+                match_id,
+                {
+                    "plays": [
+                        {"player_id": "p_witcher_3", "card_id": "gwent_unit_04"},
+                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_04"},
+                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_05"},
+                    ],
+                    "passed": {"p_witcher_3": True, "p_witcher_4": True},
+                },
+                round_number=2,
+            )
+            finished = finish_gwent_match(connection, match_id, winner_id="p_witcher_4")
+            duplicate_finish = finish_gwent_match(connection, match_id, winner_id="p_witcher_4")
+            balances = {
+                row["player_id"]: row["gold"]
+                for row in connection.execute(
+                    """
+                    SELECT player_id, gold
+                    FROM player_runtime_state
+                    WHERE player_id IN ('p_witcher_3', 'p_witcher_4')
+                    """
+                ).fetchall()
+            }
+            settled_stake = connection.execute(
+                """
+                SELECT status, quantity, winner_id, loser_id
+                FROM pvp_stake_ledger
+                WHERE challenge_id = 'challenge_gold_finish'
+                """
+            ).fetchone()
+
+        self.assertEqual(p5_tokens_after, p5_tokens_before)
+        self.assertEqual(rejected_count, 0)
+        self.assertEqual(second_round["match"]["status"], "awaiting_finish")
+        self.assertEqual(second_round["match"]["winner_id"], "p_witcher_4")
+        self.assertEqual(finished["stake_transfer"]["status"], "applied")
+        self.assertFalse(finished["duplicate"])
+        self.assertTrue(duplicate_finish["duplicate"])
+        self.assertEqual(balances, {"p_witcher_3": 35, "p_witcher_4": 35})
+        self.assertEqual(
+            dict(settled_stake),
+            {
+                "status": "applied",
+                "quantity": 15,
+                "winner_id": "p_witcher_4",
+                "loser_id": "p_witcher_3",
+            },
+        )
+
+    @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
+    def test_api_player_gwent_round_waits_for_opponent_submission(self) -> None:
+        settings = self.prepare_seed("pvp_api_two_client_round", extra_deck_players=("p_witcher_2",))
+        client = TestClient(create_app(settings))
+        challenge = client.post(
+            "/api/pvp/challenges",
+            headers=WITCHER_1_HEADERS,
+            json={
+                "challenge_id": "challenge_two_client_round",
+                "challenger_id": "p_witcher_1",
+                "target_id": "p_witcher_2",
+                "stake": {"asset_type": "item", "asset_id": "round_guardrails_marker"},
+            },
+        ).json()
+        started = client.post(
+            f"/api/pvp/challenges/{challenge['challenge_id']}/start",
+            headers=WITCHER_1_HEADERS,
+            json={},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        match_id = started.json()["match"]["match_id"]
+
+        first_submit = client.post(
+            f"/api/pvp/matches/{match_id}/rounds",
+            headers=WITCHER_1_HEADERS,
+            json={
+                "round_number": 1,
+                "plays": [
+                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_02"},
+                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_03"},
+                ],
+                "passed": {"p_witcher_1": True},
+            },
+        )
+        self.assertEqual(first_submit.status_code, 200, first_submit.text)
+        pending_payload = first_submit.json()
+        self.assertIsNone(pending_payload["round"]["winner_id"])
+        self.assertEqual(pending_payload["match"]["status"], "active")
+        self.assertEqual(pending_payload["round"]["round_state"]["status"], "pending_player_submissions")
+        self.assertEqual(pending_payload["round"]["round_state"]["ready_players"], ["p_witcher_1"])
+        self.assertEqual(pending_payload["round"]["round_state"]["missing_players"], ["p_witcher_2"])
+        self.assertIn(
+            "gwent_unit_02",
+            pending_payload["match"]["deck_state"]["p_witcher_1"]["hand"],
+        )
+
+        second_submit = client.post(
+            f"/api/pvp/matches/{match_id}/rounds",
+            headers=WITCHER_2_HEADERS,
+            json={
+                "round_number": 1,
+                "plays": [{"player_id": "p_witcher_2", "card_id": "gwent_unit_01"}],
+                "passed": {"p_witcher_2": True},
+            },
+        )
+        self.assertEqual(second_submit.status_code, 200, second_submit.text)
+        resolved_payload = second_submit.json()
+        self.assertFalse(resolved_payload["duplicate"])
+        self.assertEqual(resolved_payload["round"]["winner_id"], "p_witcher_1")
+        self.assertEqual(resolved_payload["round"]["row_scores"]["p_witcher_1"]["melee"], 9)
+        self.assertEqual(resolved_payload["round"]["row_scores"]["p_witcher_2"]["melee"], 4)
+        self.assertNotIn(
+            "gwent_unit_02",
+            resolved_payload["match"]["deck_state"]["p_witcher_1"]["hand"],
+        )
+        self.assertIn(
+            "gwent_unit_02",
+            resolved_payload["match"]["deck_state"]["p_witcher_1"]["graveyard"],
+        )
+
+        duplicate_submit = client.post(
+            f"/api/pvp/matches/{match_id}/rounds",
+            headers=WITCHER_2_HEADERS,
+            json={
+                "round_number": 1,
+                "plays": [{"player_id": "p_witcher_2", "card_id": "gwent_unit_01"}],
+                "passed": {"p_witcher_2": True},
+            },
+        )
+        self.assertEqual(duplicate_submit.status_code, 200, duplicate_submit.text)
+        self.assertTrue(duplicate_submit.json()["duplicate"])
+
+    @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
+    def test_api_master_incomplete_gwent_round_goes_to_review_without_stake_transfer(self) -> None:
+        settings = self.prepare_seed("pvp_api_master_incomplete_round", extra_deck_players=("p_witcher_2",))
+        client = TestClient(create_app(settings))
+        challenge = client.post(
+            "/api/pvp/challenges",
+            headers=WITCHER_1_HEADERS,
+            json={
+                "challenge_id": "challenge_master_incomplete_round",
+                "challenger_id": "p_witcher_1",
+                "target_id": "p_witcher_2",
+                "stake": {"asset_type": "item", "asset_id": "partial_finish_marker"},
+            },
+        ).json()
+        started = client.post(
+            f"/api/pvp/challenges/{challenge['challenge_id']}/start",
+            headers=WITCHER_1_HEADERS,
+            json={},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        match_id = started.json()["match"]["match_id"]
+
+        incomplete_round = client.post(
+            f"/api/pvp/matches/{match_id}/rounds",
+            headers=MASTER_HEADERS,
+            json={
+                "round_number": 1,
+                "plays": [{"player_id": "p_witcher_1", "card_id": "gwent_unit_02"}],
+                "passed": {"p_witcher_1": True},
+            },
+        )
+        self.assertEqual(incomplete_round.status_code, 200, incomplete_round.text)
+        round_payload = incomplete_round.json()["round"]
+        match_payload = incomplete_round.json()["match"]
+        self.assertTrue(round_payload["review_required"])
+        self.assertEqual(round_payload["round_state"]["status"], "needs_master_review")
+        self.assertEqual(
+            round_payload["round_state"]["review_reason"],
+            "incomplete_round_requires_master_review",
+        )
+        self.assertEqual(match_payload["status"], "needs_master_review")
+        self.assertEqual(match_payload["review_reason"], "incomplete_round_requires_master_review")
+
+        finish = client.post(
+            f"/api/pvp/matches/{match_id}/finish",
+            headers=MASTER_HEADERS,
+            json={"winner_id": "p_witcher_1"},
+        )
+        self.assertEqual(finish.status_code, 200, finish.text)
+        self.assertEqual(finish.json()["stake_transfer"]["status"], "not_applied")
+        with connect(settings) as connection:
+            review_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM pvp_reviews
+                WHERE match_id = ?
+                  AND reason = 'incomplete_round_requires_master_review'
+                """,
+                (match_id,),
+            ).fetchone()[0]
+            stake = connection.execute(
+                """
+                SELECT status, winner_id
+                FROM pvp_stake_ledger
+                WHERE challenge_id = 'challenge_master_incomplete_round'
+                """
+            ).fetchone()
+        self.assertEqual(review_count, 1)
+        self.assertEqual(stake["status"], "locked")
+        self.assertIsNone(stake["winner_id"])
 
     def test_challenge_rejects_non_owned_and_missing_stake_without_token_table_or_lock(self) -> None:
         settings = self.prepare_seed("pvp_stake_ownership_negative", extra_deck_players=("p_witcher_2",))
@@ -931,7 +1253,8 @@ class PvpRuntimeTests(unittest.TestCase):
                             "revive_card_id": "gwent_unit_01",
                         },
                         {"player_id": "p_witcher_1", "card_id": "gwent_unit_19"},
-                    ]
+                    ],
+                    "passed": {"p_witcher_1": True, "p_witcher_2": True},
                 },
                 round_number=2,
             )
@@ -2028,9 +2351,98 @@ class PvpRuntimeTests(unittest.TestCase):
                     personal_card_id="pc_infantry_t1",
                 )
 
+    def test_personal_card_conversion_rejects_non_owned_card_without_minting(self) -> None:
+        settings = self.prepare_seed("pvp_card_conversion_non_owned", extra_deck_players=())
+        with connect(settings) as connection:
+            with self.assertRaisesRegex(PvpError, "does not own personal card"):
+                convert_personal_card_to_lord(
+                    connection,
+                    player_id="p_witcher_1",
+                    lord_id="p_lord_1",
+                    personal_card_id="pc_infantry_t1",
+                )
+
+            conversion_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM personal_card_conversions
+                WHERE player_id = 'p_witcher_1'
+                  AND personal_card_id = 'pc_infantry_t1'
+                """
+            ).fetchone()[0]
+            reserve_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM army_reserve_runtime
+                WHERE reserve_id = 'reserve_domain_north_unit_infantry_t1_conversion'
+                """
+            ).fetchone()[0]
+
+        self.assertEqual(conversion_count, 0)
+        self.assertEqual(reserve_count, 0)
+
+    def test_personal_card_conversion_rejects_pending_reward_locked_card(self) -> None:
+        settings = self.prepare_seed("pvp_card_conversion_pending_reward", extra_deck_players=())
+        with connect(settings) as connection:
+            create_pending_reward_approval(
+                connection,
+                approval_id="approval_locked_conversion_card",
+                reward_id="reward_pve_t4",
+                player_id="p_witcher_1",
+                source_event_id=None,
+                now=datetime(2026, 6, 2, 11, 0, tzinfo=UTC),
+            )
+
+            with self.assertRaisesRegex(PvpError, "locked"):
+                convert_personal_card_to_lord(
+                    connection,
+                    player_id="p_witcher_1",
+                    lord_id="p_lord_1",
+                    personal_card_id="pc_siege_t3",
+                )
+
+            conversion_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM personal_card_conversions
+                WHERE player_id = 'p_witcher_1'
+                  AND personal_card_id = 'pc_siege_t3'
+                """
+            ).fetchone()[0]
+            reserve_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM army_reserve_runtime
+                WHERE reserve_id = 'reserve_domain_north_unit_heavy_siege_t3_conversion'
+                """
+            ).fetchone()[0]
+            active_lock_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM asset_locks
+                WHERE asset_type = 'card'
+                  AND asset_id = 'pc_siege_t3'
+                  AND lock_type = 'reward_approval'
+                  AND status = 'active'
+                """
+            ).fetchone()[0]
+
+        self.assertEqual(conversion_count, 0)
+        self.assertEqual(reserve_count, 0)
+        self.assertEqual(active_lock_count, 1)
+
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_api_personal_card_to_lord_conversion_is_permanent_and_idempotent(self) -> None:
         settings = self.prepare_seed("pvp_card_conversion", extra_deck_players=())
+        with connect(settings) as connection:
+            grant_asset_ownership(
+                connection,
+                owner_player_id="p_witcher_1",
+                asset_type="card",
+                asset_id="pc_infantry_t1",
+                source="test_conversion_seed",
+                source_ref_id="pc_infantry_t1",
+            )
         client = TestClient(create_app(settings))
 
         first = client.post(
@@ -2068,8 +2480,41 @@ class PvpRuntimeTests(unittest.TestCase):
                 WHERE reserve_id = 'reserve_domain_north_unit_infantry_t1_conversion'
                 """
             ).fetchone()
+            ownership_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM asset_ownership
+                WHERE owner_player_id = 'p_witcher_1'
+                  AND asset_type = 'card'
+                  AND asset_id = 'pc_infantry_t1'
+                  AND status = 'active'
+                """
+            ).fetchone()[0]
+            conversion_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM personal_card_conversions
+                WHERE player_id = 'p_witcher_1'
+                  AND personal_card_id = 'pc_infantry_t1'
+                """
+            ).fetchone()[0]
+            event = connection.execute(
+                """
+                SELECT payload_json
+                FROM event_log
+                WHERE event_type = 'personal_card_converted_to_lord'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
         self.assertEqual(reserve["card_id"], "unit_infantry_t1")
         self.assertEqual(reserve["count"], 1)
+        self.assertEqual(ownership_count, 0)
+        self.assertEqual(conversion_count, 1)
+        event_payload = json.loads(event["payload_json"])
+        self.assertEqual(event_payload["ownership_debit"]["quantity_before"], 1)
+        self.assertEqual(event_payload["ownership_debit"]["quantity_debited"], 1)
+        self.assertEqual(event_payload["ownership_debit"]["quantity_after"], 0)
 
 
 if __name__ == "__main__":

@@ -1519,6 +1519,8 @@ def create_app(settings: Settings | None = None):
                     match_id,
                     round_state,
                     round_number=payload.round_number,
+                    actor_id=None if auth["is_master"] else auth["player_id"],
+                    master_override=auth["is_master"],
                     source=payload.source,
                 )
             except PvpError as exc:

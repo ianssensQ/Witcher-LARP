@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import json
@@ -10,8 +11,8 @@ from typing import Any
 from uuid import uuid4
 
 from .asset_service import AssetContractError
-from .asset_service import assert_asset_unlocked, lock_owned_asset, settle_owned_asset_lock
-from .asset_service import ownership_for_asset
+from .asset_service import assert_asset_unlocked, debit_asset_ownership, lock_owned_asset
+from .asset_service import ownership_for_asset, settle_owned_asset_lock
 from .gwent_effects import GWENT_ROWS, GWENT_WEATHER_BY_EFFECT
 from .gwent_effects import is_gwent_effect_supported
 from .runtime_schema import ensure_runtime_schema, log_event
@@ -22,12 +23,20 @@ PVP_PLAYER_ROLES = {"witcher", "sorceress"}
 ACTIVE_CHALLENGE_STATES = {"assigned", "queued", "deferred", "started", "needs_master_review"}
 FINAL_CHALLENGE_STATES = {"resolved", "cancelled", "rejected"}
 REFUNDABLE_PRE_START_REFUSALS = {"safety_stop", "unsafe_path", "force_majeure"}
+GOLD_STAKE_ASSET_TYPE = "gold"
+GOLD_STAKE_ASSET_ID = "gold"
+GWENT_PENDING_ROUND_STATUS = "pending_player_submissions"
+GWENT_ROUND_REVIEW_STATUS = "needs_master_review"
+INCOMPLETE_ROUND_REVIEW_REASON = "incomplete_round_requires_master_review"
+CONTRADICTORY_ROUND_REVIEW_REASON = "contradictory_round_submission_requires_master_review"
 REVIEW_SEVERITY_BY_REASON = {
     "active_scene": "P2",
     "table_overload": "P2",
     "valid_ignore": "P2",
     "start_window_timeout": "P2",
     "double_loss_tie": "P2",
+    INCOMPLETE_ROUND_REVIEW_REASON: "P1",
+    CONTRADICTORY_ROUND_REVIEW_REASON: "P1",
     "safety_stop": "P0",
     "unsafe_path": "P1",
     "force_majeure": "P1",
@@ -238,21 +247,28 @@ def create_pvp_challenge(
     stake = _validate_stake(request.stake)
     if _stake_locked(connection, stake["asset_type"], stake["asset_id"]):
         raise PvpError(f"Stake asset is already locked: {stake['asset_id']}")
-    try:
-        assert_asset_unlocked(
+    if _is_gold_stake(stake):
+        _assert_gold_stake_available(
             connection,
-            asset_type=stake["asset_type"],
-            asset_id=stake["asset_id"],
-            owner_player_id=request.challenger_id,
-            purpose="PvP stake",
+            player_id=request.challenger_id,
+            amount=_stake_quantity(stake),
         )
-        _assert_stake_asset_owned(
-            connection,
-            stake=stake,
-            owner_player_id=request.challenger_id,
-        )
-    except AssetContractError as exc:
-        raise PvpError(exc.message) from exc
+    else:
+        try:
+            assert_asset_unlocked(
+                connection,
+                asset_type=stake["asset_type"],
+                asset_id=stake["asset_id"],
+                owner_player_id=request.challenger_id,
+                purpose="PvP stake",
+            )
+            _assert_stake_asset_owned(
+                connection,
+                stake=stake,
+                owner_player_id=request.challenger_id,
+            )
+        except AssetContractError as exc:
+            raise PvpError(exc.message) from exc
 
     if request.mandatory and not request.master_approval:
         _spend_challenge_token(connection, request.challenger_id, current_time)
@@ -483,6 +499,8 @@ def record_gwent_round(
     round_state: dict[str, Any],
     *,
     round_number: int | None = None,
+    actor_id: str | None = None,
+    master_override: bool = False,
     source: str = "pvp_api",
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -492,6 +510,8 @@ def record_gwent_round(
     if str(match["status"]) in {"finished", "needs_master_review"}:
         return {"match": _match_payload(connection, match), "round": None, "duplicate": False}
     next_round = round_number or _next_round_number(connection, match_id)
+    if next_round < 1 or next_round > 3:
+        raise PvpError("Gwent match supports best-of-3 rounds.")
     existing = connection.execute(
         """
         SELECT *
@@ -501,16 +521,82 @@ def record_gwent_round(
         (match_id, next_round),
     ).fetchone()
     if existing is not None:
-        return {
-            "match": _match_payload(connection, match),
-            "round": _round_row_to_dict(existing),
-            "duplicate": True,
-        }
+        if not _is_pending_round_row(existing):
+            return {
+                "match": _match_payload(connection, match),
+                "round": _round_row_to_dict(existing),
+                "duplicate": True,
+            }
 
-    if next_round < 1 or next_round > 3:
-        raise PvpError("Gwent match supports best-of-3 rounds.")
-
+    players = [str(match["challenger_id"]), str(match["target_id"])]
     deck_state = _json_loads(str(match["deck_state_json"]), {})
+    incoming_submissions = _round_submissions_from_state(round_state, players, actor_id=actor_id)
+    if not incoming_submissions:
+        raise PvpError("Gwent round submission requires a play or pass flag.")
+    _validate_round_submission_state(
+        connection,
+        match,
+        _round_state_from_submissions(incoming_submissions, players),
+        deck_state,
+    )
+
+    if existing is not None:
+        return _merge_pending_gwent_round(
+            connection,
+            match,
+            existing,
+            incoming_submissions,
+            players=players,
+            deck_state=deck_state,
+            master_override=master_override,
+            source=source,
+            now=current_time,
+        )
+
+    if master_override and not _all_round_players_ready(incoming_submissions, players):
+        return _mark_gwent_round_for_review(
+            connection,
+            match,
+            round_number=next_round,
+            submissions=incoming_submissions,
+            players=players,
+            reason=INCOMPLETE_ROUND_REVIEW_REASON,
+            now=current_time,
+        )
+    if not _all_round_players_ready(incoming_submissions, players):
+        return _insert_pending_gwent_round(
+            connection,
+            match,
+            round_number=next_round,
+            submissions=incoming_submissions,
+            players=players,
+            source=source,
+            now=current_time,
+        )
+
+    return _store_resolved_gwent_round(
+        connection,
+        match,
+        round_number=next_round,
+        round_state=round_state,
+        deck_state=deck_state,
+        source=source,
+        now=current_time,
+    )
+
+
+def _store_resolved_gwent_round(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    *,
+    round_number: int,
+    round_state: dict[str, Any],
+    deck_state: dict[str, Any],
+    source: str,
+    now: datetime,
+    existing_round_id: int | None = None,
+) -> dict[str, Any]:
+    match_id = str(match["match_id"])
     resolved = _resolve_round_state(connection, match, round_state, deck_state)
     losses = _json_loads(str(match["round_losses_json"]), {})
     challenger_id = str(match["challenger_id"])
@@ -538,26 +624,49 @@ def record_gwent_round(
         match_status = "awaiting_finish"
         match_winner_id = challenger_id
 
-    connection.execute(
-        """
-        INSERT INTO gwent_rounds (
-            match_id, round_number, round_state_json, row_scores_json,
-            passed_json, winner_id, tie, review_required, created_at
+    if existing_round_id is None:
+        connection.execute(
+            """
+            INSERT INTO gwent_rounds (
+                match_id, round_number, round_state_json, row_scores_json,
+                passed_json, winner_id, tie, review_required, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                match_id,
+                round_number,
+                _json_dumps(resolved["round_state"]),
+                _json_dumps(resolved["row_scores"]),
+                _json_dumps(resolved["passed"]),
+                winner_id,
+                1 if resolved["tie"] else 0,
+                1 if review_reason else 0,
+                _iso(now),
+            ),
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            match_id,
-            next_round,
-            _json_dumps(resolved["round_state"]),
-            _json_dumps(resolved["row_scores"]),
-            _json_dumps(resolved["passed"]),
-            winner_id,
-            1 if resolved["tie"] else 0,
-            1 if review_reason else 0,
-            _iso(current_time),
-        ),
-    )
+    else:
+        connection.execute(
+            """
+            UPDATE gwent_rounds
+            SET round_state_json = ?,
+                row_scores_json = ?,
+                passed_json = ?,
+                winner_id = ?,
+                tie = ?,
+                review_required = ?
+            WHERE round_id = ?
+            """,
+            (
+                _json_dumps(resolved["round_state"]),
+                _json_dumps(resolved["row_scores"]),
+                _json_dumps(resolved["passed"]),
+                winner_id,
+                1 if resolved["tie"] else 0,
+                1 if review_reason else 0,
+                existing_round_id,
+            ),
+        )
     connection.execute(
         """
         UPDATE gwent_runtime_matches
@@ -578,11 +687,11 @@ def record_gwent_round(
         ),
     )
     if review_reason:
-        _mark_match_resources_for_review(connection, match, reason=review_reason, now=current_time)
+        _mark_match_resources_for_review(connection, match, reason=review_reason, now=now)
 
     payload = {
         "match_id": match_id,
-        "round_number": next_round,
+        "round_number": round_number,
         "winner_id": winner_id,
         "tie": resolved["tie"],
         "row_scores": resolved["row_scores"],
@@ -592,20 +701,269 @@ def record_gwent_round(
         "review_reason": review_reason,
         "effects_applied": resolved["effects_applied"],
     }
-    log_event(connection, "gwent_round_finished", payload, source=source, created_at=current_time)
+    log_event(connection, "gwent_round_finished", payload, source=source, created_at=now)
     stored_round = connection.execute(
         """
         SELECT *
         FROM gwent_rounds
         WHERE match_id = ? AND round_number = ?
         """,
-        (match_id, next_round),
+        (match_id, round_number),
     ).fetchone()
     return {
         "match": _match_payload(connection, _fetch_match_required(connection, match_id)),
         "round": _round_row_to_dict(stored_round),
         "duplicate": False,
     }
+
+
+def _merge_pending_gwent_round(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    existing: sqlite3.Row,
+    incoming_submissions: dict[str, dict[str, Any]],
+    *,
+    players: list[str],
+    deck_state: dict[str, Any],
+    master_override: bool,
+    source: str,
+    now: datetime,
+) -> dict[str, Any]:
+    pending_state = _json_loads(str(existing["round_state_json"]), {})
+    submissions = _pending_submissions(pending_state, players)
+    order = _pending_submission_order(pending_state, submissions)
+    changed = False
+    for player_id, incoming in incoming_submissions.items():
+        if player_id in submissions:
+            if _canonical_submission(submissions[player_id]) == _canonical_submission(incoming):
+                continue
+            return _mark_gwent_round_for_review(
+                connection,
+                match,
+                round_number=int(existing["round_number"]),
+                submissions={**submissions, **incoming_submissions},
+                players=players,
+                reason=CONTRADICTORY_ROUND_REVIEW_REASON,
+                now=now,
+                existing_round_id=int(existing["round_id"]),
+            )
+        submissions[player_id] = incoming
+        order.append(player_id)
+        changed = True
+
+    if not changed:
+        return {
+            "match": _match_payload(connection, match),
+            "round": _round_row_to_dict(existing),
+            "duplicate": True,
+        }
+
+    if master_override and not _all_round_players_ready(submissions, players):
+        return _mark_gwent_round_for_review(
+            connection,
+            match,
+            round_number=int(existing["round_number"]),
+            submissions=submissions,
+            players=players,
+            reason=INCOMPLETE_ROUND_REVIEW_REASON,
+            now=now,
+            existing_round_id=int(existing["round_id"]),
+        )
+    if not _all_round_players_ready(submissions, players):
+        return _update_pending_gwent_round(
+            connection,
+            match,
+            existing,
+            submissions=submissions,
+            order=order,
+            players=players,
+            source=source,
+            now=now,
+        )
+
+    return _store_resolved_gwent_round(
+        connection,
+        match,
+        round_number=int(existing["round_number"]),
+        round_state=_round_state_from_submissions(submissions, players, order=order),
+        deck_state=deck_state,
+        source=source,
+        now=now,
+        existing_round_id=int(existing["round_id"]),
+    )
+
+
+def _insert_pending_gwent_round(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    *,
+    round_number: int,
+    submissions: dict[str, dict[str, Any]],
+    players: list[str],
+    source: str,
+    now: datetime,
+) -> dict[str, Any]:
+    pending_state = _pending_round_state(submissions, players)
+    connection.execute(
+        """
+        INSERT INTO gwent_rounds (
+            match_id, round_number, round_state_json, row_scores_json,
+            passed_json, winner_id, tie, review_required, created_at
+        )
+        VALUES (?, ?, ?, '{}', ?, NULL, 0, 0, ?)
+        """,
+        (
+            match["match_id"],
+            round_number,
+            _json_dumps(pending_state),
+            _json_dumps(_passed_from_submissions(submissions, players)),
+            _iso(now),
+        ),
+    )
+    log_event(
+        connection,
+        "gwent_round_submission_pending",
+        {
+            "match_id": match["match_id"],
+            "round_number": round_number,
+            "ready_players": pending_state["ready_players"],
+            "missing_players": pending_state["missing_players"],
+        },
+        source=source,
+        created_at=now,
+    )
+    stored_round = connection.execute(
+        """
+        SELECT *
+        FROM gwent_rounds
+        WHERE match_id = ? AND round_number = ?
+        """,
+        (match["match_id"], round_number),
+    ).fetchone()
+    return {
+        "match": _match_payload(connection, _fetch_match_required(connection, str(match["match_id"]))),
+        "round": _round_row_to_dict(stored_round),
+        "duplicate": False,
+    }
+
+
+def _update_pending_gwent_round(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    existing: sqlite3.Row,
+    *,
+    submissions: dict[str, dict[str, Any]],
+    order: list[str],
+    players: list[str],
+    source: str,
+    now: datetime,
+) -> dict[str, Any]:
+    pending_state = _pending_round_state(submissions, players, order=order)
+    connection.execute(
+        """
+        UPDATE gwent_rounds
+        SET round_state_json = ?,
+            passed_json = ?
+        WHERE round_id = ?
+        """,
+        (
+            _json_dumps(pending_state),
+            _json_dumps(_passed_from_submissions(submissions, players)),
+            existing["round_id"],
+        ),
+    )
+    log_event(
+        connection,
+        "gwent_round_submission_pending",
+        {
+            "match_id": match["match_id"],
+            "round_number": int(existing["round_number"]),
+            "ready_players": pending_state["ready_players"],
+            "missing_players": pending_state["missing_players"],
+        },
+        source=source,
+        created_at=now,
+    )
+    stored_round = connection.execute("SELECT * FROM gwent_rounds WHERE round_id = ?", (existing["round_id"],)).fetchone()
+    return {
+        "match": _match_payload(connection, _fetch_match_required(connection, str(match["match_id"]))),
+        "round": _round_row_to_dict(stored_round),
+        "duplicate": False,
+    }
+
+
+def _mark_gwent_round_for_review(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    *,
+    round_number: int,
+    submissions: dict[str, dict[str, Any]],
+    players: list[str],
+    reason: str,
+    now: datetime,
+    existing_round_id: int | None = None,
+) -> dict[str, Any]:
+    review_state = _pending_round_state(submissions, players)
+    review_state["status"] = GWENT_ROUND_REVIEW_STATUS
+    review_state["review_reason"] = reason
+    if existing_round_id is None:
+        connection.execute(
+            """
+            INSERT INTO gwent_rounds (
+                match_id, round_number, round_state_json, row_scores_json,
+                passed_json, winner_id, tie, review_required, created_at
+            )
+            VALUES (?, ?, ?, '{}', ?, NULL, 0, 1, ?)
+            """,
+            (
+                match["match_id"],
+                round_number,
+                _json_dumps(review_state),
+                _json_dumps(_passed_from_submissions(submissions, players)),
+                _iso(now),
+            ),
+        )
+    else:
+        connection.execute(
+            """
+            UPDATE gwent_rounds
+            SET round_state_json = ?,
+                row_scores_json = '{}',
+                passed_json = ?,
+                winner_id = NULL,
+                tie = 0,
+                review_required = 1
+            WHERE round_id = ?
+            """,
+            (
+                _json_dumps(review_state),
+                _json_dumps(_passed_from_submissions(submissions, players)),
+                existing_round_id,
+            ),
+        )
+    reviewed_match = _mark_match_for_review(connection, match, reason=reason, now=now)
+    stored_round = connection.execute(
+        """
+        SELECT *
+        FROM gwent_rounds
+        WHERE match_id = ? AND round_number = ?
+        """,
+        (match["match_id"], round_number),
+    ).fetchone()
+    log_event(
+        connection,
+        "gwent_round_review_required",
+        {
+            "match_id": match["match_id"],
+            "round_number": round_number,
+            "reason": reason,
+            "ready_players": review_state["ready_players"],
+            "missing_players": review_state["missing_players"],
+        },
+        source="master_review",
+        created_at=now,
+    )
+    return {"match": reviewed_match, "round": _round_row_to_dict(stored_round), "duplicate": False}
 
 
 def finish_gwent_match(
@@ -781,6 +1139,7 @@ def record_pvp_refusal(
     if not in_started_match and _should_refund_pre_start_refusal(challenge, reason):
         _refund_challenge_token(connection, str(challenge["challenger_id"]), current_time)
         token_refunded = True
+    stake_refund = None
     if in_started_match:
         _mark_match_for_review(
             connection,
@@ -827,6 +1186,12 @@ def record_pvp_refusal(
             now=current_time,
             release_table=True,
         )
+    if not in_started_match and reason in REFUNDABLE_PRE_START_REFUSALS:
+        stake_refund = _refund_gold_stake_once(
+            connection,
+            challenge_id=challenge_id,
+            now=current_time,
+        )
 
     log_event(
         connection,
@@ -838,6 +1203,7 @@ def record_pvp_refusal(
             "default_outcome": outcome,
             "severity": rule["severity"],
             "challenge_token_refunded": token_refunded,
+            "stake_refund": stake_refund,
         },
         source=source,
         created_at=current_time,
@@ -869,16 +1235,6 @@ def convert_personal_card_to_lord(
 
     _require_personal_pvp_player(connection, player_id)
     card = _fetch_required(connection, "cards", "card_id", personal_card_id)
-    try:
-        assert_asset_unlocked(
-            connection,
-            asset_type="card",
-            asset_id=personal_card_id,
-            owner_player_id=player_id,
-            purpose="lord card transfer",
-        )
-    except AssetContractError as exc:
-        raise PvpError(exc.message) from exc
     if str(card["card_type"]) != "personal_to_army" or not card["army_unit_card_id"]:
         raise PvpError(f"Card cannot be converted to a lord unit: {personal_card_id}")
     domain = _fetch_optional(
@@ -891,6 +1247,36 @@ def convert_personal_card_to_lord(
         raise PvpError(f"Unknown lord player for card conversion: {lord_id}")
     army_card_id = str(card["army_unit_card_id"])
     tier = _to_int(card["tier"])
+    try:
+        assert_asset_unlocked(
+            connection,
+            asset_type="card",
+            asset_id=personal_card_id,
+            owner_player_id=player_id,
+            purpose="lord card transfer",
+        )
+        ownership_before = ownership_for_asset(
+            connection,
+            owner_player_id=player_id,
+            asset_type="card",
+            asset_id=personal_card_id,
+        )
+        if _to_int(ownership_before["quantity"]) < 1:
+            raise AssetContractError(
+                "asset_owner_mismatch",
+                f"{player_id} does not own personal card {personal_card_id}.",
+                409,
+            )
+        ownership_after = debit_asset_ownership(
+            connection,
+            owner_player_id=player_id,
+            asset_type="card",
+            asset_id=personal_card_id,
+            quantity=1,
+            now=current_time,
+        )
+    except AssetContractError as exc:
+        raise PvpError(exc.message) from exc
     conversion_id = f"card_conversion_{uuid4().hex}"
     connection.execute(
         """
@@ -934,6 +1320,14 @@ def convert_personal_card_to_lord(
         "army_unit_card_id": army_card_id,
         "tier": tier,
         "reserve_id": reserve_id,
+        "ownership_debit": {
+            "asset_type": "card",
+            "asset_id": personal_card_id,
+            "owner_player_id": player_id,
+            "quantity_before": _to_int(ownership_before["quantity"]),
+            "quantity_debited": 1,
+            "quantity_after": _to_int(ownership_after["quantity"]),
+        },
         "duplicate": False,
     }
     log_event(connection, "personal_card_converted_to_lord", payload, source=source, created_at=current_time)
@@ -1615,27 +2009,38 @@ def _lock_stake(
     challenge_id: str,
     owner_player_id: str,
     pending_target_player_id: str,
-    stake: dict[str, str],
+    stake: dict[str, Any],
     now: datetime,
 ) -> None:
+    quantity = _stake_quantity(stake)
+    if _is_gold_stake(stake):
+        _reserve_gold_stake(
+            connection,
+            player_id=owner_player_id,
+            amount=quantity,
+            now=now,
+        )
     connection.execute(
         """
         INSERT INTO pvp_stake_ledger (
             stake_ledger_id, challenge_id, asset_type, asset_id,
-            owner_player_id, pending_target_player_id, status, created_at
+            quantity, owner_player_id, pending_target_player_id, status, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, 'locked', ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'locked', ?)
         """,
         (
             f"stake_{challenge_id}",
             challenge_id,
             stake["asset_type"],
             stake["asset_id"],
+            quantity,
             owner_player_id,
             pending_target_player_id,
             _iso(now),
         ),
     )
+    if _is_gold_stake(stake):
+        return
     try:
         lock_owned_asset(
             connection,
@@ -1643,7 +2048,7 @@ def _lock_stake(
             owner_player_id=owner_player_id,
             asset_type=stake["asset_type"],
             asset_id=stake["asset_id"],
-            quantity=1,
+            quantity=quantity,
             lock_type="pvp_stake",
             source_ref_id=challenge_id,
             reason="pending PvP stake",
@@ -1675,8 +2080,9 @@ def _apply_stake_once(
     ).fetchone()
     if row is None:
         return {"status": "not_applied", "reason": "no stake ledger", "challenge_id": challenge_id}
-    if str(row["status"]) == "applied":
+    if str(row["status"]) != "locked":
         return _stake_row_to_dict(row)
+    quantity = _stake_quantity(dict(row))
     connection.execute(
         """
         UPDATE pvp_stake_ledger
@@ -1689,18 +2095,28 @@ def _apply_stake_once(
         """,
         (match_id, winner_id, loser_id, _iso(now), row["stake_ledger_id"]),
     )
-    try:
-        settle_owned_asset_lock(
-            connection,
-            lock_type="pvp_stake",
-            source_ref_id=challenge_id,
-            target_player_id=winner_id,
-            final_status="consumed",
-            reason="PvP stake resolved",
-            now=now,
+    if _is_gold_stake(dict(row)):
+        connection.execute(
+            """
+            UPDATE player_runtime_state
+            SET gold = gold + ?, updated_at = ?
+            WHERE player_id = ?
+            """,
+            (quantity, _iso(now), winner_id),
         )
-    except AssetContractError as exc:
-        raise PvpError(exc.message) from exc
+    else:
+        try:
+            settle_owned_asset_lock(
+                connection,
+                lock_type="pvp_stake",
+                source_ref_id=challenge_id,
+                target_player_id=winner_id,
+                final_status="consumed",
+                reason="PvP stake resolved",
+                now=now,
+            )
+        except AssetContractError as exc:
+            raise PvpError(exc.message) from exc
     return _stake_row_to_dict(
         connection.execute(
             "SELECT * FROM pvp_stake_ledger WHERE stake_ledger_id = ?",
@@ -1995,6 +2411,7 @@ def _stake_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "match_id": row["match_id"],
         "asset_type": row["asset_type"],
         "asset_id": row["asset_id"],
+        "quantity": _to_int(row["quantity"]),
         "owner_player_id": row["owner_player_id"],
         "pending_target_player_id": row["pending_target_player_id"],
         "status": row["status"],
@@ -2036,6 +2453,158 @@ def _balance_report_base(
         "master_acceleration_review_min": 25,
         "no_match_time_limit_after_start": True,
     }
+
+
+def _round_submissions_from_state(
+    round_state: dict[str, Any],
+    players: list[str],
+    *,
+    actor_id: str | None,
+) -> dict[str, dict[str, Any]]:
+    submissions: dict[str, dict[str, Any]] = {}
+    for play in _normalize_plays(round_state):
+        player_id = str(play.get("player_id") or "")
+        if player_id not in players:
+            raise PvpError(f"Round play references a non-participant: {player_id}")
+        if actor_id is not None and player_id != actor_id:
+            raise PvpError("Round play player_id must match authenticated player.")
+        submissions.setdefault(player_id, {"plays": []})["plays"].append(dict(play))
+
+    raw_passed = round_state.get("passed")
+    if raw_passed is None:
+        raw_passed = round_state.get("passed_flags")
+    if raw_passed is None:
+        raw_passed = {}
+    if not isinstance(raw_passed, dict):
+        raise PvpError("Gwent round_state.passed must be an object.")
+    for player_id, passed in raw_passed.items():
+        normalized_player_id = str(player_id)
+        if normalized_player_id not in players:
+            raise PvpError(f"Round passed payload references a non-participant: {normalized_player_id}")
+        if actor_id is not None and normalized_player_id != actor_id:
+            raise PvpError("Round passed payload must match authenticated player.")
+        submissions.setdefault(normalized_player_id, {"plays": []})["passed"] = bool(passed)
+
+    return {
+        player_id: {
+            "plays": list(submission.get("plays") or []),
+            **({"passed": bool(submission["passed"])} if "passed" in submission else {}),
+        }
+        for player_id, submission in submissions.items()
+        if submission.get("plays") or "passed" in submission
+    }
+
+
+def _validate_round_submission_state(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    round_state: dict[str, Any],
+    deck_state: dict[str, Any],
+) -> None:
+    _resolve_round_state(connection, match, round_state, deepcopy(deck_state))
+
+
+def _is_pending_round_row(row: sqlite3.Row) -> bool:
+    state = _json_loads(str(row["round_state_json"]), {})
+    return isinstance(state, dict) and str(state.get("status") or "") == GWENT_PENDING_ROUND_STATUS
+
+
+def _pending_submissions(
+    pending_state: dict[str, Any],
+    players: list[str],
+) -> dict[str, dict[str, Any]]:
+    raw_submissions = pending_state.get("submissions") if isinstance(pending_state, dict) else {}
+    if not isinstance(raw_submissions, dict):
+        return {}
+    submissions: dict[str, dict[str, Any]] = {}
+    for player_id in players:
+        raw_submission = raw_submissions.get(player_id)
+        if not isinstance(raw_submission, dict):
+            continue
+        plays = raw_submission.get("plays") or []
+        if not isinstance(plays, list):
+            plays = []
+        submission: dict[str, Any] = {"plays": [dict(play) for play in plays if isinstance(play, dict)]}
+        if "passed" in raw_submission:
+            submission["passed"] = bool(raw_submission["passed"])
+        if submission["plays"] or "passed" in submission:
+            submissions[player_id] = submission
+    return submissions
+
+
+def _pending_submission_order(
+    pending_state: dict[str, Any],
+    submissions: dict[str, dict[str, Any]],
+) -> list[str]:
+    raw_order = pending_state.get("submission_order") if isinstance(pending_state, dict) else []
+    order = [str(player_id) for player_id in raw_order] if isinstance(raw_order, list) else []
+    ordered = [player_id for player_id in order if player_id in submissions]
+    for player_id in submissions:
+        if player_id not in ordered:
+            ordered.append(player_id)
+    return ordered
+
+
+def _pending_round_state(
+    submissions: dict[str, dict[str, Any]],
+    players: list[str],
+    *,
+    order: list[str] | None = None,
+) -> dict[str, Any]:
+    ready_players = [player_id for player_id in players if player_id in submissions]
+    missing_players = [player_id for player_id in players if player_id not in submissions]
+    submission_order = list(order or [player_id for player_id in players if player_id in submissions])
+    return {
+        "status": GWENT_PENDING_ROUND_STATUS,
+        "submissions": submissions,
+        "submission_order": submission_order,
+        "ready_players": ready_players,
+        "missing_players": missing_players,
+    }
+
+
+def _all_round_players_ready(
+    submissions: dict[str, dict[str, Any]],
+    players: list[str],
+) -> bool:
+    return all(player_id in submissions for player_id in players)
+
+
+def _round_state_from_submissions(
+    submissions: dict[str, dict[str, Any]],
+    players: list[str],
+    *,
+    order: list[str] | None = None,
+) -> dict[str, Any]:
+    ordered_players = list(order or [player_id for player_id in players if player_id in submissions])
+    plays: list[dict[str, Any]] = []
+    for player_id in ordered_players:
+        submission = submissions.get(player_id) or {}
+        plays.extend(dict(play) for play in submission.get("plays") or [])
+    return {
+        "plays": plays,
+        "passed": _passed_from_submissions(submissions, players),
+    }
+
+
+def _passed_from_submissions(
+    submissions: dict[str, dict[str, Any]],
+    players: list[str],
+) -> dict[str, bool]:
+    return {
+        player_id: bool(submission["passed"])
+        for player_id in players
+        if (submission := submissions.get(player_id)) is not None and "passed" in submission
+    }
+
+
+def _canonical_submission(submission: dict[str, Any]) -> str:
+    return _json_dumps(
+        {
+            "plays": list(submission.get("plays") or []),
+            **({"passed": bool(submission["passed"])} if "passed" in submission else {}),
+        }
+    )
 
 
 def _normalize_plays(round_state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2297,16 +2866,31 @@ def _active_challenge_exists(connection: sqlite3.Connection, player_id: str) -> 
     return row is not None
 
 
-def _validate_stake(stake: dict[str, Any]) -> dict[str, str]:
+def _validate_stake(stake: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(stake, dict):
         raise PvpError("PvP stake must be an object.")
-    asset_type = str(stake.get("asset_type") or "").strip()
+    asset_type = str(stake.get("asset_type") or "").strip().lower()
+    if asset_type == GOLD_STAKE_ASSET_TYPE:
+        raw_amount = stake.get("amount", stake.get("quantity", stake.get("gold")))
+        try:
+            amount = int(raw_amount)
+        except (TypeError, ValueError) as exc:
+            raise PvpError("Gold PvP stake requires a positive amount.") from exc
+        if amount <= 0:
+            raise PvpError("Gold PvP stake requires a positive amount.")
+        return {
+            "asset_type": GOLD_STAKE_ASSET_TYPE,
+            "asset_id": GOLD_STAKE_ASSET_ID,
+            "quantity": amount,
+            "transfer_on_finish": bool(stake.get("transfer_on_finish", True)),
+        }
     asset_id = str(stake.get("asset_id") or "").strip()
     if not asset_type or not asset_id:
         raise PvpError("PvP stake requires asset_type and asset_id.")
     return {
         "asset_type": asset_type,
         "asset_id": asset_id,
+        "quantity": 1,
         "transfer_on_finish": bool(stake.get("transfer_on_finish", True)),
     }
 
@@ -2314,7 +2898,7 @@ def _validate_stake(stake: dict[str, Any]) -> dict[str, str]:
 def _assert_stake_asset_owned(
     connection: sqlite3.Connection,
     *,
-    stake: dict[str, str],
+    stake: dict[str, Any],
     owner_player_id: str,
 ) -> None:
     asset_type = stake["asset_type"]
@@ -2337,6 +2921,109 @@ def _assert_stake_asset_owned(
             f"{owner_player_id} does not own PvP stake asset {asset_type}:{asset_id}.",
             409,
         )
+
+
+def _is_gold_stake(stake: dict[str, Any]) -> bool:
+    return (
+        str(stake.get("asset_type") or "").strip().lower() == GOLD_STAKE_ASSET_TYPE
+        and str(stake.get("asset_id") or "").strip().lower() == GOLD_STAKE_ASSET_ID
+    )
+
+
+def _stake_quantity(stake: dict[str, Any]) -> int:
+    try:
+        quantity = int(stake.get("quantity", 1))
+    except (TypeError, ValueError) as exc:
+        raise PvpError("PvP stake quantity must be a positive integer.") from exc
+    if quantity <= 0:
+        raise PvpError("PvP stake quantity must be a positive integer.")
+    return quantity
+
+
+def _assert_gold_stake_available(
+    connection: sqlite3.Connection,
+    *,
+    player_id: str,
+    amount: int,
+) -> None:
+    row = connection.execute(
+        """
+        SELECT gold
+        FROM player_runtime_state
+        WHERE player_id = ?
+        """,
+        (player_id,),
+    ).fetchone()
+    if row is None or _to_int(row["gold"]) < amount:
+        available = 0 if row is None else _to_int(row["gold"])
+        raise PvpError(
+            f"{player_id} does not have enough gold for PvP stake: needs {amount}, has {available}."
+        )
+
+
+def _reserve_gold_stake(
+    connection: sqlite3.Connection,
+    *,
+    player_id: str,
+    amount: int,
+    now: datetime,
+) -> None:
+    updated = connection.execute(
+        """
+        UPDATE player_runtime_state
+        SET gold = gold - ?, updated_at = ?
+        WHERE player_id = ? AND gold >= ?
+        """,
+        (amount, _iso(now), player_id, amount),
+    )
+    if not updated.rowcount:
+        _assert_gold_stake_available(connection, player_id=player_id, amount=amount)
+
+
+def _refund_gold_stake_once(
+    connection: sqlite3.Connection,
+    *,
+    challenge_id: str,
+    now: datetime,
+) -> dict[str, Any] | None:
+    row = connection.execute(
+        """
+        SELECT *
+        FROM pvp_stake_ledger
+        WHERE challenge_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (challenge_id,),
+    ).fetchone()
+    if row is None or not _is_gold_stake(dict(row)):
+        return None
+    if str(row["status"]) != "locked":
+        return _stake_row_to_dict(row)
+    amount = _stake_quantity(dict(row))
+    connection.execute(
+        """
+        UPDATE player_runtime_state
+        SET gold = gold + ?, updated_at = ?
+        WHERE player_id = ?
+        """,
+        (amount, _iso(now), row["owner_player_id"]),
+    )
+    connection.execute(
+        """
+        UPDATE pvp_stake_ledger
+        SET status = 'refunded',
+            applied_at = ?
+        WHERE stake_ledger_id = ? AND status = 'locked'
+        """,
+        (_iso(now), row["stake_ledger_id"]),
+    )
+    return _stake_row_to_dict(
+        connection.execute(
+            "SELECT * FROM pvp_stake_ledger WHERE stake_ledger_id = ?",
+            (row["stake_ledger_id"],),
+        ).fetchone()
+    )
 
 
 def _stake_asset_exists(connection: sqlite3.Connection, asset_type: str, asset_id: str) -> bool:
@@ -2369,6 +3056,8 @@ def _stake_asset_exists(connection: sqlite3.Connection, asset_type: str, asset_i
 
 
 def _stake_locked(connection: sqlite3.Connection, asset_type: str, asset_id: str) -> bool:
+    if str(asset_type).strip().lower() == GOLD_STAKE_ASSET_TYPE:
+        return False
     row = connection.execute(
         """
         SELECT 1

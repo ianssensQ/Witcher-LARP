@@ -478,6 +478,7 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             match_id TEXT,
             asset_type TEXT NOT NULL,
             asset_id TEXT NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 1,
             owner_player_id TEXT NOT NULL,
             pending_target_player_id TEXT NOT NULL,
             status TEXT NOT NULL,
@@ -684,6 +685,13 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             "reserved_assets_json": "TEXT NOT NULL DEFAULT '[]'",
             "reserved_from_domain_id": "TEXT",
             "awarded_to_player_id": "TEXT",
+        },
+    )
+    _ensure_columns(
+        connection,
+        "pvp_stake_ledger",
+        {
+            "quantity": "INTEGER NOT NULL DEFAULT 1",
         },
     )
 
