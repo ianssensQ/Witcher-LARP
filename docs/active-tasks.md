@@ -188,6 +188,7 @@ Fix audit bugs where act timers, final lock, NPC/review lifecycle or timed raid 
 
 Scope:
 - AUD-NEXT-010: post-lock magical intent cannot overwrite valid locked final evidence
+- AUD-NEXT-011: final summary must not count seed Gwent fixtures as real PvP evidence
 - AUD-NEXT-015: resolved review items no longer block final summary
 - AUD-NEXT-016: unresolved lord pending tick rewards appear in final summary
 - AUD-NEXT-019: raid effects expire/apply timed debuff state instead of remaining active forever
@@ -212,7 +213,7 @@ Test Steps:
 Notes:
 
 Contract:
-Inputs: AUD-NEXT-010, 015, 016, 019, 027, 039, 042 and TASK-081 classification.
+Inputs: AUD-NEXT-010, 011, 015, 016, 019, 027, 039, 042 and TASK-081 classification.
 Outputs: Final/timer/review authority that cannot be bypassed by route order, restart timing or stale unresolved rows.
 Implementation path: Centralize timer reconciliation and final-lock preconditions; add explicit lifecycle state for review/NPC/timed effects.
 Interfaces: act_service.py, timer_service.py, final_summary_service.py, sorceress_service.py, lord_runtime.py, npc_service.py and final/timer tests.

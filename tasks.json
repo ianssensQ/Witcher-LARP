@@ -2875,6 +2875,7 @@
       ],
       "scope": [
         "AUD-NEXT-010: post-lock magical intent cannot overwrite valid locked final evidence",
+        "AUD-NEXT-011: final summary must not count seed Gwent fixtures as real PvP evidence",
         "AUD-NEXT-015: resolved review items no longer block final summary",
         "AUD-NEXT-016: unresolved lord pending tick rewards appear in final summary",
         "AUD-NEXT-019: raid effects expire/apply timed debuff state instead of remaining active forever",
@@ -2896,7 +2897,7 @@
         "Add raid effect duration/expiry test",
         "uv run python scripts/taskctl.py validate"
       ],
-      "notes": "Contract:\nInputs: AUD-NEXT-010, 015, 016, 019, 027, 039, 042 and TASK-081 classification.\nOutputs: Final/timer/review authority that cannot be bypassed by route order, restart timing or stale unresolved rows.\nImplementation path: Centralize timer reconciliation and final-lock preconditions; add explicit lifecycle state for review/NPC/timed effects.\nInterfaces: act_service.py, timer_service.py, final_summary_service.py, sorceress_service.py, lord_runtime.py, npc_service.py and final/timer tests.\nFailure/review paths: A UI wizard that hides direct Final Act start is useful but insufficient unless backend also rejects/applies the required sequence.\nRequired tests: Targeted act/timer/final/NPC/lord regressions and TaskOS validate."
+      "notes": "Contract:\nInputs: AUD-NEXT-010, 011, 015, 016, 019, 027, 039, 042 and TASK-081 classification.\nOutputs: Final/timer/review authority that cannot be bypassed by route order, restart timing or stale unresolved rows.\nImplementation path: Centralize timer reconciliation and final-lock preconditions; add explicit lifecycle state for review/NPC/timed effects.\nInterfaces: act_service.py, timer_service.py, final_summary_service.py, sorceress_service.py, lord_runtime.py, npc_service.py and final/timer tests.\nFailure/review paths: A UI wizard that hides direct Final Act start is useful but insufficient unless backend also rejects/applies the required sequence.\nRequired tests: Targeted act/timer/final/NPC/lord regressions and TaskOS validate."
     },
     {
       "id": "TASK-085",
