@@ -1,6 +1,6 @@
 # Stage 1 + Stage 2 code audit supplement
 
-Updated through Pass 10: 2026-06-04 16:12 +03:00.
+Updated through Pass 11: 2026-06-04 16:26 +03:00.
 
 Baseline: `docs/audits/stage1-stage2-code-audit.md`.
 
@@ -23,6 +23,7 @@ No TaskOS tasks were created.
 | 8 | 2026-06-04 14:33 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, NPC/reputation/final evidence, sorceress spell runtime, Gwent effects, lord economy build/recruit/anti-snowball and QR/manual honesty slices, no subagents available in this tool context, manual dedupe/recheck | 0 new substantial bugs |
 | 9 | 2026-06-04 15:51 +03:00 | `59e158b` | clean | `rg -n`, one 4-agent wave, act/final-lock, snapshot visibility, sync-retry recovery, Gwent sequencing, validation/import and final-evidence slices, manual dedupe/recheck | 4 new substantial bugs |
 | 10 | 2026-06-04 16:12 +03:00 | `feec0e6` | clean | `rg -n`, one 4-agent wave, resource/import gates, mobile sync/recovery, snapshot QR/manual visibility, backup/restart controls and lord-battle data slices, manual dedupe/recheck | 8 new substantial bugs |
+| 11 | 2026-06-04 16:26 +03:00 | `1ae5a1e` | clean | `rg -n`, one 4-agent wave, sync sequence/recovery, timer-derived state, NPC final blockers, lord visibility and remaining import-gate slices, manual dedupe/recheck | 8 new substantial bugs |
 
 ## Method And Context Strategy
 
@@ -33,7 +34,7 @@ No TaskOS tasks were created.
 - Each pass used risk areas distinct from the previous pass.
 - Pass 1 recorded a subagent wave in the original supplement. Passes 2-8 used
   direct `rg -n` slices while subagents were unavailable in that tool context.
-  Passes 9-10 used one four-agent read-only wave per pass, then every accepted
+  Passes 9-11 used one four-agent read-only wave per pass, then every accepted
   candidate was manually rechecked in code before inclusion.
 - Stage 2B UI absence was treated as out of scope. Missing full mobile/lord/Gwent
   UI was not counted as a Stage 1/2/2A bug.
@@ -1092,6 +1093,238 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
   invariant violations.
 - Pass number: 10
 
+### Pass 11
+
+### AUD-NEXT-039 - P2 - Role endpoints can use stale timer-derived state after restart
+
+- Severity: P2
+- Source requirement: `docs/app-technical-plan-v0.1.md:560`;
+  `docs/app-technical-plan-v0.1.md:588`; `docs/architecture.md:176`;
+  `docs/architecture.md:180`; `docs/architecture.md:259`;
+  `docs/architecture.md:361`; `docs/architecture.md:391`.
+- Code/data/test location: `backend/witcher_larp/timer_service.py:15`;
+  `backend/witcher_larp/act_service.py:278`;
+  `backend/witcher_larp/app.py:613`; `backend/witcher_larp/app.py:864`;
+  `backend/witcher_larp/lord_runtime.py:269`;
+  `backend/witcher_larp/sorceress_service.py:319`;
+  `backend/witcher_larp/pvp_service.py:218`;
+  `tests/test_act_timer_runtime.py:97`; `tests/test_act_timer_runtime.py:138`.
+- Expected / Actual: expected gameplay reads and mutations that depend on
+  act timers reconcile due ticks first, including after restart: lord income/MP,
+  sorceress mana, PvP tokens and final-lock timing. Actual `apply_due_timers`
+  is reached through master act/timer/state paths, while role-facing lord,
+  sorceress and PvP endpoints only ensure runtime rows; after restart or a long
+  quiet interval, those endpoints can read stale resources until a master timer
+  route is visited.
+- Gameplay impact: lords can be falsely blocked by stale MP, sorceresses can
+  see false `insufficient_mana`, PvP challenge tokens/final-lock state can lag,
+  and game tempo depends on a master polling path rather than authoritative
+  runtime state.
+- Recommendation: add one authoritative timer reconciliation boundary before
+  timer-dependent role reads/actions and final summary/export paths, retaining
+  idempotency through `applied_timer_ticks`.
+- Confirmation method: `rg -n` and snippets confirmed timer application is
+  explicit and tested when called, but role endpoints use only runtime-state
+  ensure helpers. Regression should start an act, advance past a due tick,
+  reopen DB/server, call only role endpoints, and assert due ticks apply once.
+- Pass number: 11
+
+### AUD-NEXT-040 - P2 - `client_sequence` gaps/out-of-order sync are not detected
+
+- Severity: P2
+- Source requirement: `docs/app-technical-plan-v0.1.md:221`;
+  `docs/architecture.md:159`; `docs/architecture.md:325`;
+  `docs/active-tasks.md:237`; `docs/active-tasks.md:245`.
+- Code/data/test location: `backend/witcher_larp/event_service.py:56`;
+  `backend/witcher_larp/event_service.py:949`;
+  `backend/witcher_larp/event_models.py:21`;
+  `backend/witcher_larp/game_ops_service.py:977`;
+  `tests/test_mobile_shell_contract.py:528`.
+- Expected / Actual: expected `client_sequence` helps masters detect missing,
+  duplicate or out-of-order device events during offline/restart recovery.
+  Actual sync processes events in request order, accepts any non-negative
+  sequence including duplicates/skips/reversals, then stores only
+  `max(client_sequence)` as `last_event_sequence`.
+- Gameplay impact: a corrupted or partially recovered phone queue can lose
+  sequence 2 while syncing 1 and 3, or submit state-changing events out of
+  order, and the master sees no gap/recovery alert in Game Ops.
+- Recommendation: track per-client expected next sequence or observed sequence
+  set; flag missing, duplicate or decreasing sequences into review/Game Ops.
+  Either process by `client_sequence` or explicitly reject/review out-of-order
+  batches.
+- Confirmation method: `rg -n` confirmed no gap/out-of-order handling, only
+  max-sequence persistence and display.
+- Pass number: 11
+
+### AUD-NEXT-041 - P2 - Clean paper PvE can fabricate a missing d20 replay
+
+- Severity: P2
+- Source requirement: `docs/PRD.md:53`; `docs/PRD.md:54`;
+  `docs/architecture.md:151`; `docs/architecture.md:349`;
+  `docs/architecture.md:449`.
+- Code/data/test location: `data/seed/paper_forms.csv:2`;
+  `backend/witcher_larp/event_service.py:694`;
+  `backend/witcher_larp/event_service.py:701`;
+  `backend/witcher_larp/event_service.py:727`;
+  `tests/test_paper_recovery.py:30`;
+  `tests/test_admin_studio_contract.py:446`.
+- Expected / Actual: expected recovered PvE preserves the single-d20 roll/event
+  log, or routes missing-roll recovery to master review/override. Actual
+  `paper_pve_result` does not require `roll`/`roll_log`; when no roll is
+  supplied, `_paper_pve_payload` tries candidate rolls 1..20 until one matches
+  the claimed result, records `paper_recovered_roll`, and can auto-apply
+  XP/gold/reward.
+- Gameplay impact: outage recovery can turn a bare "success" sheet into an
+  authoritative successful PvE attempt without an actual recorded die result,
+  weakening the no-reroll/single-d20 audit trail and reward pacing.
+- Recommendation: require `roll` or replayable `roll_log` on
+  `paper_pve_result`, or send missing-roll recoveries to review with an
+  explicit master override reason distinct from ordinary replay.
+- Confirmation method: targeted snippets confirmed paper form required fields
+  omit roll, tests submit success without roll, and replay code synthesizes a
+  matching candidate roll.
+- Pass number: 11
+
+### AUD-NEXT-042 - P2 - NPC P0/P1 runtime events have no close lifecycle
+
+- Severity: P2
+- Source requirement: `docs/PRD.md:100`; `docs/PRD.md:104`;
+  `docs/PRD.md:107`; `docs/PRD.md:163`; `docs/PRD.md:169`;
+  `docs/app-technical-plan-v0.1.md:21`;
+  `docs/app-technical-plan-v0.1.md:571`; `docs/architecture.md:385`;
+  `docs/architecture.md:462`.
+- Code/data/test location: `backend/witcher_larp/runtime_schema.py:81`;
+  `backend/witcher_larp/npc_service.py:85`;
+  `backend/witcher_larp/npc_service.py:232`;
+  `backend/witcher_larp/npc_service.py:258`;
+  `backend/witcher_larp/final_summary_service.py:516`;
+  `backend/witcher_larp/final_summary_service.py:909`;
+  `backend/witcher_larp/app.py:949`; `backend/witcher_larp/app.py:997`;
+  `tests/test_reputation_npc_runtime.py:96`;
+  `tests/test_final_summary_runtime.py:176`.
+- Expected / Actual: expected a resolved P0/P1 King/Wanderer scene remains
+  evidence/history but no longer appears as a live review/final blocker.
+  Actual `npc_runtime_events` stores severity/blocking/final flags but has no
+  status/resolution fields or API; `review_queue` appends every NPC event, and
+  final summary turns every P0/P1 dispute into `unresolved_review`.
+- Gameplay impact: legitimate resolved NPC scenes or hidden-price deals can
+  look permanently unresolved in final prep, adding false blockers to the
+  NPC-led final runbook.
+- Recommendation: add an NPC event resolution lifecycle or route NPC events
+  through `event_reviews`; final summary should filter only open/blocking
+  statuses while retaining resolved NPC evidence and prices.
+- Confirmation method: targeted snippets confirmed no NPC event close/status
+  lifecycle, and tests assert P0/P1 NPC events appear in the review queue.
+- Pass number: 11
+
+### AUD-NEXT-043 - P2 - Lord state leaks master-only order pressure through diplomacy signals
+
+- Severity: P2
+- Source requirement: `data/seed/diplomacy_signals.csv:3`;
+  `docs/architecture.md:365`; `docs/architecture.md:199`.
+- Code/data/test location: `backend/witcher_larp/lord_panel.py:241`;
+  `backend/witcher_larp/lord_runtime.py:910`;
+  `backend/witcher_larp/lord_runtime.py:2220`;
+  `tests/test_lord_panel_contract.py:430`;
+  `data/seed/diplomacy_signals.csv:3`.
+- Expected / Actual: expected lord-facing state does not expose exact
+  `active_order_count` for foreign domains when the seed marks that signal as
+  `masters`. Actual any authenticated lord state includes
+  `diplomacy_signals[*].active_orders` for all domains, including order cap
+  pressure from private/addressed order state.
+- Gameplay impact: rival lords can infer hidden targeted-order load and cap
+  pressure, weakening private lord orders and letting players time raids or
+  diplomacy around information meant for masters.
+- Recommendation: split master and lord diplomacy projections. Keep exact
+  active-order pressure in master views; omit or coarse-bucket it in lord state,
+  driven by `diplomacy_signals.visible_to`.
+- Confirmation method: targeted snippets confirmed lord panel emits
+  `build_diplomacy_signals(connection, domain_id)`, that function computes
+  `active_orders` for every domain, and tests assert own count but not foreign
+  redaction.
+- Pass number: 11
+
+### AUD-NEXT-044 - P1 - `map_edges.mp_cost` import is not constrained
+
+- Severity: P1
+- Source requirement: `docs/app-technical-plan-v0.1.md:37`;
+  `docs/app-technical-plan-v0.1.md:590`; `docs/architecture.md:236`;
+  `docs/architecture.md:361`; `docs/architecture.md:367`.
+- Code/data/test location: `backend/witcher_larp/validation.py:318`;
+  `backend/witcher_larp/lord_runtime.py:296`;
+  `backend/witcher_larp/lord_runtime.py:316`;
+  `backend/witcher_larp/lord_runtime.py:1320`;
+  `tests/test_lord_runtime.py:862`; `data/seed/map_edges.csv:1`.
+- Expected / Actual: expected importer rejects non-positive/non-integer route
+  costs before they reach the lord movement economy. Actual validation checks
+  map edge references/excluded nodes, but not `mp_cost`; runtime sums
+  `_to_int(mp_cost)`, only rejects `cost > current_mp`, and subtracts `cost`
+  from `current_mp`.
+- Gameplay impact: negative route cost can grant MP, and zero/free routes can
+  bypass weighted-map pressure, letting lords reach and contest territories
+  faster than intended.
+- Recommendation: add seed validation for positive integer `mp_cost` and valid
+  `bidirectional`, plus a defensive runtime guard and invalid import fixtures.
+- Confirmation method: snippets confirmed no `mp_cost` validation and direct
+  `current_mp = current_mp - cost` mutation after `_route_cost`.
+- Pass number: 11
+
+### AUD-NEXT-045 - P1 - `auto_timers.csv` effects are not import-gated
+
+- Severity: P1
+- Source requirement: `docs/PRD.md:107`; `docs/PRD.md:179`;
+  `docs/architecture.md:259`; `docs/architecture.md:275`;
+  `docs/app-technical-plan-v0.1.md:17`;
+  `docs/app-technical-plan-v0.1.md:560`;
+  `docs/app-technical-plan-v0.1.md:572`.
+- Code/data/test location: `backend/witcher_larp/validation.py:233`;
+  `backend/witcher_larp/timer_service.py:54`;
+  `backend/witcher_larp/timer_service.py:215`;
+  `backend/witcher_larp/timer_service.py:240`;
+  `backend/witcher_larp/timer_service.py:370`;
+  `data/seed/auto_timers.csv:1`; `tests/test_act_timer_runtime.py:107`.
+- Expected / Actual: expected import rejects unsupported `effect_type`, invalid
+  `timer_type`, bad offsets/intervals and missing canonical final-lock/backup
+  timers for the fixed schedule. Actual validation checks only `act_id`
+  reference; runtime treats unknown effects as an applied tick with
+  `no_effect_handler`.
+- Gameplay impact: a typoed final-lock or pre-final-backup timer can import
+  cleanly and then silently do nothing during the critical endgame, while timer
+  status still shows the tick as processed.
+- Recommendation: validate timer enums and required canonical timer rows; add
+  invalid overlay tests for typoed effects, invalid timer types/intervals and
+  missing final-lock/pre-final-backup rows.
+- Confirmation method: `rg -n` snippets showed no auto-timer validation beyond
+  act reference and runtime's explicit `no_effect_handler` branch.
+- Pass number: 11
+
+### AUD-NEXT-046 - P2 - Order cap can be disabled through imported status flags
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:254`;
+  `docs/architecture.md:275`; `docs/architecture.md:365`;
+  `docs/roadmap.md:298`.
+- Code/data/test location: `backend/witcher_larp/validation.py:1053`;
+  `backend/witcher_larp/validation.py:1108`;
+  `backend/witcher_larp/lord_runtime.py:1554`;
+  `backend/witcher_larp/lord_runtime.py:1871`;
+  `tests/test_seed_validation.py:342`; `data/seed/order_status_rules.csv:3`.
+- Expected / Actual: expected canonical active order statuses cannot opt out of
+  the fixed 2 public + 1 addressed active-order cap. Actual both validation and
+  runtime derive cap-counting statuses from imported
+  `order_status_rules.counts_against_cap`; an overlay can mark `published` as
+  active but not counting, and existing tests bless this as no `order_cap`
+  error.
+- Gameplay impact: a seed/status-machine mistake can let one lord flood public
+  or addressed orders, bypassing intended order pressure and lord balance.
+- Recommendation: validate `order_status_rules.csv` against canonical cap/lock
+  semantics or decouple cap counting from imported flags; replace the current
+  permissive test with an invalid-status-machine expectation.
+- Confirmation method: targeted snippets confirmed validator and runtime use
+  `_order_statuses_counting_against_cap`, and the test changes `published` to
+  not count then asserts no cap error.
+- Pass number: 11
+
 ## Checked Without New Issues
 
 - Production profile seed/validation for 4 lords, 4 sorceresses, 5 witchers and
@@ -1350,6 +1583,19 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
   smoke, final mobile UX and personal Gwent UI remain out of Stage 1/2/2A scope
   for this supplement.
 
+## Pass 11 Checked Without New Issues
+
+- Final summary no-winner policy, locked magical intent status bucketing,
+  master-only hidden-price redaction and paper recovery listing were rechecked;
+  new Pass 11 issue `AUD-NEXT-042` is limited to missing NPC event closure, not
+  automatic winner calculation or hidden-price disclosure.
+- Ordinary online trade/sorceress consent paths and public API checks were not
+  expanded into new issues; Pass 11 import-gate findings cover movement costs,
+  auto timers and order status cap flags only.
+- TaskOS/active task state was checked by the Tests/TaskOS agent without an
+  additional substantial Stage 1/2/2A issue.
+- Stage 2B UI/device smoke gaps remained out of scope and were not counted.
+
 ## Out Of Scope
 
 - Full Stage 2B playable mobile UI, lord action UI and personal Gwent UI.
@@ -1393,6 +1639,10 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
   (81 tasks)`.
 - Pass 10: `uv run pytest -q` not run per user direction; product code was not
   changed.
+- Pass 11: `uv run python scripts/taskctl.py validate` -> `tasks.json is valid
+  (81 tasks)`.
+- Pass 11: `uv run pytest -q` not run per user direction; product code was not
+  changed.
 
 ## Convergence Log
 
@@ -1406,3 +1656,6 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
 - After Pass 8: 0 new substantial findings; consecutive zero-new passes = 1.
 - After Pass 9: 4 new substantial findings; consecutive zero-new passes = 0.
 - After Pass 10: 8 new substantial findings; consecutive zero-new passes = 0.
+- After Pass 11: 8 new substantial findings; consecutive zero-new passes = 0.
+- Audit search stopped after Pass 11 per user direction for prioritization
+  review; original 2-clean-pass convergence condition is not reached.
