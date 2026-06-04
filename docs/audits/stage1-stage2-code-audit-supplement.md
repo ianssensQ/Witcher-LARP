@@ -1,6 +1,6 @@
 # Stage 1 + Stage 2 code audit supplement
 
-Updated through Pass 9: 2026-06-04 15:51 +03:00.
+Updated through Pass 10: 2026-06-04 16:12 +03:00.
 
 Baseline: `docs/audits/stage1-stage2-code-audit.md`.
 
@@ -22,6 +22,7 @@ No TaskOS tasks were created.
 | 7 | 2026-06-04 14:26 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, trade/assets lock lifecycle, reward approval corrections, review/final blockers, game-ops corrections and timer idempotency slices, no subagents available in this tool context, manual dedupe/recheck | 3 new substantial bugs |
 | 8 | 2026-06-04 14:33 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, NPC/reputation/final evidence, sorceress spell runtime, Gwent effects, lord economy build/recruit/anti-snowball and QR/manual honesty slices, no subagents available in this tool context, manual dedupe/recheck | 0 new substantial bugs |
 | 9 | 2026-06-04 15:51 +03:00 | `59e158b` | clean | `rg -n`, one 4-agent wave, act/final-lock, snapshot visibility, sync-retry recovery, Gwent sequencing, validation/import and final-evidence slices, manual dedupe/recheck | 4 new substantial bugs |
+| 10 | 2026-06-04 16:12 +03:00 | `feec0e6` | clean | `rg -n`, one 4-agent wave, resource/import gates, mobile sync/recovery, snapshot QR/manual visibility, backup/restart controls and lord-battle data slices, manual dedupe/recheck | 8 new substantial bugs |
 
 ## Method And Context Strategy
 
@@ -30,9 +31,10 @@ No TaskOS tasks were created.
 - Canonical docs were not read end to end. Requirements were confirmed through
   targeted `rg -n` hits and small fragments.
 - Each pass used risk areas distinct from the previous pass.
-- Pass 1 recorded a subagent wave in the original supplement. In this
-  continuation no subagent tool was available, so Pass 2 candidates were found
-  through direct `rg -n` slices and manually rechecked in code before inclusion.
+- Pass 1 recorded a subagent wave in the original supplement. Passes 2-8 used
+  direct `rg -n` slices while subagents were unavailable in that tool context.
+  Passes 9-10 used one four-agent read-only wave per pass, then every accepted
+  candidate was manually rechecked in code before inclusion.
 - Stage 2B UI absence was treated as out of scope. Missing full mobile/lord/Gwent
   UI was not counted as a Stage 1/2/2A bug.
 
@@ -809,6 +811,287 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
   round 1 flow but not out-of-sequence round numbers.
 - Pass number: 9
 
+### Pass 10
+
+### AUD-NEXT-031 - P1 - PvE import accepts invalid tier/DC values that make scenes auto-win or impossible
+
+- Severity: P1
+- Source requirement: `docs/app-technical-plan-v0.1.md:20`;
+  `docs/app-technical-plan-v0.1.md:259`; `docs/PRD.md:54`;
+  `docs/PRD.md:131`; `docs/architecture.md:275`;
+  `docs/architecture.md:349`; `docs/architecture.md:454`;
+  `docs/active-tasks.md:665`.
+- Code/data/test location: `backend/witcher_larp/validation.py:933`;
+  `backend/witcher_larp/pve_runtime.py:90`;
+  `backend/witcher_larp/pve_runtime.py:111`;
+  `backend/witcher_larp/pve_runtime.py:156`;
+  `backend/witcher_larp/pve_runtime.py:1136`;
+  `tests/test_seed_validation.py:141`;
+  `tests/test_mobile_shell_contract.py:386`.
+- Expected / Actual: expected import rejects PvE tiers outside 1..4 and DC
+  values outside the intended tier/check bands before those rows reach the
+  offline/runtime path. Actual `_validate_qr_and_pve` checks primary stat and
+  timeout policy, but not `tier` or `dc`; runtime then consumes those signed
+  values directly for scene card generation and outcome calculation.
+- Gameplay impact: a seed/content mistake can silently make a QR scene always
+  succeed, always fail, or use the wrong default `scene_hp`, distorting reward
+  pacing, cooldowns and offline PvE authority while validation stays green.
+- Recommendation: add explicit PvE tier/DC validators tied to the balance
+  defaults/content policy, plus regression fixtures for `tier=0/5/99`,
+  negative DC and impossible DC.
+- Confirmation method: targeted `rg -n` and snippets confirmed no `tier`/`dc`
+  validation in `_validate_qr_and_pve`, while `build_pve_scene_card` and
+  `calculate_pve_outcome` use imported values directly.
+- Pass number: 10
+
+### AUD-NEXT-032 - P1 - Lord army unit validation accepts zero/out-of-range stats that can crash battle resolution
+
+- Severity: P1
+- Source requirement: `docs/app-technical-plan-v0.1.md:38`;
+  `docs/app-technical-plan-v0.1.md:39`;
+  `docs/app-technical-plan-v0.1.md:297`;
+  `docs/PRD.md:85`; `docs/PRD.md:149`; `docs/PRD.md:151`;
+  `docs/architecture.md:249`; `docs/architecture.md:275`;
+  `docs/architecture.md:371`.
+- Code/data/test location: `backend/witcher_larp/validation.py:1021`;
+  `backend/witcher_larp/validation.py:1035`;
+  `backend/witcher_larp/lord_battle_service.py:1199`;
+  `backend/witcher_larp/lord_battle_service.py:1339`;
+  `backend/witcher_larp/lord_battle_service.py:1404`;
+  `backend/witcher_larp/lord_battle_service.py:1406`;
+  `tests/test_seed_validation.py:188`.
+- Expected / Actual: expected importer rejects invalid `army_unit_cards.csv`
+  tier/capacity/range and battle stats such as `hp <= 0` before battle content
+  can be imported. Actual validation only rejects values `< 0`, so `hp=0`,
+  `tier=0`, `tier=99`, zero movement/range and extreme values can pass; battle
+  damage resolution divides and moduloes by imported `hp`.
+- Gameplay impact: a zero-HP stack can crash or halt a lord battle during
+  damage application, and out-of-range tiers/ranges can distort deployment,
+  initiative, hero HP/power and auto-resolve inputs.
+- Recommendation: enforce unit tier 1..4, positive HP/attack/ranges where the
+  runtime requires them, and bounded values for battle formulas; add invalid
+  seed fixtures for zero HP and out-of-range tier/range.
+- Confirmation method: targeted snippets confirmed only non-negative validation
+  for unit numeric fields and direct `total // int(stack["hp"])` /
+  `total % int(stack["hp"])` in battle damage.
+- Pass number: 10
+
+### AUD-NEXT-033 - P2 - Stale mobile queue can sync player A events under newly logged-in player B
+
+- Severity: P2
+- Source requirement: `mobile/README.md:22`; `mobile/README.md:23`;
+  `docs/app-technical-plan-v0.1.md:207`;
+  `docs/app-technical-plan-v0.1.md:220`;
+  `docs/app-technical-plan-v0.1.md:221`;
+  `docs/architecture.md:159`; `docs/architecture.md:303`;
+  `docs/architecture.md:325`; `docs/architecture.md:351`;
+  `docs/active-tasks.md:242`; `docs/active-tasks.md:274`.
+- Code/data/test location: `mobile/scripts/app_state.gd:143`;
+  `mobile/scripts/app_state.gd:400`; `mobile/scripts/app_state.gd:406`;
+  `mobile/scripts/app_state.gd:501`; `mobile/scripts/app_state.gd:526`;
+  `mobile/scripts/app_state.gd:543`; `mobile/scripts/main.gd:258`;
+  `mobile/scripts/main.gd:423`; `backend/witcher_larp/app.py:431`;
+  `backend/witcher_larp/pve_runtime.py:643`;
+  `tests/test_mobile_shell_contract.py:399`.
+- Expected / Actual: expected queued offline events remain partitioned by the
+  player who created them or stay visibly pending after a phone is rebound to a
+  different player. Actual `bind_player` changes session identity, but
+  `prepare_sync_request` batches every retryable queue item under current
+  `session.player_id` and request `actor_id`, without filtering by stored
+  `event.player_id`.
+- Gameplay impact: during phone swaps, replacement devices or outage recovery,
+  player A's offline encounter can become wrong-player review noise or vanish
+  from player A's visible recovery path, delaying rewards, cooldowns and master
+  conflict resolution.
+- Recommendation: partition event queue, QR context and cooldown context by
+  `player_id`; sync only records whose stored player matches the current
+  session; leave mismatches retryable with a clear recovery state and add server
+  checks for embedded player/auth conflicts.
+- Confirmation method: targeted snippets confirmed `enqueue_event` stores
+  event `player_id`, but `prepare_sync_request` neither checks nor sends it and
+  posts all retryable rows under the current authenticated actor.
+- Pass number: 10
+
+### AUD-NEXT-034 - P2 - Stage 2 backup/restart recovery exposes restore as a stub
+
+- Severity: P2
+- Source requirement: `docs/roadmap.md:142`;
+  `docs/app-technical-plan-v0.1.md:560`; `docs/architecture.md:8`;
+  `docs/architecture.md:180`; `docs/architecture.md:434`;
+  `docs/architecture.md:447`; `docs/architecture.md:462`;
+  `docs/active-tasks.md:1255`; `docs/active-tasks.md:1272`;
+  `docs/active-tasks.md:1285`; `docs/active-tasks.md:1303`.
+- Code/data/test location: `backend/witcher_larp/admin_studio.py:207`;
+  `backend/witcher_larp/admin_studio.py:219`;
+  `backend/witcher_larp/admin_studio.py:220`;
+  `backend/witcher_larp/admin_studio.py:221`;
+  `backend/witcher_larp/app.py:583`; `backend/witcher_larp/app.py:875`;
+  `tests/test_admin_studio_contract.py:189`;
+  `tests/test_admin_studio_contract.py:192`;
+  `tests/test_admin_studio_contract.py:194`;
+  `tests/test_admin_studio_contract.py:316`.
+- Expected / Actual: expected Stage 2 master recovery controls provide a usable
+  restart/restore workflow or keep restore explicitly outside the Stage 2
+  readiness surface. Actual Admin Studio reports backup status and run-backup
+  actions as ready, but `restore_backup` is an action with no method/endpoint
+  and status `pending_backend`; tests currently codify the stub.
+- Gameplay impact: after a bad DB state or manual recovery mistake during a
+  one-day event, masters can create backups but cannot restore from the Admin
+  workflow, extending outage recovery and requiring developer/file-system
+  intervention.
+- Recommendation: implement a guarded restore flow with dry-run, selected
+  backup id, pre-restore safety copy, SQLite/WAL handling, health check and
+  audit event, or move restore out of Stage 2 readiness with a clear runbook
+  boundary.
+- Confirmation method: `rg -n "restore_backup|/api/.*backup"` confirmed only
+  the Admin Studio stub plus status/run routes; no restore service or endpoint
+  was found.
+- Pass number: 10
+
+### AUD-NEXT-035 - P1 - Player snapshots disclose all QR/manual IDs including future unique objects
+
+- Severity: P1
+- Source requirement: `docs/app-technical-plan-v0.1.md:18`;
+  `docs/app-technical-plan-v0.1.md:19`;
+  `docs/app-technical-plan-v0.1.md:96`; `docs/PRD.md:71`;
+  `docs/architecture.md:31`; `docs/architecture.md:152`;
+  `docs/architecture.md:244`; `docs/architecture.md:349`;
+  `docs/roadmap.md:51`; `docs/roadmap.md:98`.
+- Code/data/test location: `backend/witcher_larp/snapshot_exporter.py:23`;
+  `backend/witcher_larp/snapshot_exporter.py:24`;
+  `backend/witcher_larp/snapshot_exporter.py:52`;
+  `backend/witcher_larp/snapshot_exporter.py:152`;
+  `backend/witcher_larp/snapshot_exporter.py:223`;
+  `backend/witcher_larp/snapshot_exporter.py:224`;
+  `mobile/scripts/app_state.gd:742`;
+  `data/seed/qr_objects.csv:14`; `data/seed/qr_objects.csv:28`;
+  `tests/test_fastapi_contract.py:113`;
+  `tests/test_mobile_shell_contract.py:79`.
+- Expected / Actual: expected player/mobile snapshots avoid pre-disclosing
+  future or unique QR/manual IDs, preserving physical prop/location discovery
+  and act availability gates. Actual player scoping strips only
+  `player_codes` and `role_tokens`, then returns full `qr_objects` and linked
+  `pve_scenarios`, including `manual_code`, act, location, QR mode and scenario
+  links for future Act 2/3 and unique-object rows.
+- Gameplay impact: any valid player code can enumerate future QR/manual IDs and
+  coordinate manual attempts without finding props, undermining the physical
+  presence mechanic and unique-object pacing. This is distinct from
+  `AUD-NEXT-002`, which is the unauthenticated lookup endpoint.
+- Recommendation: redact `manual_code` and future/unique QR-sensitive fields
+  from player snapshots, or snapshot only verifier-safe catalog data while full
+  QR tables remain server/master-only.
+- Confirmation method: targeted snippets confirmed `qr_objects` is a snapshot
+  table, player scoping only excludes secret code/token tables, and seed rows
+  contain future Act 2/3 manual codes.
+- Pass number: 10
+
+### AUD-NEXT-036 - P2 - Seed trade-transfer terminal states can mint potions or assets without source debit
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:255`;
+  `docs/architecture.md:335`; `docs/architecture.md:275`;
+  `docs/app-technical-plan-v0.1.md:595`; `docs/active-tasks.md:1283`.
+- Code/data/test location: `backend/witcher_larp/sorceress_service.py:64`;
+  `backend/witcher_larp/sorceress_service.py:84`;
+  `backend/witcher_larp/sorceress_service.py:173`;
+  `backend/witcher_larp/sorceress_service.py:191`;
+  `backend/witcher_larp/sorceress_service.py:240`;
+  `backend/witcher_larp/sorceress_service.py:250`;
+  `backend/witcher_larp/sorceress_service.py:262`;
+  `backend/witcher_larp/validation.py:1232`;
+  `backend/witcher_larp/validation.py:1253`;
+  `data/seed/trade_transfers.csv:2`;
+  `tests/test_trade_transfers.py:246`.
+- Expected / Actual: expected imported `pending_locked` or `accepted`
+  transfers either prove and debit sender ownership/inventory or route to
+  contested review. Actual seed pending locks use `require_existing_owner=False`,
+  and seed accepted effects grant receiver inventory/ownership even when sender
+  quantity is insufficient; source debit is skipped if the source lacks enough.
+- Gameplay impact: imported terminal/pending transfers can introduce potions,
+  order objects, rare assets or final objects without provenance, corrupting
+  inventory, trade, PvP stake availability and final evidence.
+- Recommendation: require source quantity for seed transfer locks/effects; if
+  missing, set `contested_review` and do not grant the target. Use an explicit
+  initial-inventory/grant table for intentional starting assets.
+- Confirmation method: targeted snippets confirmed seed transfer import defaults
+  quantity/price, pending locks do not require existing owner, and accepted seed
+  transfer grants target after optional source debit.
+- Pass number: 10
+
+### AUD-NEXT-037 - P2 - Import validation misses signed economy/resource ranges consumed by runtime
+
+- Severity: P2
+- Source requirement: `docs/app-technical-plan-v0.1.md:40`;
+  `docs/app-technical-plan-v0.1.md:44`; `docs/architecture.md:275`;
+  `docs/architecture.md:365`; `docs/architecture.md:379`;
+  `docs/active-tasks.md:1214`.
+- Code/data/test location: `backend/witcher_larp/validation.py:1010`;
+  `backend/witcher_larp/validation.py:1035`;
+  `backend/witcher_larp/validation.py:1232`;
+  `backend/witcher_larp/validation.py:1614`;
+  `backend/witcher_larp/sorceress_service.py:444`;
+  `backend/witcher_larp/sorceress_service.py:447`;
+  `backend/witcher_larp/sorceress_service.py:463`;
+  `backend/witcher_larp/lord_runtime.py:594`;
+  `backend/witcher_larp/lord_runtime.py:651`;
+  `backend/witcher_larp/reward_service.py:236`;
+  `tests/test_seed_validation.py:273`; `tests/test_seed_validation.py:278`.
+- Expected / Actual: expected importer rejects dangerous signed values for
+  runtime economy/resources: non-positive spending costs, negative stock,
+  invalid potion resale bands, negative recruit/raid costs, negative rewards,
+  invalid MP pool caps and impossible starting resources. Actual validation has
+  some targeted checks, but many signed economy fields are only checked for
+  existence/references or broad readiness; runtime consumes them directly as
+  debits, credits, stock/costs and reward numeric payload.
+- Gameplay impact: bad content can make buying/recruiting/raiding grant gold or
+  tokens, create negative rewards or stock, break MP/resource state and distort
+  final/economy summaries while import remains successful.
+- Recommendation: add per-CSV numeric invariants for non-negative counts and
+  resources, positive costs where spending occurs, `0 <= current_mp <= mp_cap`,
+  sane anti-snowball percentages and valid potion resale bands; add overlay
+  fixtures for each signed resource family.
+- Confirmation method: `rg -n` confirmed only building cost and some unit
+  values have strict checks, while potion market readiness only requires any
+  positive sorceress stock and runtime uses imported costs/stock/rewards
+  directly.
+- Pass number: 10
+
+### AUD-NEXT-038 - P2 - Master correction APIs can write impossible resource states
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:8`; `docs/architecture.md:180`;
+  `docs/architecture.md:449`; `docs/architecture.md:462`;
+  `docs/app-technical-plan-v0.1.md:560`; `docs/active-tasks.md:274`;
+  `docs/active-tasks.md:1283`.
+- Code/data/test location: `backend/witcher_larp/game_ops_service.py:44`;
+  `backend/witcher_larp/game_ops_service.py:60`;
+  `backend/witcher_larp/game_ops_service.py:79`;
+  `backend/witcher_larp/game_ops_service.py:91`;
+  `backend/witcher_larp/game_ops_service.py:141`;
+  `backend/witcher_larp/game_ops_service.py:342`;
+  `backend/witcher_larp/game_ops_service.py:380`;
+  `backend/witcher_larp/game_ops_service.py:1100`;
+  `backend/witcher_larp/reward_service.py:236`;
+  `backend/witcher_larp/reward_service.py:255`;
+  `tests/test_game_ops_service.py:68`; `tests/test_game_ops_service.py:118`.
+- Expected / Actual: expected master corrections remain audited and preserve
+  runtime invariants, or route impossible recovery data to a typed review path.
+  Actual Game Ops correction fields normalize integer values but do not enforce
+  non-negative resources, mana bounds, `current_mp <= mp_cap`, stock/count
+  non-negativity or valid status-specific constraints; reward corrections can
+  apply arbitrary numeric correction payloads to XP/gold.
+- Gameplay impact: hurried paper recovery or admin repair can sync negative
+  gold/mana/tokens/counts/stock or over-max mana into player/lord state and
+  final summaries, leaving later engines to operate on impossible state.
+- Recommendation: add per-target correction validators and typed adjustment
+  actions with before/after, clamp checks and explicit exceptional-review
+  reasons; reject impossible direct patches with 400/no mutation.
+- Confirmation method: targeted snippets confirmed allowed correction integer
+  fields and `_normalize_patch_value` perform only type conversion before
+  direct `UPDATE`; tests cover supported fields and audit logging, not
+  invariant violations.
+- Pass number: 10
+
 ## Checked Without New Issues
 
 - Production profile seed/validation for 4 lords, 4 sorceresses, 5 witchers and
@@ -1042,6 +1325,31 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
 - Tests/TaskOS subagent returned the Gwent round sequencing issue integrated as
   `AUD-NEXT-030`; no additional TaskOS/generated-view issue was integrated.
 
+## Pass 10 Checked Without New Issues
+
+- Lord weighted movement, MP spend and excluded venue nodes were rechecked:
+  routes are validated against `map_edges`, impossible route and insufficient
+  MP paths have tests, and `node_old_house` / `node_adjacent_shed` are excluded
+  from seed edges. No new movement issue beyond existing lord runtime/battle
+  findings was verified (`backend/witcher_larp/lord_runtime.py:269`,
+  `backend/witcher_larp/lord_runtime.py:1320`,
+  `tests/test_lord_runtime.py:860`, `data/seed/map_nodes.csv:17`).
+- PvP finish/winner authority was rechecked: match finish requires participant
+  or master auth, early finish moves to review, and winner mismatch does not
+  apply stake. No new issue beyond `AUD-NEXT-030` was verified
+  (`backend/witcher_larp/app.py:1529`,
+  `backend/witcher_larp/pvp_service.py:985`,
+  `tests/test_pvp_runtime.py:333`).
+- Trade and sorceress online API consent paths were rechecked. Auto-accept via
+  public API remains strict and is covered by negative tests; the integrated
+  Pass 10 trade issue is limited to seed-imported terminal/pending transfers,
+  not ordinary online accept/decline flow
+  (`backend/witcher_larp/app.py:1252`,
+  `tests/test_sorceress_runtime.py:1036`).
+- Stage 2B playable UI/device smoke gaps were not counted. Mobile APK/iOS
+  smoke, final mobile UX and personal Gwent UI remain out of Stage 1/2/2A scope
+  for this supplement.
+
 ## Out Of Scope
 
 - Full Stage 2B playable mobile UI, lord action UI and personal Gwent UI.
@@ -1081,6 +1389,10 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
   (81 tasks)`.
 - Pass 9: `uv run pytest -q` not run per user direction; product code was not
   changed.
+- Pass 10: `uv run python scripts/taskctl.py validate` -> `tasks.json is valid
+  (81 tasks)`.
+- Pass 10: `uv run pytest -q` not run per user direction; product code was not
+  changed.
 
 ## Convergence Log
 
@@ -1093,3 +1405,4 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
 - After Pass 7: 3 new substantial findings; consecutive zero-new passes = 0.
 - After Pass 8: 0 new substantial findings; consecutive zero-new passes = 1.
 - After Pass 9: 4 new substantial findings; consecutive zero-new passes = 0.
+- After Pass 10: 8 new substantial findings; consecutive zero-new passes = 0.
