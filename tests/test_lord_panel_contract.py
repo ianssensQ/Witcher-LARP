@@ -430,6 +430,15 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["active_orders"], 3)
         self.assertTrue(payload["territories"])
         self.assertTrue(payload["recruit_market"])
+        signals = {item["domain_id"]: item for item in payload["diplomacy_signals"]}
+        self.assertEqual(signals["domain_north"]["active_orders"], 3)
+        self.assertEqual(signals["domain_north"]["active_order_visibility"], "own_exact")
+        self.assertNotIn("active_orders", signals["domain_river"])
+        self.assertIn(
+            signals["domain_river"]["active_order_pressure"],
+            {"none", "low", "medium", "high"},
+        )
+        self.assertEqual(signals["domain_river"]["active_order_visibility"], "foreign_coarse")
         self.assertEqual(
             {surface["status"] for surface in payload["action_surfaces"]},
             {"ready"},

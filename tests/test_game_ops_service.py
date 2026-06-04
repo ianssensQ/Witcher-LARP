@@ -40,7 +40,7 @@ class GameOpsServiceTests(unittest.TestCase):
                     events=[
                         EventSyncEvent(
                             event_id=f"admin_sync_{uuid4().hex}",
-                            client_sequence=7,
+                            client_sequence=1,
                             created_at="2026-06-02T10:00:00+00:00",
                             event_type="qr_scene_started",
                             payload={"qr_id": "qr_a1_001", "source": "mobile"},

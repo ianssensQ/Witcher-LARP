@@ -273,6 +273,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             "player_id": "p_witcher_1",
             "qr_id": "qr_a1_001",
             "result": "success",
+            "roll": 8,
             "conflict_status": "clean",
         }
         clean_paper = self._sync_event(
@@ -625,9 +626,9 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         qr_lookup = self._post_ok(
             client,
             "/api/qr/lookup",
+            headers=self._event_auth_headers("p_witcher_1", "player"),
             json={
                 "code": "QR-A1-K7Q2",
-                "player_id": "p_witcher_1",
                 "device_id": "phone_wolf",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -637,9 +638,9 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         honesty_review = self._post_ok(
             client,
             "/api/qr/lookup",
+            headers=self._event_auth_headers("p_witcher_1", "player"),
             json={
                 "code": "witcher-larp://qr?code=QR-A1-X3L5",
-                "player_id": "p_witcher_1",
                 "device_id": "phone_wolf",
                 "source": "qr_scan",
                 "physical_presence_confirmed": False,

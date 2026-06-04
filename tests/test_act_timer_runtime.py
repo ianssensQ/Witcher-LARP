@@ -198,6 +198,76 @@ class ActTimerRuntimeTests(unittest.TestCase):
         self.assertEqual(pre_final["status"], "success")
         self.assertTrue(Path(pre_final["artifact_path"]).exists())
 
+    def test_direct_final_act_start_applies_final_lock_side_effects(self) -> None:
+        settings = self.make_settings("direct_final_act")
+        self.import_seed(settings)
+        final_act_at = datetime(2026, 6, 2, 17, 30, tzinfo=UTC)
+
+        with connect(settings) as connection:
+            result = start_act(
+                connection,
+                settings,
+                "final_act",
+                operator="gm_final",
+                physical_announcement_state="announced",
+                now=final_act_at,
+            )
+            lock = connection.execute(
+                "SELECT locked_at, operator, source FROM final_lock_state WHERE id = 1"
+            ).fetchone()
+            pre_final = connection.execute(
+                """
+                SELECT status, artifact_path
+                FROM backup_runs
+                WHERE trigger_type = 'pre_final_lock'
+                ORDER BY started_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        self.assertEqual(result["state"]["current_act_id"], "final_act")
+        self.assertEqual(result["start_effects"]["final_lock"]["status"], "locked")
+        self.assertEqual(lock["operator"], "gm_final")
+        self.assertEqual(lock["source"], "direct_final_act_start")
+        self.assertIsNotNone(lock["locked_at"])
+        self.assertEqual(pre_final["status"], "success")
+        self.assertTrue(Path(pre_final["artifact_path"]).exists())
+
+    @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
+    def test_role_state_endpoint_reconciles_due_timers_after_restart(self) -> None:
+        settings = self.make_settings("role_endpoint_timer")
+        self.import_seed(settings)
+        started_at = datetime.now(UTC) - timedelta(minutes=31)
+
+        with connect(settings) as connection:
+            start_act(
+                connection,
+                settings,
+                "act1",
+                operator="gm_timer",
+                physical_announcement_state="announced",
+                now=started_at,
+            )
+
+        client = TestClient(create_app(settings))
+        state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+        )
+
+        self.assertEqual(state.status_code, 200, state.text)
+        self.assertEqual(state.json()["domain"]["gold"], 105)
+        self.assertEqual(state.json()["domain"]["current_mp"], 6)
+        with connect(settings) as connection:
+            tick_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM applied_timer_ticks
+                WHERE effect_type = 'lord_income_and_mana'
+                """
+            ).fetchone()[0]
+        self.assertEqual(tick_count, 1)
+
     def test_backup_fallback_and_missing_job_review_are_recorded(self) -> None:
         settings = self.make_settings("backup_resilience")
         self.import_seed(settings)

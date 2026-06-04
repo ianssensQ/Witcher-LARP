@@ -106,10 +106,54 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
         self.assertNotIn("reputation", player)
         self.assertNotIn("value", reputation)
         self.assertNotIn("change_log", reputation)
+        self.assertNotIn("threshold_range", reputation)
         self.assertEqual(reputation["state_label"], "Good")
         self.assertEqual(reputation["player_descriptor"], "trusted")
         self.assertEqual(reputation["value_visibility"], "hidden_from_player")
         self.assertEqual(snapshot["players"], [player])
+        reputation_rules = snapshot["descriptors"]["reputation_rules"]
+        self.assertTrue(reputation_rules)
+        self.assertTrue(all("min_value" not in rule for rule in reputation_rules))
+        self.assertTrue(all("max_value" not in rule for rule in reputation_rules))
+
+    def test_player_scoped_snapshot_redacts_future_unique_qr_and_artifacts(self) -> None:
+        settings = self._settings("scoped_qr_artifacts")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            snapshot = build_snapshot_from_database(
+                connection,
+                player_code="WC-WOLF-6GF4",
+            )
+
+        assert snapshot is not None
+        qr_rows = snapshot["qr_objects"]
+        scenario_rows = snapshot["pve_scenarios"]
+        artifact_rows = snapshot["artifacts"]
+        assert isinstance(qr_rows, list)
+        assert isinstance(scenario_rows, list)
+        assert isinstance(artifact_rows, list)
+
+        qr_ids = {row["qr_id"] for row in qr_rows}
+        scenario_ids = {row["scenario_id"] for row in scenario_rows}
+        self.assertIn("qr_a1_001", qr_ids)
+        self.assertNotIn("qr_a1_006", qr_ids)
+        self.assertNotIn("qr_a2_013", qr_ids)
+        self.assertTrue(all(row["act_id"] == "act1" for row in qr_rows))
+        self.assertTrue(
+            all(row["qr_mode"] in {"repeatable_scene", "always_available_scene"} for row in qr_rows)
+        )
+        self.assertIn("scn_a1_001", scenario_ids)
+        self.assertNotIn("scn_a1_006", scenario_ids)
+        self.assertNotIn("scn_a2_013", scenario_ids)
+        self.assertEqual(artifact_rows, [])
+
+        dumped = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn("QR-A1-X3L5", dumped)
+        self.assertNotIn("QR-A2-B4K8", dumped)
+        self.assertNotIn("Fang secured", dumped)
+        self.assertNotIn("artifact_black_seal", dumped)
+        self.assertNotIn("artifact_crow_feather", dumped)
 
     def test_exported_full_snapshot_file_does_not_contain_role_or_player_codes(self) -> None:
         settings = self._settings("exported_snapshot")

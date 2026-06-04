@@ -357,6 +357,7 @@ class AdminStudioContractTests(unittest.TestCase):
                             "player_id": "p_witcher_1",
                             "qr_id": "qr_a1_001",
                             "result": "success",
+                            "roll": 8,
                             "conflict_status": "clean",
                         },
                     }

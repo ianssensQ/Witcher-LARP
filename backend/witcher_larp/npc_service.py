@@ -28,6 +28,8 @@ DEAL_EVENT_TYPES = {
     "dark_artifact",
     "alternate_victory_hook",
 }
+FINAL_REVIEW_STATUSES = {"approved", "rejected", "corrected"}
+FINAL_NPC_EVENT_STATUSES = {"resolved", "dismissed", "closed"}
 
 REVIEW_FALLBACKS: dict[str, dict[str, object]] = {
     "P0": {
@@ -85,6 +87,7 @@ class NpcEventInput:
 def record_npc_event(
     connection: sqlite3.Connection, event_input: NpcEventInput
 ) -> dict[str, object]:
+    ensure_runtime_content_state(connection)
     seed = _fetch_seed_event(connection, event_input.seed_event_id)
     npc_role = event_input.npc_role or _seed_value(seed, "npc_role")
     event_type = event_input.event_type or _seed_value(seed, "event_type")
@@ -232,6 +235,7 @@ def severity_route(connection: sqlite3.Connection, severity: str) -> dict[str, o
 def list_npc_events(
     connection: sqlite3.Connection, *, visibility: str = "master"
 ) -> list[dict[str, object]]:
+    ensure_runtime_content_state(connection)
     rows = connection.execute(
         """
         SELECT *
@@ -245,6 +249,7 @@ def list_npc_events(
 def list_npc_deals(
     connection: sqlite3.Connection, *, visibility: str = "master"
 ) -> list[dict[str, object]]:
+    ensure_runtime_content_state(connection)
     rows = connection.execute(
         """
         SELECT *
@@ -267,6 +272,7 @@ def review_queue(connection: sqlite3.Connection) -> dict[str, object]:
                    e.actor_id, e.actor_type
             FROM event_reviews er
             LEFT JOIN events e ON e.server_event_id = er.server_event_id
+            WHERE er.status NOT IN ('approved', 'rejected', 'corrected')
             ORDER BY er.review_id
             """
         ).fetchall()
@@ -294,6 +300,8 @@ def review_queue(connection: sqlite3.Connection) -> dict[str, object]:
             )
 
     for event in list_npc_events(connection, visibility="master"):
+        if event["status"] in FINAL_NPC_EVENT_STATUSES or not event["blocks_progress"]:
+            continue
         items.append(
             {
                 "queue_type": "npc_event",
@@ -309,12 +317,70 @@ def review_queue(connection: sqlite3.Connection) -> dict[str, object]:
                 "review_route": event["review_route"],
                 "default_owner": event["review_owner"],
                 "blocks_progress": event["blocks_progress"],
+                "status": event["status"],
+                "resolved_at": event["resolved_at"],
                 "created_at": event["created_at"],
             }
         )
 
     items.sort(key=lambda item: (_severity_rank(str(item["severity"])), str(item["created_at"])))
     return {"items": items}
+
+
+def resolve_npc_event(
+    connection: sqlite3.Connection,
+    npc_runtime_event_id: int,
+    *,
+    operator: str,
+    reason: str,
+    status: str = "resolved",
+    source: str = "master_api",
+) -> dict[str, object]:
+    ensure_runtime_content_state(connection)
+    normalized_status = status.strip().lower()
+    if normalized_status not in FINAL_NPC_EVENT_STATUSES:
+        raise NpcEventError(f"Unsupported NPC event resolution status: {status}")
+    reason = reason.strip()
+    operator = operator.strip() or "master"
+    if not reason:
+        raise NpcEventError("NPC event resolution reason is required.")
+
+    event = _fetch_npc_event_by_id(connection, npc_runtime_event_id, visibility="master")
+    if event["status"] in FINAL_NPC_EVENT_STATUSES:
+        return {**event, "duplicate": True}
+
+    resolved_at = _utc_now()
+    connection.execute(
+        """
+        UPDATE npc_runtime_events
+        SET status = ?,
+            blocks_progress = 0,
+            resolved_at = ?,
+            resolved_by = ?,
+            resolution_reason = ?
+        WHERE npc_runtime_event_id = ?
+        """,
+        (
+            normalized_status,
+            resolved_at,
+            operator,
+            reason,
+            npc_runtime_event_id,
+        ),
+    )
+    resolved = _fetch_npc_event_by_id(connection, npc_runtime_event_id, visibility="master")
+    log_event(
+        connection,
+        "npc_event_resolved",
+        {
+            "npc_runtime_event_id": npc_runtime_event_id,
+            "status": normalized_status,
+            "operator": operator,
+            "reason": reason,
+        },
+        source=source,
+    )
+    return {**resolved, "duplicate": False}
 
 
 def _apply_reputation_delta(
@@ -524,6 +590,10 @@ def _npc_event_row_to_dict(row: sqlite3.Row, *, visibility: str) -> dict[str, ob
         "review_owner": row["review_owner"],
         "blocks_progress": bool(row["blocks_progress"]),
         "final_flag": bool(row["final_flag"]),
+        "status": row["status"],
+        "resolved_at": row["resolved_at"],
+        "resolved_by": row["resolved_by"],
+        "resolution_reason": row["resolution_reason"],
         "operator": row["operator"],
         "source": row["source"],
         "created_at": row["created_at"],

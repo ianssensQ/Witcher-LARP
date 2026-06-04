@@ -33,6 +33,8 @@ LOCKED_INTENT_DISPUTED_STATUSES = {
     "conflict",
     "review_disputed",
 }
+OPEN_PENDING_TICK_STATUSES = {"pending"}
+PAPER_PVP_EVIDENCE_FORMS = {"paper_pvp_stake", "paper_final_evidence"}
 
 
 def build_final_summary(
@@ -55,6 +57,7 @@ def build_final_summary(
     }
     pending_disputes = _pending_disputes(connection)
     pending_rewards = active_reward_approvals(connection)
+    pending_tick_rewards = _pending_tick_rewards(connection)
     asset_locks = active_asset_locks(connection)
     paper_recovery = _paper_recovery(connection)
     locked_intents = _locked_magical_intent(connection)
@@ -80,6 +83,7 @@ def build_final_summary(
         "missing_locks": missing_locks,
         "pending_disputes": pending_disputes,
         "pending_rewards": pending_rewards,
+        "pending_tick_rewards": pending_tick_rewards,
         "asset_locks": asset_locks,
         "npc_prices": list_npc_deals(connection, visibility="master"),
         "locked_magical_intent": locked_intents,
@@ -314,6 +318,7 @@ def _lord_evidence(connection: sqlite3.Connection) -> list[dict[str, Any]]:
                 "orders": _orders_for_lord(connection, lord_id),
                 "lord_battles": _lord_battles_for_domain(connection, domain_id),
                 "raids": _raid_effects_for_domain(connection, domain_id),
+                "pending_tick_rewards": _pending_tick_rewards_for_domain(connection, domain_id),
                 "evidence_categories": ["territory", "battle", "economy", "order", "raid"],
             }
         )
@@ -517,6 +522,30 @@ def _pending_disputes(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     disputes: list[dict[str, Any]] = []
     for item in review_queue(connection)["items"]:
         disputes.append({"source_type": "review_queue", **item})
+    disputes.extend(_locked_intent_review_disputes(connection))
+    disputes.extend(
+        {
+            "source_type": "pending_tick_reward",
+            "record_id": row["pending_reward_id"],
+            "domain_id": row["domain_id"],
+            "territory_id": row["territory_id"],
+            "reward_gold": row["reward_gold"],
+            "status": row["status"],
+            "reason": "lord income tick awaits contested territory resolution",
+            "severity": "P2",
+            "created_at": row["due_at"],
+        }
+        for row in _rows(
+            connection,
+            "pending_tick_reward_runtime",
+            """
+            SELECT pending_reward_id, domain_id, territory_id, reward_gold, status, due_at
+            FROM pending_tick_reward_runtime
+            WHERE status = 'pending'
+            ORDER BY due_at, pending_reward_id
+            """,
+        )
+    )
     disputes.extend(
         {"source_type": "pvp_review", **_clean_row(row)}
         for row in _rows(
@@ -581,6 +610,23 @@ def _pending_disputes(connection: sqlite3.Connection) -> list[dict[str, Any]]:
         )
     )
     return disputes
+
+
+def _pending_tick_rewards(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    return [
+        _clean_row(row)
+        for row in _rows(
+            connection,
+            "pending_tick_reward_runtime",
+            """
+            SELECT pending_reward_id, domain_id, territory_id, reward_gold,
+                   status, due_at, awarded_to_domain_id, awarded_at
+            FROM pending_tick_reward_runtime
+            WHERE status = 'pending'
+            ORDER BY due_at, pending_reward_id
+            """,
+        )
+    ]
 
 
 def _paper_recovery(connection: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -649,6 +695,28 @@ def _locked_magical_intent(connection: sqlite3.Connection) -> list[dict[str, Any
     return result
 
 
+def _locked_intent_review_disputes(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    disputes = []
+    for record in _locked_magical_intent_records(connection):
+        status = _normalize_locked_intent_status(str(record["status"]))
+        if status == "locked":
+            continue
+        disputes.append(
+            {
+                "source_type": "locked_magical_intent",
+                "record_id": record["intent_id"],
+                "sorceress_id": record["sorceress_id"],
+                "target_id": record["target_id"],
+                "status": record["status"],
+                "reason": record.get("review_reason")
+                or "magical intent requires master review",
+                "severity": "P1",
+                "created_at": record["created_at"],
+            }
+        )
+    return disputes
+
+
 def _locked_magical_intent_records(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     return [
         {**_clean_row(row), "intent": _json_loads(row["intent_json"], {})}
@@ -682,10 +750,16 @@ def _locked_magical_intent_state(
             "created_at": None,
             "required_for_export": True,
             "state_source": "required_missing",
+            "post_lock_disputes": [],
             "records": [],
         }
 
-    latest = records[-1]
+    locked_records = [
+        record
+        for record in records
+        if _normalize_locked_intent_status(str(record["status"])) == "locked"
+    ]
+    latest = locked_records[-1] if locked_records else records[-1]
     runtime_status = str(latest["status"])
     status = _normalize_locked_intent_status(runtime_status)
     review_reason = latest.get("review_reason")
@@ -693,6 +767,11 @@ def _locked_magical_intent_state(
         review_reason = "magical intent is pending master review"
     elif status == "disputed" and not review_reason:
         review_reason = "magical intent is disputed"
+    post_lock_disputes = [
+        record
+        for record in records
+        if record is not latest and _normalize_locked_intent_status(str(record["status"])) != "locked"
+    ]
     return {
         **latest,
         "sorceress_display_name": display_name,
@@ -700,7 +779,8 @@ def _locked_magical_intent_state(
         "runtime_status": runtime_status,
         "review_reason": review_reason,
         "required_for_export": True,
-        "state_source": "runtime",
+        "state_source": "runtime_locked_authority" if locked_records else "runtime",
+        "post_lock_disputes": post_lock_disputes,
         "records": records,
     }
 
@@ -877,8 +957,7 @@ def _missing_locks(
         "battle": _table_count(connection, "lord_battles") > 0,
         "order": _table_count(connection, "order_runtime_state") > 0,
         "pve_contract": _table_count(connection, "pve_attempts") > 0,
-        "pvp_gwent": _table_count(connection, "gwent_runtime_matches") > 0
-        or _table_count(connection, "gwent_matches") > 0,
+        "pvp_gwent": _has_pvp_gwent_evidence(connection, paper_recovery),
         "trade_locks": _table_count(connection, "trade_transfer_runtime") > 0,
         "favorite": _table_count(connection, "favorite_runtime") > 0,
         "locked_magical_intent": bool(locked_intents)
@@ -920,6 +999,34 @@ def _missing_locks(
                 }
             )
     return missing
+
+
+def _has_pvp_gwent_evidence(
+    connection: sqlite3.Connection, paper_recovery: list[dict[str, Any]]
+) -> bool:
+    if _table_count(connection, "gwent_runtime_matches") > 0:
+        return True
+    for item in paper_recovery:
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+        if item.get("source_form_type") == "paper_pvp_stake":
+            return True
+        if (
+            item.get("source_form_type") == "paper_final_evidence"
+            and payload.get("evidence_category") == "pvp_gwent"
+        ):
+            return True
+    master_note = _first_row(
+        connection,
+        "final_master_notes",
+        """
+        SELECT note_id
+        FROM final_master_notes
+        WHERE category IN ('pvp_gwent', 'gwent', 'pvp')
+        ORDER BY created_at
+        LIMIT 1
+        """,
+    )
+    return master_note is not None
 
 
 def _missing_magical_intent_locks(
@@ -1115,6 +1222,36 @@ def _raid_effects_for_domain(
             ORDER BY starts_at_offset_min, raid_effect_id
             """,
             (domain_id, domain_id),
+        )
+    ]
+
+
+def _pending_tick_rewards_for_domain(
+    connection: sqlite3.Connection, domain_id: str | None
+) -> list[dict[str, Any]]:
+    if not domain_id:
+        return []
+    return [
+        _clean_row(row)
+        for row in _rows(
+            connection,
+            "pending_tick_reward_runtime",
+            """
+            SELECT pending_reward_id, domain_id, territory_id, reward_gold,
+                   status, due_at, awarded_to_domain_id, awarded_at
+            FROM pending_tick_reward_runtime
+            WHERE status = 'pending'
+              AND (
+                  domain_id = ?
+                  OR territory_id IN (
+                      SELECT territory_id
+                      FROM territory_runtime_state
+                      WHERE owner_domain_id = ? OR contested_by_domain_id = ?
+                  )
+              )
+            ORDER BY due_at, pending_reward_id
+            """,
+            (domain_id, domain_id, domain_id),
         )
     ]
 

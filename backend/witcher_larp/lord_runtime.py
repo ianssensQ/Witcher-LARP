@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -264,6 +264,7 @@ def ensure_lord_runtime_state(connection: sqlite3.Connection) -> None:
                 )
 
     _initialize_domain_locations(connection, now)
+    reconcile_raid_effects(connection)
 
 
 def move_lord(
@@ -657,7 +658,10 @@ def start_raid(
 
     resistance = _territory_resistance(connection, target_territory_id, target_owner)
     loot_gold = 0 if resistance else min(gold_cost, 5 * max(1, _territory_tier(connection, target_territory_id)))
-    now = _iso()
+    current_time = datetime.now(UTC)
+    now = _iso(current_time)
+    duration_min = max(0, _to_int(rule["duration_min"]))
+    expires_at = _iso(current_time + timedelta(minutes=duration_min))
     effect_id = f"raid_{uuid4().hex}"
     payload = {
         "resistance": resistance,
@@ -679,9 +683,9 @@ def start_raid(
         INSERT INTO raid_effects (
             raid_effect_id, rule_id, source_domain_id, target_domain_id,
             target_territory_id, status, starts_at_offset_min, ends_at_offset_min,
-            payload_json
+            started_at, expires_at, payload_json
         )
-        VALUES (?, ?, ?, ?, ?, 'active', NULL, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?)
         """,
         (
             effect_id,
@@ -689,7 +693,9 @@ def start_raid(
             domain_id,
             target_owner,
             target_territory_id,
-            _to_int(rule["duration_min"]),
+            duration_min,
+            now,
+            expires_at,
             json.dumps(payload, ensure_ascii=False, sort_keys=True),
         ),
     )
@@ -701,10 +707,59 @@ def start_raid(
         "target_territory_id": target_territory_id,
         "token_spent": token_cost,
         "gold_spent": gold_cost,
+        "started_at": now,
+        "expires_at": expires_at,
         **payload,
     }
     log_event(connection, "lord_raid_started", result, source=source)
     return result
+
+
+def reconcile_raid_effects(
+    connection: sqlite3.Connection, *, now: datetime | None = None
+) -> list[dict[str, Any]]:
+    ensure_runtime_schema(connection)
+    if not _table_exists(connection, "raid_effects"):
+        return []
+
+    current_time = now or datetime.now(UTC)
+    expired_at = _iso(current_time)
+    expired: list[dict[str, Any]] = []
+    for row in connection.execute(
+        """
+        SELECT raid_effect_id, source_domain_id, target_domain_id,
+               target_territory_id, expires_at
+        FROM raid_effects
+        WHERE status = 'active' AND expires_at IS NOT NULL
+        ORDER BY expires_at, raid_effect_id
+        """
+    ).fetchall():
+        try:
+            expires_at_dt = _parse_iso(str(row["expires_at"]))
+        except ValueError:
+            continue
+        if expires_at_dt > current_time:
+            continue
+        connection.execute(
+            """
+            UPDATE raid_effects
+            SET status = 'expired', expired_at = ?
+            WHERE raid_effect_id = ? AND status = 'active'
+            """,
+            (expired_at, row["raid_effect_id"]),
+        )
+        payload = {
+            "raid_effect_id": row["raid_effect_id"],
+            "source_domain_id": row["source_domain_id"],
+            "target_domain_id": row["target_domain_id"],
+            "target_territory_id": row["target_territory_id"],
+            "status": "expired",
+            "expires_at": row["expires_at"],
+            "expired_at": expired_at,
+        }
+        expired.append(payload)
+        log_event(connection, "lord_raid_expired", payload, source="raid_lifecycle")
+    return expired
 
 
 def order_action(
@@ -917,12 +972,25 @@ def build_diplomacy_signals(connection: sqlite3.Connection, viewer_domain_id: st
     signals: list[dict[str, Any]] = []
     for domain_id, power in sorted(powers.items()):
         ratio = int((power / average_power) * 100) if average_power else 0
+        order_count = order_counts.get(domain_id, 0)
+        order_pressure: dict[str, Any]
+        if domain_id == viewer_domain_id:
+            order_pressure = {
+                "active_orders": order_count,
+                "active_order_pressure": "own_exact",
+                "active_order_visibility": "own_exact",
+            }
+        else:
+            order_pressure = {
+                "active_order_pressure": _order_pressure_bucket(order_count),
+                "active_order_visibility": "foreign_coarse",
+            }
         signals.append(
             {
                 "domain_id": domain_id,
                 "army_power": power,
                 "army_power_ratio": ratio,
-                "active_orders": order_counts.get(domain_id, 0),
+                **order_pressure,
                 "active_raids": raid_counts.get(domain_id, 0),
                 "contested_pressure": contested.get(domain_id, 0),
                 "coalition_prompt": ratio >= 130 and domain_id != viewer_domain_id,
@@ -1333,7 +1401,13 @@ def _route_cost(connection: sqlite3.Connection, route: list[str]) -> int:
         ).fetchone()
         if edge is None:
             raise LordRuntimeError("invalid_route", f"No map edge between {from_node} and {to_node}.")
-        total += _to_int(edge["mp_cost"])
+        mp_cost = _to_int(edge["mp_cost"])
+        if mp_cost <= 0:
+            raise LordRuntimeError(
+                "invalid_route_cost",
+                f"Map edge between {from_node} and {to_node} must have positive MP cost.",
+            )
+        total += mp_cost
     return total
 
 
@@ -1869,7 +1943,7 @@ def _order_statuses_locking_objects(connection: sqlite3.Connection) -> set[str]:
 
 
 def _order_statuses_counting_against_cap(connection: sqlite3.Connection) -> set[str]:
-    return _order_statuses_with_flag(connection, "counts_against_cap")
+    return _order_statuses_with_flag(connection, "counts_against_cap") | set(ACTIVE_ORDER_STATUSES)
 
 
 def _order_statuses_with_flag(connection: sqlite3.Connection, flag_column: str) -> set[str]:
@@ -2237,6 +2311,16 @@ def _active_order_counts(connection: sqlite3.Connection) -> dict[str, int]:
     ).fetchall():
         counts[str(row["domain_id"])] = _to_int(row["count"])
     return counts
+
+
+def _order_pressure_bucket(count: int) -> str:
+    if count <= 0:
+        return "none"
+    if count == 1:
+        return "low"
+    if count == 2:
+        return "medium"
+    return "high"
 
 
 def _contested_counts(connection: sqlite3.Connection) -> dict[str, int]:

@@ -75,6 +75,8 @@ class MobileShellContractTests(unittest.TestCase):
         self.assertEqual(login_payload["device_id"], "phone-wolf")
         self.assertIn("mobile:snapshot", login_payload["permissions"])
         self.assertEqual(login_payload["snapshot_path"], "/api/content/snapshot")
+        self.assertNotIn("reputation", login_payload["player"])
+        self.assertNotIn("value", login_payload["player"].get("reputation_state", {}))
 
         snapshot = client.get(
             "/api/content/snapshot",
@@ -286,9 +288,9 @@ class MobileShellContractTests(unittest.TestCase):
         for attempt in range(5):
             last_lookup = client.post(
                 "/api/qr/lookup",
+                headers={"X-Player-Code": "WC-WOLF-6GF4"},
                 json={
                     "code": f"QR-A1-BAD{attempt}",
-                    "player_id": "p_witcher_1",
                     "device_id": "phone-wolf",
                     "source": "manual_id",
                     "physical_presence_confirmed": True,
@@ -311,7 +313,7 @@ class MobileShellContractTests(unittest.TestCase):
             actor_type="player",
             event_type="pve_completed",
             payload=pve_failure,
-            sequence=10,
+            sequence=1,
         )
         self.assertEqual(sync["results"][0]["status"], "accepted")
 
@@ -393,6 +395,9 @@ class MobileShellContractTests(unittest.TestCase):
             "Event Queue",
             "Roll PvE d20",
             "Sync Queue",
+            "_event_belongs_to_current_player",
+            "wrong_actor_queue",
+            "another player/session",
         ):
             self.assertIn(contract_token, combined)
 

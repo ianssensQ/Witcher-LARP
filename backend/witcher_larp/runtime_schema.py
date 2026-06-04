@@ -660,6 +660,25 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
     )
     _ensure_columns(
         connection,
+        "npc_runtime_events",
+        {
+            "status": "TEXT NOT NULL DEFAULT 'open'",
+            "resolved_at": "TEXT",
+            "resolved_by": "TEXT",
+            "resolution_reason": "TEXT",
+        },
+    )
+    _ensure_columns(
+        connection,
+        "raid_effects",
+        {
+            "started_at": "TEXT",
+            "expires_at": "TEXT",
+            "expired_at": "TEXT",
+        },
+    )
+    _ensure_columns(
+        connection,
         "player_runtime_state",
         {
             "xp": "INTEGER NOT NULL DEFAULT 0",
@@ -701,6 +720,14 @@ def _ensure_columns(
     table_name: str,
     columns: dict[str, str],
 ) -> None:
+    if (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+        is None
+    ):
+        return
     existing = {
         row["name"]
         for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()

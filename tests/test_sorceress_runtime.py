@@ -294,6 +294,22 @@ class SorceressRuntimeTests(unittest.TestCase):
                 WHERE potion_id = 'potion_common_swallow'
                 """
             ).fetchone()
+            witcher_inventory = connection.execute(
+                """
+                SELECT quantity
+                FROM potion_inventory
+                WHERE player_id = 'p_witcher_1'
+                  AND potion_id = 'potion_common_swallow'
+                """
+            ).fetchone()
+            scene_usage = connection.execute(
+                """
+                SELECT COUNT(*) AS usage_count
+                FROM potion_scene_usage
+                WHERE player_id = 'p_witcher_1'
+                  AND scene_id = 'scn_a1_001'
+                """
+            ).fetchone()
 
         self.assertEqual(bought["total_cost"], 24)
         self.assertEqual(bought["inventory"]["quantity"], 3)
@@ -301,7 +317,9 @@ class SorceressRuntimeTests(unittest.TestCase):
         self.assertEqual(sold["price_gold"], 12)
         self.assertEqual(gifted["status"], "accepted")
         self.assertEqual(first_use["max_potions_per_scene"], 1)
-        self.assertEqual(first_use["inventory"]["quantity"], 3)
+        self.assertEqual(first_use["inventory"]["quantity"], 2)
+        self.assertEqual(witcher_inventory["quantity"], 2)
+        self.assertEqual(scene_usage["usage_count"], 1)
         self.assertEqual(sorceress["gold"], 18)
         self.assertEqual(witcher["gold"], 8)
         self.assertEqual(market["stock"], 5)

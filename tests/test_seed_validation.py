@@ -144,6 +144,13 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                 {"pve_timeout_policy"},
             ),
             (
+                "pve_scenarios.csv",
+                "scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome\n"
+                "scn_a1_001,act1,5,monster_hunt,combat,99,single_d20,mob_neutral_patrol_t1,reward_pve_t1,ok,fail,fail_and_cooldown\n"
+                "scn_a1_002,act1,1,monster_hunt,combat,1,single_d20,mob_neutral_patrol_t1,reward_pve_t1,ok,fail,fail_and_cooldown\n",
+                {"invalid_pve_tier", "invalid_pve_dc"},
+            ),
+            (
                 "players.csv",
                 "player_id,role_type,display_name,lord_id,sorceress_start_lord_id,level,xp,gold,reputation,stats_json,player_code_id\n"
                 'p_bad,witcher,Bad Stats,,,1,0,20,0,"{""combat"":3,""lore"":2,""influence"":2}",code_witcher_1\n',
@@ -191,6 +198,12 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                 {"invalid_unit_class", "invalid_unit_value"},
             ),
             (
+                "army_unit_cards.csv",
+                "card_id,unit_class,tier,attack,defense,hp,initiative,move_range,attack_range,cost,source_id\n"
+                "unit_bad,infantry,0,1,1,0,1,6,6,1,b_training_yard\n",
+                {"invalid_unit_value"},
+            ),
+            (
                 "orders.csv",
                 "order_id,lord_id,target_player_id,object_id,visibility,status,escrow_reward_id\n"
                 "order_cap_1,p_lord_1,p_witcher_1,qr_a1_006,public,published,reward_order_success\n"
@@ -216,6 +229,49 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                 "transfer_id,from_player_id,to_player_id,asset_type,asset_id,status\n"
                 "trade_bad,p_missing,p_witcher_1,item,item_missing,teleported\n",
                 {"trade_transfer_player", "trade_transfer_asset", "trade_transfer_lock_rule"},
+            ),
+            (
+                "trade_transfers.csv",
+                "transfer_id,from_player_id,to_player_id,asset_type,asset_id,status\n"
+                "trade_seed_mint,p_witcher_1,p_lord_1,item,item_monster_trophy,pending_locked\n"
+                "trade_seed_grant,p_sorc_1,p_witcher_1,potion,potion_common_swallow,accepted\n",
+                {"trade_transfer_seed_provenance"},
+            ),
+            (
+                "map_edges.csv",
+                "edge_id,from_node_id,to_node_id,mp_cost,bidirectional\n"
+                "edge_bad,node_res_north,node_fort_east,-1,maybe\n",
+                {"invalid_map_edge_cost", "invalid_map_edge_bidirectional"},
+            ),
+            (
+                "auto_timers.csv",
+                "timer_id,act_id,timer_type,offset_min,interval_min,effect_type\n"
+                "timer_bad,act1,typo_tick,10,0,unknown_noop\n",
+                {"invalid_auto_timer", "invalid_auto_timer_effect", "missing_canonical_auto_timer"},
+            ),
+            (
+                "movement_pools.csv",
+                "pool_id,domain_id,act_id,current_mp,mp_cap,last_refill_offset_min\n"
+                "mp_bad,domain_north,act1,7,6,-1\n",
+                {"invalid_resource_value"},
+            ),
+            (
+                "recruit_markets.csv",
+                "offer_id,domain_id,card_id,cost,status,refresh_rule\n"
+                "offer_bad,domain_north,unit_infantry_t1,-5,available,act_refresh\n",
+                {"invalid_resource_value"},
+            ),
+            (
+                "rewards.csv",
+                "reward_id,xp,gold,item_ids,card_ids,artifact_ids,rarity,approval_policy\n"
+                "reward_pve_t1,-1,-10,item_herb_bundle,pc_infantry_t1,,Common,auto\n",
+                {"invalid_resource_value"},
+            ),
+            (
+                "potions.csv",
+                "potion_id,rarity,wholesale_cost,resale_min,resale_max,effect_json\n"
+                'potion_common_swallow,Common,-1,15,12,"{""effect"":""minor_heal_scene_hp""}"\n',
+                {"invalid_resource_value"},
             ),
             (
                 "rewards.csv",
@@ -339,7 +395,7 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                     f"Expected {expected_codes}, got {actual_codes}",
                 )
 
-    def test_order_validation_uses_status_rule_flags_for_locks_and_caps(self) -> None:
+    def test_order_validation_uses_status_rule_flags_for_locks_and_canonical_caps(self) -> None:
         duplicate_published = (
             "order_id,lord_id,target_player_id,object_id,visibility,status,escrow_reward_id\n"
             "order_open_1,p_lord_3,p_witcher_2,territory_well_city,public,published,reward_order_success\n"
@@ -375,7 +431,9 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                 "orders.csv": over_cap_published,
             }
         )
-        self.assertNotIn("order_cap", {error.code for error in cap_errors})
+        cap_codes = {error.code for error in cap_errors}
+        self.assertIn("order_status_cap_rule", cap_codes)
+        self.assertIn("order_cap", cap_codes)
 
     def test_task073_business_validation_rejects_cross_row_seed_breaks(self) -> None:
         bad_empty_required_ref = self._seed_csv("qr_objects.csv").replace(

@@ -15,7 +15,9 @@ from backend.witcher_larp.final_summary_service import build_final_summary
 from backend.witcher_larp.final_summary_service import record_final_master_note
 from backend.witcher_larp.import_models import ImportReport
 from backend.witcher_larp.import_service import import_seed_pack
+from backend.witcher_larp.lord_runtime import ensure_lord_runtime_state
 from backend.witcher_larp.npc_service import NpcEventInput, record_npc_event
+from backend.witcher_larp.review_service import decide_event_review
 from backend.witcher_larp.sorceress_service import cast_spell
 from backend.witcher_larp.sorceress_service import ensure_sorceress_runtime_state
 from backend.witcher_larp.sorceress_service import record_alignment_evidence
@@ -180,6 +182,10 @@ class FinalSummaryRuntimeTests(unittest.TestCase):
             {item["evidence_category"] for item in summary["missing_locks"]},
         )
         self.assertIn(
+            "pvp_gwent",
+            {item["evidence_category"] for item in summary["missing_locks"]},
+        )
+        self.assertIn(
             "battle",
             {item["evidence_category"] for item in summary["missing_locks"]},
         )
@@ -220,6 +226,21 @@ class FinalSummaryRuntimeTests(unittest.TestCase):
                 operator="gm_final",
                 physical_announcement_state="announced",
                 now=datetime(2026, 6, 2, 17, 15, tzinfo=UTC),
+            )
+            connection.execute(
+                """
+                UPDATE player_runtime_state
+                SET mana = 4
+                WHERE player_id = 'p_sorc_1'
+                """
+            )
+            cast_spell(
+                connection,
+                sorceress_id="p_sorc_1",
+                spell_id="spell_ritual_t4",
+                target_type="final_hook",
+                target_id="hook_sorc_intent",
+                now=final_time,
             )
             cast_spell(
                 connection,
@@ -280,6 +301,93 @@ class FinalSummaryRuntimeTests(unittest.TestCase):
             },
         )
         self.assertNotIn("p_sorc_1", {item["sorceress_id"] for item in magic_missing})
+        self.assertEqual(intent_states["p_sorc_1"]["status"], "locked")
+        self.assertEqual(len(intent_states["p_sorc_1"]["post_lock_disputes"]), 1)
+        self.assertIn(
+            "p_sorc_1",
+            {
+                item["sorceress_id"]
+                for item in summary["pending_disputes"]
+                if item["source_type"] == "locked_magical_intent"
+            },
+        )
+
+    def test_final_summary_filters_resolved_reviews_and_shows_pending_tick_rewards(self) -> None:
+        settings, _ = self.prepare_seed("final_summary_open_blockers")
+        now = datetime(2026, 6, 2, 15, 0, tzinfo=UTC)
+
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                INSERT INTO pending_tick_reward_runtime (
+                    pending_reward_id, domain_id, territory_id, reward_gold,
+                    status, due_at
+                )
+                VALUES (
+                    'pending_tick_final_summary', 'domain_north',
+                    'territory_fort_east', 14, 'pending', ?
+                )
+                """,
+                (now.isoformat(timespec="seconds"),),
+            )
+            sync_events(
+                connection,
+                EventSyncRequest(
+                    device_id="review-terminal",
+                    actor_id="gm_review",
+                    actor_type="master",
+                    events=[
+                        EventSyncEvent(
+                            event_id="paper-final-review-resolved",
+                            client_sequence=1,
+                            created_at=now.isoformat(timespec="seconds"),
+                            event_type="paper_recovered",
+                            payload={
+                                "paper_form_id": "paper_final_review_resolved",
+                                "source_form_type": "paper_final_evidence",
+                                "operator": "gm_review",
+                                "timestamp": now.isoformat(timespec="seconds"),
+                                "reason": "late final evidence",
+                                "evidence_category": "final_scene",
+                                "target_id": "p_witcher_2",
+                                "summary_text": "reviewed on paper",
+                                "conflict_status": "needs_review",
+                            },
+                        )
+                    ],
+                ),
+            )
+            before = build_final_summary(connection, now=now)
+            decide_event_review(
+                connection,
+                "paper-final-review-resolved",
+                action="approve",
+                operator="gm_review",
+                reason="paper evidence checked",
+            )
+            after = build_final_summary(connection, now=now)
+
+        self.assertIn(
+            "pending_tick_final_summary",
+            {item["pending_reward_id"] for item in after["pending_tick_rewards"]},
+        )
+        self.assertIn(
+            "pending_tick_final_summary",
+            {
+                item["record_id"]
+                for item in after["pending_disputes"]
+                if item["source_type"] == "pending_tick_reward"
+            },
+        )
+        self.assertIn(
+            "paper-final-review-resolved",
+            {item["event_id"] for item in before["pending_disputes"] if "event_id" in item},
+        )
+        self.assertNotIn(
+            "paper-final-review-resolved",
+            {item["event_id"] for item in after["pending_disputes"] if "event_id" in item},
+        )
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_fastapi_final_summary_and_final_lock_order_policy(self) -> None:

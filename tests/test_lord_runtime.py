@@ -31,7 +31,7 @@ class LordRuntimeTests(unittest.TestCase):
     def test_movement_contested_capture_pending_tick_and_hidden_garrisons(self) -> None:
         settings = self._settings("lord_move")
         self._import_seed(settings)
-        started_at = datetime(2026, 6, 2, 10, 0, tzinfo=UTC)
+        started_at = datetime.now(UTC)
         with connect(settings) as connection:
             start_act(
                 connection,
@@ -552,6 +552,30 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["token_spent"], 1)
         self.assertEqual(payload["gold_spent"], 15)
         self.assertGreaterEqual(payload["resistance"], 1)
+        self.assertIsNotNone(payload["expires_at"])
+
+        expired_at = datetime.now(UTC) - timedelta(minutes=1)
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE raid_effects
+                SET expires_at = ?
+                WHERE raid_effect_id = ?
+                """,
+                (expired_at.isoformat(timespec="seconds"), payload["raid_effect_id"]),
+            )
+        expired_state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers=self._headers("north"),
+        )
+        self.assertEqual(expired_state.status_code, 200)
+        expired_raid = next(
+            raid
+            for raid in expired_state.json()["raid_effects"]
+            if raid["raid_effect_id"] == payload["raid_effect_id"]
+        )
+        self.assertEqual(expired_raid["status"], "expired")
+        self.assertEqual(expired_state.json()["summary"]["active_raids"], 0)
 
         with connect(settings) as connection:
             ensure_lord_runtime_state(connection)
@@ -915,6 +939,30 @@ class LordRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(too_expensive.status_code, 400)
         self.assertEqual(too_expensive.json()["detail"]["code"], "insufficient_mp")
+
+    def test_movement_rejects_non_positive_runtime_route_cost(self) -> None:
+        settings = self._settings("lord_bad_route_cost")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE map_edges
+                SET mp_cost = -2
+                WHERE edge_id = 'edge_north_fort_east'
+                """
+            )
+
+        moved = client.post(
+            "/api/lords/p_lord_1/move",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_fort_east"},
+        )
+
+        self.assertEqual(moved.status_code, 400)
+        self.assertEqual(moved.json()["detail"]["code"], "invalid_route_cost")
 
     def test_lord_actions_reject_invalid_movement_garrison_raid_recruit_and_order_edges(self) -> None:
         settings = self._settings("lord_guardrails")

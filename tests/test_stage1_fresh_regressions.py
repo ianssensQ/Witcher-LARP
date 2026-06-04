@@ -146,9 +146,9 @@ class Stage1FreshRegressionTests(unittest.TestCase):
 
         future_lookup = client.post(
             "/api/qr/lookup",
+            headers=WITCHER_1_HEADERS,
             json={
                 "code": "QR-A2-B4K8",
-                "player_id": "p_witcher_1",
                 "device_id": "phone-wolf",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -206,6 +206,8 @@ class Stage1FreshRegressionTests(unittest.TestCase):
         self.assertNotIn("player_codes", snapshot_payload)
         self.assertNotIn("role_tokens", snapshot_payload)
         self.assertNotIn("UNLOCK-A2-7GQ4", snapshot.text)
+        self.assertNotIn("QR-A2-B4K8", snapshot.text)
+        self.assertNotIn("scn_a2_013", snapshot.text)
 
         self.assertEqual(sync["results"][0]["status"], "accepted")
         self.assertEqual(duplicate["results"][0]["status"], "duplicate")

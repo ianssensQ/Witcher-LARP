@@ -640,7 +640,7 @@ class PveRuntimeTests(unittest.TestCase):
                         events=[
                             EventSyncEvent(
                                 event_id=event_id,
-                                client_sequence=sequence,
+                                client_sequence=1,
                                 created_at=f"2026-06-02T09:{sequence:02d}:00+00:00",
                                 event_type="pve_completed",
                                 payload=payload,
@@ -909,7 +909,8 @@ class PveRuntimeTests(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(first_response.results[0].status, "pending_master_approval")
-        self.assertEqual(duplicate_response.results[0].status, "duplicate")
+        self.assertEqual(duplicate_response.results[0].status, "pending_master_approval")
+        self.assertEqual(duplicate_response.results[0].reason, "reward requires master approval")
         self.assertEqual(attempt["reward_id"], "reward_order_success")
         self.assertEqual(attempt["reward_status"], "pending_master_approval")
         self.assertEqual(approval_count, 1)
@@ -939,6 +940,12 @@ class PveRuntimeTests(unittest.TestCase):
         sequence: int,
     ):
         event_id = f"evt_{uuid4().hex}"
+        roll_log = payload.get("roll_log", [])
+        roll_created_at = (
+            roll_log[0].get("created_at")
+            if isinstance(roll_log, list) and roll_log and isinstance(roll_log[0], dict)
+            else None
+        )
         response = sync_events(
             connection,
             EventSyncRequest(
@@ -949,7 +956,12 @@ class PveRuntimeTests(unittest.TestCase):
                     EventSyncEvent(
                         event_id=event_id,
                         client_sequence=sequence,
-                        created_at=f"2026-06-02T09:{sequence:02d}:00+00:00",
+                        created_at=str(
+                            payload.get("completed_at")
+                            or payload.get("client_recorded_at")
+                            or roll_created_at
+                            or f"2026-06-02T09:{sequence:02d}:00+00:00"
+                        ),
                         event_type="pve_completed",
                         payload=payload,
                     )

@@ -99,13 +99,13 @@ def get_reputation_view(
         "state_label": rule.label,
         "canonical_label": rule.canonical_label,
         "player_descriptor": rule.player_descriptor,
-        "threshold_range": {
-            "min": rule.min_value,
-            "max": rule.max_value,
-        },
         "threshold_access": threshold_access(rule),
     }
     if visibility == "master":
+        base["threshold_range"] = {
+            "min": rule.min_value,
+            "max": rule.max_value,
+        }
         base["value"] = int(state["value"])
         base["change_log"] = _change_log(connection, player_id)
     else:

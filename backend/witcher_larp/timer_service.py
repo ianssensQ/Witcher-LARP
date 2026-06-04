@@ -122,6 +122,18 @@ def timer_status(
     }
 
 
+def ensure_final_lock(
+    connection: sqlite3.Connection,
+    *,
+    applied_at: datetime | None = None,
+    operator: str = "auto_timer",
+    source: str = "auto_timer",
+) -> dict[str, object]:
+    ensure_runtime_schema(connection)
+    current_time = applied_at or datetime.now(UTC)
+    return _apply_final_lock(connection, current_time, source, operator=operator)
+
+
 def ensure_runtime_content_state(connection: sqlite3.Connection) -> None:
     ensure_runtime_schema(connection)
     if _table_exists(connection, "players"):
@@ -336,7 +348,11 @@ def _apply_lord_income_mana_and_mp(
 
 
 def _apply_final_lock(
-    connection: sqlite3.Connection, applied_at: datetime, source: str
+    connection: sqlite3.Connection,
+    applied_at: datetime,
+    source: str,
+    *,
+    operator: str = "auto_timer",
 ) -> dict[str, object]:
     row = connection.execute("SELECT locked_at FROM final_lock_state WHERE id = 1").fetchone()
     if row is not None and row["locked_at"]:
@@ -345,10 +361,10 @@ def _apply_final_lock(
     connection.execute(
         """
         UPDATE final_lock_state
-        SET locked_at = ?, operator = 'auto_timer', source = ?
+        SET locked_at = ?, operator = ?, source = ?
         WHERE id = 1
         """,
-        (locked_at, source),
+        (locked_at, operator, source),
     )
     return {
         "status": "locked",

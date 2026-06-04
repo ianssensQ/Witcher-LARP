@@ -59,6 +59,10 @@ class PveValidationResult:
     metadata: dict[str, Any]
 
 
+class PveSideEffectConflictError(RuntimeError):
+    """Raised when a side-effect conflict appears after validation."""
+
+
 def build_pve_scene_card(
     connection: sqlite3.Connection,
     *,
@@ -413,7 +417,7 @@ def apply_pve_completion_side_effects(
         )
 
     if result == "success" and _metadata_is_unique_scene(metadata):
-        connection.execute(
+        cursor = connection.execute(
             """
             INSERT INTO pve_consumed_objects (
                 qr_id, scenario_id, act_id, player_id, source_event_id,
@@ -432,6 +436,8 @@ def apply_pve_completion_side_effects(
                 json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str),
             ),
         )
+        if cursor.rowcount == 0:
+            raise PveSideEffectConflictError("unique QR object already consumed")
 
     connection.execute(
         """

@@ -75,7 +75,7 @@ class TradeTransferContractTests(unittest.TestCase):
         self.assertEqual(artifact_accepted["status"], "accepted")
         self.assertEqual(item_owners, {"p_witcher_2": 1})
         self.assertEqual(artifact_owners, {"p_sorc_1": 1})
-        self.assertEqual(active_locks, 1)
+        self.assertEqual(active_locks, 0)
 
     def test_decline_releases_card_lock_back_to_original_owner(self) -> None:
         settings = self.prepare_seed("trade_decline_card")
@@ -109,10 +109,10 @@ class TradeTransferContractTests(unittest.TestCase):
 
         self.assertEqual(created["status"], "pending_locked")
         self.assertEqual(owner_after_create, {})
-        self.assertEqual(active_after_create, 2)
+        self.assertEqual(active_after_create, 1)
         self.assertEqual(declined["status"], "declined")
         self.assertEqual(owner_after_decline, {"p_witcher_1": 1})
-        self.assertEqual(active_after_decline, 1)
+        self.assertEqual(active_after_decline, 0)
 
     def test_potion_transfer_uses_generic_flow_without_breaking_inventory(self) -> None:
         settings = self.prepare_seed("trade_potion")
@@ -157,7 +157,7 @@ class TradeTransferContractTests(unittest.TestCase):
         self.assertEqual(sorc_after_create, 1)
         self.assertEqual(accepted["status"], "accepted")
         self.assertEqual(sorc_after_accept, 1)
-        self.assertEqual(witcher_after_accept, 2)
+        self.assertEqual(witcher_after_accept, 1)
 
     def test_trade_accept_is_idempotent_and_accepted_transfer_cannot_be_declined(self) -> None:
         settings = self.prepare_seed("trade_terminal_states")
@@ -202,69 +202,56 @@ class TradeTransferContractTests(unittest.TestCase):
         self.assertEqual(duplicate["status"], "accepted")
         self.assertTrue(duplicate["duplicate"])
         self.assertEqual(owners, {"p_witcher_2": 1})
-        self.assertEqual(active_locks, 1)
+        self.assertEqual(active_locks, 0)
 
-    def test_seed_pending_trade_import_creates_asset_lock_and_audit(self) -> None:
-        settings = self.prepare_seed("trade_seed_pending_lock")
+    def test_seed_contested_trade_import_has_no_asset_lock_or_grant_side_effects(self) -> None:
+        settings = self.prepare_seed("trade_seed_contested_review")
         with connect(settings) as connection:
             ensure_sorceress_runtime_state(connection)
 
-            with self.assertRaisesRegex(Exception, "locked"):
-                create_trade_transfer(
-                    connection,
-                    transfer_id="trade_seed_lock_reuse",
-                    from_player_id="p_witcher_1",
-                    to_player_id="p_witcher_2",
-                    asset_type="item",
-                    asset_id="item_monster_trophy",
-                )
-
-            lock = connection.execute(
-                """
-                SELECT lock_type, source_ref_id, owner_player_id, asset_type, asset_id, status
-                FROM asset_locks
-                WHERE source_ref_id = 'trade_pending_trophy'
-                  AND status = 'active'
-                """
-            ).fetchone()
-            audit_count = connection.execute(
-                """
-                SELECT COUNT(*)
-                FROM event_log
-                WHERE event_type = 'trade_transfer_seed_lock_created'
-                  AND payload_json LIKE '%trade_pending_trophy%'
-                """
-            ).fetchone()[0]
-
-        self.assertIsNotNone(lock)
-        self.assertEqual(lock["lock_type"], "trade_transfer")
-        self.assertEqual(lock["owner_player_id"], "p_witcher_1")
-        self.assertEqual(lock["asset_type"], "item")
-        self.assertEqual(lock["asset_id"], "item_monster_trophy")
-        self.assertEqual(audit_count, 1)
-
-    def test_seed_accepted_potion_transfer_applies_inventory_once(self) -> None:
-        settings = self.prepare_seed("trade_seed_accepted_potion")
-        with connect(settings) as connection:
-            ensure_sorceress_runtime_state(connection)
-            ensure_sorceress_runtime_state(connection)
-
+            statuses = {
+                row["transfer_id"]: row["status"]
+                for row in connection.execute(
+                    """
+                    SELECT transfer_id, status
+                    FROM trade_transfer_runtime
+                    WHERE transfer_id IN ('trade_pending_trophy', 'trade_accepted_potion')
+                    """
+                ).fetchall()
+            }
+            active_seed_locks = self.active_lock_count(connection)
             target_quantity = self.potion_quantity(
                 connection,
                 "p_witcher_1",
                 "potion_common_swallow",
             )
-            audit_count = connection.execute(
+            trophy_owners = self.owners(connection, "item", "item_monster_trophy")
+            seed_effect_audit_count = connection.execute(
                 """
                 SELECT COUNT(*)
                 FROM event_log
-                WHERE event_type = 'trade_transfer_seed_effect_applied'
-                  AND payload_json LIKE '%trade_accepted_potion%'
+                WHERE event_type IN (
+                    'trade_transfer_seed_lock_created',
+                    'trade_transfer_seed_effect_applied'
+                )
+                  AND (
+                    payload_json LIKE '%trade_pending_trophy%'
+                    OR payload_json LIKE '%trade_accepted_potion%'
+                  )
                 """
             ).fetchone()[0]
 
-        self.assertEqual(target_quantity, 1)
-        self.assertEqual(audit_count, 1)
+        self.assertEqual(
+            statuses,
+            {
+                "trade_pending_trophy": "contested_review",
+                "trade_accepted_potion": "contested_review",
+            },
+        )
+        self.assertEqual(active_seed_locks, 0)
+        self.assertEqual(target_quantity, 0)
+        self.assertEqual(trophy_owners, {})
+        self.assertEqual(seed_effect_audit_count, 0)
 
     def prepare_seed(self, name: str) -> Settings:
         settings = Settings(database_path=TEST_TMP_ROOT / f"{name}_{uuid4().hex}.db")
@@ -274,6 +261,14 @@ class TradeTransferContractTests(unittest.TestCase):
 
     @staticmethod
     def owners(connection, asset_type: str, asset_id: str) -> dict[str, int]:
+        if connection.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'asset_ownership'
+            """
+        ).fetchone() is None:
+            return {}
         return {
             row["owner_player_id"]: int(row["quantity"])
             for row in connection.execute(
@@ -303,6 +298,14 @@ class TradeTransferContractTests(unittest.TestCase):
 
     @staticmethod
     def active_lock_count(connection) -> int:
+        if connection.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'asset_locks'
+            """
+        ).fetchone() is None:
+            return 0
         return int(
             connection.execute(
                 "SELECT COUNT(*) FROM asset_locks WHERE status = 'active'"

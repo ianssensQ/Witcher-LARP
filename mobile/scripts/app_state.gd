@@ -517,6 +517,13 @@ func prepare_sync_request(max_events: int = 20) -> Dictionary:
 			continue
 		if not SYNC_RETRY_STATUSES.has(str(event.get("local_status", ""))):
 			continue
+		if not _event_belongs_to_current_player(event, player_id):
+			event["local_status"] = "needs_master_review"
+			event["server_status"] = "wrong_actor_queue"
+			event["last_error"] = "Queued event belongs to another player/session; ask a master for paper recovery."
+			event["last_sync_finished_at"] = now
+			event_queue[index] = event
+			continue
 
 		event["local_status"] = "pending"
 		event["sync_attempts"] = int(event.get("sync_attempts", 0)) + 1
@@ -546,6 +553,13 @@ func prepare_sync_request(max_events: int = 20) -> Dictionary:
 		},
 		"event_ids": event_ids
 	}
+
+
+func _event_belongs_to_current_player(event: Dictionary, player_id: String) -> bool:
+	var event_player_id := str(event.get("player_id", ""))
+	if event_player_id.is_empty():
+		return true
+	return event_player_id == player_id
 
 
 func mark_sync_batch_error(event_ids: Array, message: String, response_code: int = 0) -> void:

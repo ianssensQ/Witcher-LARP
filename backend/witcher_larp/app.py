@@ -29,7 +29,8 @@ from .lord_runtime import LordRuntimeError
 from .lord_runtime import buy_building, move_lord, order_action, recruit_action
 from .lord_runtime import start_raid, transfer_garrison
 from .npc_service import NpcEventError, NpcEventInput
-from .npc_service import list_npc_deals, list_npc_events, record_npc_event, review_queue
+from .npc_service import list_npc_deals, list_npc_events, record_npc_event
+from .npc_service import resolve_npc_event, review_queue
 from .pvp_service import ChallengeCreateInput, ChallengeStartInput, PvpError
 from .pvp_service import convert_personal_card_to_lord, create_pvp_challenge
 from .pvp_service import finish_gwent_match, get_pvp_tables, record_gwent_round
@@ -126,6 +127,13 @@ class NpcEventPayload(BaseModel):
     severity: str | None = None
     final_flag: bool = False
     operator: str = "master"
+    source: str = "master_api"
+
+
+class NpcEventResolvePayload(BaseModel):
+    operator: str = "master"
+    reason: str
+    status: str = "resolved"
     source: str = "master_api"
 
 
@@ -411,17 +419,33 @@ def create_app(settings: Settings | None = None):
         return snapshot
 
     @api.post("/api/qr/lookup")
-    def qr_lookup(payload: QrLookupPayload):
+    def qr_lookup(
+        payload: QrLookupPayload,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
+        player_code: str | None = None,
+    ):
         if not payload.code.strip():
             raise HTTPException(status_code=400, detail="QR/manual ID is required.")
         with connect(runtime_settings) as connection:
+            lookup_player_code = x_player_code or player_code
+            if not lookup_player_code or not lookup_player_code.strip():
+                raise HTTPException(status_code=401, detail="Player code is required.")
+            auth = _authenticate_player_code(connection, lookup_player_code)
+            if auth is None:
+                raise HTTPException(status_code=401, detail="Invalid player code.")
+            player_id = str(auth["player_id"])
+            if payload.player_id and payload.player_id != player_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="QR lookup player_id must match authenticated player.",
+                )
             if not has_qr_content(connection):
                 raise HTTPException(status_code=404, detail="No imported QR content is available.")
             return lookup_qr_runtime(
                 connection,
                 QrLookupRequest(
                     code=payload.code,
-                    player_id=payload.player_id,
+                    player_id=player_id,
                     device_id=payload.device_id,
                     source=payload.source,
                     physical_presence_confirmed=payload.physical_presence_confirmed,
@@ -626,6 +650,7 @@ def create_app(settings: Settings | None = None):
                 raise HTTPException(status_code=401, detail="Invalid role token.")
             if auth.role_type != "lord" or auth.owner_id != lord_id:
                 raise HTTPException(status_code=403, detail="Token cannot access this lord.")
+            _reconcile_due_timers(connection, runtime_settings)
             state = build_lord_state(connection, lord_id)
 
         if state is None:
@@ -641,6 +666,7 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             _require_lord_token(connection, lord_id, x_role_token or role_token)
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return move_lord(
                     connection,
@@ -661,6 +687,7 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             _require_lord_token(connection, lord_id, x_role_token or role_token)
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return transfer_garrison(
                     connection,
@@ -683,6 +710,7 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             _require_lord_token(connection, lord_id, x_role_token or role_token)
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return buy_building(
                     connection,
@@ -702,6 +730,7 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             _require_lord_token(connection, lord_id, x_role_token or role_token)
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return recruit_action(
                     connection,
@@ -722,6 +751,7 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             _require_lord_token(connection, lord_id, x_role_token or role_token)
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return start_raid(
                     connection,
@@ -776,6 +806,7 @@ def create_app(settings: Settings | None = None):
                 source = "master_api" if payload.source == "lord_panel" else payload.source
             else:
                 _require_lord_token(connection, lord_id, token)
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return order_action(
                     connection,
@@ -976,6 +1007,27 @@ def create_app(settings: Settings | None = None):
             except (NpcEventError, ReputationError) as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @api.post("/api/master/npc/events/{npc_runtime_event_id}/resolve")
+    def master_resolve_npc_event(
+        npc_runtime_event_id: int,
+        payload: NpcEventResolvePayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            try:
+                return resolve_npc_event(
+                    connection,
+                    npc_runtime_event_id,
+                    operator=payload.operator,
+                    reason=payload.reason,
+                    status=payload.status,
+                    source=payload.source,
+                )
+            except NpcEventError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @api.get("/api/master/npc/events")
     def master_npc_events(
         x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
@@ -1083,6 +1135,7 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             _require_master_token(connection, x_role_token or role_token)
+            _reconcile_due_timers(connection, runtime_settings)
             return build_final_summary(connection)
 
     @api.post("/api/master/final-summary/notes")
@@ -1123,6 +1176,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return get_sorceress_state(connection, sorceress_id)
             except SorceressError as exc:
@@ -1145,6 +1199,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return cast_spell(
                     connection,
@@ -1176,6 +1231,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return buy_potion(
                     connection,
@@ -1206,6 +1262,7 @@ def create_app(settings: Settings | None = None):
             )
             if payload.auto_accept and not auth["is_master"] and auth["player_id"] != payload.to_player_id:
                 raise HTTPException(status_code=403, detail="Auto-accept requires target player or master auth.")
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return transfer_potion(
                     connection,
@@ -1238,6 +1295,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return use_potion_in_scene(
                     connection,
@@ -1266,6 +1324,7 @@ def create_app(settings: Settings | None = None):
             )
             if payload.auto_accept and not auth["is_master"] and auth["player_id"] != payload.to_player_id:
                 raise HTTPException(status_code=403, detail="Auto-accept requires target player or master auth.")
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return create_trade_transfer(
                     connection,
@@ -1299,6 +1358,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return accept_trade_transfer(
                     connection,
@@ -1325,6 +1385,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return decline_trade_transfer(
                     connection,
@@ -1352,6 +1413,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return create_favorite_request(
                     connection,
@@ -1381,6 +1443,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return accept_favorite(
                     connection,
@@ -1408,6 +1471,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return record_alignment_evidence(
                     connection,
@@ -1439,6 +1503,7 @@ def create_app(settings: Settings | None = None):
             )
             if payload.master_approval and not auth["is_master"]:
                 raise HTTPException(status_code=403, detail="Master approval requires master role token.")
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return create_pvp_challenge(
                     connection,
@@ -1458,6 +1523,7 @@ def create_app(settings: Settings | None = None):
     @api.get("/api/pvp/tables")
     def pvp_tables():
         with connect(runtime_settings) as connection:
+            _reconcile_due_timers(connection, runtime_settings)
             return get_pvp_tables(connection)
 
     @api.post("/api/pvp/challenges/{challenge_id}/start")
@@ -1478,6 +1544,7 @@ def create_app(settings: Settings | None = None):
             _require_pvp_challenge_participant(connection, challenge_id, auth)
             if payload.master_approval and not auth["is_master"]:
                 raise HTTPException(status_code=403, detail="Master approval requires master role token.")
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return start_pvp_challenge(
                     connection,
@@ -1513,6 +1580,7 @@ def create_app(settings: Settings | None = None):
             )
             _require_gwent_match_participant(connection, match_id, auth)
             _assert_round_payload_actor_scope(round_state, auth)
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return record_gwent_round(
                     connection,
@@ -1544,6 +1612,7 @@ def create_app(settings: Settings | None = None):
             _require_gwent_match_participant(connection, match_id, auth)
             if payload.winner_id and not auth["is_master"] and payload.winner_id != auth["player_id"]:
                 raise HTTPException(status_code=403, detail="Winner payload must match authenticated player.")
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return finish_gwent_match(
                     connection,
@@ -1574,6 +1643,7 @@ def create_app(settings: Settings | None = None):
             actor_id = payload.actor_id or auth["player_id"]
             if not auth["is_master"] and actor_id != auth["player_id"]:
                 raise HTTPException(status_code=403, detail="Refusal actor must match authenticated player.")
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return record_pvp_refusal(
                     connection,
@@ -1618,6 +1688,7 @@ def create_app(settings: Settings | None = None):
                 player_code=x_player_code or player_code,
                 role_token=x_role_token or role_token,
             )
+            _reconcile_due_timers(connection, runtime_settings)
             try:
                 return convert_personal_card_to_lord(
                     connection,
@@ -1776,6 +1847,10 @@ def _require_player_or_master(
     return auth
 
 
+def _reconcile_due_timers(connection, settings: Settings) -> None:
+    apply_due_timers(connection, settings, source="role_endpoint_reconcile")
+
+
 def _require_pvp_challenge_participant(
     connection,
     challenge_id: str,
@@ -1912,7 +1987,6 @@ def _authenticate_player_code(connection, player_code: str) -> dict[str, Any] | 
                 p.level,
                 p.xp,
                 p.gold,
-                p.reputation,
                 p.stats_json
             FROM player_codes pc
             JOIN players p ON p.player_id = pc.player_id
@@ -1933,9 +2007,11 @@ def _authenticate_player_code(connection, player_code: str) -> dict[str, Any] | 
         "level": str(row["level"]),
         "xp": str(row["xp"]),
         "gold": str(row["gold"]),
-        "reputation": str(row["reputation"]),
         "stats_json": str(row["stats_json"]),
     }
+    reputation_state = _player_auth_reputation_state(connection, str(row["player_id"]))
+    if reputation_state:
+        player["reputation_state"] = reputation_state
     return {
         "status": "ok",
         "scope": "player",
@@ -1945,6 +2021,25 @@ def _authenticate_player_code(connection, player_code: str) -> dict[str, Any] | 
         "display_name": str(row["display_name"]),
         "player": player,
         "permissions": ["mobile:snapshot", "mobile:event_sync"],
+    }
+
+
+def _player_auth_reputation_state(
+    connection, player_id: str
+) -> dict[str, object] | None:
+    try:
+        view = get_reputation_view(connection, player_id, visibility="player")
+    except (ReputationError, sqlite3.OperationalError):
+        return None
+    return {
+        key: view[key]
+        for key in (
+            "state_label",
+            "canonical_label",
+            "player_descriptor",
+            "value_visibility",
+        )
+        if key in view
     }
 
 

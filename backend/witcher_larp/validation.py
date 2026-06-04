@@ -31,6 +31,63 @@ VALID_PVP_THROTTLE_MODES = {"normal", "limited", "paused"}
 VALID_REWARD_POLICIES = {"auto", "pending_master_approval"}
 VALID_ORDER_VISIBILITY = {"public", "addressed", "private"}
 VALID_FAVORITE_SLOTS = {"primary", "secondary"}
+PVE_DC_BY_TIER = {
+    1: (10, 12),
+    2: (13, 15),
+    3: (16, 18),
+    4: (19, 21),
+}
+UNIT_BATTLE_RANGES = {
+    "tier": (1, 4),
+    "attack": (1, 20),
+    "defense": (1, 20),
+    "hp": (1, 50),
+    "initiative": (1, 20),
+    "move_range": (1, 5),
+    "attack_range": (1, 5),
+    "cost": (1, 500),
+}
+VALID_TIMER_TYPES = {"hourly_tick", "one_shot"}
+VALID_TIMER_EFFECTS = {
+    "lord_income_and_mana",
+    "lock_new_pvp_challenges",
+    "backup_before_final",
+}
+REQUIRED_CANONICAL_TIMERS = {
+    "final_lock": {
+        "act_id": "final_lock",
+        "timer_type": "one_shot",
+        "offset_min": 435,
+        "interval_min": 0,
+        "effect_type": "lock_new_pvp_challenges",
+    },
+    "pre_final_backup": {
+        "act_id": "final_act",
+        "timer_type": "one_shot",
+        "offset_min": 450,
+        "interval_min": 0,
+        "effect_type": "backup_before_final",
+    },
+}
+CANONICAL_ORDER_CAP_STATUSES = {
+    "published",
+    "addressed_pending",
+    "accepted",
+    "in_progress",
+    "claimed_at_prop",
+    "submitted_pending_sync",
+    "pending_master_approval",
+    "failed_retryable",
+    "contested_review",
+}
+VALID_TRADE_TRANSFER_STATUSES = {
+    "pending_locked",
+    "accepted",
+    "rejected",
+    "cancelled",
+    "contested_review",
+}
+UNSAFE_SEED_TRADE_STATUSES = {"pending_locked", "accepted"}
 REQUIRED_NPC_MASTER_TOKEN_OWNERS = {"npc_king", "npc_wanderer"}
 CANONICAL_LORD_BATTLE_RULES = {
     "grid_width": "5",
@@ -131,8 +188,10 @@ def validate_seed_pack(pack: SeedPack) -> list[ImportErrorDetail]:
     errors.extend(_validate_role_ownership_and_tokens(tables))
     errors.extend(_validate_stat_model(tables))
     errors.extend(_validate_acts_and_unlocks(tables, ids))
+    errors.extend(_validate_map_and_timer_invariants(tables))
     errors.extend(_validate_qr_and_pve(tables, ids))
     errors.extend(_validate_buildings_and_units(tables, ids))
+    errors.extend(_validate_signed_economy_resources(tables))
     errors.extend(_validate_orders(tables, ids))
     errors.extend(_validate_gwent(tables, ids))
     errors.extend(_validate_trade_transfers(tables, ids))
@@ -848,6 +907,140 @@ def _validate_acts_and_unlocks(
     return errors
 
 
+def _validate_map_and_timer_invariants(tables: dict[str, CsvTable]) -> list[ImportErrorDetail]:
+    errors: list[ImportErrorDetail] = []
+    for record in tables["map_edges.csv"].rows:
+        edge_id = record.values["edge_id"]
+        mp_cost = _to_int(record.values["mp_cost"], default=-1)
+        if mp_cost <= 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_map_edge_cost",
+                    file="map_edges.csv",
+                    row=record.row_number,
+                    record_id=edge_id,
+                    message="Map edge mp_cost must be a positive integer.",
+                )
+            )
+        if record.values["bidirectional"] not in {"true", "false"}:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_map_edge_bidirectional",
+                    file="map_edges.csv",
+                    row=record.row_number,
+                    record_id=edge_id,
+                    message="Map edge bidirectional must be true or false.",
+                )
+            )
+
+    acts = {record.values["act_id"]: record for record in tables["acts.csv"].rows}
+    required_timer_matches = dict.fromkeys(REQUIRED_CANONICAL_TIMERS, False)
+    for record in tables["auto_timers.csv"].rows:
+        timer_id = record.values["timer_id"]
+        timer_type = record.values["timer_type"]
+        effect_type = record.values["effect_type"]
+        offset_min = _to_int(record.values["offset_min"], default=-1)
+        interval_min = _to_int(record.values["interval_min"], default=-1)
+
+        if timer_type not in VALID_TIMER_TYPES:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_auto_timer",
+                    file="auto_timers.csv",
+                    row=record.row_number,
+                    record_id=timer_id,
+                    message=f"Unsupported auto timer type {timer_type}.",
+                )
+            )
+        if effect_type not in VALID_TIMER_EFFECTS:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_auto_timer_effect",
+                    file="auto_timers.csv",
+                    row=record.row_number,
+                    record_id=timer_id,
+                    message=f"Unsupported auto timer effect_type {effect_type}.",
+                )
+            )
+        if offset_min < 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_auto_timer",
+                    file="auto_timers.csv",
+                    row=record.row_number,
+                    record_id=timer_id,
+                    message="Auto timer offset_min must be a non-negative integer.",
+                )
+            )
+        if timer_type == "one_shot" and interval_min != 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_auto_timer",
+                    file="auto_timers.csv",
+                    row=record.row_number,
+                    record_id=timer_id,
+                    message="One-shot auto timers must use interval_min=0.",
+                )
+            )
+        if timer_type == "hourly_tick" and interval_min <= 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_auto_timer",
+                    file="auto_timers.csv",
+                    row=record.row_number,
+                    record_id=timer_id,
+                    message="Repeating auto timers must use a positive interval_min.",
+                )
+            )
+
+        act = acts.get(record.values["act_id"])
+        if act is not None:
+            start_offset = _to_int(act.values["start_offset_min"], default=-1)
+            end_offset = _to_int(act.values["end_offset_min"], default=-1)
+            if offset_min < start_offset or offset_min > end_offset:
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_auto_timer",
+                        file="auto_timers.csv",
+                        row=record.row_number,
+                        record_id=timer_id,
+                        message=(
+                            "Auto timer offset_min must fall inside the linked act "
+                            f"window {start_offset}..{end_offset}."
+                        ),
+                    )
+                )
+
+        for required_id, expected in REQUIRED_CANONICAL_TIMERS.items():
+            if required_timer_matches[required_id]:
+                continue
+            if (
+                record.values["act_id"] == expected["act_id"]
+                and timer_type == expected["timer_type"]
+                and offset_min == expected["offset_min"]
+                and interval_min == expected["interval_min"]
+                and effect_type == expected["effect_type"]
+            ):
+                required_timer_matches[required_id] = True
+
+    for required_id, matched in required_timer_matches.items():
+        if not matched:
+            expected = REQUIRED_CANONICAL_TIMERS[required_id]
+            errors.append(
+                ImportErrorDetail(
+                    code="missing_canonical_auto_timer",
+                    file="auto_timers.csv",
+                    record_id=required_id,
+                    message=(
+                        "Missing canonical auto timer "
+                        f"{expected['effect_type']} for act {expected['act_id']} "
+                        f"at offset {expected['offset_min']}."
+                    ),
+                )
+            )
+    return errors
+
+
 def _validate_qr_and_pve(
     tables: dict[str, CsvTable], ids: dict[str, set[str]]
 ) -> list[ImportErrorDetail]:
@@ -931,13 +1124,38 @@ def _validate_qr_and_pve(
         )
 
     for record in tables["pve_scenarios.csv"].rows:
+        scenario_id = record.values["scenario_id"]
+        tier = _to_int(record.values["tier"], default=-1)
+        dc = _to_int(record.values["dc"], default=-1)
+        if tier not in PVE_DC_BY_TIER:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_pve_tier",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message="PvE scenario tier must be 1..4.",
+                )
+            )
+        else:
+            dc_min, dc_max = PVE_DC_BY_TIER[tier]
+            if not dc_min <= dc <= dc_max:
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_pve_dc",
+                        file="pve_scenarios.csv",
+                        row=record.row_number,
+                        record_id=scenario_id,
+                        message=f"PvE tier {tier} dc must be {dc_min}..{dc_max}.",
+                    )
+                )
         if record.values["primary_stat"] not in CANONICAL_STAT_SET:
             errors.append(
                 ImportErrorDetail(
                     code="invalid_pve_stat",
                     file="pve_scenarios.csv",
                     row=record.row_number,
-                    record_id=record.values["scenario_id"],
+                    record_id=scenario_id,
                     message=(
                         "PvE primary_stat must use canonical mobile stats: "
                         f"{', '.join(CANONICAL_STATS)}."
@@ -950,7 +1168,7 @@ def _validate_qr_and_pve(
                     code="pve_timeout_policy",
                     file="pve_scenarios.csv",
                     row=record.row_number,
-                    record_id=record.values["scenario_id"],
+                    record_id=scenario_id,
                     message="PvE timeout must be fail_and_cooldown.",
                 )
             )
@@ -1032,17 +1250,228 @@ def _validate_buildings_and_units(
                     message=f"Invalid unit_class {record.values['unit_class']}.",
                 )
             )
-        for column in ("tier", "attack", "defense", "hp", "initiative", "move_range", "attack_range", "cost"):
-            if _to_int(record.values[column], default=-1) < 0:
+        for column, (minimum, maximum) in UNIT_BATTLE_RANGES.items():
+            value = _to_int(record.values[column], default=minimum - 1)
+            if not minimum <= value <= maximum:
                 errors.append(
                     ImportErrorDetail(
                         code="invalid_unit_value",
                         file="army_unit_cards.csv",
                         row=record.row_number,
                         record_id=card_id,
-                        message=f"Unit {column} must be a non-negative integer.",
+                        message=f"Unit {column} must be an integer in {minimum}..{maximum}.",
                     )
                 )
+    return errors
+
+
+def _validate_signed_economy_resources(tables: dict[str, CsvTable]) -> list[ImportErrorDetail]:
+    errors: list[ImportErrorDetail] = []
+
+    for record in tables["players.csv"].rows:
+        player_id = record.values["player_id"]
+        for column in ("level", "xp", "gold"):
+            minimum = 1 if column == "level" else 0
+            value = _to_int(record.values[column], default=minimum - 1)
+            if value < minimum:
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_resource_value",
+                        file="players.csv",
+                        row=record.row_number,
+                        record_id=player_id,
+                        message=f"Player {column} must be at least {minimum}.",
+                    )
+                )
+        reputation = _to_int(record.values["reputation"], default=-999)
+        if not -5 <= reputation <= 5:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="players.csv",
+                    row=record.row_number,
+                    record_id=player_id,
+                    message="Player reputation must be in -5..5.",
+                )
+            )
+
+    for record in tables["domains.csv"].rows:
+        domain_id = record.values["domain_id"]
+        for column in ("starting_gold", "base_income"):
+            if _to_int(record.values[column], default=-1) < 0:
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_resource_value",
+                        file="domains.csv",
+                        row=record.row_number,
+                        record_id=domain_id,
+                        message=f"Domain {column} must be non-negative.",
+                    )
+                )
+
+    for record in tables["movement_rules.csv"].rows:
+        rule_id = record.values["rule_id"]
+        for column in ("mp_cap", "refill_interval_min", "refill_amount"):
+            if _to_int(record.values[column], default=0) <= 0:
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_resource_value",
+                        file="movement_rules.csv",
+                        row=record.row_number,
+                        record_id=rule_id,
+                        message=f"Movement rule {column} must be positive.",
+                    )
+                )
+
+    for record in tables["movement_pools.csv"].rows:
+        pool_id = record.values["pool_id"]
+        current_mp = _to_int(record.values["current_mp"], default=-1)
+        mp_cap = _to_int(record.values["mp_cap"], default=-1)
+        if current_mp < 0 or mp_cap <= 0 or current_mp > mp_cap:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="movement_pools.csv",
+                    row=record.row_number,
+                    record_id=pool_id,
+                    message="Movement pools require 0 <= current_mp <= positive mp_cap.",
+                )
+            )
+        if _to_int(record.values["last_refill_offset_min"], default=-1) < 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="movement_pools.csv",
+                    row=record.row_number,
+                    record_id=pool_id,
+                    message="Movement pool last_refill_offset_min must be non-negative.",
+                )
+            )
+
+    for record in tables["buildings.csv"].rows:
+        if _to_int(record.values["capacity_delta"], default=-1) < 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="buildings.csv",
+                    row=record.row_number,
+                    record_id=record.values["building_id"],
+                    message="Building capacity_delta must be non-negative.",
+                )
+            )
+
+    for record in tables["recruit_markets.csv"].rows:
+        if _to_int(record.values["cost"], default=0) <= 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="recruit_markets.csv",
+                    row=record.row_number,
+                    record_id=record.values["offer_id"],
+                    message="Recruit market cost must be positive.",
+                )
+            )
+
+    for record in tables["rewards.csv"].rows:
+        reward_id = record.values["reward_id"]
+        for column in ("xp", "gold"):
+            if _to_int(record.values[column], default=-1) < 0:
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_resource_value",
+                        file="rewards.csv",
+                        row=record.row_number,
+                        record_id=reward_id,
+                        message=f"Reward {column} must be non-negative.",
+                    )
+                )
+
+    for record in tables["pending_tick_rewards.csv"].rows:
+        if _to_int(record.values["unlock_offset_min"], default=-1) < 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="pending_tick_rewards.csv",
+                    row=record.row_number,
+                    record_id=record.values["pending_reward_id"],
+                    message="Pending tick reward unlock_offset_min must be non-negative.",
+                )
+            )
+
+    for record in tables["raid_rules.csv"].rows:
+        rule_id = record.values["rule_id"]
+        for column in ("token_cost", "gold_cost", "duration_min"):
+            if _to_int(record.values[column], default=0) <= 0:
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_resource_value",
+                        file="raid_rules.csv",
+                        row=record.row_number,
+                        record_id=rule_id,
+                        message=f"Raid rule {column} must be positive.",
+                    )
+                )
+
+    for record in tables["potions.csv"].rows:
+        potion_id = record.values["potion_id"]
+        wholesale_cost = _to_int(record.values["wholesale_cost"], default=0)
+        resale_min = _to_int(record.values["resale_min"], default=0)
+        resale_max = _to_int(record.values["resale_max"], default=0)
+        if wholesale_cost <= 0 or resale_min <= 0 or resale_max < resale_min:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="potions.csv",
+                    row=record.row_number,
+                    record_id=potion_id,
+                    message=(
+                        "Potion wholesale_cost/resale_min must be positive and "
+                        "resale_max must be at least resale_min."
+                    ),
+                )
+            )
+
+    for record in tables["potion_markets.csv"].rows:
+        if _to_int(record.values["stock"], default=-1) < 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="potion_markets.csv",
+                    row=record.row_number,
+                    record_id=record.values["market_id"],
+                    message="Potion market stock must be non-negative.",
+                )
+            )
+
+    for record in tables["spells.csv"].rows:
+        if _to_int(record.values["cost_mana"], default=0) <= 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="spells.csv",
+                    row=record.row_number,
+                    record_id=record.values["spell_id"],
+                    message="Spell cost_mana must be positive.",
+                )
+            )
+
+    for record in tables["anti_snowball_rules.csv"].rows:
+        ratio = _to_int(record.values["army_power_ratio_threshold"], default=0)
+        cut = _to_int(record.values["income_cut_percent"], default=0)
+        if ratio <= 100 or not 1 <= cut <= 100:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="anti_snowball_rules.csv",
+                    row=record.row_number,
+                    record_id=record.values["rule_id"],
+                    message=(
+                        "Anti-snowball ratio must be above 100 and "
+                        "income_cut_percent must be 1..100."
+                    ),
+                )
+            )
+
     return errors
 
 
@@ -1056,13 +1485,27 @@ def _validate_orders(
         for record in status_rows
         if _csv_bool(record.values.get("locks_object"))
     }
-    cap_statuses = {
-        record.values["status_id"]
-        for record in status_rows
-        if _csv_bool(record.values.get("counts_against_cap"))
-    }
+    cap_statuses = set(CANONICAL_ORDER_CAP_STATUSES)
     object_locks: dict[tuple[str, str], str] = {}
     counts_by_lord_visibility: dict[tuple[str, str], int] = defaultdict(int)
+
+    for record in status_rows:
+        status_id = record.values["status_id"]
+        if status_id in CANONICAL_ORDER_CAP_STATUSES and not _csv_bool(
+            record.values.get("counts_against_cap")
+        ):
+            errors.append(
+                ImportErrorDetail(
+                    code="order_status_cap_rule",
+                    file="order_status_rules.csv",
+                    row=record.row_number,
+                    record_id=status_id,
+                    message=(
+                        f"Canonical active order status {status_id} must count "
+                        "against lord order caps."
+                    ),
+                )
+            )
 
     for record in tables["orders.csv"].rows:
         order_id = record.values["order_id"]
@@ -1250,7 +1693,8 @@ def _validate_trade_transfers(
                     message=f"Trade transfer references unknown asset {record.values['asset_id']}.",
                 )
             )
-        if record.values["status"] not in {"pending_locked", "accepted", "rejected", "cancelled"}:
+        status = record.values["status"]
+        if status not in VALID_TRADE_TRANSFER_STATUSES:
             errors.append(
                 ImportErrorDetail(
                     code="trade_transfer_lock_rule",
@@ -1258,6 +1702,20 @@ def _validate_trade_transfers(
                     row=record.row_number,
                     record_id=record.values["transfer_id"],
                     message="Trade transfer status must preserve two-confirmation lock semantics.",
+                )
+            )
+        elif status in UNSAFE_SEED_TRADE_STATUSES:
+            errors.append(
+                ImportErrorDetail(
+                    code="trade_transfer_seed_provenance",
+                    file="trade_transfers.csv",
+                    row=record.row_number,
+                    record_id=record.values["transfer_id"],
+                    message=(
+                        "Seed trade transfers cannot import pending_locked or accepted "
+                        "state without source debit/provenance; use contested_review or "
+                        "create the transfer through runtime APIs."
+                    ),
                 )
             )
     return errors

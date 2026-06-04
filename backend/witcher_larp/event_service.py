@@ -22,6 +22,7 @@ from .pve_runtime import (
     APP_GENERATED_ROLL_SOURCE,
     MASTER_RECOVERED_ROLL_SOURCES,
     PVE_RESULTS,
+    PveSideEffectConflictError,
     resolve_pve_scene,
 )
 from .pve_runtime import apply_pve_completion_side_effects, validate_pve_completion
@@ -53,8 +54,29 @@ def sync_events(
 ) -> EventSyncResponse:
     ensure_event_schema(connection)
     server_time = _utc_now()
-    results = [_sync_single_event(connection, request, event, server_time) for event in request.events]
-    _record_client_sync_state(connection, request, server_time)
+    tracker = _client_sequence_tracker(connection, request)
+    results: list[EventSyncResult] = []
+    for event in request.events:
+        existing = _existing_event_row(connection, event.event_id)
+        preflight_decision = None
+        if existing is None:
+            preflight_decision = _preflight_event_decision(
+                connection,
+                request,
+                event,
+                tracker,
+            )
+        results.append(
+            _sync_single_event(
+                connection,
+                request,
+                event,
+                server_time,
+                existing=existing,
+                preflight_decision=preflight_decision,
+            )
+        )
+    _record_client_sync_state(connection, request, server_time, tracker)
     return EventSyncResponse(
         server_time=server_time,
         snapshot_version=latest_snapshot_version(connection),
@@ -62,29 +84,175 @@ def sync_events(
     )
 
 
+def _existing_event_row(connection: sqlite3.Connection, event_id: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT server_event_id, status, reason
+        FROM events
+        WHERE event_id = ?
+        """,
+        (event_id,),
+    ).fetchone()
+
+
+def _duplicate_event_result(event_id: str, existing: sqlite3.Row) -> EventSyncResult:
+    original_status = _event_status_from_db(existing["status"])
+    visible_status = (
+        EventStatus.DUPLICATE
+        if original_status == EventStatus.ACCEPTED
+        else original_status
+    )
+    reason = existing["reason"]
+    if visible_status == EventStatus.DUPLICATE and not reason:
+        reason = "event_id already processed"
+    return EventSyncResult(
+        event_id=event_id,
+        status=visible_status,
+        reason=reason,
+        server_event_id=int(existing["server_event_id"]),
+    )
+
+
+def _event_status_from_db(value: object) -> EventStatus:
+    try:
+        return EventStatus(str(value))
+    except ValueError:
+        return EventStatus.NEEDS_MASTER_REVIEW
+
+
+def _client_sequence_tracker(
+    connection: sqlite3.Connection,
+    request: EventSyncRequest,
+) -> dict[str, Any]:
+    row = connection.execute(
+        """
+        SELECT player_id, last_event_sequence
+        FROM client_sync_state
+        WHERE client_id = ?
+        """,
+        (request.device_id,),
+    ).fetchone()
+    last_sequence = int(row["last_event_sequence"]) if row is not None else 0
+    return {
+        "last_sequence": last_sequence,
+        "next_expected": last_sequence + 1,
+        "highest_contiguous": last_sequence,
+        "seen_sequences": set(),
+    }
+
+
+def _preflight_event_decision(
+    connection: sqlite3.Connection,
+    request: EventSyncRequest,
+    event: EventSyncEvent,
+    tracker: dict[str, Any],
+) -> EventDecision | None:
+    actor_reason = _payload_actor_scope_reason(request, event)
+    if actor_reason is not None:
+        return EventDecision(
+            EventStatus.REJECTED,
+            actor_reason,
+            {
+                "device_id": request.device_id,
+                "actor_id": request.actor_id,
+                "actor_type": request.actor_type,
+                "client_sequence": event.client_sequence,
+                "event_type": event.event_type,
+                "audit_review": True,
+                "review_severity": "P0",
+                "auth_boundary": "event_payload_actor_mismatch",
+            },
+        )
+
+    sequence_decision = _client_sequence_decision(request, event, tracker)
+    if sequence_decision is not None:
+        return sequence_decision
+
+    tracker["seen_sequences"].add(event.client_sequence)
+    tracker["highest_contiguous"] = max(
+        int(tracker["highest_contiguous"]),
+        event.client_sequence,
+    )
+    tracker["next_expected"] = event.client_sequence + 1
+    return None
+
+
+def _payload_actor_scope_reason(
+    request: EventSyncRequest,
+    event: EventSyncEvent,
+) -> str | None:
+    if event.event_type not in PLAYER_ONLY_SYNC_EVENT_TYPES:
+        return None
+    payload_player_id = str(event.payload.get("player_id") or "").strip()
+    if payload_player_id and payload_player_id != request.actor_id:
+        return "event payload player_id does not match authenticated actor"
+    if event.event_type == "pve_completed":
+        roll_player_id = str(_pve_payload_roll_entry(event.payload).get("player_id") or "").strip()
+        if roll_player_id and roll_player_id != request.actor_id:
+            return "event roll_log player_id does not match authenticated actor"
+    return None
+
+
+def _client_sequence_decision(
+    request: EventSyncRequest,
+    event: EventSyncEvent,
+    tracker: dict[str, Any],
+) -> EventDecision | None:
+    sequence = event.client_sequence
+    metadata: dict[str, Any] = {
+        "device_id": request.device_id,
+        "actor_id": request.actor_id,
+        "actor_type": request.actor_type,
+        "client_sequence": sequence,
+        "event_type": event.event_type,
+        "last_event_sequence": int(tracker["last_sequence"]),
+        "expected_client_sequence": int(tracker["next_expected"]),
+        "sequence_boundary": "client_sequence",
+    }
+    if sequence in tracker["seen_sequences"]:
+        metadata.update({"audit_review": True, "review_severity": "P1"})
+        return EventDecision(
+            EventStatus.REJECTED,
+            f"duplicate client_sequence in sync batch: {sequence}",
+            metadata,
+        )
+    if sequence < int(tracker["next_expected"]):
+        metadata.update({"audit_review": True, "review_severity": "P1"})
+        return EventDecision(
+            EventStatus.REJECTED,
+            (
+                "client_sequence already processed or out of order: "
+                f"{sequence} < {int(tracker['next_expected'])}"
+            ),
+            metadata,
+        )
+    if sequence > int(tracker["next_expected"]):
+        metadata.update({"audit_review": True, "review_severity": "P1"})
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            (
+                "client_sequence gap detected: "
+                f"expected {int(tracker['next_expected'])}, got {sequence}"
+            ),
+            metadata,
+        )
+    return None
+
+
 def _sync_single_event(
     connection: sqlite3.Connection,
     request: EventSyncRequest,
     event: EventSyncEvent,
     received_at: str,
+    *,
+    existing: sqlite3.Row | None = None,
+    preflight_decision: EventDecision | None = None,
 ) -> EventSyncResult:
-    existing = connection.execute(
-        """
-        SELECT server_event_id
-        FROM events
-        WHERE event_id = ?
-        """,
-        (event.event_id,),
-    ).fetchone()
+    existing = existing if existing is not None else _existing_event_row(connection, event.event_id)
     if existing is not None:
-        return EventSyncResult(
-            event_id=event.event_id,
-            status=EventStatus.DUPLICATE,
-            reason="event_id already processed",
-            server_event_id=int(existing["server_event_id"]),
-        )
+        return _duplicate_event_result(event.event_id, existing)
 
-    decision = _decide_event(connection, request, event)
+    decision = preflight_decision or _decide_event(connection, request, event)
     payload_json = _json_dumps(event.payload)
     metadata_json = _json_dumps(decision.metadata)
     applied_at = received_at if decision.status == EventStatus.ACCEPTED else None
@@ -125,7 +293,7 @@ def _sync_single_event(
         decision,
         server_event_id,
     )
-    _apply_pve_side_effects_if_needed(
+    decision = _apply_pve_side_effects_if_needed(
         connection,
         request,
         event,
@@ -254,6 +422,19 @@ def _decide_pve_completed(
             metadata,
         )
     metadata["act_id"] = qr_row["act_id"]
+    creation_authority_reason = _pve_event_creation_authority_reason(
+        connection,
+        event,
+        act_id=str(qr_row["act_id"]),
+    )
+    if creation_authority_reason is not None:
+        metadata["audit_review"] = True
+        metadata["review_severity"] = "P1"
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            creation_authority_reason,
+            metadata,
+        )
     roll_source = _pve_payload_roll_source(event.payload)
     if roll_source:
         metadata["roll_source"] = roll_source
@@ -598,20 +779,30 @@ def _decide_paper_recovered(
             metadata,
         )
 
-    conflict_status = str(event.payload.get("conflict_status") or "").strip().lower()
-    if conflict_status not in {"clean", "no_conflict", "auto_apply", "safe_auto_apply"}:
-        return EventDecision(
-            EventStatus.NEEDS_MASTER_REVIEW,
-            str(event.payload.get("reason") or f"paper recovery conflict requires master review: {conflict_status}"),
-            metadata,
-        )
-
     metadata.update(
         {
             "recovery_event_type": form["recovery_event_type"],
             "conflict_policy": form["conflict_policy"],
         }
     )
+    conflict_status = str(event.payload.get("conflict_status") or "").strip().lower()
+    if conflict_status not in {"clean", "no_conflict", "auto_apply", "safe_auto_apply"}:
+        if source_form_type == "paper_pve_result":
+            return _decide_paper_pve_result(
+                connection,
+                event,
+                metadata,
+                review_reason=str(
+                    event.payload.get("reason")
+                    or f"paper recovery conflict requires master review: {conflict_status}"
+                ),
+            )
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            str(event.payload.get("reason") or f"paper recovery conflict requires master review: {conflict_status}"),
+            metadata,
+        )
+
     if source_form_type == "paper_pve_result":
         return _decide_paper_pve_result(connection, event, metadata)
 
@@ -628,6 +819,8 @@ def _decide_paper_pve_result(
     connection: sqlite3.Connection,
     event: EventSyncEvent,
     metadata: dict[str, Any],
+    *,
+    review_reason: str | None = None,
 ) -> EventDecision:
     payload = event.payload
     player_id = str(payload.get("player_id") or "").strip()
@@ -673,12 +866,20 @@ def _decide_paper_pve_result(
         recovered_event,
         metadata,
     )
-    decision.metadata["paper_auto_applied"] = decision.status in {
+    can_apply = decision.status in {
         EventStatus.ACCEPTED,
         EventStatus.PENDING_MASTER_APPROVAL,
     }
-    if decision.status in {EventStatus.ACCEPTED, EventStatus.PENDING_MASTER_APPROVAL}:
+    decision.metadata["paper_auto_applied"] = can_apply and review_reason is None
+    if can_apply:
         decision.metadata["recovered_pve_payload"] = recovered_payload
+    if review_reason is not None:
+        decision.metadata["review_severity"] = "P1"
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            review_reason,
+            decision.metadata,
+        )
     return decision
 
 
@@ -692,41 +893,44 @@ def _paper_pve_payload(
     qr_id = str(payload.get("qr_id") or "").strip()
     result = str(payload.get("result") or "").strip()
     roll_value = _paper_roll_value(payload)
-    candidate_rolls = [roll_value] if roll_value is not None else list(range(1, 21))
+    if roll_value is None:
+        metadata["paper_recovered_roll"] = None
+        return (
+            None,
+            "paper pve recovery requires roll or roll_log evidence, or explicit master override review",
+        )
     timestamp = _parse_server_time(str(payload.get("timestamp") or ""))
     unlock_source = str(payload.get("unlock_source") or "") or None
     check_id = f"paper:{str(payload.get('paper_form_id') or event.event_id)}"
 
     last_reason = f"paper pve result cannot be replayed against current scenario: {result}"
-    for candidate_roll in candidate_rolls:
-        try:
-            recovered = resolve_pve_scene(
-                connection,
-                player_id=player_id,
-                qr_id=qr_id,
-                roll=candidate_roll,
-                result_override="timeout" if result == "timeout" else None,
-                unlock_source=unlock_source,
-                check_id=check_id,
-                roll_source="paper_recovered",
-                now=timestamp,
-            )
-        except LookupError as exc:
-            return None, str(exc)
-        if str(recovered.get("result") or "") != result:
-            continue
-        _overlay_paper_pve_claims(recovered, payload)
-        recovered.update(
-            {
-                "paper_form_id": payload.get("paper_form_id"),
-                "paper_operator": payload.get("operator"),
-                "paper_reason": payload.get("reason"),
-                "paper_recovered_event_id": event.event_id,
-            }
+    try:
+        recovered = resolve_pve_scene(
+            connection,
+            player_id=player_id,
+            qr_id=qr_id,
+            roll=roll_value,
+            result_override="timeout" if result == "timeout" else None,
+            unlock_source=unlock_source,
+            check_id=check_id,
+            roll_source="paper_recovered",
+            now=timestamp,
         )
-        metadata["paper_recovered_roll"] = candidate_roll
-        return recovered, ""
-    return None, last_reason
+    except LookupError as exc:
+        return None, str(exc)
+    if str(recovered.get("result") or "") != result:
+        return None, last_reason
+    _overlay_paper_pve_claims(recovered, payload)
+    recovered.update(
+        {
+            "paper_form_id": payload.get("paper_form_id"),
+            "paper_operator": payload.get("operator"),
+            "paper_reason": payload.get("reason"),
+            "paper_recovered_event_id": event.event_id,
+        }
+    )
+    metadata["paper_recovered_roll"] = roll_value
+    return recovered, ""
 
 
 def _paper_roll_value(payload: dict[str, Any]) -> int | None:
@@ -889,25 +1093,56 @@ def _apply_pve_side_effects_if_needed(
     decision: EventDecision,
     server_event_id: int,
     received_at: str,
-) -> None:
+) -> EventDecision:
     pve_payload = _side_effect_pve_payload(event, decision)
     if pve_payload is None:
-        return
+        return decision
     if decision.status not in {
         EventStatus.ACCEPTED,
         EventStatus.PENDING_MASTER_APPROVAL,
     }:
-        return
+        return decision
     player_id = _side_effect_player_id(request, decision)
-    applied = apply_pve_completion_side_effects(
-        connection,
-        player_id=player_id,
-        payload=pve_payload,
-        metadata=decision.metadata,
-        status=decision.status.value,
-        server_event_id=server_event_id,
-        now=_parse_server_time(received_at),
-    )
+    try:
+        applied = apply_pve_completion_side_effects(
+            connection,
+            player_id=player_id,
+            payload=pve_payload,
+            metadata=decision.metadata,
+            status=decision.status.value,
+            server_event_id=server_event_id,
+            now=_parse_server_time(received_at),
+        )
+    except PveSideEffectConflictError as exc:
+        metadata = {
+            **decision.metadata,
+            "side_effect_conflict": str(exc),
+            "audit_review": True,
+            "review_severity": "P1",
+        }
+        review_decision = EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            str(exc),
+            metadata,
+        )
+        connection.execute(
+            """
+            UPDATE events
+            SET status = ?,
+                reason = ?,
+                metadata_json = ?,
+                applied_at = NULL
+            WHERE server_event_id = ?
+            """,
+            (
+                review_decision.status.value,
+                review_decision.reason,
+                _json_dumps(review_decision.metadata),
+                server_event_id,
+            ),
+        )
+        _record_review_if_needed(connection, event, review_decision, server_event_id)
+        return review_decision
     decision.metadata["pve_side_effects"] = applied
     connection.execute(
         """
@@ -917,6 +1152,7 @@ def _apply_pve_side_effects_if_needed(
         """,
         (_json_dumps(decision.metadata), server_event_id),
     )
+    return decision
 
 
 def _side_effect_player_id(request: EventSyncRequest, decision: EventDecision) -> str:
@@ -943,10 +1179,11 @@ def _record_client_sync_state(
     connection: sqlite3.Connection,
     request: EventSyncRequest,
     server_time: str,
+    tracker: dict[str, Any],
 ) -> None:
     if not request.events:
         return
-    last_sequence = max(event.client_sequence for event in request.events)
+    last_sequence = int(tracker.get("highest_contiguous") or tracker.get("last_sequence") or 0)
     connection.execute(
         """
         INSERT INTO client_sync_state (
@@ -1057,6 +1294,41 @@ def _act_unlock_authority_reason(connection: sqlite3.Connection, act_id: str) ->
     return None
 
 
+def _pve_event_creation_authority_reason(
+    connection: sqlite3.Connection,
+    event: EventSyncEvent,
+    *,
+    act_id: str,
+) -> str | None:
+    if act_id == "act1" or not _table_exists(connection, "act_history"):
+        return None
+    unlock_source = str(event.payload.get("unlock_source") or "")
+    row = connection.execute(
+        """
+        SELECT physical_announcement_at, unlock_revealed_at
+        FROM act_history
+        WHERE act_id = ?
+        """,
+        (act_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    authority_at_raw = (
+        row["unlock_revealed_at"]
+        if unlock_source == "master_unlock_code"
+        else row["physical_announcement_at"]
+    )
+    if not authority_at_raw:
+        return None
+    event_created_at = _parse_event_created_at(event.created_at)
+    authority_at = _parse_server_time(str(authority_at_raw))
+    if event_created_at is None or authority_at is None:
+        return None
+    if event_created_at < authority_at:
+        return "pve event was created before act unlock was authoritative"
+    return None
+
+
 def _is_announced(value: object) -> bool:
     return str(value or "").strip().lower() in {
         "announced",
@@ -1125,13 +1397,15 @@ def _paper_duplicate_event_id(connection: sqlite3.Connection, paper_form_id: str
         return None
     rows = connection.execute(
         """
-        SELECT event_id, payload_json
+        SELECT event_id, status, payload_json
         FROM events
         WHERE event_type = 'paper_recovered'
         ORDER BY server_event_id
         """
     ).fetchall()
     for row in rows:
+        if str(row["status"]) == EventStatus.REJECTED.value:
+            continue
         try:
             payload = json.loads(str(row["payload_json"] or "{}"))
         except json.JSONDecodeError:
@@ -1168,3 +1442,9 @@ def _parse_server_time(value: str) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _parse_event_created_at(value: str | int | float) -> datetime | None:
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, UTC)
+    return _parse_server_time(str(value))

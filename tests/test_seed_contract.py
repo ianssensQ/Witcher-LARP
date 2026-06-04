@@ -771,7 +771,9 @@ class SeedContractTests(unittest.TestCase):
 
         refusal_reasons = {row["reason"] for row in self.rows["pvp_refusal_rules.csv"]}
         self.assertTrue({"active_scene", "safety_stop", "force_majeure"}.issubset(refusal_reasons))
-        self.assertIn("pending_locked", {row["status"] for row in self.rows["trade_transfers.csv"]})
+        trade_statuses = {row["status"] for row in self.rows["trade_transfers.csv"]}
+        self.assertIn("contested_review", trade_statuses)
+        self.assertTrue({"pending_locked", "accepted"}.isdisjoint(trade_statuses))
 
         active_statuses = {
             row["status_id"]

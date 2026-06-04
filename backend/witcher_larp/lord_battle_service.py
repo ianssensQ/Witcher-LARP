@@ -28,6 +28,15 @@ UNIT_CLASSES = {
     "heavy_siege",
     "specialist",
 }
+UNIT_BATTLE_RANGES = {
+    "tier": (1, 4),
+    "attack": (1, 20),
+    "defense": (1, 20),
+    "hp": (1, 50),
+    "initiative": (1, 20),
+    "move_range": (1, BOARD_HEIGHT - 1),
+    "attack_range": (1, BOARD_HEIGHT - 1),
+}
 FINAL_BATTLE_STATES = {"finished", "needs_master_review"}
 
 
@@ -1330,19 +1339,30 @@ def _source_from_row(row: sqlite3.Row, source_type: str, source_id: str) -> dict
     unit_class = str(row["unit_class"])
     if unit_class not in UNIT_CLASSES:
         raise LordBattleError("unsupported_unit_class", f"Unsupported lord unit class: {unit_class}.")
+    stats = {column: _to_int(row[column]) for column in UNIT_BATTLE_RANGES}
+    for column, (minimum, maximum) in UNIT_BATTLE_RANGES.items():
+        value = stats[column]
+        if not minimum <= value <= maximum:
+            raise LordBattleError(
+                "invalid_unit_stat",
+                (
+                    f"Army unit card {row['card_id']} has invalid {column}={value}; "
+                    f"expected {minimum}..{maximum}."
+                ),
+            )
     return {
         "source_type": source_type,
         "source_id": source_id,
         "domain_id": _optional(row["domain_id"]) if "domain_id" in row.keys() else None,
         "card_id": row["card_id"],
         "unit_class": unit_class,
-        "tier": _to_int(row["tier"]),
-        "attack": _to_int(row["attack"]),
-        "defense": _to_int(row["defense"]),
-        "hp": _to_int(row["hp"]),
-        "initiative": _to_int(row["initiative"]),
-        "move_range": _to_int(row["move_range"]),
-        "attack_range": _to_int(row["attack_range"]),
+        "tier": stats["tier"],
+        "attack": stats["attack"],
+        "defense": stats["defense"],
+        "hp": stats["hp"],
+        "initiative": stats["initiative"],
+        "move_range": stats["move_range"],
+        "attack_range": stats["attack_range"],
         "count": max(1, _to_int(row["count"]) if "count" in row.keys() else 1),
     }
 

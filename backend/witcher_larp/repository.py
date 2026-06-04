@@ -78,6 +78,9 @@ def ensure_import_schema(connection: sqlite3.Connection) -> None:
             status TEXT NOT NULL,
             starts_at_offset_min INTEGER,
             ends_at_offset_min INTEGER,
+            started_at TEXT,
+            expires_at TEXT,
+            expired_at TEXT,
             payload_json TEXT NOT NULL DEFAULT '{}'
         );
         """

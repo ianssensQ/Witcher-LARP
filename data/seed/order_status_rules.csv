@@ -8,7 +8,7 @@ claimed_at_prop,true,true,true,submitted_pending_sync;pending_master_approval
 submitted_pending_sync,true,true,true,pending_master_approval;failed_retryable
 pending_master_approval,true,true,true,completed;failed_retryable;failed_closed;contested_review
 completed,false,false,false,
-failed_retryable,false,false,false,published
+failed_retryable,true,false,true,published
 failed_closed,false,false,false,
 cancelled_by_lord,false,false,false,
 expired,false,false,false,

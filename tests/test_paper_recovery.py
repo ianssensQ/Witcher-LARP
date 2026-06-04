@@ -9,6 +9,7 @@ from backend.witcher_larp.database import connect
 from backend.witcher_larp.event_models import EventSyncEvent, EventSyncRequest
 from backend.witcher_larp.event_service import sync_events
 from backend.witcher_larp.import_service import import_seed_pack
+from backend.witcher_larp.review_service import decide_event_review
 
 
 TEST_TMP_ROOT = PROJECT_ROOT / ".test-data"
@@ -18,6 +19,7 @@ FIXTURE_MANIFEST = PROJECT_ROOT / "tests" / "fixtures" / "seed_valid" / "fixture
 class PaperRecoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         TEST_TMP_ROOT.mkdir(exist_ok=True)
+        self._paper_sequence = 0
 
     def test_clean_paper_recovery_auto_applies_as_audited_paper_source(self) -> None:
         settings = self._settings("paper_clean")
@@ -35,6 +37,7 @@ class PaperRecoveryTests(unittest.TestCase):
                     "player_id": "p_witcher_1",
                     "qr_id": "qr_a1_001",
                     "result": "success",
+                    "roll": 8,
                     "conflict_status": "clean",
                 },
             )
@@ -49,6 +52,7 @@ class PaperRecoveryTests(unittest.TestCase):
                     "player_id": "p_witcher_1",
                     "qr_id": "qr_a1_001",
                     "result": "success",
+                    "roll": 8,
                     "conflict_status": "clean",
                 },
             )
@@ -111,6 +115,100 @@ class PaperRecoveryTests(unittest.TestCase):
         self.assertEqual(pve_attempt["reward_status"], "auto")
         self.assertEqual(review_count, 0)
         self.assertEqual(duplicate_reviews, 1)
+
+    def test_clean_paper_pve_without_roll_evidence_requires_review_and_no_side_effects(self) -> None:
+        settings = self._settings("paper_missing_roll")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            response = self._sync_one(
+                connection,
+                payload={
+                    "paper_form_id": "paper-pve-missing-roll",
+                    "source_form_type": "paper_pve_result",
+                    "operator": "gm_king",
+                    "timestamp": "2026-06-02T13:30:00+00:00",
+                    "reason": "paper sheet omitted the d20 proof",
+                    "player_id": "p_witcher_1",
+                    "qr_id": "qr_a1_001",
+                    "result": "success",
+                    "conflict_status": "clean",
+                },
+            )
+            runtime_row = connection.execute(
+                """
+                SELECT xp, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+            attempt_count = self._count(connection, "pve_attempts")
+
+        result = response.results[0]
+        self.assertEqual(result.status, "needs_master_review")
+        self.assertEqual(
+            result.reason,
+            "paper pve recovery requires roll or roll_log evidence, or explicit master override review",
+        )
+        self.assertIsNone(runtime_row)
+        self.assertEqual(attempt_count, 0)
+
+    def test_conflicted_paper_pve_approval_applies_recovered_side_effects(self) -> None:
+        settings = self._settings("paper_conflicted_pve_approve")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            response = self._sync_one(
+                connection,
+                payload={
+                    "paper_form_id": "paper-pve-conflict-approve",
+                    "source_form_type": "paper_pve_result",
+                    "operator": "gm_king",
+                    "timestamp": "2026-06-02T13:30:00+00:00",
+                    "reason": "paper result conflicted with stale phone queue",
+                    "player_id": "p_witcher_1",
+                    "qr_id": "qr_a1_001",
+                    "result": "success",
+                    "roll": 8,
+                    "conflict_status": "duplicate_conflict_needs_review",
+                },
+            )
+            before_attempts = self._count(connection, "pve_attempts")
+            decision = decide_event_review(
+                connection,
+                response.results[0].event_id,
+                action="approve",
+                operator="gm_king",
+                reason="paper d20 evidence accepted after conflict review",
+                severity="P1",
+                source="paper_recovery_review",
+            )
+            runtime_state = connection.execute(
+                """
+                SELECT xp, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+            pve_attempt = connection.execute(
+                """
+                SELECT player_id, qr_id, result, reward_id, reward_status
+                FROM pve_attempts
+                WHERE server_event_id = ?
+                """,
+                (response.results[0].server_event_id,),
+            ).fetchone()
+
+        self.assertEqual(response.results[0].status, "needs_master_review")
+        self.assertEqual(before_attempts, 0)
+        self.assertEqual(decision["decision"]["status"], "applied")
+        self.assertEqual(runtime_state["xp"], 4)
+        self.assertEqual(runtime_state["gold"], 30)
+        self.assertEqual(pve_attempt["player_id"], "p_witcher_1")
+        self.assertEqual(pve_attempt["qr_id"], "qr_a1_001")
+        self.assertEqual(pve_attempt["result"], "success")
+        self.assertEqual(pve_attempt["reward_id"], "reward_pve_t1")
+        self.assertEqual(pve_attempt["reward_status"], "auto")
 
     def test_missing_paper_audit_fields_are_rejected_readably(self) -> None:
         settings = self._settings("paper_missing")
@@ -224,6 +322,55 @@ class PaperRecoveryTests(unittest.TestCase):
         self.assertTrue(
             any("paper form definition is invalid" in reason for reason in review_reasons)
         )
+
+    def test_rejected_malformed_paper_form_does_not_poison_corrected_same_form_id(self) -> None:
+        settings = self._settings("paper_correction_after_reject")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            malformed = self._sync_one(
+                connection,
+                payload={
+                    "paper_form_id": "paper-corrected-after-reject",
+                    "source_form_type": "paper_pve_result",
+                    "operator": "gm_king",
+                    "timestamp": "bad-clock",
+                    "reason": "operator mistyped timestamp",
+                    "player_id": "p_witcher_1",
+                    "qr_id": "qr_a1_001",
+                    "result": "success",
+                    "roll": 8,
+                    "conflict_status": "clean",
+                },
+            )
+            corrected = self._sync_one(
+                connection,
+                payload={
+                    "paper_form_id": "paper-corrected-after-reject",
+                    "source_form_type": "paper_pve_result",
+                    "operator": "gm_king",
+                    "timestamp": "2026-06-02T13:30:00+00:00",
+                    "reason": "corrected timestamp for same paper sheet",
+                    "player_id": "p_witcher_1",
+                    "qr_id": "qr_a1_001",
+                    "result": "success",
+                    "roll": 8,
+                    "conflict_status": "clean",
+                },
+            )
+            pve_attempt = connection.execute(
+                """
+                SELECT player_id, qr_id
+                FROM pve_attempts
+                WHERE server_event_id = ?
+                """,
+                (corrected.results[0].server_event_id,),
+            ).fetchone()
+
+        self.assertEqual(malformed.results[0].status, "rejected")
+        self.assertEqual(corrected.results[0].status, "accepted")
+        self.assertEqual(pve_attempt["player_id"], "p_witcher_1")
+        self.assertEqual(pve_attempt["qr_id"], "qr_a1_001")
 
     def test_duplicate_or_conflicting_paper_recovery_routes_to_review(self) -> None:
         settings = self._settings("paper_conflict")
@@ -363,6 +510,7 @@ class PaperRecoveryTests(unittest.TestCase):
         self.assertEqual(report.status, "success")
 
     def _sync_one(self, connection, *, payload: dict[str, object]):
+        self._paper_sequence += 1
         return sync_events(
             connection,
             EventSyncRequest(
@@ -372,7 +520,7 @@ class PaperRecoveryTests(unittest.TestCase):
                 events=[
                     EventSyncEvent(
                         event_id=f"paper_{uuid4().hex}",
-                        client_sequence=1,
+                        client_sequence=self._paper_sequence,
                         created_at="2026-06-02T13:30:00+00:00",
                         event_type="paper_recovered",
                         payload=payload,
@@ -380,6 +528,9 @@ class PaperRecoveryTests(unittest.TestCase):
                 ],
             ),
         )
+
+    def _count(self, connection, table_name: str) -> int:
+        return int(connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
 
 
 if __name__ == "__main__":

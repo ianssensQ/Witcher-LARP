@@ -9,6 +9,7 @@ from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
 from backend.witcher_larp.npc_service import NpcEventInput
 from backend.witcher_larp.npc_service import list_npc_deals, record_npc_event, review_queue
+from backend.witcher_larp.npc_service import resolve_npc_event
 from backend.witcher_larp.reputation_service import apply_reputation_change
 from backend.witcher_larp.reputation_service import get_reputation_view
 
@@ -158,6 +159,46 @@ class ReputationNpcRuntimeTests(unittest.TestCase):
         self.assertEqual(deals_for_player[0]["price"]["hidden_price"], "master_only")
         self.assertEqual(queue["items"][0]["severity"], "P0")
         self.assertEqual(queue["items"][0]["review_route"], "stop_now")
+
+    def test_npc_p0_event_resolution_leaves_history_but_clears_queue(self) -> None:
+        settings = self._settings("npc_event_resolution")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            event = record_npc_event(
+                connection,
+                NpcEventInput(
+                    npc_role="npc_king",
+                    event_type="king_ruling",
+                    severity="P0",
+                    final_flag=True,
+                ),
+            )
+            before = review_queue(connection)
+            resolved = resolve_npc_event(
+                connection,
+                int(event["npc_runtime_event_id"]),
+                operator="gm_king",
+                reason="ruling announced at table",
+            )
+            after = review_queue(connection)
+            history = connection.execute(
+                """
+                SELECT status, resolved_by, resolution_reason
+                FROM npc_runtime_events
+                WHERE npc_runtime_event_id = ?
+                """,
+                (event["npc_runtime_event_id"],),
+            ).fetchone()
+
+        self.assertEqual(before["items"][0]["queue_type"], "npc_event")
+        self.assertEqual(before["items"][0]["severity"], "P0")
+        self.assertFalse(resolved["duplicate"])
+        self.assertEqual(resolved["status"], "resolved")
+        self.assertEqual(after["items"], [])
+        self.assertEqual(history["status"], "resolved")
+        self.assertEqual(history["resolved_by"], "gm_king")
+        self.assertEqual(history["resolution_reason"], "ruling announced at table")
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_fastapi_reputation_and_npc_contract(self) -> None:

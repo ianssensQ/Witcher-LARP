@@ -25,6 +25,7 @@ SECRET_VALUES = (
     "MASTER-KING-4QZ8",
 )
 MASTER_HEADERS = {"X-Role-Token": "MASTER-KING-4QZ8"}
+WITCHER_HEADERS = {"X-Player-Code": "WC-WOLF-6GF4"}
 
 
 @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
@@ -80,13 +81,16 @@ class FastApiContractTests(unittest.TestCase):
 
     def test_qr_lookup_reports_missing_imported_qr_content(self) -> None:
         settings = self._settings("fastapi_no_qr_content")
+        self._import_valid_seed(settings)
+        with connect(settings) as connection:
+            connection.execute("DROP TABLE qr_objects")
         client = TestClient(create_app(settings))
 
         response = client.post(
             "/api/qr/lookup",
+            headers=WITCHER_HEADERS,
             json={
                 "code": "QR-A1-K7Q2",
-                "player_id": "p_witcher_1",
                 "device_id": "phone-wolf",
                 "physical_presence_confirmed": True,
             },
@@ -163,6 +167,9 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["device_id"], "phone-moon")
         self.assertIn("mobile:snapshot", payload["permissions"])
         self.assertNotIn("SC-MOON-4AD8", response.text)
+        self.assertNotIn("reputation", payload["player"])
+        self.assertNotIn("value", payload["player"].get("reputation_state", {}))
+        self.assertNotIn("threshold_range", response.text)
         self.assertEqual(rejected.status_code, 401)
 
     def test_master_api_requires_master_role_token(self) -> None:
@@ -268,9 +275,9 @@ class FastApiContractTests(unittest.TestCase):
 
         response = client.post(
             "/api/qr/lookup",
+            headers=WITCHER_HEADERS,
             json={
                 "code": "QR-A1-K7Q2",
-                "player_id": "p_witcher_1",
                 "device_id": "device-test",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -283,6 +290,7 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["event_type"], "qr_scene_started")
         self.assertEqual(payload["qr"]["qr_mode"], "repeatable_scene")
         self.assertEqual(payload["scenario"]["scenario_id"], "scn_a1_001")
+        self.assertEqual(payload["event_context"]["player_id"], "p_witcher_1")
         self.assertEqual(payload["event_context"]["qr_mode"], "repeatable_scene")
         self.assertTrue(payload["event_context"]["physical_presence_confirmed"])
 
@@ -293,9 +301,9 @@ class FastApiContractTests(unittest.TestCase):
 
         locked = client.post(
             "/api/qr/lookup",
+            headers=WITCHER_HEADERS,
             json={
                 "code": "QR-A2-B4K8",
-                "player_id": "p_witcher_1",
                 "device_id": "device-future",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -326,9 +334,9 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(pending_start.status_code, 200, pending_start.text)
         still_locked = client.post(
             "/api/qr/lookup",
+            headers=WITCHER_HEADERS,
             json={
                 "code": "QR-A2-B4K8",
-                "player_id": "p_witcher_1",
                 "device_id": "device-future",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -344,9 +352,9 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(announcement.status_code, 200, announcement.text)
         unlocked = client.post(
             "/api/qr/lookup",
+            headers=WITCHER_HEADERS,
             json={
                 "code": "QR-A2-B4K8",
-                "player_id": "p_witcher_1",
                 "device_id": "device-future",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -366,9 +374,9 @@ class FastApiContractTests(unittest.TestCase):
 
         response = client.post(
             "/api/qr/lookup",
+            headers=WITCHER_HEADERS,
             json={
                 "code": "witcher-larp://qr?id=qr_a1_001",
-                "player_id": "p_witcher_1",
                 "device_id": "device-opaque",
                 "source": "qr_scan",
                 "physical_presence_confirmed": True,
@@ -405,9 +413,9 @@ class FastApiContractTests(unittest.TestCase):
             with self.subTest(mode=expected_mode):
                 response = client.post(
                     "/api/qr/lookup",
+                    headers=WITCHER_HEADERS,
                     json={
                         "code": code,
-                        "player_id": "p_witcher_1",
                         "device_id": f"device-{expected_mode}",
                         "source": source,
                         "physical_presence_confirmed": True,
@@ -435,9 +443,9 @@ class FastApiContractTests(unittest.TestCase):
 
         response = client.post(
             "/api/qr/lookup",
+            headers=WITCHER_HEADERS,
             json={
                 "code": "witcher-larp://qr?code=QR-A1-X3L5",
-                "player_id": "p_witcher_1",
                 "device_id": "device-review",
                 "source": "qr_scan",
                 "physical_presence_confirmed": False,
@@ -472,9 +480,9 @@ class FastApiContractTests(unittest.TestCase):
         for index in range(5):
             response = client.post(
                 "/api/qr/lookup",
+                headers=WITCHER_HEADERS,
                 json={
                     "code": f"NO-SUCH-QR-{index}",
-                    "player_id": "p_witcher_1",
                     "device_id": "device-rate",
                     "source": "manual_id",
                     "physical_presence_confirmed": True,
@@ -511,28 +519,51 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(attempt_count, 1)
         self.assertEqual(audit_count, 1)
 
-    def test_qr_lookup_rate_limits_anonymous_bad_attempts(self) -> None:
-        settings = self._settings("qr_rate_anonymous")
+    def test_qr_lookup_requires_player_code_and_rejects_wrong_player_payload(self) -> None:
+        settings = self._settings("qr_player_auth")
         self._import_valid_seed(settings)
         client = TestClient(create_app(settings))
 
-        payload = None
-        for index in range(5):
-            response = client.post(
-                "/api/qr/lookup",
-                json={
-                    "code": f"NO-SUCH-ANON-{index}",
-                    "source": "manual_id",
-                    "physical_presence_confirmed": True,
-                },
-            )
-            self.assertEqual(response.status_code, 200)
-            payload = response.json()
+        anonymous = client.post(
+            "/api/qr/lookup",
+            json={
+                "code": "NO-SUCH-ANON",
+                "source": "manual_id",
+                "physical_presence_confirmed": True,
+            },
+        )
+        wrong_player = client.post(
+            "/api/qr/lookup",
+            headers=WITCHER_HEADERS,
+            json={
+                "code": "QR-A1-K7Q2",
+                "player_id": "p_witcher_2",
+                "device_id": "device-forged-player",
+                "source": "manual_id",
+                "physical_presence_confirmed": True,
+            },
+        )
 
-        assert payload is not None
-        self.assertEqual(payload["status"], "needs_master_review")
-        self.assertEqual(payload["reason"], "manual_rate_limit")
-        self.assertEqual(payload["event_context"]["review_reason"], "manual_rate_limit")
+        self.assertEqual(anonymous.status_code, 401)
+        self.assertEqual(wrong_player.status_code, 403)
+        with connect(settings) as connection:
+            attempt_table = connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'qr_attempts'
+                """
+            ).fetchone()
+            attempt_count = (
+                connection.execute("SELECT COUNT(*) FROM qr_attempts").fetchone()[0]
+                if attempt_table is not None
+                else 0
+            )
+            audit_count = connection.execute(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'qr_attempt'"
+            ).fetchone()[0]
+        self.assertEqual(attempt_count, 0)
+        self.assertEqual(audit_count, 0)
 
     def test_event_sync_accepts_pve_event_and_deduplicates_by_event_id(self) -> None:
         settings = self._settings("event_dedupe")
@@ -681,7 +712,7 @@ class FastApiContractTests(unittest.TestCase):
                 "events": [
                     {
                         "event_id": lord_mobile_event_id,
-                        "client_sequence": 3,
+                        "client_sequence": 1,
                         "created_at": "2026-06-02T09:10:00+00:00",
                         "event_type": "qr_attempt",
                         "payload": {
@@ -703,7 +734,7 @@ class FastApiContractTests(unittest.TestCase):
                 "events": [
                     {
                         "event_id": npc_mobile_event_id,
-                        "client_sequence": 4,
+                        "client_sequence": 1,
                         "created_at": "2026-06-02T09:15:00+00:00",
                         "event_type": "reward_approval_requested",
                         "payload": {"reward_id": "reward_pve_t1"},
@@ -820,7 +851,7 @@ class FastApiContractTests(unittest.TestCase):
                 "events": [
                     {
                         "event_id": event_id,
-                        "client_sequence": 2,
+                        "client_sequence": 1,
                         "created_at": "2026-06-02T09:05:00+00:00",
                         "event_type": "pve_completed",
                         "payload": pve_payload,
@@ -888,7 +919,7 @@ class FastApiContractTests(unittest.TestCase):
                 "events": [
                     {
                         "event_id": f"evt_{uuid4().hex}",
-                        "client_sequence": 3,
+                        "client_sequence": 1,
                         "created_at": "2026-06-02T09:10:00+00:00",
                         "event_type": "act_unlocked_offline",
                         "payload": {"act_id": "act2", "code": "UNLOCK-A2-7GQ4"},
@@ -918,7 +949,7 @@ class FastApiContractTests(unittest.TestCase):
                 "events": [
                     {
                         "event_id": event_id,
-                        "client_sequence": 4,
+                        "client_sequence": 1,
                         "created_at": "2026-06-02T09:15:00+00:00",
                         "event_type": "trade_transfer_requested",
                         "payload": {

@@ -9,7 +9,8 @@ from datetime import UTC, datetime, timedelta
 from .backup_service import run_backup
 from .config import Settings
 from .runtime_schema import ensure_runtime_schema, log_event
-from .timer_service import apply_due_timers, ensure_runtime_content_state, timer_status
+from .timer_service import apply_due_timers, ensure_final_lock, ensure_runtime_content_state
+from .timer_service import timer_status
 
 
 ANNOUNCED_STATES = {"announced", "completed", "done", "physical_announced"}
@@ -47,6 +48,14 @@ def start_act(
     applied_before = apply_due_timers(connection, settings, now=current_time)
     current_state = _current_state(connection)
     backup = None
+    final_lock_effect = None
+    if str(act_row["act_type"]) == "final":
+        final_lock_effect = ensure_final_lock(
+            connection,
+            applied_at=current_time,
+            operator=operator,
+            source="direct_final_act_start" if source == "master_api" else source,
+        )
     if current_state["current_act_id"] and current_state["current_act_id"] != act_id:
         backup = run_backup(
             connection,
@@ -144,6 +153,8 @@ def start_act(
             source=source,
             now=current_time,
         )
+    if final_lock_effect is not None:
+        start_effects["final_lock"] = final_lock_effect
 
     log_event(
         connection,

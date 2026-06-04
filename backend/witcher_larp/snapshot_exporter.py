@@ -51,6 +51,8 @@ SNAPSHOT_TABLES = (
 
 SECRET_SNAPSHOT_KEYS = {"player_codes", "role_tokens"}
 PRIVATE_PLAYER_KEYS = {"player_code_id", "reputation"}
+PLAYER_SAFE_QR_MODES = {"repeatable_scene", "always_available_scene"}
+PLAYER_PUBLIC_ARTIFACT_VISIBILITIES = {"public", "player_visible", "always_visible"}
 
 
 def build_snapshot_from_pack(pack: SeedPack) -> tuple[str, str, dict[str, object]]:
@@ -164,6 +166,7 @@ def _scope_snapshot_to_player_id(
     scoped["player"] = public_player
     scoped["players"] = [public_player]
     scoped["goals"] = _scope_goals(snapshot.get("goals"), player_id)
+    _redact_player_content(scoped)
     scoped["visibility"] = {
         "scope": "player",
         "player_id": player_id,
@@ -438,6 +441,113 @@ def _redact_reputation_view(view: dict[str, object]) -> dict[str, object]:
         )
         if key in view
     }
+
+
+def _redact_player_content(payload: dict[str, object]) -> None:
+    qr_objects = _player_visible_qr_objects(
+        payload.get("qr_objects"),
+        payload.get("act_unlock_state"),
+    )
+    scenario_ids = {
+        str(row.get("scenario_id", ""))
+        for row in qr_objects
+        if str(row.get("scenario_id", ""))
+    }
+    scenarios = _filter_dict_rows_by_ids(
+        payload.get("pve_scenarios"),
+        "scenario_id",
+        scenario_ids,
+    )
+    reward_ids = {
+        str(row.get("reward_id", ""))
+        for row in scenarios
+        if str(row.get("reward_id", ""))
+    }
+    mob_ids = {
+        str(row.get("combat_profile_id", ""))
+        for row in scenarios
+        if str(row.get("combat_profile_id", ""))
+    }
+
+    payload["qr_objects"] = qr_objects
+    payload["pve_scenarios"] = scenarios
+    payload["rewards"] = _filter_dict_rows_by_ids(payload.get("rewards"), "reward_id", reward_ids)
+    payload["mobs"] = _filter_dict_rows_by_ids(payload.get("mobs"), "mob_id", mob_ids)
+    payload["artifacts"] = _player_visible_artifacts(payload.get("artifacts"))
+    payload["descriptors"] = _player_visible_descriptors(payload.get("descriptors"))
+
+
+def _player_visible_qr_objects(
+    rows: object,
+    act_unlock_state: object,
+) -> list[dict[str, object]]:
+    unlocked_act_ids = {"act1"}
+    if isinstance(act_unlock_state, dict):
+        unlocked = act_unlock_state.get("unlocked_act_ids", [])
+        if isinstance(unlocked, list):
+            unlocked_act_ids.update(str(act_id) for act_id in unlocked)
+
+    visible = []
+    for row in _dict_rows(rows):
+        qr_mode = str(row.get("qr_mode", "")).strip().lower()
+        consumption_rule = str(row.get("consumption_rule", "")).strip().lower()
+        act_id = str(row.get("act_id", ""))
+        if act_id not in unlocked_act_ids:
+            continue
+        if qr_mode not in PLAYER_SAFE_QR_MODES:
+            continue
+        if consumption_rule == "consume_once":
+            continue
+        visible.append(dict(row))
+    return visible
+
+
+def _player_visible_artifacts(rows: object) -> list[dict[str, object]]:
+    visible = []
+    for row in _dict_rows(rows):
+        visibility = str(row.get("visibility", "")).strip().lower()
+        if visibility not in PLAYER_PUBLIC_ARTIFACT_VISIBILITIES:
+            continue
+        visible.append(dict(row))
+    return visible
+
+
+def _player_visible_descriptors(descriptors: object) -> object:
+    if not isinstance(descriptors, dict):
+        return descriptors
+    safe = json.loads(json.dumps(descriptors, ensure_ascii=False, default=str))
+    rules = safe.get("reputation_rules")
+    if isinstance(rules, list):
+        safe["reputation_rules"] = [
+            {
+                key: rule[key]
+                for key in ("rule_id", "label", "player_descriptor")
+                if isinstance(rule, dict) and key in rule
+            }
+            for rule in rules
+            if isinstance(rule, dict)
+        ]
+    return safe
+
+
+def _filter_dict_rows_by_ids(
+    rows: object,
+    id_key: str,
+    allowed_ids: set[str],
+) -> list[dict[str, object]]:
+    if not allowed_ids:
+        return []
+    return [
+        dict(row)
+        for row in _dict_rows(rows)
+        if str(row.get(id_key, "")) in allowed_ids
+    ]
+
+
+def _dict_rows(rows: object) -> list[dict[str, object]]:
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
 
 
 def _mobile_export_payload(snapshot: dict[str, object]) -> dict[str, object]:

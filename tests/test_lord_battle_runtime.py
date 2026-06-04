@@ -1312,6 +1312,43 @@ class LordBattleRuntimeTests(unittest.TestCase):
                 self.assertEqual(hero_hp["formula_inputs"]["min"], 35)
                 self.assertEqual(hero_hp["formula_inputs"]["max"], 70)
 
+    def test_lord_battle_rejects_invalid_runtime_unit_stats(self) -> None:
+        settings = self._settings("lord_battle_bad_unit_stats")
+        self._import_seed(settings)
+        self._set_active_armies(
+            settings,
+            current_nodes={"domain_north": "node_res_river", "domain_river": "node_res_river"},
+            rows=[
+                ("army_north_bad_hp", "domain_north", "unit_infantry_t1", 1, "node_res_river"),
+                ("army_river_guard", "domain_river", "unit_guard_t1", 1, "node_res_river"),
+            ],
+            clear_existing=True,
+        )
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE army_unit_cards
+                SET hp = 0
+                WHERE card_id = 'unit_infantry_t1'
+                """
+            )
+        client = TestClient(create_app(settings))
+
+        created = client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_bad_runtime_unit_stats",
+                "attacker_domain_id": "domain_north",
+                "defender_domain_id": "domain_river",
+                "territory_id": "territory_res_river",
+                "seed": "bad-runtime-unit-stats",
+            },
+        )
+
+        self.assertEqual(created.status_code, 400)
+        self.assertEqual(created.json()["detail"]["code"], "invalid_unit_stat")
+
     def _settings(self, name: str) -> Settings:
         return Settings(database_path=TEST_TMP_ROOT / f"{name}_{uuid4().hex}.db")
 

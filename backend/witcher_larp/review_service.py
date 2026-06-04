@@ -8,7 +8,7 @@ import sqlite3
 from typing import Any
 
 from .event_schema import ensure_event_schema
-from .pve_runtime import apply_pve_completion_side_effects
+from .pve_runtime import PveSideEffectConflictError, apply_pve_completion_side_effects
 from .runtime_schema import log_event
 
 
@@ -420,7 +420,18 @@ def _apply_side_effects_if_safe(
 ) -> dict[str, Any] | None:
     if event_status_after != "accepted":
         return {"status": "not_applied", "reason": f"{action} does not accept event"}
-    if str(row["event_type"]) != "pve_completed":
+    pve_payload = payload
+    player_id = str(row["actor_id"])
+    if str(row["event_type"]) == "paper_recovered" and metadata.get("recovered_event_type") == "pve_completed":
+        recovered_payload = metadata.get("recovered_pve_payload")
+        if not isinstance(recovered_payload, dict):
+            return {
+                "status": "not_applied",
+                "reason": "paper pve review has no replayable recovered payload",
+            }
+        pve_payload = recovered_payload
+        player_id = str(metadata.get("paper_recovered_player_id") or row["actor_id"])
+    elif str(row["event_type"]) != "pve_completed":
         return {"status": "not_applicable", "reason": "event type has audit-only review closure"}
     existing_attempt = connection.execute(
         "SELECT 1 FROM pve_attempts WHERE server_event_id = ? LIMIT 1",
@@ -432,9 +443,9 @@ def _apply_side_effects_if_safe(
     missing = [
         field
         for field in ("qr_id", "scenario_id", "result")
-        if not payload.get(field) and not metadata.get(field)
+        if not pve_payload.get(field) and not metadata.get(field)
     ]
-    if not (payload.get("act_id") or metadata.get("act_id")):
+    if not (pve_payload.get("act_id") or metadata.get("act_id")):
         missing.append("act_id")
     if missing:
         return {
@@ -445,14 +456,14 @@ def _apply_side_effects_if_safe(
     try:
         applied = apply_pve_completion_side_effects(
             connection,
-            player_id=str(row["actor_id"]),
-            payload=payload,
+            player_id=player_id,
+            payload=pve_payload,
             metadata=metadata,
             status=event_status_after,
             server_event_id=int(row["server_event_id"]),
             now=_parse_time(decided_at),
         )
-    except (KeyError, TypeError, ValueError, sqlite3.Error) as exc:
+    except (PveSideEffectConflictError, KeyError, TypeError, ValueError, sqlite3.Error) as exc:
         return {"status": "not_applied", "reason": str(exc)}
     return {"status": "applied", "pve_completion": applied}
 
