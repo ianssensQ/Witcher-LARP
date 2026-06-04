@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 .deps/
+.codegraph/
 .taskos.lock
 .codex-taskos-upstream/
 .test-data/

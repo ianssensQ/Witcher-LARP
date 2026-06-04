@@ -57,3 +57,52 @@ Canonical docs to read when relevant before broad or architectural changes:
 - `docs/architecture.md`
 - `docs/roadmap.md`
 <!-- TASKOS:END -->
+
+<!-- CODEGRAPH:START -->
+## CodeGraph Loop
+
+This project is indexed with CodeGraph. In new Codex chats, use CodeGraph as
+the default code navigation and impact-analysis layer before broad code edits.
+Prefer CodeGraph MCP tools when they are available; if they are not exposed in
+the current chat, use the local CLI commands below.
+
+Keep TaskOS as the source of implementation order. CodeGraph does not replace
+`tasks.json`, `docs/active-tasks.md`, `progress.txt`, or `scripts/taskctl.py`.
+
+New chat boot sequence for implementation work:
+
+1. Start with TaskOS orientation: read `docs/active-tasks.md` or run
+   `uv run python scripts/taskctl.py ready`.
+2. Check graph health with `codegraph status .`; if the index is stale after
+   local edits, run `codegraph sync .` before relying on query, impact or
+   affected-test results.
+3. After claiming a task, use CodeGraph to find the code surface before opening
+   many files manually:
+   - `codegraph files --path .`
+   - `codegraph query <domain-or-symbol> --path . --limit 10`
+   - `codegraph callers <symbol> --path .`
+   - `codegraph callees <symbol> --path .`
+   - `codegraph impact <symbol> --path . --depth 3`
+4. Use the graph result as a map, not as proof. Open and read the relevant
+   source files before editing, then use `rg` for text, docs, CSV, Godot `.gd`,
+   fixtures, and generated/non-indexed content.
+5. Before choosing checks, ask CodeGraph for likely affected tests:
+   `codegraph affected <changed-file> --path . --quiet`. Combine that with
+   project judgment and TaskOS test steps; do not skip a required test just
+   because CodeGraph did not name it.
+6. After meaningful code edits, especially changes that add, remove, move,
+   rename or rewire symbols, run `codegraph sync .` and then `codegraph status .`
+   before final impact/test selection and handoff. This keeps later
+   query/impact/caller/callee lookups useful for the next chat.
+
+Use CodeGraph especially for backend/runtime work in `backend/witcher_larp/`,
+FastAPI routes, snapshot/export paths, event sync, review/recovery, lord panel
+state, PvP/PvE services, and test impact. For product docs, roadmap/task
+metadata, CSV seed content, and mobile Godot scripts, rely on direct file
+inspection and `rg` first, then use CodeGraph only if it has relevant indexed
+symbols.
+
+When reporting work, mention the CodeGraph checks that materially shaped the
+edit or test selection. The local `.codegraph/` index is generated state and
+must not be committed.
+<!-- CODEGRAPH:END -->
