@@ -227,7 +227,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
 
         self.assertEqual(dict(stored), {
             "actor_id": "p_witcher_1",
-            "actor_type": "player",
+            "actor_type": "witcher",
             "status": "accepted",
         })
         self.assertEqual(sync_state["player_id"], "p_witcher_1")
@@ -290,21 +290,29 @@ class Stage1FreshRegressionTests(unittest.TestCase):
             json={},
         )
         match_id = started["match"]["match_id"]
-        for round_number, card_ids in (
-            (1, ("gwent_unit_02", "gwent_unit_03")),
-            (2, ("gwent_unit_04", "gwent_unit_05")),
+        for round_number, plays in (
+            (
+                1,
+                [
+                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_02"},
+                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_03"},
+                    {"player_id": "p_witcher_2", "card_id": "gwent_unit_01"},
+                ],
+            ),
+            (
+                2,
+                [
+                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_04"},
+                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_05"},
+                    {"player_id": "p_witcher_2", "card_id": "gwent_unit_02"},
+                ],
+            ),
         ):
             round_payload = self._post_ok(
                 client,
                 f"/api/pvp/matches/{match_id}/rounds",
                 headers=MASTER_HEADERS,
-                json={
-                    "round_number": round_number,
-                    "plays": [
-                        {"player_id": "p_witcher_1", "card_id": card_id}
-                        for card_id in card_ids
-                    ],
-                },
+                json={"round_number": round_number, "plays": plays},
             )
         self.assertEqual(round_payload["match"]["winner_id"], "p_witcher_1")
         loser_finish = self._post_ok(

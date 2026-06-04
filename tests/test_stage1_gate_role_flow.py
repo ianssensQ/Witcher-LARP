@@ -581,7 +581,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             headers=self._headers("north"),
             json={
                 "territory_id": "territory_village_barn",
-                "card_id": "unit_ranged_t1",
+                "card_id": "unit_infantry_t1",
                 "count": 1,
             },
         )
@@ -771,27 +771,41 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             (
                 1,
                 "p_witcher_1",
+                "p_witcher_2",
                 [{"player_id": "p_witcher_1", "card_id": hands["p_witcher_1"][0]}],
             ),
             (
                 2,
                 "p_witcher_2",
+                "p_witcher_1",
                 [{"player_id": "p_witcher_2", "card_id": hands["p_witcher_2"][0]}],
             ),
             (
                 3,
                 "p_witcher_1",
+                "p_witcher_2",
                 [{"player_id": "p_witcher_1", "card_id": hands["p_witcher_1"][1]}],
             ),
         )
-        for round_number, winner, plays in round_specs:
-            round_payload = self._post_ok(
+        for round_number, winner, loser, plays in round_specs:
+            pending_round = self._post_ok(
                 client,
                 f"/api/pvp/matches/{match_id}/rounds",
                 headers=self._player_headers(winner),
                 json={
                     "round_number": round_number,
                     "plays": plays,
+                    "passed": {winner: True},
+                },
+            )
+            self.assertIsNone(pending_round["round"]["winner_id"])
+            round_payload = self._post_ok(
+                client,
+                f"/api/pvp/matches/{match_id}/rounds",
+                headers=self._player_headers(loser),
+                json={
+                    "round_number": round_number,
+                    "passed": {loser: True},
                 },
             )
             self.assertEqual(round_payload["round"]["winner_id"], winner)
@@ -886,21 +900,19 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         accepted = self._post_ok(
             client,
             "/api/lords/p_lord_3/orders",
-            headers=self._headers("forest"),
+            headers=self._player_headers("p_witcher_2"),
             json={
                 "action": "accept",
                 "order_id": "stage1_order_first",
-                "player_id": "p_witcher_2",
             },
         )
         self.assertEqual(accepted["status"], "accepted")
         conflict = client.post(
             "/api/lords/p_lord_3/orders",
-            headers=self._headers("forest"),
+            headers=self._player_headers("p_witcher_2"),
             json={
                 "action": "accept",
                 "order_id": "stage1_order_second",
-                "player_id": "p_witcher_2",
             },
         )
         self.assertEqual(conflict.status_code, 400, conflict.text)
@@ -908,11 +920,10 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         submitted = self._post_ok(
             client,
             "/api/lords/p_lord_3/orders",
-            headers=self._headers("forest"),
+            headers=self._player_headers("p_witcher_2"),
             json={
                 "action": "submit_success",
                 "order_id": "stage1_order_first",
-                "player_id": "p_witcher_2",
                 "result_event_id": "stage1_order_event",
             },
         )
