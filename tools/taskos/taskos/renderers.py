@@ -813,6 +813,7 @@ def generated_dashboard(config: TaskosConfig, tasks: list[Task]) -> str:
     const EMBEDDED_TASKS = {task_json};
     const PRIORITY_ORDER = {priority_order};
     const TASKS_FILE = {tasks_file_ref};
+    const SCROLL_STORAGE_KEY = "taskBoardScrollPosition";
     let TASKS = normalizeTasks(EMBEDDED_TASKS);
     let byId = new Map(TASKS.map((task) => [task.id, task]));
     let priorities = priorityList(TASKS);
@@ -837,6 +838,7 @@ def generated_dashboard(config: TaskosConfig, tasks: list[Task]) -> str:
     let boardZoom = loadZoom();
     let lastTaskSignature = taskSignature(TASKS);
     let fetchFailureCount = 0;
+    let scrollSaveFrame = 0;
 
     function normalizeTasks(raw) {{
       const list = Array.isArray(raw) ? raw : (raw?.tasks ?? []);
@@ -1143,6 +1145,60 @@ def generated_dashboard(config: TaskosConfig, tasks: list[Task]) -> str:
       if (refreshStatusEl) refreshStatusEl.textContent = value;
     }}
 
+    function numberOrZero(value) {{
+      const number = Number(value);
+      return Number.isFinite(number) ? number : 0;
+    }}
+
+    function readScrollPosition() {{
+      try {{
+        const raw = window.sessionStorage.getItem(SCROLL_STORAGE_KEY);
+        if (!raw) return null;
+        const saved = JSON.parse(raw);
+        return {{
+          left: numberOrZero(saved.left),
+          top: numberOrZero(saved.top),
+          windowX: numberOrZero(saved.windowX),
+          windowY: numberOrZero(saved.windowY),
+        }};
+      }} catch (error) {{
+        return null;
+      }}
+    }}
+
+    function saveScrollPosition() {{
+      try {{
+        window.sessionStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify({{
+          left: boardEl.scrollLeft,
+          top: boardEl.scrollTop,
+          windowX: window.scrollX,
+          windowY: window.scrollY,
+        }}));
+      }} catch (error) {{
+        // Static file mode can deny storage; scrolling still works for this session.
+      }}
+    }}
+
+    function restoreScrollPosition() {{
+      const saved = readScrollPosition();
+      if (!saved) return;
+      window.requestAnimationFrame(() => {{
+        const maxLeft = Math.max(0, boardEl.scrollWidth - boardEl.clientWidth);
+        const maxTop = Math.max(0, boardEl.scrollHeight - boardEl.clientHeight);
+        boardEl.scrollLeft = Math.min(saved.left, maxLeft);
+        boardEl.scrollTop = Math.min(saved.top, maxTop);
+        window.scrollTo(saved.windowX, saved.windowY);
+      }});
+    }}
+
+    function scheduleScrollPositionSave() {{
+      if (scrollSaveFrame) return;
+      scrollSaveFrame = window.requestAnimationFrame(() => {{
+        scrollSaveFrame = 0;
+        saveScrollPosition();
+      }});
+    }}
+
     function updateTasks(raw) {{
       const nextTasks = normalizeTasks(raw);
       const nextSignature = taskSignature(nextTasks);
@@ -1150,6 +1206,8 @@ def generated_dashboard(config: TaskosConfig, tasks: list[Task]) -> str:
 
       const previousScrollLeft = boardEl.scrollLeft;
       const previousScrollTop = boardEl.scrollTop;
+      const previousWindowScrollX = window.scrollX;
+      const previousWindowScrollY = window.scrollY;
       const previousSelectedPriorities = new Set(selectedPriorities);
       const previousSelectedStages = new Set(selectedStages);
       TASKS = nextTasks;
@@ -1180,6 +1238,7 @@ def generated_dashboard(config: TaskosConfig, tasks: list[Task]) -> str:
       const maxTop = Math.max(0, boardEl.scrollHeight - boardEl.clientHeight);
       boardEl.scrollLeft = Math.min(previousScrollLeft, maxLeft);
       boardEl.scrollTop = Math.min(previousScrollTop, maxTop);
+      window.scrollTo(previousWindowScrollX, previousWindowScrollY);
       return true;
     }}
 
@@ -1248,10 +1307,17 @@ def generated_dashboard(config: TaskosConfig, tasks: list[Task]) -> str:
     searchEl.addEventListener("input", render);
     zoomOutEl.addEventListener("click", () => stepZoom(-0.1));
     zoomInEl.addEventListener("click", () => stepZoom(0.1));
+    boardEl.addEventListener("scroll", scheduleScrollPositionSave, {{ passive: true }});
+    window.addEventListener("scroll", scheduleScrollPositionSave, {{ passive: true }});
+    window.addEventListener("pagehide", saveScrollPosition);
+    document.addEventListener("visibilitychange", () => {{
+      if (document.visibilityState === "hidden") saveScrollPosition();
+    }});
     enableBoardDrag();
     setZoom(boardZoom);
     renderFilters();
     render();
+    restoreScrollPosition();
     refreshFromTasksFile();
     window.setInterval(refreshFromTasksFile, 3000);
   </script>

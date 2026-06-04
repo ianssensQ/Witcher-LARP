@@ -15,6 +15,12 @@
 
 Техническая граница важна: Stage 1 не должен зависеть от генератора квестов, Stage 2 должен быть готов до pre-2B audit remediation, `TASK-087` должен закрыть или явно принять существенные authority/visibility/recovery/import bugs до Stage 2B, Stage 2B доказывает UI-first тестирование ролей без Swagger и готовность всего non-PvE gameplay на реальных игровых поверхностях, Stage 3 строит генератор уже поверх playable UI, а Stage 5 балансирует полный content pack, а не технические заглушки.
 
+`TASK-087` accepted this boundary on 2026-06-04 through
+`docs/audits/pre-2b-remediation-matrix.md`: all `AUD-NEXT-001..046` rows have
+owner evidence from `TASK-082`-`TASK-086` or an explicit owner/workaround
+residual-risk note. UI guardrails remain UX mitigation only and do not replace
+backend/domain/import/sync/snapshot authority checks.
+
 ## Ключевые решения
 
 - Домашний Wi-Fi является online-зоной игры; интернет не нужен.

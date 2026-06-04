@@ -6,16 +6,16 @@ Use `uv run python scripts/taskctl.py claim`, `done`, `block`, `release`, or `sy
 ## Summary
 
 - Total tasks: 88
-- Done: 59
+- Done: 66
 - In progress: 0
 - Blocked: 0
 - Can start now / dependency-ready pending: 1
-- Pending but waiting on dependencies: 28
-- Pending total: 29
+- Pending but waiting on dependencies: 21
+- Pending total: 22
 - Stage gates: 7
 
 Ready to start now:
-- `TASK-081` - Classify AUD-NEXT bugs into backend fixes and UI guardrails
+- `TASK-045` - Зафиксировать playable UI contract и role journey matrix
 
 In progress now:
 - _None._
@@ -37,7 +37,7 @@ Stage summary:
 Stage gates:
 - `TASK-018` - STAGE-1: Core Game Engine - done
 - `TASK-023` - STAGE-2: Admin Studio - done
-- `TASK-087` - STAGE-2A2: Audit Remediation and UI Guardrails - pending
+- `TASK-087` - STAGE-2A2: Audit Remediation and UI Guardrails - done
 - `TASK-050` - STAGE-2B: Playable Role UI - pending
 - `TASK-028` - STAGE-3: PvE Generation Engine - pending
 - `TASK-032` - STAGE-4: Unique Quest Production - pending
@@ -58,338 +58,9 @@ _No tasks._
 
 ## Dependency Ready
 
-### TASK-081 - Classify AUD-NEXT bugs into backend fixes and UI guardrails
-
-Status: `dependency-ready`
-Priority: `P0`
-Category: `qa`
-Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
-Stage gate: `False`
-Dependencies: `TASK-080`
-
-Goal:
-
-Create the pre-2B remediation matrix for AUD-NEXT-001..046: which bugs require backend/domain authority fixes, where UI guardrails only reduce risk, and which P2 issues can proceed as accepted residual risk.
-
-Scope:
-- Map every AUD-NEXT-001..046 finding to a remediation owner: backend authority, import validation, sync/recovery, visibility projection, UI guardrail, test coverage or accepted residual risk
-- Classify which issues can receive UI guardrails without being marked fixed until backend rejects direct API/sync/snapshot bypass
-- Define blocking threshold before TASK-045: all P1 fixed or explicitly downgraded with evidence; blocking P2 fixed or assigned with workaround
-- Create a short remediation checklist referenced by TASK-082 through TASK-087
-- Preserve Stage 2B boundary: missing full mobile/lord/Gwent UI is not counted as a Stage 1/2 bug, but UI must not hide known backend authority gaps
-
-Acceptance:
-- AUD-NEXT-001..046 each have exactly one primary remediation task and optional secondary UI guardrail/test note
-- Every UI-only mitigation is labelled mitigation, not fixed, unless backend/API/sync/snapshot also enforce the rule
-- P0/P1/blocking P2 launch risks are separated from lower P2 risks with owner and expected evidence
-- TASK-082 through TASK-086 scope lists are reconciled against the audit supplement and coverage matrix
-- TASK-087 can use the matrix as its gate checklist
-
-Test Steps:
-- Review docs/audits/stage1-stage2-code-audit-supplement.md AUD-NEXT-001..046
-- Review docs/audits/stage1-stage2-business-coverage-matrix.md risk clusters
-- Produce issue-to-task mapping and UI-mitigation/back-end-fix classification in task notes or linked docs
-- uv run python scripts/taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: AUD-NEXT-001..046 audit supplement, business coverage matrix, current Stage 2A completion and user decision to add a separate stage before Stage 2B.
-Outputs: A pre-2B remediation matrix that prevents UI work from merely hiding direct API/backend defects.
-Implementation path: Treat UI as a guardrail and backend/domain runtime as authority. Use issue clusters instead of one task per bug unless a finding needs its own owner.
-Interfaces: docs/audits/stage1-stage2-code-audit-supplement.md, docs/audits/stage1-stage2-business-coverage-matrix.md, tasks.json and Stage 2B dependencies.
-Failure/review paths: If a bug is left for Stage 2B UI only, it must remain an open risk unless direct API/sync/snapshot bypass is impossible or explicitly accepted as non-blocking.
-Required tests: TaskOS validate and matrix review.
-
-
-## Blocked
-
-_No tasks._
-
-## Pending
-
-### TASK-082 - Close player/lord visibility leaks before Stage 2B
-
-Status: `pending`
-Priority: `P0`
-Category: `backend`
-Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
-Stage gate: `False`
-Dependencies: `TASK-081`
-
-Goal:
-
-Fix audit leaks where player/lord-facing endpoints or snapshots expose data that cannot be protected by merely hiding UI controls.
-
-Scope:
-- AUD-NEXT-002: require player-code auth for QR lookup and derive player_id from auth context
-- AUD-NEXT-003: remove exact numeric reputation from player auth/snapshot payloads while preserving master views
-- AUD-NEXT-029: redact master-only/unrevealed artifact metadata from player snapshots
-- AUD-NEXT-035: redact future/unique QR/manual IDs and sensitive scenario links from player snapshots
-- AUD-NEXT-043: split master and lord diplomacy projections so lord state does not expose master-only order pressure
-- Add UI guardrails only after payload redaction: hidden fields must not be present in network responses
-
-Acceptance:
-- Player QR lookup cannot be called anonymously or for another player by changing request body
-- Player-facing payloads contain only approved reputation band/label and no exact hidden thresholds
-- Player snapshots omit master-only artifacts, unrevealed final metadata and future/manual QR IDs
-- Lord state omits or coarse-buckets foreign active-order pressure according to visibility rules
-- Regression tests inspect actual API/snapshot JSON, not only rendered UI
-
-Test Steps:
-- Add FastAPI auth regression for /api/qr/lookup anonymous and wrong-player payloads
-- Add snapshot exporter tests for artifacts, QR/manual IDs and reputation redaction
-- Add lord panel/state contract test for diplomacy signal visibility
-- Run targeted visibility/auth tests
-- uv run python scripts/taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: AUD-NEXT-002, AUD-NEXT-003, AUD-NEXT-029, AUD-NEXT-035, AUD-NEXT-043 and TASK-081 classification.
-Outputs: Player/lord-facing projections that do not leak hidden act, QR, artifact, reputation or order-pressure data even under direct API calls.
-Implementation path: Fix projection/auth boundaries in backend serializers and endpoint auth first; then simplify UI to consume only safe payloads.
-Interfaces: backend/witcher_larp/app.py, snapshot_exporter.py, lord_panel.py, lord_runtime.py, reputation/snapshot tests and lord panel contract tests.
-Failure/review paths: If a field remains in JSON and is only hidden by CSS/JS, this task is not complete.
-Required tests: Targeted API/snapshot/lord visibility regressions and TaskOS validate.
-
-### TASK-083 - Close offline sync, paper recovery and restore authority gaps
-
-Status: `pending`
-Priority: `P0`
-Category: `backend`
-Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
-Stage gate: `False`
-Dependencies: `TASK-081`
-
-Goal:
-
-Fix audit bugs in offline-first sync/retry, paper recovery and backup/restore recovery so Stage 2B UI does not sit on top of lost events or non-authoritative recovery.
-
-Scope:
-- AUD-NEXT-004: rejected malformed paper intake must not poison corrected same-form recovery
-- AUD-NEXT-007: reject/review future-act offline PvE created before act reveal even if synced later
-- AUD-NEXT-009: make unique QR consume conflicts atomic and prevent losing side effects
-- AUD-NEXT-020: approved/corrected conflicted paper PvE applies ordinary PvE side effects safely
-- AUD-NEXT-028: duplicate retry returns original review/rejected/pending status to the client
-- AUD-NEXT-033: partition mobile event_queue by player/session and reject wrong-actor sync
-- AUD-NEXT-034: either implement guarded restore or move restore out of ready Admin surface with runbook boundary
-- AUD-NEXT-040: detect client_sequence gaps, duplicates and out-of-order batches
-- AUD-NEXT-041: require real roll/roll_log or master override for paper PvE instead of synthetic d20
-
-Acceptance:
-- Offline event authority is based on event creation/reveal time, actor binding and deterministic sequence handling
-- Paper PvE recovery cannot auto-mint success without replayable roll evidence or explicit master override
-- Conflicted paper approvals apply or reject side effects through the same domain checks as digital events
-- Duplicate/retry responses preserve original visible status and recovery reason
-- Admin backup/restore readiness is honest and has tested restore or documented non-ready boundary
-
-Test Steps:
-- Add event sync tests for future-act timestamps, unique QR concurrency, duplicate status and sequence gaps
-- Add mobile contract tests for queue partition by player and visible retry states
-- Add paper recovery tests for malformed correction, conflicted approval side effects and missing roll review
-- Add Admin Studio backup/restore contract test or runbook-boundary assertion
-- uv run python scripts/taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: AUD-NEXT-004, 007, 009, 020, 028, 033, 034, 040, 041 and TASK-081 classification.
-Outputs: Offline/recovery paths that preserve source authority, visible status and replayability under Wi-Fi loss, phone swaps and paper fallback.
-Implementation path: Fix backend event service/recovery decisions and mobile queue semantics before adding Stage 2B UI affordances.
-Interfaces: event_service.py, pve_runtime.py, mobile/scripts/app_state.gd, admin_studio.py, review_service.py, paper recovery tests and mobile shell contract tests.
-Failure/review paths: If UI only disables a field but stale queues/direct sync can still mutate wrong-player or future-act state, the issue remains open.
-Required tests: Targeted sync/recovery/mobile/Admin regressions and TaskOS validate.
-
-### TASK-084 - Close timers, final lock and review lifecycle blockers
-
-Status: `pending`
-Priority: `P0`
-Category: `backend`
-Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
-Stage gate: `False`
-Dependencies: `TASK-081`
-
-Goal:
-
-Fix audit bugs where act timers, final lock, NPC/review lifecycle or timed raid effects can produce stale or false final state.
-
-Scope:
-- AUD-NEXT-010: post-lock magical intent cannot overwrite valid locked final evidence
-- AUD-NEXT-011: final summary must not count seed Gwent fixtures as real PvP evidence
-- AUD-NEXT-015: resolved review items no longer block final summary
-- AUD-NEXT-016: unresolved lord pending tick rewards appear in final summary
-- AUD-NEXT-019: raid effects expire/apply timed debuff state instead of remaining active forever
-- AUD-NEXT-027: direct Final Act start must apply/require final_lock side effects
-- AUD-NEXT-039: role endpoints reconcile due timers before timer-derived reads/actions after restart
-- AUD-NEXT-042: NPC P0/P1 runtime events get a close/resolution lifecycle or route through review statuses
-
-Acceptance:
-- Final Act cannot start with final_lock side effects skipped
-- Role-facing lord/sorceress/PvP endpoints see fresh timer-derived MP/mana/tokens/final-lock state after restart
-- Final summary distinguishes open blockers from resolved review/NPC history
-- Locked magical intent authority remains stable after post-lock attempts
-- Timed raid effects expire and final/lord projections no longer count stale active rows
-
-Test Steps:
-- Add act/final tests for direct Final Act start and post-lock magical intent
-- Add restart/timer reconciliation tests through role-facing endpoints
-- Add final summary tests for resolved reviews, NPC lifecycle and pending lord tick rewards
-- Add raid effect duration/expiry test
-- uv run python scripts/taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: AUD-NEXT-010, 011, 015, 016, 019, 027, 039, 042 and TASK-081 classification.
-Outputs: Final/timer/review authority that cannot be bypassed by route order, restart timing or stale unresolved rows.
-Implementation path: Centralize timer reconciliation and final-lock preconditions; add explicit lifecycle state for review/NPC/timed effects.
-Interfaces: act_service.py, timer_service.py, final_summary_service.py, sorceress_service.py, lord_runtime.py, npc_service.py and final/timer tests.
-Failure/review paths: A UI wizard that hides direct Final Act start is useful but insufficient unless backend also rejects/applies the required sequence.
-Required tests: Targeted act/timer/final/NPC/lord regressions and TaskOS validate.
-
-### TASK-085 - Close gameplay authority gaps in PvP, assets, lord and sorceress runtime
-
-Status: `pending`
-Priority: `P0`
-Category: `backend`
-Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
-Stage gate: `False`
-Dependencies: `TASK-081`
-
-Goal:
-
-Fix runtime bugs where a player, lord or master can bypass state authority through payloads, corrections, stake/trade/lock flow or incomplete lifecycle models.
-
-Scope:
-- AUD-NEXT-001: captured territory cannot retain active defeated defender garrison
-- AUD-NEXT-005 and AUD-NEXT-006: PvP challenge authority, token pacing and queued active blockers are server-derived
-- AUD-NEXT-008: reward approval creation requires accepted/reviewable PvE provenance
-- AUD-NEXT-012 and AUD-NEXT-013: asset locks and final ownership evidence are owner-scoped and complete
-- AUD-NEXT-014 and AUD-NEXT-030: Gwent start/round payload is viewer-scoped and sequence-authoritative
-- AUD-NEXT-017: lord order final-lock override source is derived from auth route, not client payload
-- AUD-NEXT-018 and AUD-NEXT-021: sorceress potion/favorite lifecycle validates real scene/context and consent transitions
-- AUD-NEXT-022, AUD-NEXT-024, AUD-NEXT-025 and AUD-NEXT-038: master corrections use domain settlement/invariant validators, not generic impossible patches
-- AUD-NEXT-023 and AUD-NEXT-026: fort capacity and trade timeout lifecycle are modeled/enforced
-
-Acceptance:
-- Direct API payloads cannot bypass PvP token/cap/stake, Gwent visibility/sequence, lord final lock or sorceress scene/favorite limits
-- Reward/trade/PvP/asset corrections settle locks, ownership and gold exactly once through domain helpers
-- Final summary exposes current asset ownership and unsettled locks/rewards needed by NPC masters
-- Lord logistics enforce capture cleanup, fort capacity and trade/order timeout lifecycle
-- UI controls remove unsafe manual fields, but tests prove direct requests are rejected or reviewed
-
-Test Steps:
-- Add PvP/Gwent API regressions for mandatory=false, queued blockers, opponent hand/mulligan and round skip
-- Add reward/trade/asset lock/correction regressions for provenance, owner scoping, settlement and impossible state rejection
-- Add lord runtime tests for capture cleanup, final-lock source, fort capacity and trade timeout
-- Add sorceress tests for real scene potion cap and favorite decline/cancel/remove/change lifecycle
-- uv run python scripts/taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: AUD-NEXT-001, 005, 006, 008, 012, 013, 014, 017, 018, 021, 022, 023, 024, 025, 026, 030, 038 and TASK-081 classification.
-Outputs: Gameplay authority fixes for user/lord/master mutations that currently depend on trusting UI or generic patch payloads.
-Implementation path: Move authority into backend services and domain-specific correction helpers; use UI only to prevent honest mistakes and improve operator flow.
-Interfaces: pvp_service.py, lord_runtime.py, lord_battle_service.py, sorceress_service.py, asset_service.py, reward_service.py, game_ops_service.py, final_summary_service.py and related tests.
-Failure/review paths: If a player can still curl an unsafe action after UI fields are hidden, the relevant issue remains unresolved.
-Required tests: Targeted PvP/Gwent/trade/assets/lord/sorceress/Admin correction regressions and TaskOS validate.
-
-### TASK-086 - Close import/content invariant gates before Stage 2B
-
-Status: `pending`
-Priority: `P0`
-Category: `content`
-Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
-Stage gate: `False`
-Dependencies: `TASK-081`
-
-Goal:
-
-Strengthen seed/import validation and runtime defensive checks for content-driven bugs where bad CSV can silently break PvE, lord battle, movement, timers, economy or order caps.
-
-Scope:
-- AUD-NEXT-031: validate PvE tier/DC ranges and impossible auto-win/auto-fail content
-- AUD-NEXT-032: validate lord army unit positive HP/stats, tier/range bounds and battle-safe values
-- AUD-NEXT-036: seed trade-transfer terminal/pending states require source debit/provenance or contested review
-- AUD-NEXT-037: validate signed economy/resource ranges consumed by runtime
-- AUD-NEXT-044: validate positive integer map_edges.mp_cost and defensive runtime guard
-- AUD-NEXT-045: validate auto_timers enums, required final-lock/pre-final-backup timers and no unknown no_effect handlers
-- AUD-NEXT-046: decouple canonical order cap counting from permissive imported status flags
-
-Acceptance:
-- Invalid CSV overlays for each listed invariant fail validation before runtime import succeeds
-- Runtime has defensive guards for high-risk signed costs/stats even if importer is bypassed in tests
-- Unknown timer effects and missing canonical final timers cannot pass as processed no-op ticks
-- Order cap semantics cannot be disabled by changing imported counts_against_cap for canonical active statuses
-- Import UI may show friendly errors, but CLI/validator remains the source of truth
-
-Test Steps:
-- Add invalid seed fixtures for PvE tier/DC, army zero HP/out-of-range stats, signed economy fields, map edge cost and timer effect typos
-- Add runtime defensive tests for negative route cost and impossible battle unit stats
-- Add order_status_rules validation regression where published is active but not counting against cap
-- Run seed validation and targeted runtime tests
-- uv run python scripts/taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: AUD-NEXT-031, 032, 036, 037, 044, 045, 046 and TASK-081 classification.
-Outputs: Import gates that fail fast on dangerous content instead of letting Stage 2B UI discover impossible runtime state.
-Implementation path: Use content_schema/validation invariants first and add runtime guards where numeric values are consumed in critical paths.
-Interfaces: backend/witcher_larp/validation.py, content_schema.py, pve_runtime.py, lord_runtime.py, lord_battle_service.py, timer_service.py, seed fixtures and validation tests.
-Failure/review paths: A friendly import UI is not enough if uv/task validation or direct importer can still accept the broken CSV.
-Required tests: Seed validation fixtures, targeted runtime guard tests and TaskOS validate.
-
-### TASK-087 - PRE-2B GATE: audit remediation and UI guardrails acceptance
-
-Status: `pending`
-Priority: `P0`
-Category: `qa`
-Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
-Stage gate: `True`
-Dependencies: `TASK-082`, `TASK-083`, `TASK-084`, `TASK-085`, `TASK-086`
-
-Goal:
-
-Accept the new pre-Stage-2B gate: every AUD-NEXT-001..046 issue is fixed through backend/domain authority or has explicit non-blocking P2 status with owner/workaround; UI guardrails do not replace backend fixes.
-
-Scope:
-- Review TASK-081 remediation matrix and TASK-082 through TASK-086 evidence
-- Confirm no unresolved P0/P1 audit issue remains before TASK-045 starts
-- Confirm blocking P2 issues in state authority, visibility, recovery, sync, final, PvP/Gwent, trade/assets, lord runtime, sorceress, NPC/final summary, Admin Studio and import gates are fixed or explicitly accepted with owner/workaround
-- Confirm UI guardrails are listed for Stage 2B UX but every fixed issue also has direct API/sync/snapshot/backend proof
-- Update generated TaskOS dashboard and active task views so Stage 2B starts after TASK-087
-
-Acceptance:
-- TASK-045 is dependency-ready only after TASK-087 is done
-- Every AUD-NEXT-001..046 has closure evidence or accepted residual-risk note
-- No issue is closed solely because a normal UI hides a dangerous field or route
-- Targeted regressions and TaskOS validate/doctor pass
-- docs/roadmap.md, docs/app-technical-plan-v0.1.md, docs/architecture.md and generated TaskOS views describe the new pre-2B gate
-
-Test Steps:
-- Review issue-to-task closure matrix from TASK-081
-- Review targeted test evidence from TASK-082 through TASK-086
-- Run uv run python -m json.tool tasks.json
-- Run uv run python scripts/taskctl.py validate
-- Run uv run python scripts/taskctl.py sync
-- Run uv run python scripts/taskctl.py doctor
-
-Notes:
-
-Contract:
-Inputs: Completed TASK-082 through TASK-086, AUD-NEXT-001..046 closure evidence and updated TaskOS docs/dashboard.
-Outputs: A gate decision that makes Stage 2B safe to start without hiding known runtime-authority bugs behind UI-only constraints.
-Implementation path: Review evidence, not cosmetics. UI guardrails are accepted only as additional safeguards unless backend/API/sync/snapshot can no longer be bypassed.
-Interfaces: tasks.json, generated TaskOS docs/dashboard, audit supplement/matrix, targeted regression evidence and Stage 2B dependencies.
-Failure/review paths: If any P1 or blocking P2 lacks backend proof or explicit accepted residual-risk decision, block TASK-087 and keep Stage 2B closed.
-Required tests: json.tool, TaskOS validate/sync/doctor, targeted regression evidence review and generated dashboard inspection.
-
 ### TASK-045 - Зафиксировать playable UI contract и role journey matrix
 
-Status: `pending`
+Status: `dependency-ready`
 Priority: `P0`
 Category: `ui`
 Stage: `STAGE-2B: Playable Role UI`
@@ -445,6 +116,13 @@ Implementation path: Use existing FastAPI static web and Godot mobile constraint
 Interfaces: Role journey matrix covers mobile, lord panel, Admin Studio, paper recovery, diagnostics boundaries, non-PvE gameplay readiness and reference-to-screen ownership.
 Failure/review paths: Any workflow without a UI owner becomes a blocker for TASK-050, not a hidden release risk; Android/iOS smoke gaps are blockers, not optional launch-risk notes; copied third-party assets block visual acceptance.
 Required tests: Matrix review, visibility review, visual reference/IP-safety review, non-PvE route review and TaskOS validate.
+
+
+## Blocked
+
+_No tasks._
+
+## Pending
 
 ### TASK-067 - Собрать visual reference и asset brief для UI
 
@@ -4755,3 +4433,339 @@ Implementation path: Prefer behavior-level API/state/UI contract tests over sour
 Interfaces: tests/test_paper_recovery.py, tests/test_event_sync.py, tests/test_lord_runtime.py, tests/test_pvp_runtime.py, tests/test_lord_panel_contract.py, tests/test_admin_studio_contract.py, tests/test_game_ops_service.py, tests/test_snapshot_exporter.py and tests/test_mobile_shell_contract.py.
 Failure/review paths: Any serious issue without automated coverage must be named as a TASK-045/TASK-050 blocker or manual acceptance gap, not treated as green-test coverage.
 Required tests: targeted regression groups, full pytest, json.tool, TaskOS validate/doctor and generated board review.
+
+### TASK-081 - Classify AUD-NEXT bugs into backend fixes and UI guardrails
+
+Status: `done`
+Priority: `P0`
+Category: `qa`
+Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
+Stage gate: `False`
+Dependencies: `TASK-080`
+
+Goal:
+
+Create the pre-2B remediation matrix for AUD-NEXT-001..046: which bugs require backend/domain authority fixes, where UI guardrails only reduce risk, and which P2 issues can proceed as accepted residual risk.
+
+Scope:
+- Map every AUD-NEXT-001..046 finding to a remediation owner: backend authority, import validation, sync/recovery, visibility projection, UI guardrail, test coverage or accepted residual risk
+- Classify which issues can receive UI guardrails without being marked fixed until backend rejects direct API/sync/snapshot bypass
+- Define blocking threshold before TASK-045: all P1 fixed or explicitly downgraded with evidence; blocking P2 fixed or assigned with workaround
+- Create a short remediation checklist referenced by TASK-082 through TASK-087
+- Preserve Stage 2B boundary: missing full mobile/lord/Gwent UI is not counted as a Stage 1/2 bug, but UI must not hide known backend authority gaps
+
+Acceptance:
+- AUD-NEXT-001..046 each have exactly one primary remediation task and optional secondary UI guardrail/test note
+- Every UI-only mitigation is labelled mitigation, not fixed, unless backend/API/sync/snapshot also enforce the rule
+- P0/P1/blocking P2 launch risks are separated from lower P2 risks with owner and expected evidence
+- TASK-082 through TASK-086 scope lists are reconciled against the audit supplement and coverage matrix
+- TASK-087 can use the matrix as its gate checklist
+
+Test Steps:
+- Review docs/audits/stage1-stage2-code-audit-supplement.md AUD-NEXT-001..046
+- Review docs/audits/stage1-stage2-business-coverage-matrix.md risk clusters
+- Produce issue-to-task mapping and UI-mitigation/back-end-fix classification in task notes or linked docs
+- uv run python scripts/taskctl.py validate
+- Проверено json.tool, taskctl validate, taskctl sync; все AUD-NEXT-001..046 имеют ровно один primary owner.
+
+Notes:
+
+Contract:
+Inputs: AUD-NEXT-001..046 audit supplement, business coverage matrix, current Stage 2A completion and user decision to add a separate stage before Stage 2B.
+Outputs: A pre-2B remediation matrix that prevents UI work from merely hiding direct API/backend defects.
+Matrix artifact: docs/audits/pre-2b-remediation-matrix.md records the Russian owner matrix, blocking policy, UI-only mitigation rule, paper d20 policy, visibility policy and TASK-087 checklist.
+Implementation path: Treat UI as a guardrail and backend/domain runtime as authority. Use issue clusters instead of one task per bug unless a finding needs its own owner.
+Interfaces: docs/audits/stage1-stage2-code-audit-supplement.md, docs/audits/stage1-stage2-business-coverage-matrix.md, docs/audits/pre-2b-remediation-matrix.md, tasks.json and Stage 2B dependencies.
+Failure/review paths: If a bug is left for Stage 2B UI only, it must remain an open risk unless direct API/sync/snapshot bypass is impossible or explicitly accepted as non-blocking.
+Required tests: TaskOS validate and matrix review.
+
+### TASK-082 - Close player/lord visibility leaks before Stage 2B
+
+Status: `done`
+Priority: `P0`
+Category: `backend`
+Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
+Stage gate: `False`
+Dependencies: `TASK-081`
+
+Goal:
+
+Fix audit leaks where player/lord-facing endpoints or snapshots expose data that cannot be protected by merely hiding UI controls.
+
+Scope:
+- AUD-NEXT-002: require player-code auth for QR lookup and derive player_id from auth context
+- AUD-NEXT-003: remove exact numeric reputation from player auth/snapshot payloads while preserving master views
+- AUD-NEXT-029: redact master-only/unrevealed artifact metadata from player snapshots
+- AUD-NEXT-035: redact future/unique QR/manual IDs and sensitive scenario links from player snapshots
+- AUD-NEXT-043: split master and lord diplomacy projections so lord state does not expose master-only order pressure
+- Add UI guardrails only after payload redaction: hidden fields must not be present in network responses
+
+Acceptance:
+- Player QR lookup cannot be called anonymously or for another player by changing request body
+- Player-facing payloads contain only approved reputation band/label and no exact hidden thresholds
+- Player snapshots omit master-only artifacts, unrevealed final metadata and future/manual QR IDs
+- Lord state omits or coarse-buckets foreign active-order pressure according to visibility rules
+- Regression tests inspect actual API/snapshot JSON, not only rendered UI
+
+Test Steps:
+- Add FastAPI auth regression for /api/qr/lookup anonymous and wrong-player payloads
+- Add snapshot exporter tests for artifacts, QR/manual IDs and reputation redaction
+- Add lord panel/state contract test for diplomacy signal visibility
+- Run targeted visibility/auth tests
+- uv run python scripts/taskctl.py validate
+- Targeted TASK-082 pytest set passed: FastAPI QR/auth/reputation contract tests, snapshot exporter tests, lord state visibility test, mobile login snapshot contract; uv run ruff check on touched files passed; uv run python scripts/taskctl.py validate passed; CodeGraph affected returned no extra tests and codegraph sync/status completed.
+
+Notes:
+
+Contract:
+Inputs: AUD-NEXT-002, AUD-NEXT-003, AUD-NEXT-029, AUD-NEXT-035, AUD-NEXT-043 and TASK-081 classification.
+Outputs: Player/lord-facing projections that do not leak hidden act, QR, artifact, reputation or order-pressure data even under direct API calls.
+Matrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-082 and defines the coarse-only visibility policy.
+Implementation path: Fix projection/auth boundaries in backend serializers and endpoint auth first; then simplify UI to consume only safe payloads.
+Interfaces: backend/witcher_larp/app.py, snapshot_exporter.py, lord_panel.py, lord_runtime.py, reputation/snapshot tests and lord panel contract tests.
+Failure/review paths: If a field remains in JSON and is only hidden by CSS/JS, this task is not complete.
+Required tests: Targeted API/snapshot/lord visibility regressions and TaskOS validate.
+
+### TASK-083 - Close offline sync, paper recovery and restore authority gaps
+
+Status: `done`
+Priority: `P0`
+Category: `backend`
+Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
+Stage gate: `False`
+Dependencies: `TASK-081`
+
+Goal:
+
+Fix audit bugs in offline-first sync/retry, paper recovery and backup/restore recovery so Stage 2B UI does not sit on top of lost events or non-authoritative recovery.
+
+Scope:
+- AUD-NEXT-004: rejected malformed paper intake must not poison corrected same-form recovery
+- AUD-NEXT-007: reject/review future-act offline PvE created before act reveal even if synced later
+- AUD-NEXT-009: make unique QR consume conflicts atomic and prevent losing side effects
+- AUD-NEXT-020: approved/corrected conflicted paper PvE applies ordinary PvE side effects safely
+- AUD-NEXT-028: duplicate retry returns original review/rejected/pending status to the client
+- AUD-NEXT-033: partition mobile event_queue by player/session and reject wrong-actor sync
+- AUD-NEXT-034: either implement guarded restore or move restore out of ready Admin surface with runbook boundary
+- AUD-NEXT-040: detect client_sequence gaps, duplicates and out-of-order batches
+- AUD-NEXT-041: require real roll/roll_log or master override for paper PvE instead of synthetic d20
+
+Acceptance:
+- Offline event authority is based on event creation/reveal time, actor binding and deterministic sequence handling
+- Paper PvE recovery cannot auto-mint success without replayable roll evidence or explicit master override
+- Conflicted paper approvals apply or reject side effects through the same domain checks as digital events
+- Duplicate/retry responses preserve original visible status and recovery reason
+- Admin backup/restore readiness is honest and has tested restore or documented non-ready boundary
+
+Test Steps:
+- Add event sync tests for future-act timestamps, unique QR concurrency, duplicate status and sequence gaps
+- Add mobile contract tests for queue partition by player and visible retry states
+- Add paper recovery tests for malformed correction, conflicted approval side effects and missing roll review
+- Add Admin Studio backup/restore contract test or runbook-boundary assertion
+- uv run python scripts/taskctl.py validate
+- Passed: uv run pytest tests/test_event_sync.py tests/test_paper_recovery.py tests/test_mobile_shell_contract.py tests/test_pve_runtime.py tests/test_fastapi_contract.py tests/test_game_ops_service.py tests/test_admin_studio_contract.py::AdminStudioContractTests::test_admin_paper_recovery_uses_master_sync_and_conflict_review tests/test_admin_studio_contract.py::AdminStudioContractTests::test_admin_overview_reports_real_and_pending_surfaces -q (87 passed); uv run ruff check changed Python files; uv run python scripts/taskctl.py validate; codegraph sync/status . up to date. Note: full tests/test_admin_studio_contract.py still has unrelated TASK-084 final-summary NameError _pending_tick_rewards_for_domain.
+
+Notes:
+
+Contract:
+Inputs: AUD-NEXT-004, 007, 009, 020, 028, 033, 034, 040, 041 and TASK-081 classification.
+Outputs: Offline/recovery paths that preserve source authority, visible status and replayability under Wi-Fi loss, phone swaps and paper fallback.
+Matrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-083, requires review/override for paper PvE without roll evidence and allows AUD-NEXT-034 runbook boundary only if restore is no longer presented as ready.
+Implementation path: Fix backend event service/recovery decisions and mobile queue semantics before adding Stage 2B UI affordances.
+Interfaces: event_service.py, pve_runtime.py, mobile/scripts/app_state.gd, admin_studio.py, review_service.py, paper recovery tests and mobile shell contract tests.
+Failure/review paths: If UI only disables a field but stale queues/direct sync can still mutate wrong-player or future-act state, the issue remains open.
+Required tests: Targeted sync/recovery/mobile/Admin regressions and TaskOS validate.
+
+### TASK-084 - Close timers, final lock and review lifecycle blockers
+
+Status: `done`
+Priority: `P0`
+Category: `backend`
+Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
+Stage gate: `False`
+Dependencies: `TASK-081`
+
+Goal:
+
+Fix audit bugs where act timers, final lock, NPC/review lifecycle or timed raid effects can produce stale or false final state.
+
+Scope:
+- AUD-NEXT-010: post-lock magical intent cannot overwrite valid locked final evidence
+- AUD-NEXT-011: final summary must not count seed Gwent fixtures as real PvP evidence
+- AUD-NEXT-015: resolved review items no longer block final summary
+- AUD-NEXT-016: unresolved lord pending tick rewards appear in final summary
+- AUD-NEXT-019: raid effects expire/apply timed debuff state instead of remaining active forever
+- AUD-NEXT-027: direct Final Act start must apply/require final_lock side effects
+- AUD-NEXT-039: role endpoints reconcile due timers before timer-derived reads/actions after restart
+- AUD-NEXT-042: NPC P0/P1 runtime events get a close/resolution lifecycle or route through review statuses
+
+Acceptance:
+- Final Act cannot start with final_lock side effects skipped
+- Role-facing lord/sorceress/PvP endpoints see fresh timer-derived MP/mana/tokens/final-lock state after restart
+- Final summary distinguishes open blockers from resolved review/NPC history
+- Locked magical intent authority remains stable after post-lock attempts
+- Timed raid effects expire and final/lord projections no longer count stale active rows
+
+Test Steps:
+- Add act/final tests for direct Final Act start and post-lock magical intent
+- Add restart/timer reconciliation tests through role-facing endpoints
+- Add final summary tests for resolved reviews, NPC lifecycle and pending lord tick rewards
+- Add raid effect duration/expiry test
+- uv run python scripts/taskctl.py validate
+- ruff targeted files; pytest act/final/lord/NPC runtime tests; taskctl validate; codegraph sync/status
+
+Notes:
+
+Contract:
+Inputs: AUD-NEXT-010, 011, 015, 016, 019, 027, 039, 042 and TASK-081 classification.
+Outputs: Final/timer/review authority that cannot be bypassed by route order, restart timing or stale unresolved rows.
+Matrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-084 and treats final-summary false evidence/stale timer state as blocking before Stage 2B.
+Implementation path: Centralize timer reconciliation and final-lock preconditions; add explicit lifecycle state for review/NPC/timed effects.
+Interfaces: act_service.py, timer_service.py, final_summary_service.py, sorceress_service.py, lord_runtime.py, npc_service.py and final/timer tests.
+Failure/review paths: A UI wizard that hides direct Final Act start is useful but insufficient unless backend also rejects/applies the required sequence.
+Required tests: Targeted act/timer/final/NPC/lord regressions and TaskOS validate.
+
+### TASK-085 - Close gameplay authority gaps in PvP, assets, lord and sorceress runtime
+
+Status: `done`
+Priority: `P0`
+Category: `backend`
+Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
+Stage gate: `False`
+Dependencies: `TASK-081`
+
+Goal:
+
+Fix runtime bugs where a player, lord or master can bypass state authority through payloads, corrections, stake/trade/lock flow or incomplete lifecycle models.
+
+Scope:
+- AUD-NEXT-001: captured territory cannot retain active defeated defender garrison
+- AUD-NEXT-005 and AUD-NEXT-006: PvP challenge authority, token pacing and queued active blockers are server-derived
+- AUD-NEXT-008: reward approval creation requires accepted/reviewable PvE provenance
+- AUD-NEXT-012 and AUD-NEXT-013: asset locks and final ownership evidence are owner-scoped and complete
+- AUD-NEXT-014 and AUD-NEXT-030: Gwent start/round payload is viewer-scoped and sequence-authoritative
+- AUD-NEXT-017: lord order final-lock override source is derived from auth route, not client payload
+- AUD-NEXT-018 and AUD-NEXT-021: sorceress potion/favorite lifecycle validates real scene/context and consent transitions
+- AUD-NEXT-022, AUD-NEXT-024, AUD-NEXT-025 and AUD-NEXT-038: master corrections use domain settlement/invariant validators, not generic impossible patches
+- AUD-NEXT-023 and AUD-NEXT-026: fort capacity and trade timeout lifecycle are modeled/enforced
+
+Acceptance:
+- Direct API payloads cannot bypass PvP token/cap/stake, Gwent visibility/sequence, lord final lock or sorceress scene/favorite limits
+- Reward/trade/PvP/asset corrections settle locks, ownership and gold exactly once through domain helpers
+- Final summary exposes current asset ownership and unsettled locks/rewards needed by NPC masters
+- Lord logistics enforce capture cleanup, fort capacity and trade/order timeout lifecycle
+- UI controls remove unsafe manual fields, but tests prove direct requests are rejected or reviewed
+
+Test Steps:
+- Add PvP/Gwent API regressions for mandatory=false, queued blockers, opponent hand/mulligan and round skip
+- Add reward/trade/asset lock/correction regressions for provenance, owner scoping, settlement and impossible state rejection
+- Add lord runtime tests for capture cleanup, final-lock source, fort capacity and trade timeout
+- Add sorceress tests for real scene potion cap and favorite decline/cancel/remove/change lifecycle
+- uv run python scripts/taskctl.py validate
+- uv run pytest tests\\test_pvp_runtime.py tests\\test_reward_approvals.py tests\\test_trade_transfers.py tests\\test_game_ops_service.py tests\\test_final_summary_runtime.py tests\\test_lord_runtime.py tests\\test_lord_battle_runtime.py tests\\test_sorceress_runtime.py; uv run python scripts\\taskctl.py validate
+
+Notes:
+
+Contract:
+Inputs: AUD-NEXT-001, 005, 006, 008, 012, 013, 014, 017, 018, 021, 022, 023, 024, 025, 026, 030, 038 and TASK-081 classification.
+Outputs: Gameplay authority fixes for user/lord/master mutations that currently depend on trusting UI or generic patch payloads.
+Matrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-085 and marks direct API/payload/correction bypasses as blocking even if UI can hide unsafe controls.
+Implementation path: Move authority into backend services and domain-specific correction helpers; use UI only to prevent honest mistakes and improve operator flow.
+Interfaces: pvp_service.py, lord_runtime.py, lord_battle_service.py, sorceress_service.py, asset_service.py, reward_service.py, game_ops_service.py, final_summary_service.py and related tests.
+Failure/review paths: If a player can still curl an unsafe action after UI fields are hidden, the relevant issue remains unresolved.
+Required tests: Targeted PvP/Gwent/trade/assets/lord/sorceress/Admin correction regressions and TaskOS validate.
+
+### TASK-086 - Close import/content invariant gates before Stage 2B
+
+Status: `done`
+Priority: `P0`
+Category: `content`
+Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
+Stage gate: `False`
+Dependencies: `TASK-081`
+
+Goal:
+
+Strengthen seed/import validation and runtime defensive checks for content-driven bugs where bad CSV can silently break PvE, lord battle, movement, timers, economy or order caps.
+
+Scope:
+- AUD-NEXT-031: validate PvE tier/DC ranges and impossible auto-win/auto-fail content
+- AUD-NEXT-032: validate lord army unit positive HP/stats, tier/range bounds and battle-safe values
+- AUD-NEXT-036: seed trade-transfer terminal/pending states require source debit/provenance or contested review
+- AUD-NEXT-037: validate signed economy/resource ranges consumed by runtime
+- AUD-NEXT-044: validate positive integer map_edges.mp_cost and defensive runtime guard
+- AUD-NEXT-045: validate auto_timers enums, required final-lock/pre-final-backup timers and no unknown no_effect handlers
+- AUD-NEXT-046: decouple canonical order cap counting from permissive imported status flags
+
+Acceptance:
+- Invalid CSV overlays for each listed invariant fail validation before runtime import succeeds
+- Runtime has defensive guards for high-risk signed costs/stats even if importer is bypassed in tests
+- Unknown timer effects and missing canonical final timers cannot pass as processed no-op ticks
+- Order cap semantics cannot be disabled by changing imported counts_against_cap for canonical active statuses
+- Import UI may show friendly errors, but CLI/validator remains the source of truth
+
+Test Steps:
+- Add invalid seed fixtures for PvE tier/DC, army zero HP/out-of-range stats, signed economy fields, map edge cost and timer effect typos
+- Add runtime defensive tests for negative route cost and impossible battle unit stats
+- Add order_status_rules validation regression where published is active but not counting against cap
+- Run seed validation and targeted runtime tests
+- uv run python scripts/taskctl.py validate
+- uv run pytest tests\\test_seed_validation.py tests\\test_seed_contract.py tests\\test_trade_transfers.py tests\\test_lord_runtime.py tests\\test_lord_battle_runtime.py -q; uv run ruff check touched backend/test files; uv run python -m backend.witcher_larp.import_service --manifest tests\\fixtures\\seed_valid\\fixture_manifest.csv --db .test-data\\task086_seed_import.db --snapshot-dir .test-data\\snapshots_task086; uv run python scripts\\taskctl.py validate; codegraph affected validation/lord_runtime/lord_battle_service; codegraph sync/status
+
+Notes:
+
+Contract:
+Inputs: AUD-NEXT-031, 032, 036, 037, 044, 045, 046 and TASK-081 classification.
+Outputs: Import gates that fail fast on dangerous content instead of letting Stage 2B UI discover impossible runtime state.
+Matrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-086 and keeps CLI/validator authority above friendly Admin UI errors.
+Implementation path: Use content_schema/validation invariants first and add runtime guards where numeric values are consumed in critical paths.
+Interfaces: backend/witcher_larp/validation.py, content_schema.py, pve_runtime.py, lord_runtime.py, lord_battle_service.py, timer_service.py, seed fixtures and validation tests.
+Failure/review paths: A friendly import UI is not enough if uv/task validation or direct importer can still accept the broken CSV.
+Required tests: Seed validation fixtures, targeted runtime guard tests and TaskOS validate.
+
+### TASK-087 - PRE-2B GATE: audit remediation and UI guardrails acceptance
+
+Status: `done`
+Priority: `P0`
+Category: `qa`
+Stage: `STAGE-2A2: Audit Remediation and UI Guardrails`
+Stage gate: `True`
+Dependencies: `TASK-082`, `TASK-083`, `TASK-084`, `TASK-085`, `TASK-086`
+
+Goal:
+
+Accept the new pre-Stage-2B gate: every AUD-NEXT-001..046 issue is fixed through backend/domain authority or has explicit non-blocking P2 status with owner/workaround; UI guardrails do not replace backend fixes.
+
+Scope:
+- Review TASK-081 remediation matrix and TASK-082 through TASK-086 evidence
+- Confirm no unresolved P0/P1 audit issue remains before TASK-045 starts
+- Confirm blocking P2 issues in state authority, visibility, recovery, sync, final, PvP/Gwent, trade/assets, lord runtime, sorceress, NPC/final summary, Admin Studio and import gates are fixed or explicitly accepted with owner/workaround
+- Confirm UI guardrails are listed for Stage 2B UX but every fixed issue also has direct API/sync/snapshot/backend proof
+- Update generated TaskOS dashboard and active task views so Stage 2B starts after TASK-087
+
+Acceptance:
+- TASK-045 is dependency-ready only after TASK-087 is done
+- Every AUD-NEXT-001..046 has closure evidence or accepted residual-risk note
+- No issue is closed solely because a normal UI hides a dangerous field or route
+- Targeted regressions and TaskOS validate/doctor pass
+- docs/roadmap.md, docs/app-technical-plan-v0.1.md, docs/architecture.md and generated TaskOS views describe the new pre-2B gate
+
+Test Steps:
+- Review issue-to-task closure matrix from TASK-081
+- Review targeted test evidence from TASK-082 through TASK-086
+- Run uv run python -m json.tool tasks.json
+- Run uv run python scripts/taskctl.py validate
+- Run uv run python scripts/taskctl.py sync
+- Run uv run python scripts/taskctl.py doctor
+- Matrix sanity 46/46 with no gaps/duplicates; targeted gate pytest set 211 passed; uv run ruff check tests/test_sorceress_runtime.py; uv run python -m json.tool tasks.json; taskctl validate/sync/doctor; codegraph affected/sync/status.
+
+Notes:
+
+Contract:
+Inputs: Completed TASK-082 through TASK-086, AUD-NEXT-001..046 closure evidence and updated TaskOS docs/dashboard.
+Outputs: A gate decision that makes Stage 2B safe to start without hiding known runtime-authority bugs behind UI-only constraints.
+Gate checklist source: docs/audits/pre-2b-remediation-matrix.md; use it to verify exactly one primary owner per AUD-NEXT row, no unresolved P1, and no UI-only closure for blocking issues.
+Implementation path: Review evidence, not cosmetics. UI guardrails are accepted only as additional safeguards unless backend/API/sync/snapshot can no longer be bypassed.
+Interfaces: tasks.json, generated TaskOS docs/dashboard, audit supplement/matrix, targeted regression evidence and Stage 2B dependencies.
+Failure/review paths: If any P1 or blocking P2 lacks backend proof or explicit accepted residual-risk decision, block TASK-087 and keep Stage 2B closed.
+Required tests: json.tool, TaskOS validate/sync/doctor, targeted regression evidence review and generated dashboard inspection.

@@ -566,6 +566,13 @@ gameplay authority gaps for PvP/Gwent/assets/lord/sorceress runtime, and
 `TASK-086` closes import/content invariant gates. `TASK-045`, `TASK-058` and
 `TASK-050` stay blocked until `TASK-087` accepts the remediation state.
 
+2026-06-04: `TASK-087` accepted the pre-2B remediation state using
+`docs/audits/pre-2b-remediation-matrix.md` as the gate artifact. The accepted
+state has no unresolved P0/P1 or blocking P2 without owner/workaround; UI
+guardrails remain mitigation only. `AUD-NEXT-034` is the only explicit
+non-blocking P2 boundary: restore stays `pending_backend` in Admin Studio, while
+`TASK-036` owns backup/restore rehearsal and runbook proof before release.
+
 Core Game Engine должен закрыть:
 
 - platform/network spike для Android, iOS/free provisioning и домашнего Wi-Fi;

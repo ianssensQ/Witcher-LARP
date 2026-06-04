@@ -2104,3 +2104,244 @@ Generated files refreshed:
 
 Next Dependency-Ready Pending Task:
 - TASK-045 - Зафиксировать playable UI contract и role journey matrix
+
+2026-06-04 18:34 +03:00 TASK-081 Claim
+-------------------------------------
+Task: TASK-081 - Classify AUD-NEXT bugs into backend fixes and UI guardrails.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 2 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 18:39 +03:00 TASK-081 Done
+------------------------------------
+Task: TASK-081 - Classify AUD-NEXT bugs into backend fixes and UI guardrails.
+
+Done:
+- Создана русскоязычная pre-2B remediation matrix для AUD-NEXT-001..046 с owner TASK-082..086 и gate checklist для TASK-087.
+
+Verification:
+- Проверено json.tool, taskctl validate, taskctl sync; все AUD-NEXT-001..046 имеют ровно один primary owner.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-082 - Close player/lord visibility leaks before Stage 2B
+
+2026-06-04 19:02 +03:00 TASK-082 Claim
+-------------------------------------
+Task: TASK-082 - Close player/lord visibility leaks before Stage 2B.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 9 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 19:13 +03:00 TASK-083 Claim
+-------------------------------------
+Task: TASK-083 - Close offline sync, paper recovery and restore authority gaps.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-082 - Close player/lord visibility leaks before Stage 2B. Parallel claims are allowed; avoid overlapping files.
+- worktree: 9 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 19:15 +03:00 TASK-084 Claim
+-------------------------------------
+Task: TASK-084 - Close timers, final lock and review lifecycle blockers.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-082 - Close player/lord visibility leaks before Stage 2B; TASK-083 - Close offline sync, paper recovery and restore authority gaps. Parallel claims are allowed; avoid overlapping files.
+- worktree: 9 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 19:26 +03:00 TASK-082 Done
+------------------------------------
+Task: TASK-082 - Close player/lord visibility leaks before Stage 2B.
+
+Done:
+- Closed player/lord visibility leaks: QR lookup now requires player-code auth and derives player_id from auth context; player auth/reputation/snapshot payloads redact exact reputation thresholds, hidden artifacts, future/unique QR/manual IDs and linked scenarios; lord diplomacy exposes exact active order counts only for own domain and coarse foreign pressure.
+
+Verification:
+- Targeted TASK-082 pytest set passed: FastAPI QR/auth/reputation contract tests, snapshot exporter tests, lord state visibility test, mobile login snapshot contract; uv run ruff check on touched files passed; uv run python scripts/taskctl.py validate passed; CodeGraph affected returned no extra tests and codegraph sync/status completed.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-085 - Close gameplay authority gaps in PvP, assets, lord and sorceress runtime
+
+2026-06-04 19:43 +03:00 TASK-083 Done
+------------------------------------
+Task: TASK-083 - Close offline sync, paper recovery and restore authority gaps.
+
+Done:
+- Closed offline sync, paper recovery and restore-boundary gaps: duplicate retries preserve original visible statuses, client_sequence gaps/duplicates/out-of-order batches are detected, wrong-actor mobile payloads are rejected, future-act PvE uses event creation time, paper PvE requires roll evidence, conflicted paper PvE approval can apply side effects, unique QR side effects are atomic, and mobile queue skips stale-player events.
+
+Verification:
+- Passed: uv run pytest tests/test_event_sync.py tests/test_paper_recovery.py tests/test_mobile_shell_contract.py tests/test_pve_runtime.py tests/test_fastapi_contract.py tests/test_game_ops_service.py tests/test_admin_studio_contract.py::AdminStudioContractTests::test_admin_paper_recovery_uses_master_sync_and_conflict_review tests/test_admin_studio_contract.py::AdminStudioContractTests::test_admin_overview_reports_real_and_pending_surfaces -q (87 passed); uv run ruff check changed Python files; uv run python scripts/taskctl.py validate; codegraph sync/status . up to date. Note: full tests/test_admin_studio_contract.py still has unrelated TASK-084 final-summary NameError _pending_tick_rewards_for_domain.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-085 - Close gameplay authority gaps in PvP, assets, lord and sorceress runtime
+
+2026-06-04 19:53 +03:00 TASK-084 Done
+------------------------------------
+Task: TASK-084 - Close timers, final lock and review lifecycle blockers.
+
+Done:
+- Closed timer/final-lock/review/NPC/raid lifecycle blockers; added route timer reconciliation and targeted regressions.
+
+Verification:
+- ruff targeted files; pytest act/final/lord/NPC runtime tests; taskctl validate; codegraph sync/status
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-085 - Close gameplay authority gaps in PvP, assets, lord and sorceress runtime
+
+2026-06-04 20:37 +03:00 TASK-085 Claim
+-------------------------------------
+Task: TASK-085 - Close gameplay authority gaps in PvP, assets, lord and sorceress runtime.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 38 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 20:40 +03:00 TASK-086 Claim
+-------------------------------------
+Task: TASK-086 - Close import/content invariant gates before Stage 2B.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-085 - Close gameplay authority gaps in PvP, assets, lord and sorceress runtime. Parallel claims are allowed; avoid overlapping files.
+- worktree: 38 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 20:44 +03:00 TASK-085 Done
+------------------------------------
+Task: TASK-085 - Close gameplay authority gaps in PvP, assets, lord and sorceress runtime.
+
+Done:
+- Verified gameplay authority hardening for PvP/Gwent, reward/trade/asset locks, lord runtime/battle, sorceress lifecycle, corrections and final summary in current workspace; no extra code changes were needed.
+
+Verification:
+- uv run pytest tests\\test_pvp_runtime.py tests\\test_reward_approvals.py tests\\test_trade_transfers.py tests\\test_game_ops_service.py tests\\test_final_summary_runtime.py tests\\test_lord_runtime.py tests\\test_lord_battle_runtime.py tests\\test_sorceress_runtime.py; uv run python scripts\\taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- None
+
+2026-06-04 21:09 +03:00 TASK-086 Done
+------------------------------------
+Task: TASK-086 - Close import/content invariant gates before Stage 2B.
+
+Done:
+- Closed import/content invariant gates for PvE tier/DC, lord unit stats, seed trade provenance, signed economy resources, map edge costs, auto timer effects and canonical order caps; added runtime guards for route costs and battle unit stats.
+
+Verification:
+- uv run pytest tests\\test_seed_validation.py tests\\test_seed_contract.py tests\\test_trade_transfers.py tests\\test_lord_runtime.py tests\\test_lord_battle_runtime.py -q; uv run ruff check touched backend/test files; uv run python -m backend.witcher_larp.import_service --manifest tests\\fixtures\\seed_valid\\fixture_manifest.csv --db .test-data\\task086_seed_import.db --snapshot-dir .test-data\\snapshots_task086; uv run python scripts\\taskctl.py validate; codegraph affected validation/lord_runtime/lord_battle_service; codegraph sync/status
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-087 - PRE-2B GATE: audit remediation and UI guardrails acceptance
+
+2026-06-04 21:15 +03:00 TASK-087 Claim
+-------------------------------------
+Task: TASK-087 - PRE-2B GATE: audit remediation and UI guardrails acceptance.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 46 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 21:37 +03:00 TASK-087 Done
+------------------------------------
+Task: TASK-087 - PRE-2B GATE: audit remediation and UI guardrails acceptance.
+
+Done:
+- Accepted pre-2B audit remediation gate; documented AUD-NEXT closure evidence, explicit AUD-NEXT-034 residual-risk owner/workaround, and corrected sorceress potion regression expectation to assert post-use inventory evidence.
+
+Verification:
+- Matrix sanity 46/46 with no gaps/duplicates; targeted gate pytest set 211 passed; uv run ruff check tests/test_sorceress_runtime.py; uv run python -m json.tool tasks.json; taskctl validate/sync/doctor; codegraph affected/sync/status.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-045 - Зафиксировать playable UI contract и role journey matrix

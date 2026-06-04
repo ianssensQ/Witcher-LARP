@@ -2756,7 +2756,7 @@
       "id": "TASK-081",
       "title": "Classify AUD-NEXT bugs into backend fixes and UI guardrails",
       "description": "Create the pre-2B remediation matrix for AUD-NEXT-001..046: which bugs require backend/domain authority fixes, where UI guardrails only reduce risk, and which P2 issues can proceed as accepted residual risk.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "qa",
       "stage": "STAGE-2A2: Audit Remediation and UI Guardrails",
@@ -2782,15 +2782,16 @@
         "Review docs/audits/stage1-stage2-code-audit-supplement.md AUD-NEXT-001..046",
         "Review docs/audits/stage1-stage2-business-coverage-matrix.md risk clusters",
         "Produce issue-to-task mapping and UI-mitigation/back-end-fix classification in task notes or linked docs",
-        "uv run python scripts/taskctl.py validate"
+        "uv run python scripts/taskctl.py validate",
+        "Проверено json.tool, taskctl validate, taskctl sync; все AUD-NEXT-001..046 имеют ровно один primary owner."
       ],
-      "notes": "Contract:\nInputs: AUD-NEXT-001..046 audit supplement, business coverage matrix, current Stage 2A completion and user decision to add a separate stage before Stage 2B.\nOutputs: A pre-2B remediation matrix that prevents UI work from merely hiding direct API/backend defects.\nImplementation path: Treat UI as a guardrail and backend/domain runtime as authority. Use issue clusters instead of one task per bug unless a finding needs its own owner.\nInterfaces: docs/audits/stage1-stage2-code-audit-supplement.md, docs/audits/stage1-stage2-business-coverage-matrix.md, tasks.json and Stage 2B dependencies.\nFailure/review paths: If a bug is left for Stage 2B UI only, it must remain an open risk unless direct API/sync/snapshot bypass is impossible or explicitly accepted as non-blocking.\nRequired tests: TaskOS validate and matrix review."
+      "notes": "Contract:\nInputs: AUD-NEXT-001..046 audit supplement, business coverage matrix, current Stage 2A completion and user decision to add a separate stage before Stage 2B.\nOutputs: A pre-2B remediation matrix that prevents UI work from merely hiding direct API/backend defects.\nMatrix artifact: docs/audits/pre-2b-remediation-matrix.md records the Russian owner matrix, blocking policy, UI-only mitigation rule, paper d20 policy, visibility policy and TASK-087 checklist.\nImplementation path: Treat UI as a guardrail and backend/domain runtime as authority. Use issue clusters instead of one task per bug unless a finding needs its own owner.\nInterfaces: docs/audits/stage1-stage2-code-audit-supplement.md, docs/audits/stage1-stage2-business-coverage-matrix.md, docs/audits/pre-2b-remediation-matrix.md, tasks.json and Stage 2B dependencies.\nFailure/review paths: If a bug is left for Stage 2B UI only, it must remain an open risk unless direct API/sync/snapshot bypass is impossible or explicitly accepted as non-blocking.\nRequired tests: TaskOS validate and matrix review."
     },
     {
       "id": "TASK-082",
       "title": "Close player/lord visibility leaks before Stage 2B",
       "description": "Fix audit leaks where player/lord-facing endpoints or snapshots expose data that cannot be protected by merely hiding UI controls.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "backend",
       "stage": "STAGE-2A2: Audit Remediation and UI Guardrails",
@@ -2818,15 +2819,16 @@
         "Add snapshot exporter tests for artifacts, QR/manual IDs and reputation redaction",
         "Add lord panel/state contract test for diplomacy signal visibility",
         "Run targeted visibility/auth tests",
-        "uv run python scripts/taskctl.py validate"
+        "uv run python scripts/taskctl.py validate",
+        "Targeted TASK-082 pytest set passed: FastAPI QR/auth/reputation contract tests, snapshot exporter tests, lord state visibility test, mobile login snapshot contract; uv run ruff check on touched files passed; uv run python scripts/taskctl.py validate passed; CodeGraph affected returned no extra tests and codegraph sync/status completed."
       ],
-      "notes": "Contract:\nInputs: AUD-NEXT-002, AUD-NEXT-003, AUD-NEXT-029, AUD-NEXT-035, AUD-NEXT-043 and TASK-081 classification.\nOutputs: Player/lord-facing projections that do not leak hidden act, QR, artifact, reputation or order-pressure data even under direct API calls.\nImplementation path: Fix projection/auth boundaries in backend serializers and endpoint auth first; then simplify UI to consume only safe payloads.\nInterfaces: backend/witcher_larp/app.py, snapshot_exporter.py, lord_panel.py, lord_runtime.py, reputation/snapshot tests and lord panel contract tests.\nFailure/review paths: If a field remains in JSON and is only hidden by CSS/JS, this task is not complete.\nRequired tests: Targeted API/snapshot/lord visibility regressions and TaskOS validate."
+      "notes": "Contract:\nInputs: AUD-NEXT-002, AUD-NEXT-003, AUD-NEXT-029, AUD-NEXT-035, AUD-NEXT-043 and TASK-081 classification.\nOutputs: Player/lord-facing projections that do not leak hidden act, QR, artifact, reputation or order-pressure data even under direct API calls.\nMatrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-082 and defines the coarse-only visibility policy.\nImplementation path: Fix projection/auth boundaries in backend serializers and endpoint auth first; then simplify UI to consume only safe payloads.\nInterfaces: backend/witcher_larp/app.py, snapshot_exporter.py, lord_panel.py, lord_runtime.py, reputation/snapshot tests and lord panel contract tests.\nFailure/review paths: If a field remains in JSON and is only hidden by CSS/JS, this task is not complete.\nRequired tests: Targeted API/snapshot/lord visibility regressions and TaskOS validate."
     },
     {
       "id": "TASK-083",
       "title": "Close offline sync, paper recovery and restore authority gaps",
       "description": "Fix audit bugs in offline-first sync/retry, paper recovery and backup/restore recovery so Stage 2B UI does not sit on top of lost events or non-authoritative recovery.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "backend",
       "stage": "STAGE-2A2: Audit Remediation and UI Guardrails",
@@ -2857,15 +2859,16 @@
         "Add mobile contract tests for queue partition by player and visible retry states",
         "Add paper recovery tests for malformed correction, conflicted approval side effects and missing roll review",
         "Add Admin Studio backup/restore contract test or runbook-boundary assertion",
-        "uv run python scripts/taskctl.py validate"
+        "uv run python scripts/taskctl.py validate",
+        "Passed: uv run pytest tests/test_event_sync.py tests/test_paper_recovery.py tests/test_mobile_shell_contract.py tests/test_pve_runtime.py tests/test_fastapi_contract.py tests/test_game_ops_service.py tests/test_admin_studio_contract.py::AdminStudioContractTests::test_admin_paper_recovery_uses_master_sync_and_conflict_review tests/test_admin_studio_contract.py::AdminStudioContractTests::test_admin_overview_reports_real_and_pending_surfaces -q (87 passed); uv run ruff check changed Python files; uv run python scripts/taskctl.py validate; codegraph sync/status . up to date. Note: full tests/test_admin_studio_contract.py still has unrelated TASK-084 final-summary NameError _pending_tick_rewards_for_domain."
       ],
-      "notes": "Contract:\nInputs: AUD-NEXT-004, 007, 009, 020, 028, 033, 034, 040, 041 and TASK-081 classification.\nOutputs: Offline/recovery paths that preserve source authority, visible status and replayability under Wi-Fi loss, phone swaps and paper fallback.\nImplementation path: Fix backend event service/recovery decisions and mobile queue semantics before adding Stage 2B UI affordances.\nInterfaces: event_service.py, pve_runtime.py, mobile/scripts/app_state.gd, admin_studio.py, review_service.py, paper recovery tests and mobile shell contract tests.\nFailure/review paths: If UI only disables a field but stale queues/direct sync can still mutate wrong-player or future-act state, the issue remains open.\nRequired tests: Targeted sync/recovery/mobile/Admin regressions and TaskOS validate."
+      "notes": "Contract:\nInputs: AUD-NEXT-004, 007, 009, 020, 028, 033, 034, 040, 041 and TASK-081 classification.\nOutputs: Offline/recovery paths that preserve source authority, visible status and replayability under Wi-Fi loss, phone swaps and paper fallback.\nMatrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-083, requires review/override for paper PvE without roll evidence and allows AUD-NEXT-034 runbook boundary only if restore is no longer presented as ready.\nImplementation path: Fix backend event service/recovery decisions and mobile queue semantics before adding Stage 2B UI affordances.\nInterfaces: event_service.py, pve_runtime.py, mobile/scripts/app_state.gd, admin_studio.py, review_service.py, paper recovery tests and mobile shell contract tests.\nFailure/review paths: If UI only disables a field but stale queues/direct sync can still mutate wrong-player or future-act state, the issue remains open.\nRequired tests: Targeted sync/recovery/mobile/Admin regressions and TaskOS validate."
     },
     {
       "id": "TASK-084",
       "title": "Close timers, final lock and review lifecycle blockers",
       "description": "Fix audit bugs where act timers, final lock, NPC/review lifecycle or timed raid effects can produce stale or false final state.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "backend",
       "stage": "STAGE-2A2: Audit Remediation and UI Guardrails",
@@ -2895,15 +2898,16 @@
         "Add restart/timer reconciliation tests through role-facing endpoints",
         "Add final summary tests for resolved reviews, NPC lifecycle and pending lord tick rewards",
         "Add raid effect duration/expiry test",
-        "uv run python scripts/taskctl.py validate"
+        "uv run python scripts/taskctl.py validate",
+        "ruff targeted files; pytest act/final/lord/NPC runtime tests; taskctl validate; codegraph sync/status"
       ],
-      "notes": "Contract:\nInputs: AUD-NEXT-010, 011, 015, 016, 019, 027, 039, 042 and TASK-081 classification.\nOutputs: Final/timer/review authority that cannot be bypassed by route order, restart timing or stale unresolved rows.\nImplementation path: Centralize timer reconciliation and final-lock preconditions; add explicit lifecycle state for review/NPC/timed effects.\nInterfaces: act_service.py, timer_service.py, final_summary_service.py, sorceress_service.py, lord_runtime.py, npc_service.py and final/timer tests.\nFailure/review paths: A UI wizard that hides direct Final Act start is useful but insufficient unless backend also rejects/applies the required sequence.\nRequired tests: Targeted act/timer/final/NPC/lord regressions and TaskOS validate."
+      "notes": "Contract:\nInputs: AUD-NEXT-010, 011, 015, 016, 019, 027, 039, 042 and TASK-081 classification.\nOutputs: Final/timer/review authority that cannot be bypassed by route order, restart timing or stale unresolved rows.\nMatrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-084 and treats final-summary false evidence/stale timer state as blocking before Stage 2B.\nImplementation path: Centralize timer reconciliation and final-lock preconditions; add explicit lifecycle state for review/NPC/timed effects.\nInterfaces: act_service.py, timer_service.py, final_summary_service.py, sorceress_service.py, lord_runtime.py, npc_service.py and final/timer tests.\nFailure/review paths: A UI wizard that hides direct Final Act start is useful but insufficient unless backend also rejects/applies the required sequence.\nRequired tests: Targeted act/timer/final/NPC/lord regressions and TaskOS validate."
     },
     {
       "id": "TASK-085",
       "title": "Close gameplay authority gaps in PvP, assets, lord and sorceress runtime",
       "description": "Fix runtime bugs where a player, lord or master can bypass state authority through payloads, corrections, stake/trade/lock flow or incomplete lifecycle models.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "backend",
       "stage": "STAGE-2A2: Audit Remediation and UI Guardrails",
@@ -2934,15 +2938,16 @@
         "Add reward/trade/asset lock/correction regressions for provenance, owner scoping, settlement and impossible state rejection",
         "Add lord runtime tests for capture cleanup, final-lock source, fort capacity and trade timeout",
         "Add sorceress tests for real scene potion cap and favorite decline/cancel/remove/change lifecycle",
-        "uv run python scripts/taskctl.py validate"
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests\\\\test_pvp_runtime.py tests\\\\test_reward_approvals.py tests\\\\test_trade_transfers.py tests\\\\test_game_ops_service.py tests\\\\test_final_summary_runtime.py tests\\\\test_lord_runtime.py tests\\\\test_lord_battle_runtime.py tests\\\\test_sorceress_runtime.py; uv run python scripts\\\\taskctl.py validate"
       ],
-      "notes": "Contract:\nInputs: AUD-NEXT-001, 005, 006, 008, 012, 013, 014, 017, 018, 021, 022, 023, 024, 025, 026, 030, 038 and TASK-081 classification.\nOutputs: Gameplay authority fixes for user/lord/master mutations that currently depend on trusting UI or generic patch payloads.\nImplementation path: Move authority into backend services and domain-specific correction helpers; use UI only to prevent honest mistakes and improve operator flow.\nInterfaces: pvp_service.py, lord_runtime.py, lord_battle_service.py, sorceress_service.py, asset_service.py, reward_service.py, game_ops_service.py, final_summary_service.py and related tests.\nFailure/review paths: If a player can still curl an unsafe action after UI fields are hidden, the relevant issue remains unresolved.\nRequired tests: Targeted PvP/Gwent/trade/assets/lord/sorceress/Admin correction regressions and TaskOS validate."
+      "notes": "Contract:\nInputs: AUD-NEXT-001, 005, 006, 008, 012, 013, 014, 017, 018, 021, 022, 023, 024, 025, 026, 030, 038 and TASK-081 classification.\nOutputs: Gameplay authority fixes for user/lord/master mutations that currently depend on trusting UI or generic patch payloads.\nMatrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-085 and marks direct API/payload/correction bypasses as blocking even if UI can hide unsafe controls.\nImplementation path: Move authority into backend services and domain-specific correction helpers; use UI only to prevent honest mistakes and improve operator flow.\nInterfaces: pvp_service.py, lord_runtime.py, lord_battle_service.py, sorceress_service.py, asset_service.py, reward_service.py, game_ops_service.py, final_summary_service.py and related tests.\nFailure/review paths: If a player can still curl an unsafe action after UI fields are hidden, the relevant issue remains unresolved.\nRequired tests: Targeted PvP/Gwent/trade/assets/lord/sorceress/Admin correction regressions and TaskOS validate."
     },
     {
       "id": "TASK-086",
       "title": "Close import/content invariant gates before Stage 2B",
       "description": "Strengthen seed/import validation and runtime defensive checks for content-driven bugs where bad CSV can silently break PvE, lord battle, movement, timers, economy or order caps.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "content",
       "stage": "STAGE-2A2: Audit Remediation and UI Guardrails",
@@ -2971,15 +2976,16 @@
         "Add runtime defensive tests for negative route cost and impossible battle unit stats",
         "Add order_status_rules validation regression where published is active but not counting against cap",
         "Run seed validation and targeted runtime tests",
-        "uv run python scripts/taskctl.py validate"
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests\\\\test_seed_validation.py tests\\\\test_seed_contract.py tests\\\\test_trade_transfers.py tests\\\\test_lord_runtime.py tests\\\\test_lord_battle_runtime.py -q; uv run ruff check touched backend/test files; uv run python -m backend.witcher_larp.import_service --manifest tests\\\\fixtures\\\\seed_valid\\\\fixture_manifest.csv --db .test-data\\\\task086_seed_import.db --snapshot-dir .test-data\\\\snapshots_task086; uv run python scripts\\\\taskctl.py validate; codegraph affected validation/lord_runtime/lord_battle_service; codegraph sync/status"
       ],
-      "notes": "Contract:\nInputs: AUD-NEXT-031, 032, 036, 037, 044, 045, 046 and TASK-081 classification.\nOutputs: Import gates that fail fast on dangerous content instead of letting Stage 2B UI discover impossible runtime state.\nImplementation path: Use content_schema/validation invariants first and add runtime guards where numeric values are consumed in critical paths.\nInterfaces: backend/witcher_larp/validation.py, content_schema.py, pve_runtime.py, lord_runtime.py, lord_battle_service.py, timer_service.py, seed fixtures and validation tests.\nFailure/review paths: A friendly import UI is not enough if uv/task validation or direct importer can still accept the broken CSV.\nRequired tests: Seed validation fixtures, targeted runtime guard tests and TaskOS validate."
+      "notes": "Contract:\nInputs: AUD-NEXT-031, 032, 036, 037, 044, 045, 046 and TASK-081 classification.\nOutputs: Import gates that fail fast on dangerous content instead of letting Stage 2B UI discover impossible runtime state.\nMatrix link: docs/audits/pre-2b-remediation-matrix.md assigns these rows to TASK-086 and keeps CLI/validator authority above friendly Admin UI errors.\nImplementation path: Use content_schema/validation invariants first and add runtime guards where numeric values are consumed in critical paths.\nInterfaces: backend/witcher_larp/validation.py, content_schema.py, pve_runtime.py, lord_runtime.py, lord_battle_service.py, timer_service.py, seed fixtures and validation tests.\nFailure/review paths: A friendly import UI is not enough if uv/task validation or direct importer can still accept the broken CSV.\nRequired tests: Seed validation fixtures, targeted runtime guard tests and TaskOS validate."
     },
     {
       "id": "TASK-087",
       "title": "PRE-2B GATE: audit remediation and UI guardrails acceptance",
       "description": "Accept the new pre-Stage-2B gate: every AUD-NEXT-001..046 issue is fixed through backend/domain authority or has explicit non-blocking P2 status with owner/workaround; UI guardrails do not replace backend fixes.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "qa",
       "stage": "STAGE-2A2: Audit Remediation and UI Guardrails",
@@ -3011,9 +3017,10 @@
         "Run uv run python -m json.tool tasks.json",
         "Run uv run python scripts/taskctl.py validate",
         "Run uv run python scripts/taskctl.py sync",
-        "Run uv run python scripts/taskctl.py doctor"
+        "Run uv run python scripts/taskctl.py doctor",
+        "Matrix sanity 46/46 with no gaps/duplicates; targeted gate pytest set 211 passed; uv run ruff check tests/test_sorceress_runtime.py; uv run python -m json.tool tasks.json; taskctl validate/sync/doctor; codegraph affected/sync/status."
       ],
-      "notes": "Contract:\nInputs: Completed TASK-082 through TASK-086, AUD-NEXT-001..046 closure evidence and updated TaskOS docs/dashboard.\nOutputs: A gate decision that makes Stage 2B safe to start without hiding known runtime-authority bugs behind UI-only constraints.\nImplementation path: Review evidence, not cosmetics. UI guardrails are accepted only as additional safeguards unless backend/API/sync/snapshot can no longer be bypassed.\nInterfaces: tasks.json, generated TaskOS docs/dashboard, audit supplement/matrix, targeted regression evidence and Stage 2B dependencies.\nFailure/review paths: If any P1 or blocking P2 lacks backend proof or explicit accepted residual-risk decision, block TASK-087 and keep Stage 2B closed.\nRequired tests: json.tool, TaskOS validate/sync/doctor, targeted regression evidence review and generated dashboard inspection."
+      "notes": "Contract:\nInputs: Completed TASK-082 through TASK-086, AUD-NEXT-001..046 closure evidence and updated TaskOS docs/dashboard.\nOutputs: A gate decision that makes Stage 2B safe to start without hiding known runtime-authority bugs behind UI-only constraints.\nGate checklist source: docs/audits/pre-2b-remediation-matrix.md; use it to verify exactly one primary owner per AUD-NEXT row, no unresolved P1, and no UI-only closure for blocking issues.\nImplementation path: Review evidence, not cosmetics. UI guardrails are accepted only as additional safeguards unless backend/API/sync/snapshot can no longer be bypassed.\nInterfaces: tasks.json, generated TaskOS docs/dashboard, audit supplement/matrix, targeted regression evidence and Stage 2B dependencies.\nFailure/review paths: If any P1 or blocking P2 lacks backend proof or explicit accepted residual-risk decision, block TASK-087 and keep Stage 2B closed.\nRequired tests: json.tool, TaskOS validate/sync/doctor, targeted regression evidence review and generated dashboard inspection."
     },
     {
       "id": "TASK-045",

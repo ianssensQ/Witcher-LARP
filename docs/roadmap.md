@@ -207,6 +207,13 @@ unresolved P0/P1 или blocking P2 без owner/workaround.
 `TASK-045`, `TASK-058` и `TASK-050` зависят от `TASK-087`, поэтому Stage 2B
 начинается только после этого audit-remediation gate.
 
+2026-06-04: `TASK-087` принят по
+`docs/audits/pre-2b-remediation-matrix.md`. Все `AUD-NEXT-001..046` имеют
+closure evidence через `TASK-082`-`TASK-086` или явную residual-risk запись;
+единственный принятый non-blocking P2 boundary - `AUD-NEXT-034`, где Admin
+Studio честно помечает `restore_backup` как `pending_backend`, а полноценный
+backup/restore rehearsal остается owner-risk для `TASK-036`.
+
 ## Stage 2B - Playable Role UI
 
 Gate: `TASK-050`.
