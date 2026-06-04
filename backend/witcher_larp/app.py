@@ -737,11 +737,45 @@ def create_app(settings: Settings | None = None):
     def lord_order(
         lord_id: str,
         payload: OrderPayload,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
         x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        player_code: str | None = None,
         role_token: str | None = None,
     ):
         with connect(runtime_settings) as connection:
-            _require_lord_token(connection, lord_id, x_role_token or role_token)
+            token = x_role_token or role_token
+            player_id = payload.player_id
+            actor_role = "lord"
+            source = payload.source
+            if payload.action in {"accept", "submit_success"}:
+                auth = _require_actor_context(
+                    connection,
+                    player_code=x_player_code or player_code,
+                    role_token=token,
+                )
+                if auth["is_master"]:
+                    actor_role = "master"
+                    source = "master_api" if payload.source == "lord_panel" else payload.source
+                else:
+                    if auth["scope"] != "player_code":
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Order player actions require player code auth.",
+                        )
+                    if payload.player_id and payload.player_id != auth["player_id"]:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Authenticated player cannot act for another order executor.",
+                        )
+                    actor_role = "player"
+                    player_id = auth["player_id"]
+                    source = "player_app" if payload.source == "lord_panel" else payload.source
+            elif payload.action == "complete":
+                _require_master_token(connection, token)
+                actor_role = "master"
+                source = "master_api" if payload.source == "lord_panel" else payload.source
+            else:
+                _require_lord_token(connection, lord_id, token)
             try:
                 return order_action(
                     connection,
@@ -752,10 +786,11 @@ def create_app(settings: Settings | None = None):
                     target_player_id=payload.target_player_id,
                     visibility=payload.visibility,
                     escrow_reward_id=payload.escrow_reward_id,
-                    player_id=payload.player_id,
+                    player_id=player_id,
                     result_event_id=payload.result_event_id,
                     reason=payload.reason,
-                    source=payload.source,
+                    source=source,
+                    actor_role=actor_role,
                 )
             except LordRuntimeError as exc:
                 raise _lord_http_error(exc) from exc

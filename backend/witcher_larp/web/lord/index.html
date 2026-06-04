@@ -76,6 +76,32 @@
             <div class="territory-list" id="territory-list"></div>
           </section>
 
+          <section class="panel battle-panel">
+            <div class="panel-heading">
+              <h3>Capture & Battles</h3>
+              <span id="battle-count">0 battles</span>
+            </div>
+            <div class="capture-list" id="capture-list"></div>
+            <div class="battle-list" id="battle-list"></div>
+            <div class="battle-board-shell" id="battle-board-shell" hidden>
+              <div class="battle-toolbar">
+                <div>
+                  <h4 id="battle-title">Battle</h4>
+                  <p id="battle-turn">-</p>
+                </div>
+                <div class="battle-actions">
+                  <button type="button" data-battle-command="move">Move</button>
+                  <button type="button" data-battle-command="attack">Attack</button>
+                  <button type="button" data-battle-command="defend">Defend</button>
+                  <button type="button" data-battle-command="surrender">Surrender</button>
+                  <button type="button" data-battle-command="auto_resolve">Auto</button>
+                </div>
+              </div>
+              <div class="battle-board" id="battle-board" aria-label="Lord battle board"></div>
+              <p class="battle-status" id="battle-status" role="status">Select a battle</p>
+            </div>
+          </section>
+
           <section class="panel">
             <div class="panel-heading">
               <h3>Orders</h3>
@@ -110,7 +136,8 @@
                 <h4>Garrison</h4>
                 <label for="garrison-operation">Operation</label>
                 <select id="garrison-operation" name="operation">
-                  <option value="garrison">Place garrison</option>
+                  <option value="active_to_fort">Active army to fort</option>
+                  <option value="fort_to_active">Fort to active army</option>
                   <option value="reserve_to_active">Reserve to active army</option>
                 </select>
                 <label for="garrison-territory">Territory</label>
@@ -165,37 +192,9 @@
 
               <form class="action-card" data-action-form="battle-create">
                 <h4>Battle</h4>
-                <label for="battle-id">Battle id</label>
-                <input id="battle-id" name="battle_id">
                 <label for="battle-territory">Territory</label>
                 <select id="battle-territory" name="territory_id" required></select>
-                <label for="battle-defender">Defender domain</label>
-                <input id="battle-defender" name="defender_domain_id" placeholder="empty for neutral">
                 <button type="submit">Create battle</button>
-              </form>
-
-              <form class="action-card" data-action-form="battle-action">
-                <h4>Battle action</h4>
-                <label for="battle-action-id">Battle id</label>
-                <input id="battle-action-id" name="battle_id" required>
-                <label for="battle-action-type">Action</label>
-                <select id="battle-action-type" name="action_type">
-                  <option value="defend">Defend</option>
-                  <option value="timeout">Timeout</option>
-                  <option value="auto_resolve">Auto-resolve</option>
-                  <option value="surrender">Surrender</option>
-                  <option value="attack">Attack</option>
-                  <option value="move">Move</option>
-                  <option value="deploy">Deploy</option>
-                </select>
-                <label for="battle-action-side">Side</label>
-                <select id="battle-action-side" name="actor_side">
-                  <option value="attacker">Attacker</option>
-                  <option value="defender">Defender</option>
-                </select>
-                <label for="battle-payload">Payload JSON</label>
-                <textarea id="battle-payload" name="payload_json" rows="3"></textarea>
-                <button type="submit">Send action</button>
               </form>
             </div>
           </section>

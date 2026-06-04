@@ -114,6 +114,24 @@ class LordRuntimeTests(unittest.TestCase):
             resolved.json()["battle"]["result"]["capture"]["status"],
             "capture_pending_garrison",
         )
+        with connect(settings) as connection:
+            active_before_capture = connection.execute(
+                """
+                SELECT count
+                FROM active_army_runtime
+                WHERE domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                  AND status = 'active'
+                """
+            ).fetchone()["count"]
+            reserve_before_capture = connection.execute(
+                """
+                SELECT count
+                FROM army_reserve_runtime
+                WHERE reserve_id = 'reserve_north_infantry'
+                """
+            ).fetchone()["count"]
+        self.assertGreaterEqual(active_before_capture, 1)
 
         captured = client.post(
             "/api/lords/p_lord_1/garrisons/transfer",
@@ -128,6 +146,25 @@ class LordRuntimeTests(unittest.TestCase):
         capture_payload = captured.json()
         self.assertEqual(capture_payload["status"], "captured")
         self.assertEqual(capture_payload["pending_tick_awards"][0]["reward_gold"], 14)
+        with connect(settings) as connection:
+            active_after_capture = connection.execute(
+                """
+                SELECT count
+                FROM active_army_runtime
+                WHERE domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                  AND status = 'active'
+                """
+            ).fetchone()["count"]
+            reserve_after_capture = connection.execute(
+                """
+                SELECT count
+                FROM army_reserve_runtime
+                WHERE reserve_id = 'reserve_north_infantry'
+                """
+            ).fetchone()["count"]
+        self.assertEqual(active_after_capture, active_before_capture - 1)
+        self.assertEqual(reserve_after_capture, reserve_before_capture)
 
         restarted_client = TestClient(create_app(settings))
         north_state = restarted_client.get(
@@ -283,6 +320,17 @@ class LordRuntimeTests(unittest.TestCase):
             },
         )
 
+        active = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "reserve_to_active",
+                "territory_id": "territory_res_north",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(active.status_code, 200, active.text)
         moved_away = client.post(
             "/api/lords/p_lord_1/move",
             headers=self._headers("north"),
@@ -312,6 +360,181 @@ class LordRuntimeTests(unittest.TestCase):
                 """
             ).fetchone()["count"]
         self.assertEqual(reserve_count, 1)
+
+    def test_movement_without_active_army_cannot_create_contested_claim(self) -> None:
+        settings = self._settings("lord_move_requires_active")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+
+        moved = client.post(
+            "/api/lords/p_lord_1/move",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_fort_east"},
+        )
+        self.assertEqual(moved.status_code, 400, moved.text)
+        self.assertEqual(moved.json()["detail"]["code"], "missing_active_army")
+
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            domain = connection.execute(
+                """
+                SELECT current_node_id, current_mp
+                FROM domain_runtime_state
+                WHERE domain_id = 'domain_north'
+                """
+            ).fetchone()
+            fort = connection.execute(
+                """
+                SELECT owner_domain_id, status, contested_by_domain_id
+                FROM territory_runtime_state
+                WHERE territory_id = 'territory_fort_east'
+                """
+            ).fetchone()
+            claims = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM territory_claim_runtime
+                WHERE territory_id = 'territory_fort_east'
+                  AND claimant_domain_id = 'domain_north'
+                """
+            ).fetchone()[0]
+
+        self.assertEqual(domain["current_node_id"], "node_res_north")
+        self.assertEqual(domain["current_mp"], 6)
+        self.assertIsNone(fort["owner_domain_id"])
+        self.assertEqual(fort["status"], "neutral")
+        self.assertIsNone(fort["contested_by_domain_id"])
+        self.assertEqual(claims, 0)
+
+    def test_local_active_army_fort_transfers_reject_remote_reserve_and_contested_state(self) -> None:
+        settings = self._settings("lord_local_fort_transfers")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_north',
+                    status = 'controlled',
+                    contested_by_domain_id = NULL
+                WHERE territory_id = 'territory_fort_east'
+                """
+            )
+
+        remote_reinforce = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "active_to_fort",
+                "territory_id": "territory_fort_east",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(remote_reinforce.status_code, 400, remote_reinforce.text)
+        self.assertEqual(remote_reinforce.json()["detail"]["code"], "army_not_at_territory")
+        with connect(settings) as connection:
+            reserve_count = connection.execute(
+                "SELECT count FROM army_reserve_runtime WHERE reserve_id = 'reserve_north_infantry'"
+            ).fetchone()["count"]
+            remote_garrison = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM garrison_runtime_state
+                WHERE territory_id = 'territory_fort_east'
+                  AND domain_id = 'domain_north'
+                """
+            ).fetchone()[0]
+        self.assertEqual(reserve_count, 3)
+        self.assertEqual(remote_garrison, 0)
+
+        active = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "reserve_to_active",
+                "territory_id": "territory_res_north",
+                "card_id": "unit_infantry_t1",
+                "count": 2,
+            },
+        )
+        self.assertEqual(active.status_code, 200, active.text)
+        moved = client.post(
+            "/api/lords/p_lord_1/move",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_fort_east"},
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        self.assertIsNone(moved.json()["claim"])
+
+        placed = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "active_to_fort",
+                "territory_id": "territory_fort_east",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(placed.status_code, 200, placed.text)
+        self.assertEqual(placed.json()["status"], "reinforced")
+
+        pulled = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "fort_to_active",
+                "territory_id": "territory_fort_east",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(pulled.status_code, 200, pulled.text)
+        self.assertEqual(pulled.json()["status"], "active_army_updated")
+        with connect(settings) as connection:
+            active_count = connection.execute(
+                """
+                SELECT count
+                FROM active_army_runtime
+                WHERE domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                """
+            ).fetchone()["count"]
+            garrison_count = connection.execute(
+                """
+                SELECT count
+                FROM garrison_runtime_state
+                WHERE territory_id = 'territory_fort_east'
+                  AND domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                """
+            ).fetchone()["count"]
+        self.assertEqual(active_count, 2)
+        self.assertEqual(garrison_count, 0)
+
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET status = 'in_battle',
+                    contested_by_domain_id = 'domain_river'
+                WHERE territory_id = 'territory_fort_east'
+                """
+            )
+        contested = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "active_to_fort",
+                "territory_id": "territory_fort_east",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(contested.status_code, 400, contested.text)
+        self.assertEqual(contested.json()["detail"]["code"], "territory_contested")
 
     def test_raid_engine_and_anti_snowball_report(self) -> None:
         settings = self._settings("lord_raid")
@@ -411,28 +634,54 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(first_escrow["reserved_xp"], 6)
         self.assertIn("item_order_seal", first_escrow["reserved_assets_json"])
 
-        accepted = client.post(
+        lord_impersonation_accept = client.post(
             "/api/lords/p_lord_3/orders",
             headers=self._headers("forest"),
             json={"action": "accept", "order_id": first_id, "player_id": "p_witcher_2"},
+        )
+        self.assertEqual(lord_impersonation_accept.status_code, 403)
+
+        accepted = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._player_headers("p_witcher_2"),
+            json={"action": "accept", "order_id": first_id},
         )
         self.assertEqual(accepted.status_code, 200)
 
         conflict = client.post(
             "/api/lords/p_lord_3/orders",
-            headers=self._headers("forest"),
-            json={"action": "accept", "order_id": second_id, "player_id": "p_witcher_2"},
+            headers=self._player_headers("p_witcher_2"),
+            json={"action": "accept", "order_id": second_id},
         )
         self.assertEqual(conflict.status_code, 400)
         self.assertEqual(conflict.json()["detail"]["code"], "order_object_conflict")
 
-        submitted = client.post(
+        wrong_player = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._player_headers("p_witcher_3"),
+            json={"action": "submit_success", "order_id": first_id, "result_event_id": "evt_wrong_actor"},
+        )
+        self.assertEqual(wrong_player.status_code, 400)
+        self.assertEqual(wrong_player.json()["detail"]["code"], "order_actor_mismatch")
+
+        lord_impersonation_submit = client.post(
             "/api/lords/p_lord_3/orders",
             headers=self._headers("forest"),
             json={
                 "action": "submit_success",
                 "order_id": first_id,
                 "player_id": "p_witcher_2",
+                "result_event_id": "evt_lord_impersonation",
+            },
+        )
+        self.assertEqual(lord_impersonation_submit.status_code, 403)
+
+        submitted = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._player_headers("p_witcher_2"),
+            json={
+                "action": "submit_success",
+                "order_id": first_id,
                 "result_event_id": "evt_order_success",
             },
         )
@@ -440,15 +689,38 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(submitted.json()["status"], "pending_master_approval")
         self.assertEqual(submitted.json()["closed_competing_orders"], [second_id])
 
-        completed = client.post(
+        lord_impersonation_complete = client.post(
             "/api/lords/p_lord_3/orders",
             headers=self._headers("forest"),
-            json={"action": "complete", "order_id": first_id},
+            json={"action": "complete", "order_id": first_id, "player_id": "p_witcher_2"},
+        )
+        self.assertEqual(lord_impersonation_complete.status_code, 403)
+
+        completed = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._master_headers(),
+            json={
+                "action": "complete",
+                "order_id": first_id,
+                "reason": "reviewed submitted order proof",
+            },
         )
         self.assertEqual(completed.status_code, 200)
         self.assertEqual(completed.json()["order"]["escrow"][0]["status"], "awarded")
         self.assertEqual(completed.json()["reward_update"]["status"], "applied")
         self.assertEqual(completed.json()["reward_update"]["rewards"][0]["gold_gain"], 15)
+
+        duplicate_complete = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._master_headers(),
+            json={
+                "action": "complete",
+                "order_id": first_id,
+                "reason": "duplicate approval retry",
+            },
+        )
+        self.assertEqual(duplicate_complete.status_code, 200)
+        self.assertEqual(duplicate_complete.json()["reward_update"]["status"], "already_settled")
 
         with connect(settings) as connection:
             second_status = connection.execute(
@@ -482,6 +754,109 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(dict(witcher_reward), {"xp": 6, "gold": 35})
         self.assertEqual(order_seal["quantity"], 1)
 
+    def test_cross_lord_order_race_closes_competitors_and_refunds_escrow(self) -> None:
+        settings = self._settings("lord_cross_lord_orders")
+        self._import_seed(settings)
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            initial_hill_gold = connection.execute(
+                "SELECT gold FROM domain_runtime_state WHERE domain_id = 'domain_hill'",
+            ).fetchone()["gold"]
+        client = TestClient(create_app(settings))
+
+        forest = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._headers("forest"),
+            json={
+                "action": "create",
+                "object_id": "territory_well_city",
+                "visibility": "public",
+                "target_player_id": "p_witcher_2",
+                "escrow_reward_id": "reward_order_success",
+            },
+        )
+        hill = client.post(
+            "/api/lords/p_lord_4/orders",
+            headers=self._headers("hill"),
+            json={
+                "action": "create",
+                "object_id": "territory_well_city",
+                "visibility": "public",
+                "target_player_id": "p_witcher_3",
+                "escrow_reward_id": "reward_order_success",
+            },
+        )
+        self.assertEqual(forest.status_code, 200, forest.text)
+        self.assertEqual(hill.status_code, 200, hill.text)
+        forest_id = forest.json()["order"]["order_id"]
+        hill_id = hill.json()["order"]["order_id"]
+
+        accepted = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._player_headers("p_witcher_2"),
+            json={"action": "accept", "order_id": forest_id},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        submitted = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._player_headers("p_witcher_2"),
+            json={
+                "action": "submit_success",
+                "order_id": forest_id,
+                "result_event_id": "evt_cross_lord_order_success",
+            },
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        self.assertEqual(submitted.json()["closed_competing_orders"], [hill_id])
+
+        completed = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._master_headers(),
+            json={
+                "action": "complete",
+                "order_id": forest_id,
+                "reason": "cross-lord race proof accepted",
+            },
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        duplicate_complete = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._master_headers(),
+            json={
+                "action": "complete",
+                "order_id": forest_id,
+                "reason": "duplicate cross-lord completion retry",
+            },
+        )
+        self.assertEqual(duplicate_complete.status_code, 200, duplicate_complete.text)
+        self.assertEqual(duplicate_complete.json()["reward_update"]["status"], "already_settled")
+
+        with connect(settings) as connection:
+            loser = connection.execute(
+                "SELECT status FROM order_runtime_state WHERE order_id = ?",
+                (hill_id,),
+            ).fetchone()
+            loser_escrow = connection.execute(
+                "SELECT status FROM escrow_ledger WHERE order_id = ?",
+                (hill_id,),
+            ).fetchone()
+            hill_gold = connection.execute(
+                "SELECT gold FROM domain_runtime_state WHERE domain_id = 'domain_hill'",
+            ).fetchone()["gold"]
+            winner_escrow_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM escrow_ledger
+                WHERE order_id = ? AND status = 'awarded'
+                """,
+                (forest_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(loser["status"], "failed_closed")
+        self.assertEqual(loser_escrow["status"], "released")
+        self.assertEqual(hill_gold, initial_hill_gold)
+        self.assertEqual(winner_escrow_count, 1)
+
     def test_weighted_route_movement_validates_route_and_mp(self) -> None:
         settings = self._settings("lord_weighted_route")
         self._import_seed(settings)
@@ -498,6 +873,17 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(impossible_route.status_code, 400)
         self.assertEqual(impossible_route.json()["detail"]["code"], "invalid_route")
 
+        active = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "reserve_to_active",
+                "territory_id": "territory_res_north",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(active.status_code, 200, active.text)
         moved = client.post(
             "/api/lords/p_lord_1/move",
             headers=self._headers("north"),
@@ -698,8 +1084,7 @@ class LordRuntimeTests(unittest.TestCase):
             headers=self._headers("hill"),
             json={"action": "archive", "order_id": order_id, "player_id": "p_witcher_5"},
         )
-        self.assertEqual(missing_player.status_code, 400)
-        self.assertEqual(missing_player.json()["detail"]["code"], "missing_player")
+        self.assertEqual(missing_player.status_code, 403)
         self.assertEqual(unknown_order_action.status_code, 400)
         self.assertEqual(unknown_order_action.json()["detail"]["code"], "unknown_order_action")
 
@@ -719,6 +1104,21 @@ class LordRuntimeTests(unittest.TestCase):
             "hill": "LORD-HILL-T5C7",
         }
         return {"X-Role-Token": tokens[lord]}
+
+    @staticmethod
+    def _player_headers(player_id: str) -> dict[str, str]:
+        codes = {
+            "p_witcher_1": "WC-WOLF-6GF4",
+            "p_witcher_2": "WC-CAT-1HN8",
+            "p_witcher_3": "WC-GRIFFIN-7LX2",
+            "p_witcher_4": "WC-BEAR-3SC5",
+            "p_witcher_5": "WC-VIPER-9BZ1",
+        }
+        return {"X-Player-Code": codes[player_id]}
+
+    @staticmethod
+    def _master_headers() -> dict[str, str]:
+        return {"X-Role-Token": "MASTER-KING-4QZ8"}
 
     @staticmethod
     def _territory(items: list[dict[str, object]], territory_id: str) -> dict[str, object]:

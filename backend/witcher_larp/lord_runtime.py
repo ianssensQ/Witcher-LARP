@@ -45,6 +45,31 @@ FINAL_LOCK_ORDER_OVERRIDE_SOURCES = {
     "paper_recovered",
     "paper_final_evidence",
 }
+LORD_ORDER_MANAGEMENT_ACTIONS = {
+    "create",
+    "start",
+    "cancel",
+    "expire",
+    "fail_closed",
+    "fail_retryable",
+    "contested_review",
+}
+PLAYER_ORDER_ACTIONS = {"accept", "submit_success"}
+MASTER_ORDER_ACTIONS = {"complete"}
+ORDER_MASTER_RECOVERY_SOURCES = {
+    "master_api",
+    "master_override",
+    "paper_recovered",
+    "paper_order_resolution",
+    "paper_final_evidence",
+}
+LOCKED_GARRISON_TRANSFER_STATUSES = {
+    "in_battle",
+    "contested",
+    "contested_pending_tick",
+    "capture_pending_garrison",
+    "awaiting_garrison",
+}
 
 
 class LordRuntimeError(ValueError):
@@ -226,7 +251,9 @@ def ensure_lord_runtime_state(connection: sqlite3.Connection) -> None:
                     now,
                 ),
             )
-            if row["escrow_reward_id"] and (row["status"] or "published") in ACTIVE_ORDER_STATUSES:
+            if row["escrow_reward_id"] and (
+                row["status"] or "published"
+            ) in _order_statuses_counting_against_cap(connection):
                 _reserve_order_escrow(
                     connection,
                     str(row["order_id"]),
@@ -275,6 +302,13 @@ def move_lord(
         )
 
     target_node_id = route[-1]
+    if _movement_requires_active_army(connection, str(domain["domain_id"]), target_node_id):
+        if not _active_army_at_node(connection, str(domain["domain_id"]), current_node_id):
+            raise LordRuntimeError(
+                "missing_active_army",
+                "Contesting or capturing territory requires an active army at the moving node.",
+            )
+
     now = _iso()
     connection.execute(
         """
@@ -334,9 +368,15 @@ def transfer_garrison(
         return _transfer_reserve_to_active(
             connection,
             domain_id=str(domain["domain_id"]),
+            territory_id=territory_id,
             card_id=card_id,
             count=count,
             source=source,
+        )
+    if operation not in {"garrison", "active_to_fort", "fort_to_active"}:
+        raise LordRuntimeError(
+            "unknown_garrison_operation",
+            "Garrison operation must be reserve_to_active, active_to_fort or fort_to_active.",
         )
 
     domain_id = str(domain["domain_id"])
@@ -344,6 +384,35 @@ def transfer_garrison(
     territory_owner = _optional(territory["owner_domain_id"])
     territory_status = str(territory["status"])
     capture_claim = None
+    now = _iso()
+
+    if operation == "fort_to_active":
+        _assert_local_owned_transfer_territory(connection, domain_id, territory)
+        active_count = _active_army_count(connection, domain_id)
+        capacity = _to_int(domain["active_army_capacity"])
+        if active_count + count > capacity:
+            raise LordRuntimeError("army_capacity_exceeded", "Active army capacity exceeded.")
+        _consume_garrison(connection, domain_id, territory_id, card_id, count, now)
+        _upsert_active_army(
+            connection,
+            domain_id=domain_id,
+            territory_id=territory_id,
+            card_id=card_id,
+            count=count,
+            now=now,
+        )
+        result = {
+            "status": "active_army_updated",
+            "domain_id": domain_id,
+            "territory_id": territory_id,
+            "card_id": card_id,
+            "count": count,
+            "operation": "fort_to_active",
+            "capacity": capacity,
+        }
+        log_event(connection, "lord_fort_to_active", result, source=source)
+        return result
+
     if territory_owner != domain_id:
         capture_claim = _capture_ready_claim(connection, territory_id, domain_id)
         if capture_claim is None:
@@ -351,18 +420,15 @@ def transfer_garrison(
                 "capture_not_resolved",
                 "Territory capture requires a resolved battle claim awaiting garrison.",
             )
-        if not _active_army_at_territory(connection, domain_id, territory_id):
-            raise LordRuntimeError(
-                "missing_active_army",
-                "A surviving active army at the territory is required before garrison capture.",
-            )
-    elif territory_status not in {"controlled", "neutral"} and territory["contested_by_domain_id"]:
+    else:
+        _assert_local_owned_transfer_territory(connection, domain_id, territory)
+    if territory_status in LOCKED_GARRISON_TRANSFER_STATUSES and capture_claim is None:
         raise LordRuntimeError(
             "territory_contested",
             "Contested territory cannot be changed by garrison transfer until its claim is resolved.",
         )
-    _consume_reserve(connection, domain_id, card_id, count)
-    now = _iso()
+
+    _consume_active_army_at_territory(connection, domain_id, territory_id, card_id, count, now)
     _upsert_garrison(connection, territory_id, domain_id, card_id, count, now)
 
     captured = False
@@ -655,12 +721,15 @@ def order_action(
     result_event_id: str | None = None,
     reason: str | None = None,
     source: str = "lord_panel",
+    actor_role: str = "lord",
 ) -> dict[str, Any]:
     ensure_lord_runtime_state(connection)
     domain = _domain_for_lord(connection, lord_id)
     now = _iso()
+    actor_role = actor_role.strip().lower()
 
     if action == "create":
+        _assert_order_action_authority(action, actor_role)
         if _final_lock_active(connection) and source not in FINAL_LOCK_ORDER_OVERRIDE_SOURCES:
             raise LordRuntimeError(
                 "final_lock_orders_closed",
@@ -717,9 +786,13 @@ def order_action(
     if not order_id:
         raise LordRuntimeError("missing_order", "Order action requires order_id.")
     order = _order_for_lord(connection, lord_id, order_id)
+    _assert_order_action_authority(action, actor_role)
 
     if action == "accept":
-        actor = player_id or order["target_player_id"]
+        _assert_master_recovery_reason(action, actor_role, source, reason)
+        actor = player_id
+        if actor_role == "master" and not actor:
+            actor = order["target_player_id"]
         if not actor:
             raise LordRuntimeError("missing_player", "Accept requires player_id.")
         if order["visibility"] == "addressed" and order["target_player_id"] != actor:
@@ -730,10 +803,13 @@ def order_action(
         connection.execute(
             """
             UPDATE order_runtime_state
-            SET status = 'accepted', accepted_by_player_id = ?, updated_at = ?
+            SET status = 'accepted',
+                accepted_by_player_id = ?,
+                reason = COALESCE(?, reason),
+                updated_at = ?
             WHERE order_id = ?
             """,
-            (actor, now, order_id),
+            (actor, reason, now, order_id),
         )
         return {"status": "accepted", "order": _order_payload(connection, order_id)}
 
@@ -742,9 +818,18 @@ def order_action(
         return {"status": "in_progress", "order": _order_payload(connection, order_id)}
 
     if action == "submit_success":
-        actor = player_id or order["accepted_by_player_id"] or order["target_player_id"]
+        _assert_master_recovery_reason(action, actor_role, source, reason)
+        if order["status"] not in {"accepted", "in_progress", "claimed_at_prop", "submitted_pending_sync"}:
+            raise LordRuntimeError("order_not_submittable", "Order cannot be submitted in current status.")
+        actor = player_id
+        if actor_role == "master" and not actor:
+            actor = order["accepted_by_player_id"] or order["target_player_id"]
         if not actor:
             raise LordRuntimeError("missing_player", "Success sync requires player_id.")
+        if actor_role != "master" and not result_event_id:
+            raise LordRuntimeError("missing_order_proof", "Success sync requires result_event_id proof.")
+        if not order["accepted_by_player_id"] and actor_role != "master":
+            raise LordRuntimeError("order_not_accepted", "Order must be accepted before player submission.")
         if order["accepted_by_player_id"] and order["accepted_by_player_id"] != actor:
             raise LordRuntimeError("order_actor_mismatch", "Order is accepted by another player.")
         connection.execute(
@@ -753,14 +838,14 @@ def order_action(
             SET status = 'pending_master_approval',
                 submitted_by_player_id = ?,
                 result_event_id = ?,
+                reason = COALESCE(?, reason),
                 updated_at = ?
             WHERE order_id = ?
             """,
-            (actor, result_event_id, now, order_id),
+            (actor, result_event_id, reason, now, order_id),
         )
         closed_competitors = _close_competing_orders(
             connection,
-            lord_id=lord_id,
             object_id=str(order["object_id"]),
             winner_order_id=order_id,
             now=now,
@@ -774,10 +859,19 @@ def order_action(
         return result
 
     if action == "complete":
+        _assert_master_recovery_reason(action, actor_role, source, reason)
+        if order["status"] not in {"pending_master_approval", "submitted_pending_sync", "completed"}:
+            raise LordRuntimeError("order_not_ready_for_completion", "Order needs submitted player proof before completion.")
         actor = player_id or order["submitted_by_player_id"] or order["accepted_by_player_id"] or order["target_player_id"]
         if not actor:
-            raise LordRuntimeError("missing_player", "Completion requires an executor player.")
+            raise LordRuntimeError("missing_order_proof", "Completion requires accepted or submitted player proof.")
         _transition_order(connection, order, "completed", now=now)
+        closed_competitors = _close_competing_orders(
+            connection,
+            object_id=str(order["object_id"]),
+            winner_order_id=order_id,
+            now=now,
+        )
         reward_update = _award_order_escrow(
             connection,
             order_id,
@@ -789,6 +883,7 @@ def order_action(
             "status": "completed",
             "order": _order_payload(connection, order_id),
             "reward_update": reward_update,
+            "closed_competing_orders": closed_competitors,
         }
         log_event(connection, "lord_order_completed", result, source=source)
         return result
@@ -971,6 +1066,24 @@ def _create_claim_if_needed(
     }
 
 
+def _movement_requires_active_army(
+    connection: sqlite3.Connection, domain_id: str, target_node_id: str
+) -> bool:
+    target = connection.execute(
+        """
+        SELECT n.territory_id, t.owner_domain_id
+        FROM map_nodes n
+        LEFT JOIN territory_runtime_state t ON t.territory_id = n.territory_id
+        WHERE n.node_id = ?
+        LIMIT 1
+        """,
+        (target_node_id,),
+    ).fetchone()
+    if target is None or not target["territory_id"]:
+        return False
+    return _optional(target["owner_domain_id"]) != domain_id
+
+
 def _initialize_domain_locations(connection: sqlite3.Connection, now: str) -> None:
     if not _table_exists(connection, "domains"):
         return
@@ -995,16 +1108,23 @@ def _transfer_reserve_to_active(
     connection: sqlite3.Connection,
     *,
     domain_id: str,
+    territory_id: str,
     card_id: str,
     count: int,
     source: str,
 ) -> dict[str, Any]:
     domain = _domain_by_id(connection, domain_id)
     residence = _residence_node(connection, domain_id)
+    residence_territory = _territory_for_node(connection, residence) if residence else None
     if domain["current_node_id"] != residence:
         raise LordRuntimeError(
             "not_at_residence",
             "Reserve can transfer to active army only at the domain residence.",
+        )
+    if residence_territory != territory_id:
+        raise LordRuntimeError(
+            "not_at_residence",
+            "Reserve can transfer to active army only through the residence territory.",
         )
     current_active = _active_army_count(connection, domain_id)
     capacity = _to_int(domain["active_army_capacity"])
@@ -1096,6 +1216,30 @@ def _capture_ready_claim(
     ).fetchone()
 
 
+def _assert_local_owned_transfer_territory(
+    connection: sqlite3.Connection, domain_id: str, territory: sqlite3.Row
+) -> None:
+    territory_id = str(territory["territory_id"])
+    if _optional(territory["owner_domain_id"]) != domain_id:
+        raise LordRuntimeError(
+            "territory_not_owned",
+            "Fort transfers require a territory controlled by the lord domain.",
+        )
+    if (
+        str(territory["status"]) in LOCKED_GARRISON_TRANSFER_STATUSES
+        or _optional(territory["contested_by_domain_id"]) is not None
+    ):
+        raise LordRuntimeError(
+            "territory_contested",
+            "Contested territory cannot be changed by garrison transfer until its claim is resolved.",
+        )
+    if _current_territory_id(connection, domain_id) != territory_id:
+        raise LordRuntimeError(
+            "army_not_at_territory",
+            "Fort transfers are local to the lord army's current territory.",
+        )
+
+
 def _active_army_at_territory(
     connection: sqlite3.Connection, domain_id: str, territory_id: str
 ) -> bool:
@@ -1113,6 +1257,64 @@ def _active_army_at_territory(
         (domain_id, territory_id),
     ).fetchone()
     return row is not None
+
+
+def _active_army_at_node(
+    connection: sqlite3.Connection, domain_id: str, node_id: str
+) -> bool:
+    row = connection.execute(
+        """
+        SELECT 1
+        FROM active_army_runtime
+        WHERE domain_id = ?
+          AND status = 'active'
+          AND count > 0
+          AND location_node_id = ?
+        LIMIT 1
+        """,
+        (domain_id, node_id),
+    ).fetchone()
+    return row is not None
+
+
+def _current_territory_id(connection: sqlite3.Connection, domain_id: str) -> str | None:
+    row = connection.execute(
+        """
+        SELECT n.territory_id
+        FROM domain_runtime_state d
+        LEFT JOIN map_nodes n ON n.node_id = d.current_node_id
+        WHERE d.domain_id = ?
+        LIMIT 1
+        """,
+        (domain_id,),
+    ).fetchone()
+    return _optional(row["territory_id"]) if row is not None else None
+
+
+def _territory_for_node(connection: sqlite3.Connection, node_id: str | None) -> str | None:
+    if node_id is None:
+        return None
+    row = connection.execute(
+        "SELECT territory_id FROM map_nodes WHERE node_id = ? LIMIT 1",
+        (node_id,),
+    ).fetchone()
+    return _optional(row["territory_id"]) if row is not None else None
+
+
+def _node_for_territory(connection: sqlite3.Connection, territory_id: str) -> str:
+    row = connection.execute(
+        """
+        SELECT node_id
+        FROM map_nodes
+        WHERE territory_id = ?
+        ORDER BY _row_number
+        LIMIT 1
+        """,
+        (territory_id,),
+    ).fetchone()
+    if row is None:
+        raise LordRuntimeError("territory_node_not_found", "Territory has no map node.")
+    return str(row["node_id"])
 
 
 def _route_cost(connection: sqlite3.Connection, route: list[str]) -> int:
@@ -1268,39 +1470,77 @@ def _transition_order(
     )
 
 
+def _assert_order_action_authority(action: str, actor_role: str) -> None:
+    if action in PLAYER_ORDER_ACTIONS and actor_role not in {"player", "master"}:
+        raise LordRuntimeError(
+            "order_player_auth_required",
+            "Order accept/submit requires player auth or master recovery.",
+            status_code=403,
+        )
+    if action in MASTER_ORDER_ACTIONS and actor_role != "master":
+        raise LordRuntimeError(
+            "order_master_approval_required",
+            "Order completion and escrow award require master approval.",
+            status_code=403,
+        )
+    if action in LORD_ORDER_MANAGEMENT_ACTIONS and actor_role not in {"lord", "master"}:
+        raise LordRuntimeError(
+            "order_lord_auth_required",
+            "Order offer management requires lord or master authority.",
+            status_code=403,
+        )
+
+
+def _assert_master_recovery_reason(
+    action: str,
+    actor_role: str,
+    source: str,
+    reason: str | None,
+) -> None:
+    if actor_role != "master" or source not in ORDER_MASTER_RECOVERY_SOURCES:
+        return
+    if reason and reason.strip():
+        return
+    raise LordRuntimeError(
+        "missing_order_recovery_reason",
+        f"Master {action} requires an audit reason.",
+    )
+
+
 def _close_competing_orders(
     connection: sqlite3.Connection,
     *,
-    lord_id: str,
     object_id: str,
     winner_order_id: str,
     now: str,
 ) -> list[str]:
     closed: list[str] = []
+    count_statuses = _order_statuses_counting_against_cap(connection)
+    if not count_statuses:
+        return closed
     for row in connection.execute(
         """
         SELECT order_id
         FROM order_runtime_state
-        WHERE lord_id = ? AND object_id = ? AND order_id <> ?
+        WHERE object_id = ?
+          AND order_id <> ?
+          AND status IN ({})
         ORDER BY created_at
-        """,
-        (lord_id, object_id, winner_order_id),
+        """.format(_status_placeholders(count_statuses)),
+        (object_id, winner_order_id, *sorted(count_statuses)),
     ).fetchall():
-        state = connection.execute(
-            "SELECT status FROM order_runtime_state WHERE order_id = ?",
-            (row["order_id"],),
-        ).fetchone()
-        if state["status"] in ACTIVE_ORDER_STATUSES:
-            connection.execute(
-                """
-                UPDATE order_runtime_state
-                SET status = 'failed_closed',
-                    reason = 'object_already_completed',
-                    updated_at = ?
-                WHERE order_id = ?
-                """,
-                (now, row["order_id"]),
-            )
+        updated = connection.execute(
+            """
+            UPDATE order_runtime_state
+            SET status = 'failed_closed',
+                reason = 'object_already_completed',
+                updated_at = ?
+            WHERE order_id = ?
+              AND status IN ({})
+            """.format(_status_placeholders(count_statuses)),
+            (now, row["order_id"], *sorted(count_statuses)),
+        )
+        if updated.rowcount:
             _refund_order_escrow(
                 connection,
                 str(row["order_id"]),
@@ -1313,13 +1553,16 @@ def _close_competing_orders(
 
 def _assert_order_cap(connection: sqlite3.Connection, lord_id: str, visibility: str) -> None:
     cap = 2 if visibility == "public" else 1
+    count_statuses = _order_statuses_counting_against_cap(connection)
+    if not count_statuses:
+        return
     count = connection.execute(
         f"""
         SELECT COUNT(*)
         FROM order_runtime_state
-        WHERE lord_id = ? AND visibility = ? AND status IN ({_status_placeholders(ACTIVE_ORDER_STATUSES)})
+        WHERE lord_id = ? AND visibility = ? AND status IN ({_status_placeholders(count_statuses)})
         """,
-        (lord_id, visibility, *sorted(ACTIVE_ORDER_STATUSES)),
+        (lord_id, visibility, *sorted(count_statuses)),
     ).fetchone()[0]
     if int(count) >= cap:
         raise LordRuntimeError(
@@ -1335,7 +1578,10 @@ def _assert_player_object_available(
     *,
     exclude_order_id: str | None = None,
 ) -> None:
-    params: list[object] = [player_id, object_id, *sorted(ACTIVE_ORDER_STATUSES)]
+    lock_statuses = _order_statuses_locking_objects(connection)
+    if not lock_statuses:
+        return
+    params: list[object] = [player_id, player_id, object_id, *sorted(lock_statuses)]
     extra = ""
     if exclude_order_id:
         extra = "AND order_id <> ?"
@@ -1346,11 +1592,11 @@ def _assert_player_object_available(
         FROM order_runtime_state
         WHERE (accepted_by_player_id = ? OR target_player_id = ?)
           AND object_id = ?
-          AND status IN ({_status_placeholders(ACTIVE_ORDER_STATUSES)})
+          AND status IN ({_status_placeholders(lock_statuses)})
           {extra}
         LIMIT 1
         """,
-        (player_id, player_id, object_id, *sorted(ACTIVE_ORDER_STATUSES), *( [exclude_order_id] if exclude_order_id else [] )),
+        params,
     ).fetchone()
     if row is not None:
         raise LordRuntimeError(
@@ -1618,6 +1864,30 @@ def _status_placeholders(statuses: set[str]) -> str:
     return ", ".join("?" for _ in statuses)
 
 
+def _order_statuses_locking_objects(connection: sqlite3.Connection) -> set[str]:
+    return _order_statuses_with_flag(connection, "locks_object")
+
+
+def _order_statuses_counting_against_cap(connection: sqlite3.Connection) -> set[str]:
+    return _order_statuses_with_flag(connection, "counts_against_cap")
+
+
+def _order_statuses_with_flag(connection: sqlite3.Connection, flag_column: str) -> set[str]:
+    if not _table_exists(connection, "order_status_rules"):
+        return set(ACTIVE_ORDER_STATUSES)
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT status_id
+            FROM order_status_rules
+            WHERE lower(COALESCE({flag_column}, 'false')) = 'true'
+            """
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return set(ACTIVE_ORDER_STATUSES)
+    return {str(row["status_id"]) for row in rows}
+
+
 def _normalize_visibility(value: str) -> str:
     visibility = value.strip().lower()
     if visibility not in {"public", "addressed"}:
@@ -1778,6 +2048,111 @@ def _consume_reserve(
     )
 
 
+def _consume_active_army_at_territory(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    territory_id: str,
+    card_id: str,
+    count: int,
+    now: str,
+) -> None:
+    row = connection.execute(
+        """
+        SELECT army.army_id, army.count
+        FROM active_army_runtime army
+        JOIN map_nodes node ON node.node_id = army.location_node_id
+        WHERE army.domain_id = ?
+          AND army.card_id = ?
+          AND army.status = 'active'
+          AND army.count > 0
+          AND node.territory_id = ?
+        ORDER BY army.army_id
+        LIMIT 1
+        """,
+        (domain_id, card_id, territory_id),
+    ).fetchone()
+    if row is None or _to_int(row["count"]) < count:
+        raise LordRuntimeError(
+            "missing_active_army",
+            "A matching active army unit at the territory is required.",
+        )
+    remaining = _to_int(row["count"]) - count
+    connection.execute(
+        """
+        UPDATE active_army_runtime
+        SET count = ?,
+            status = ?,
+            updated_at = ?
+        WHERE army_id = ?
+        """,
+        (remaining, "active" if remaining > 0 else "empty", now, row["army_id"]),
+    )
+
+
+def _consume_garrison(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    territory_id: str,
+    card_id: str,
+    count: int,
+    now: str,
+) -> None:
+    row = connection.execute(
+        """
+        SELECT garrison_id, count
+        FROM garrison_runtime_state
+        WHERE domain_id = ?
+          AND territory_id = ?
+          AND card_id = ?
+          AND status = 'active'
+          AND count > 0
+        ORDER BY garrison_id
+        LIMIT 1
+        """,
+        (domain_id, territory_id, card_id),
+    ).fetchone()
+    if row is None or _to_int(row["count"]) < count:
+        raise LordRuntimeError("insufficient_garrison", "Not enough fort garrison units.")
+    remaining = _to_int(row["count"]) - count
+    connection.execute(
+        """
+        UPDATE garrison_runtime_state
+        SET count = ?,
+            status = ?,
+            updated_at = ?
+        WHERE garrison_id = ?
+        """,
+        (remaining, "active" if remaining > 0 else "empty", now, row["garrison_id"]),
+    )
+
+
+def _upsert_active_army(
+    connection: sqlite3.Connection,
+    *,
+    domain_id: str,
+    territory_id: str,
+    card_id: str,
+    count: int,
+    now: str,
+) -> None:
+    army_id = _stable_id("army", domain_id, card_id)
+    location_node_id = _node_for_territory(connection, territory_id)
+    connection.execute(
+        """
+        INSERT INTO active_army_runtime (
+            army_id, domain_id, card_id, count, location_node_id, status, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, 'active', ?)
+        ON CONFLICT(army_id) DO UPDATE SET
+            count = active_army_runtime.count + excluded.count,
+            location_node_id = excluded.location_node_id,
+            status = 'active',
+            updated_at = excluded.updated_at
+        """,
+        (army_id, domain_id, card_id, count, location_node_id, now),
+    )
+
+
 def _upsert_garrison(
     connection: sqlite3.Connection,
     territory_id: str,
@@ -1844,16 +2219,21 @@ def _army_power_by_domain(connection: sqlite3.Connection) -> dict[str, int]:
 
 def _active_order_counts(connection: sqlite3.Connection) -> dict[str, int]:
     counts: dict[str, int] = {}
+    count_statuses = _order_statuses_counting_against_cap(connection)
+    if not count_statuses:
+        for row in connection.execute("SELECT domain_id FROM domain_runtime_state").fetchall():
+            counts[str(row["domain_id"])] = 0
+        return counts
     for row in connection.execute(
         f"""
         SELECT d.domain_id, COUNT(o.order_id) AS count
         FROM domain_runtime_state d
         LEFT JOIN order_runtime_state o
           ON o.lord_id = d.lord_player_id
-         AND o.status IN ({_status_placeholders(ACTIVE_ORDER_STATUSES)})
+         AND o.status IN ({_status_placeholders(count_statuses)})
         GROUP BY d.domain_id
         """,
-        tuple(sorted(ACTIVE_ORDER_STATUSES)),
+        tuple(sorted(count_statuses)),
     ).fetchall():
         counts[str(row["domain_id"])] = _to_int(row["count"])
     return counts

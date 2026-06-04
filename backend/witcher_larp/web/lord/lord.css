@@ -249,6 +249,8 @@ textarea {
 .territory-list,
 .order-list,
 .compact-list,
+.capture-list,
+.battle-list,
 .actions,
 .action-forms {
   display: grid;
@@ -283,6 +285,142 @@ textarea {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.battle-panel {
+  align-content: start;
+}
+
+.capture-list {
+  margin-bottom: 10px;
+}
+
+.battle-list {
+  margin-bottom: 12px;
+}
+
+.battle-list-item {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  width: 100%;
+  padding: 10px 12px;
+  border-color: var(--line);
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.battle-list-item[aria-pressed="true"] {
+  border-color: var(--moss);
+  box-shadow: inset 0 0 0 1px var(--moss);
+}
+
+.battle-list-item:hover {
+  background: #edf1ee;
+}
+
+.battle-list-item small {
+  color: var(--muted);
+}
+
+.battle-board-shell {
+  display: grid;
+  gap: 10px;
+}
+
+.battle-toolbar {
+  display: grid;
+  gap: 10px;
+}
+
+.battle-toolbar h4 {
+  margin: 0 0 4px;
+}
+
+.battle-toolbar p,
+.battle-status {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.battle-actions {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.battle-actions button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 8px;
+}
+
+.battle-board {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  max-width: 460px;
+  aspect-ratio: 5 / 6;
+}
+
+.battle-cell {
+  display: grid;
+  grid-template-rows: minmax(16px, auto) 1fr minmax(14px, auto);
+  min-width: 0;
+  min-height: 0;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #f9faf8;
+  color: var(--ink);
+  text-align: center;
+  overflow: hidden;
+}
+
+.battle-cell:hover {
+  background: #edf1ee;
+}
+
+.battle-cell strong,
+.battle-cell span,
+.battle-cell small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.battle-cell strong {
+  font-size: 0.76rem;
+}
+
+.battle-cell span,
+.battle-cell small {
+  font-size: 0.66rem;
+}
+
+.battle-cell.side-attacker {
+  border-color: rgba(61, 107, 77, 0.55);
+  background: #edf6ee;
+}
+
+.battle-cell.side-defender {
+  border-color: rgba(143, 52, 48, 0.5);
+  background: #fbefed;
+}
+
+.battle-cell.hero-cell {
+  background: #fff6dc;
+}
+
+.battle-cell.active {
+  box-shadow: inset 0 0 0 2px var(--gold);
+}
+
+.battle-cell.selected {
+  outline: 2px solid var(--steel);
+  outline-offset: 1px;
 }
 
 .row-card {
@@ -371,5 +509,13 @@ textarea {
 
   .top-actions button {
     flex: 1 1 130px;
+  }
+
+  .battle-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .battle-board {
+    max-width: none;
   }
 }

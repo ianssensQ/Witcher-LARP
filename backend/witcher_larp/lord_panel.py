@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .lord_runtime import ACTIVE_ORDER_STATUSES
 from .lord_runtime import anti_snowball_cut_for_domain, build_diplomacy_signals
 from .lord_runtime import ensure_lord_runtime_state, visible_garrisons_for
+from .lord_battle_service import list_lord_battles
 from .repository import fetch_table, latest_snapshot_version
 
 
@@ -192,6 +193,13 @@ def build_lord_state(
         order for order in orders if order.get("status") in ACTIVE_ORDER_STATUSES
     ]
     owned_ids = {item["territory_id"] for item in owned_territories}
+    garrison_targets = _garrison_targets(
+        owned_territories,
+        neutral_territories,
+        other_territories,
+        domain_id,
+    )
+    battles = list_lord_battles(connection, domain_id=domain_id)["items"]
     pending_domain_rewards = [
         reward
         for reward in pending_rewards
@@ -209,6 +217,8 @@ def build_lord_state(
             "other_territories": len(other_territories),
             "active_orders": len(active_orders),
             "pending_rewards": len(pending_domain_rewards),
+            "garrison_targets": len(garrison_targets),
+            "active_battles": sum(1 for battle in battles if battle.get("status") == "active"),
             "available_recruits": sum(
                 1 for offer in recruit_market if offer.get("status") == "available"
             ),
@@ -218,6 +228,8 @@ def build_lord_state(
         "territories": owned_territories,
         "neutral_territories": neutral_territories,
         "other_territories": other_territories,
+        "garrison_targets": garrison_targets,
+        "battles": battles,
         "orders": orders,
         "recruit_market": recruit_market,
         "army_reserve": army_reserve,
@@ -287,6 +299,27 @@ def _building_catalog_payload(
     ]
 
 
+def _garrison_targets(
+    owned_territories: list[dict[str, Any]],
+    neutral_territories: list[dict[str, Any]],
+    other_territories: list[dict[str, Any]],
+    domain_id: str,
+) -> list[dict[str, Any]]:
+    targets = [
+        {**territory, "garrison_target_reason": "controlled"}
+        for territory in owned_territories
+    ]
+    for territory in [*neutral_territories, *other_territories]:
+        if (
+            territory.get("status") == "capture_pending_garrison"
+            and territory.get("contested_by_domain_id") == domain_id
+        ):
+            targets.append(
+                {**territory, "garrison_target_reason": "capture_pending_garrison"}
+            )
+    return targets
+
+
 def _action_surfaces(lord_id: str) -> list[dict[str, str]]:
     base = f"/api/lords/{lord_id}"
     return [
@@ -330,6 +363,13 @@ def _action_surfaces(lord_id: str) -> list[dict[str, str]]:
             "label": "Orders",
             "method": "POST",
             "endpoint": f"{base}/orders",
+            "status": "ready",
+        },
+        {
+            "id": "lord_battles",
+            "label": "Lord battles",
+            "method": "POST",
+            "endpoint": "/api/lord-battles",
             "status": "ready",
         },
     ]
