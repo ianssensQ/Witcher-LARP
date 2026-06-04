@@ -4,6 +4,8 @@
 
 Этот документ описывает актуальную техническую реализацию приложения для однодневной LARP-игры на участке. Он больше не является frozen source: при изменении технической каноники его нужно обновлять вместе с `docs/PRD.md`, `docs/architecture.md`, `docs/game-mechanics.md`, `docs/roadmap.md` и `tasks.json`. Историческим исходником остается только [core-engine-v1.2.md](core-engine-v1.2.md), если пользователь отдельно не попросит его менять.
 
+Task queue reading contract: use `docs/active-tasks.md` or `uv run python scripts\taskctl.py ready` for ordinary orientation; keep `tasks.json` as the canonical full dependency graph; keep `progress.txt` as the completion log.
+
 Цель плана - зафиксировать оптимальный путь реализации с учетом ограничений: Wi-Fi только в доме, игроки ходят по участку с телефонами, нужно поддержать iOS и Android, лорды играют с ноутбуков, а мастерский ноутбук держит локальный сервер.
 
 Production profile текущей игры: 15 человек всего = 13 игроков + 2 NPC-мастера. Игроки: 4 лорда, 4 гибридные мобильные чародейки и 5 свободных ведьмаков.
@@ -532,6 +534,25 @@ PvP/Gwent stake/winner authority, `TASK-064` lord order escrow/route movement,
 `TASK-065` master review/reputation scoping, затем `TASK-066` review and
 rewrite of tests that missed these fresh bugs. Stage 2 remains blocked by
 `TASK-018`, and `TASK-018` is pending until `TASK-059`-`TASK-066` are complete.
+
+2026-06-03: после Stage 2 code review перед Stage 2B/`TASK-050`
+добавлен pre-Stage-2B remediation/test block: `TASK-068` PvE reward authority and cascade
+reward gates, `TASK-069` personal Gwent round authority, `TASK-070` personal
+card conversion ownership, `TASK-071` lord active-army movement/capture/
+garrison rules, `TASK-072` lord order lifecycle authority and validation
+flags, `TASK-073` seed business validation hardening, затем `TASK-074` review
+and rewrite of tests that missed these bugs. This block belongs to `STAGE-2A`,
+not `STAGE-2B`, because Playable Role UI has not started yet.
+
+2026-06-04: added a second pre-Stage-2B review follow-up block before
+`TASK-050`: `TASK-075` paper recovery side effects and event-sync role scope,
+`TASK-076` cross-lord order races and gold PvP stakes, `TASK-077` lord
+battle/captured-territory UI blockers, `TASK-078` Admin Studio paper recovery
+and Game Ops blockers, `TASK-079` mobile reputation visibility, then
+`TASK-080` review/rewrite of tests that missed these issues. `TASK-045`,
+`TASK-058` and `TASK-050` now depend on `TASK-080`, so Stage 2B cannot start
+and Stage 3 cannot inherit these runtime or test-coverage gaps until the fixes
+and the new test audit are complete.
 
 Core Game Engine должен закрыть:
 

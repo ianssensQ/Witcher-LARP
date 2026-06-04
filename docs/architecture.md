@@ -108,7 +108,10 @@ screenshots, GPS, cloud services, or internet access during the game.
 ### Task implementation contract
 
 Implementation planning is synchronized through `tasks.json`, generated
-TaskOS views and the canonical docs listed in `taskos.toml`. Every active
+TaskOS views and the canonical docs listed in `taskos.toml`. `tasks.json`
+remains the canonical full dependency graph; `docs/active-tasks.md` is the
+compact generated view for ordinary unfinished-work orientation; `progress.txt`
+is the completion log and does not replace the graph. Every active
 implementation task must expose technical work in visible TaskOS fields, not
 only gameplay logic. For Stage 1 this means naming the expected module
 boundary, data location, API group, fixture family and verification command.

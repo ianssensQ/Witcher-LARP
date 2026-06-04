@@ -42,6 +42,18 @@
         ]
       },
       {
+        "id": "STAGE-2A",
+        "name": "Stage 2 Review Remediation",
+        "title": "Bugfix gate before Playable Role UI",
+        "gate_task": "TASK-080",
+        "goal": "Close Stage 2 code-review blockers and rewrite the tests that missed them before starting Playable Role UI work.",
+        "success_criteria": [
+          "TASK-068-TASK-074 review remediation remains complete outside Stage 2B.",
+          "TASK-075-TASK-079 fresh issue fixes are complete before TASK-045 starts.",
+          "TASK-080 rewrites weak tests into behavior regressions before Stage 2B work begins."
+        ]
+      },
+      {
         "id": "STAGE-2B",
         "name": "Playable Role UI",
         "title": "Полноценные игровые интерфейсы ролей",
@@ -102,14 +114,17 @@
     },
     "planning_sync": {
       "last_contract_lock_date": "2026-06-03",
-      "source_of_truth": "tasks.json plus generated TaskOS board; no extra planning appendices",
+      "source_of_truth": "tasks.json is the canonical full dependency graph; docs/active-tasks.md is the compact generated unfinished-work view; progress.txt is the completion log; no extra planning appendices",
       "rule": "Every task note contains a contract block with Inputs, Outputs, Implementation path, Interfaces, Failure/review paths and Required tests.",
       "hardware_gate": "TASK-001/TASK-007 may record early platform launch-risk for Stage 1 shell work, but Stage 2B is the hard real-device gate: TASK-047, TASK-058 and TASK-050 require Android and iOS install/launch/connect/snapshot/restart/sync smoke before Playable Role UI acceptance."
-    }
+    },
+    "active_task_view": "docs/active-tasks.md"
   },
   "agent_instructions": {
     "before_start": [
-      "Используй tasks.json как источник правды по статусам и зависимостям.",
+      "Use docs/active-tasks.md or uv run python scripts/taskctl.py ready first for ordinary queue orientation.",
+      "Use tasks.json as the canonical full dependency graph only when editing task metadata/dependencies or when the compact view is insufficient.",
+      "Use progress.txt as the completion log, not as a replacement for the dependency graph.",
       "Python/backend/tooling запускай через uv run python; перед первой работой окружение создается через uv sync.",
       "Перед реализацией бери ровно одну dependency-ready задачу через uv run python scripts/taskctl.py claim.",
       "Реализуй только выбранную задачу и не меняй сгенерированные представления вручную."
@@ -1940,7 +1955,7 @@
       "id": "TASK-018",
       "title": "STAGE 1 GATE: core game engine scripted role-flow",
       "description": "Принять Stage 1 отдельно: основной игровой движок всех классов работает на seed fixtures без Admin Studio генерации контента.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "qa",
       "stage": "STAGE-1: Core Game Engine",
@@ -2014,7 +2029,8 @@
         "Run uv run python -m json.tool tasks.json",
         "Run uv run python scripts/taskctl.py validate",
         "Run uv run python scripts/taskctl.py doctor",
-        "uv run pytest -q tests/test_stage1_gate_role_flow.py; uv run pytest -q; uv run python -m json.tool tasks.json NUL; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py doctor; uv run python scripts/taskctl.py sync"
+        "uv run pytest -q tests/test_stage1_gate_role_flow.py; uv run pytest -q; uv run python -m json.tool tasks.json NUL; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py doctor; uv run python scripts/taskctl.py sync",
+        "Passed targeted Stage 1 pytest group, full pytest suite, json.tool, taskctl validate, taskctl doctor and taskctl sync."
       ],
       "notes": "Contract:\nInputs: Completed TASK-003 through TASK-017, old remediation TASK-038 through TASK-044, second-wave remediation TASK-051 through TASK-056, test rewrite TASK-057 and blocked/launch-risk record for TASK-001.\nOutputs: Stage 1 scripted role-flow evidence proving runtime, stack and recovery path only after the second code-review issue block and real regression tests are complete.\nImplementation path: Re-run one seed-level scripted flow through APIs/UI/mobile shell mocks or real clients where available; record verification in task checks after remediation and TASK-057 tests.\nInterfaces: Covers uv launch, FastAPI/SQLite, CSV import/snapshot, event sync, static panels, Godot shell, PvE/QR/act unlock, PvP/Gwent, lord map/battle/economy, sorceress, NPC, final_summary and paper_recovered.\nFailure/review paths: Any failed core mechanic or uncovered P0/P1 review issue blocks the gate; missing physical devices remain TASK-001 launch-risk only if mocked/local contracts pass and fallback exists.\nRequired tests: Full scripted test suite, new review-regression suite from TASK-057, restart recovery, paper conflict fixture, TaskOS validate/sync/doctor and generated board review.\n2026-06-02: Reopened from done after Stage 1 business-logic code review found P0/P1 issues and weak tests.\n2026-06-03: Removed from done again after second review found remaining serious business-logic issues; TASK-018 is blocked by TASK-051-TASK-057 and old green evidence is obsolete for acceptance.\nUser asked not to use TaskOS for this review\n2026-06-03: Fresh review wave added after another full code review: TASK-059 app-generated d20, TASK-060 PvE modifier/stat authority, TASK-061 QR/act secrecy, TASK-062 mobile queue/snapshot fallback, TASK-063 PvP stake/winner authority, TASK-064 lord escrow/route, TASK-065 review/reputation scoping and TASK-066 test rewrite. TASK-018 remains pending until they are complete."
     },
@@ -2022,7 +2038,7 @@
       "id": "TASK-019",
       "title": "Собрать Admin Studio shell и role access",
       "description": "Создать браузерную Admin Studio как отдельный Stage 2 и будущую UI-основу генерации контента.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "admin",
       "stage": "STAGE-2: Admin Studio",
@@ -2047,7 +2063,8 @@
         "Browser smoke Admin Studio login",
         "Проверить invalid role_token",
         "Проверить навигацию основных разделов",
-        "uv run python scripts\\taskctl.py validate"
+        "uv run python scripts\\taskctl.py validate",
+        "uv run pytest tests/test_admin_studio_contract.py; uv run pytest tests/test_admin_studio_contract.py tests/test_lord_panel_contract.py tests/test_fastapi_contract.py; browser smoke /admin login MASTER-KING-4QZ8 on temporary FastAPI; uv run ruff check backend tests; uv run python scripts/taskctl.py validate; uv run pytest"
       ],
       "notes": "Contract:\nInputs: Stage 1 FastAPI server, role token auth and static web convention.\nOutputs: Admin Studio static shell with master login and navigation.\nImplementation path: Serve Admin Studio from FastAPI static HTML/CSS/JS; no frontend build tool unless a later explicit task changes architecture.\nInterfaces: Uses POST /api/auth/role-token and placeholder/read APIs for content, ops, events, NPC, backups and final sections.\nFailure/review paths: Invalid/non-master token cannot see master-only screens; missing backend endpoints show disabled states, not fake success.\nRequired tests: Static asset/browser smoke, master token auth, visibility check and no Node dependency check."
     },
@@ -2055,7 +2072,7 @@
       "id": "TASK-020",
       "title": "Реализовать Admin content import/validation UI",
       "description": "Дать мастеру UI для импорта runtime CSV, просмотра validation report, snapshot_version и QR checklist.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "admin",
       "stage": "STAGE-2: Admin Studio",
@@ -2090,7 +2107,8 @@
         "Проверить player-facing handout checklist",
         "Импортировать broken lord map/building/unit CSV и проверить readable graph/building/unit/recruit/raid errors",
         "Импортировать broken cooldown/token/potion/anti-snowball/final/handout/check-policy CSV и проверить readable errors",
-        "uv run python scripts\\taskctl.py validate"
+        "uv run python scripts\\taskctl.py validate",
+        "uv run pytest tests/test_admin_studio_contract.py tests/test_seed_validation.py; uv run ruff check backend tests; uv run python scripts/taskctl.py validate"
       ],
       "notes": "Contract:\nInputs: TASK-004 importer/snapshot service and Admin shell.\nOutputs: Admin content import/validation UI, snapshot controls, QR checklist and handout checklist.\nImplementation path: UI calls existing importer/report APIs; it must not implement a second parser.\nInterfaces: Screens: select/upload pack, import report, row errors, snapshot build/export, QR/manual checklist, player handout checklist. API dependency: importer report shape from TASK-004.\nFailure/review paths: Broken CSV displays file/row/id/code/message; failed import does not change active DB; missing handout/QR policy appears as validation error.\nRequired tests: Browser/API tests for valid import, invalid fixture report, snapshot build, QR checklist and handout readiness."
     },
@@ -2098,7 +2116,7 @@
       "id": "TASK-021",
       "title": "Реализовать Admin game ops dashboard",
       "description": "Собрать game-day управление: акты, таймеры, лордская карта, contested battles, pending rewards, рейды, события, review queue, corrections, backups.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "admin",
       "stage": "STAGE-2: Admin Studio",
@@ -2140,7 +2158,8 @@
         "Создать needs_master_review event и решить его",
         "Создать correction и проверить persistence",
         "Запустить manual backup",
-        "uv run python scripts\\taskctl.py validate"
+        "uv run python scripts\\taskctl.py validate",
+        "Passed: uv run pytest tests/test_admin_studio_contract.py -q; uv run pytest tests/test_act_timer_runtime.py tests/test_reward_approvals.py tests/test_pvp_runtime.py -q; node --check backend/witcher_larp/web/admin/admin.js; uv run python -m py_compile backend/witcher_larp/game_ops_service.py backend/witcher_larp/app.py; uv run python scripts/taskctl.py validate. In-app browser smoke attempted, but localhost/127.0.0.1 was blocked by Browser client with ERR_BLOCKED_BY_CLIENT."
       ],
       "notes": "Contract:\nInputs: Admin shell, act/timer services, event/review queues, lord runtime services and backup service.\nOutputs: Game ops dashboard for acts, events, review, reward approvals, PvP throttle, lord map ops and backups.\nImplementation path: Implement dashboard as static UI over explicit JSON endpoints; all corrections require reason/operator.\nInterfaces: Core dependency: GET /api/master/state plus mutation endpoints for act start, physical announcement log, review, reward approval, pvp throttle, corrections and backups.\nFailure/review paths: P0/P1 review remains visible until resolved; corrections are audited; backup/action failures surface as blocking UI alerts.\nRequired tests: Browser smoke for act start/unlock display, review resolution, reward approval, map correction, throttle switch and backup status."
     },
@@ -2148,7 +2167,7 @@
       "id": "TASK-022",
       "title": "Реализовать Admin NPC, visibility и final tools",
       "description": "Добавить инструменты Короля/Странника, точную репутацию, visibility audit и final summary view.",
-      "status": "pending",
+      "status": "done",
       "priority": "P1",
       "category": "admin",
       "stage": "STAGE-2: Admin Studio",
@@ -2181,7 +2200,8 @@
         "Проверить reputation visibility",
         "Проверить hidden garrison и raid effect visibility",
         "Открыть/export final summary and verify bracket/trials/personal final inputs",
-        "uv run python scripts\\taskctl.py validate"
+        "uv run python scripts\\taskctl.py validate",
+        "uv run pytest tests/test_admin_studio_contract.py tests/test_reputation_npc_runtime.py tests/test_final_summary_runtime.py tests/test_lord_panel_contract.py -q; uv run python scripts/taskctl.py validate; uv run ruff check backend/witcher_larp/app.py backend/witcher_larp/admin_studio.py backend/witcher_larp/game_ops_service.py tests/test_admin_studio_contract.py"
       ],
       "notes": "Contract:\nInputs: NPC/reputation/final_summary services, Admin shell and visibility rules.\nOutputs: Admin NPC tools, visibility audit and final summary export screens.\nImplementation path: Implement UI forms for King/Wanderer events and read models for reputation, artifacts, hidden garrisons, raid effects and final summary.\nInterfaces: APIs: POST /api/master/npc-events, GET reputation/audit views through /api/master/state or dedicated endpoints, GET /api/master/final-summary.\nFailure/review paths: Master-only data never leaks into lord/player views; export is deterministic and includes enough metadata for post-game review.\nRequired tests: Tests for NPC event creation, visibility audit, final_summary export and role-based access."
     },
@@ -2189,7 +2209,7 @@
       "id": "TASK-023",
       "title": "STAGE 2 GATE: Admin Studio acceptance",
       "description": "Принять Stage 2 отдельно: мастер может управлять игрой, контентом и исключениями из браузерной Admin Studio.",
-      "status": "pending",
+      "status": "done",
       "priority": "P0",
       "category": "qa",
       "stage": "STAGE-2: Admin Studio",
@@ -2219,9 +2239,503 @@
         "Открыть Admin Studio с другого ноутбука в Wi-Fi",
         "Restart server и проверить состояние",
         "uv run python scripts\\taskctl.py validate",
-        "uv run python scripts\\taskctl.py doctor"
+        "uv run python scripts\\taskctl.py doctor",
+        "uv run pytest -q; node --check backend\\\\witcher_larp\\\\web\\\\admin\\\\admin.js; in-app browser smoke http://127.0.0.1:8794/admin with master token; restart persistence check on .test-data admin gate DB; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py doctor"
       ],
       "notes": "Contract:\nInputs: Completed TASK-019 through TASK-022 and Stage 1 runtime.\nOutputs: Stage 2 Admin Studio acceptance evidence.\nImplementation path: Run browser smoke covering import/validation/snapshot, ops dashboard, NPC tools, visibility, backups and final summary.\nInterfaces: No CLI required for штатные master operations; Admin uses the existing FastAPI/SQLite server and static web stack.\nFailure/review paths: Any missing master-critical operation blocks Stage 2; cosmetic UI polish does not block if workflow and audit are complete.\nRequired tests: Browser smoke, API integration checks, backup/restart check and TaskOS validate/sync/doctor."
+    },
+    {
+      "id": "TASK-068",
+      "title": "Fix PvE reward authority and cascade reward gates",
+      "description": "Close the review issues where PvE sync can claim a reward that does not belong to the scenario and cascade-prone rewards can bypass pending master approval.",
+      "status": "done",
+      "priority": "P1",
+      "category": "backend",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-023"
+      ],
+      "scope": [
+        "Server ignores or rejects client-supplied pve_completed reward_id when it differs from pve_scenarios.reward_id",
+        "PvE completion records the scenario-bound reward_id and reward_status only after authoritative scenario lookup",
+        "Unknown, mismatched or empty reward_id paths reject or route to master review without applying XP/gold/assets",
+        "Cascade-prone reward validation covers order/final/NPC/reputation-impact and other cross-player/lord/final effects, not only Rare/Legendary/artifacts",
+        "Reward approval locks remain required before any cascade reward can be spent, traded, transferred to a lord or counted in final summary"
+      ],
+      "acceptance_criteria": [
+        "A forged PvE payload with an easy scenario and a different auto reward does not apply that reward",
+        "Scenario-bound auto rewards still apply exactly once for valid successful PvE",
+        "Scenario-bound pending rewards create pending_master_approval and locks exactly once",
+        "Seed validation rejects cascade-prone rewards whose approval_policy is not pending_master_approval",
+        "Final summary and trade/order/card transfer paths cannot consume pending reward assets before approval"
+      ],
+      "test_steps": [
+        "Add regression test for pve_completed reward_id mismatch",
+        "Add regression test for missing/unknown reward_id on successful PvE",
+        "Add regression test for scenario-bound pending reward approval lock",
+        "Add seed fixture or test row for order/final/NPC/reputation-impact reward requiring pending_master_approval",
+        "uv run pytest tests/test_event_sync.py tests/test_pve_runtime.py tests/test_reward_approvals.py tests/test_seed_validation.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests/test_event_sync.py tests/test_pve_runtime.py tests/test_reward_approvals.py tests/test_seed_validation.py -q; uv run ruff check backend/witcher_larp/event_service.py backend/witcher_larp/pve_runtime.py backend/witcher_larp/validation.py tests/test_event_sync.py tests/test_pve_runtime.py tests/test_seed_validation.py; uv run python scripts/taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Review findings 1 and 10 from 2026-06-03 Stage 2 code review, pve_runtime, event_service, reward_service and seed validation.\nOutputs: Authoritative PvE reward binding and broad cascade reward approval validation.\nImplementation path: Validate reward_id against the scenario row on sync, move mismatches to reject/review, and expand reward validation with explicit cascade markers/fields already present in content rows or effect payloads.\nInterfaces: /api/events/sync pve_completed, pve_attempts, reward_approvals, asset_locks, final_summary and validation.py.\nFailure/review paths: Ambiguous reward authority goes to master review without applying side effects; no client payload can upgrade a reward.\nRequired tests: Behavior-level backend and seed validation tests that would have failed before this fix."
+    },
+    {
+      "id": "TASK-069",
+      "title": "Fix personal Gwent round authority",
+      "description": "Close the review issue where one participant can submit a whole Gwent round and win against an absent/default opponent state.",
+      "status": "done",
+      "priority": "P1",
+      "category": "backend",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-023"
+      ],
+      "scope": [
+        "Round resolution requires authoritative state for both match participants or an explicit master action",
+        "Player-scoped round payload cannot silently default the opponent to pass/zero score",
+        "Two-client Gwent flow stores per-player actions, pass state and round readiness before resolving winner/losses",
+        "Master review path covers incomplete, contradictory, timeout/refusal or disputed round states",
+        "Stake transfer remains gated on server-derived match winner and idempotent finish"
+      ],
+      "acceptance_criteria": [
+        "One player cannot win a round by submitting only their own plays",
+        "Both participants can submit their legal state and the server resolves one round exactly once",
+        "Master-authored round resolution remains available for paper/review recovery and is audited",
+        "Tie/double-loss and incomplete round paths do not transfer stake without review or final match result"
+      ],
+      "test_steps": [
+        "Add regression test that a player-only round payload is rejected or left pending until opponent state exists",
+        "Add two-player round resolution test with both participants submitting legal plays/pass states",
+        "Add master override/review test for incomplete/disputed round",
+        "Add idempotency test for repeated round submit and finish",
+        "uv run pytest tests/test_pvp_runtime.py tests/test_fastapi_contract.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests/test_pvp_runtime.py tests/test_fastapi_contract.py -q; uv run python scripts/taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Review finding 2, pvp_service, FastAPI PvP endpoints, Gwent runtime tables and stake lock behavior.\nOutputs: Personal PvP/Gwent round authority that cannot be resolved by a single participant unless master explicitly intervenes.\nImplementation path: Split player submissions from round resolution or require both players' persisted state before calling score resolution; keep master override separate and audited.\nInterfaces: /api/pvp/matches/{match_id}/rounds, gwent_runtime_matches, gwent_rounds, asset locks and review queue.\nFailure/review paths: Missing opponent state, illegal cards, contradictory pass flags or timeout/refusal route to pending/review, not a unilateral win.\nRequired tests: Behavior-level two-client and exploit regression tests."
+    },
+    {
+      "id": "TASK-070",
+      "title": "Fix personal card conversion ownership",
+      "description": "Close the review issue where a personal card can be converted into a lord army unit without the player owning and debiting that exact card.",
+      "status": "done",
+      "priority": "P1",
+      "category": "backend",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-023"
+      ],
+      "scope": [
+        "Personal-to-army conversion requires active asset_ownership for the exact card and player",
+        "Conversion debits or consumes the personal card atomically before minting an army reserve unit",
+        "Locked/pending reward cards cannot be converted until approved/unlocked",
+        "Duplicate conversion remains idempotent only for the same already-consumed source card",
+        "Audit log records source player, lord, card, resulting army unit and ownership/debit state"
+      ],
+      "acceptance_criteria": [
+        "A player cannot convert a catalog card they do not own",
+        "A player cannot convert a pending/locked card",
+        "A valid owned card conversion consumes one personal card and creates exactly one matching army unit reserve",
+        "Repeating the same conversion does not mint extra army units"
+      ],
+      "test_steps": [
+        "Add non-owned personal card conversion regression",
+        "Add locked/pending reward card conversion regression",
+        "Add valid conversion ownership debit and army reserve creation test",
+        "Add duplicate conversion idempotency test",
+        "uv run pytest tests/test_pvp_runtime.py tests/test_trade_transfers.py tests/test_reward_approvals.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests\\test_pvp_runtime.py -q; uv run pytest tests\\test_pvp_runtime.py tests\\test_trade_transfers.py tests\\test_reward_approvals.py -q; uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Review finding 4, pvp_service personal_card_conversions and asset_service ownership/lock helpers.\nOutputs: No army-unit minting without real personal card ownership and atomic consumption.\nImplementation path: Reuse lock_owned_asset/debit_asset_ownership or a dedicated consume helper with require_existing_owner, then create reserve only after the card is consumed.\nInterfaces: personal_card_conversions, asset_ownership, asset_locks, army_reserve_runtime and event log.\nFailure/review paths: Ownership/lock ambiguity rejects or routes to review without creating reserve units.\nRequired tests: Behavior-level ownership, lock and idempotency tests."
+    },
+    {
+      "id": "TASK-071",
+      "title": "Fix lord active-army movement, capture and garrison rules",
+      "description": "Close the review issues where garrisons are filled from reserve instead of the active army and movement can create contested claims without an active army.",
+      "status": "done",
+      "priority": "P1",
+      "category": "backend",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-023"
+      ],
+      "scope": [
+        "Lord movement that can contest/capture territory requires an active army stack at the moving domain",
+        "Capture garrison must be left from surviving active army at the territory, reducing active army count",
+        "Owned-territory active army to fort transfer is local to the army's current non-contested territory",
+        "Reserve remains residence/reserve-only and cannot remotely reinforce arbitrary forts",
+        "Garrison transfer enforces contested/in_battle locks, capacity and minimum garrison where modeled"
+      ],
+      "acceptance_criteria": [
+        "A domain with no active army cannot create a contested claim by moving a lord marker",
+        "After a successful capture, placing the required garrison consumes a unit from the active army at that territory",
+        "Remote reserve-to-fort reinforcement is rejected unless it is the explicit reserve_to_active/residence flow",
+        "Active army to fort and fort to active army transfers work only on owned, non-contested territory where the army is present",
+        "Restart preserves active army, garrison, territory owner and claim state"
+      ],
+      "test_steps": [
+        "Add movement-without-active-army negative regression",
+        "Add capture garrison consumes active army regression",
+        "Add remote reserve-to-fort rejection regression",
+        "Add owned territory active army <-> fort transfer positive and contested/in_battle negative tests",
+        "uv run pytest tests/test_lord_runtime.py tests/test_lord_battle_runtime.py tests/test_timer_runtime.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests/test_lord_runtime.py tests/test_lord_battle_runtime.py tests/test_timer_runtime.py -q; uv run pytest tests/test_lord_panel_contract.py -q; uv run python scripts/taskctl.py validate; uv run ruff check backend/witcher_larp/lord_runtime.py tests/test_lord_runtime.py tests/test_lord_panel_contract.py tests/test_stage1_gate_role_flow.py"
+      ],
+      "notes": "Contract:\nInputs: Review findings 3 and 12, lord_runtime, lord_battle_service and lord map/capture state.\nOutputs: Lord logistics match the strategic map rules: active armies move/capture, forts hold local garrisons, reserves do not teleport.\nImplementation path: Separate reserve_to_active, active_to_fort and fort_to_active operations; require active army presence before claim/capture side effects; debit active army for capture garrison.\nInterfaces: /api/lords/{lord_id}/move, /api/lords/{lord_id}/garrisons/transfer, active_army_runtime, army_reserve_runtime, garrison_runtime_state, territory_claim_runtime.\nFailure/review paths: Ambiguous capture/garrison state rejects or routes to master review without changing owner or losing units.\nRequired tests: Behavior-level lord logistics tests that would have failed before this fix."
+    },
+    {
+      "id": "TASK-072",
+      "title": "Fix lord order lifecycle authority and validation flags",
+      "description": "Close the review issues where a lord token can accept/submit/complete an order for a player and order validation ignores locks_object/counts_against_cap.",
+      "status": "done",
+      "priority": "P1",
+      "category": "backend",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-023"
+      ],
+      "scope": [
+        "Lord tokens can create/cancel/manage order offers but cannot impersonate player accept/submit_success",
+        "Player accept/submit actions require player auth or master paper/review recovery context",
+        "Order complete and escrow award require accepted/submitted player proof or master approval",
+        "Seed/runtime order validation uses order_status_rules.locks_object for object conflicts",
+        "Seed/runtime order validation uses order_status_rules.counts_against_cap for 2 public + 1 addressed cap"
+      ],
+      "acceptance_criteria": [
+        "A lord token cannot accept, submit_success or complete an order on behalf of a player",
+        "A player can accept and submit only eligible orders under their identity",
+        "Escrow is awarded only after valid submission/master approval and exactly once",
+        "Order object locks and lord caps follow status rule flags rather than broad is_active",
+        "Paper/order recovery remains possible through master-authenticated recovery/review with audit reason"
+      ],
+      "test_steps": [
+        "Add lord-token impersonation negative tests for accept, submit_success and complete",
+        "Add player-auth order accept/submit positive tests",
+        "Add escrow award idempotency and proof/master approval tests",
+        "Add seed validation fixture for locks_object/counts_against_cap behavior",
+        "uv run pytest tests/test_lord_runtime.py tests/test_fastapi_contract.py tests/test_seed_validation.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests/test_lord_runtime.py tests/test_fastapi_contract.py tests/test_seed_validation.py -q (35 passed); uv run python scripts/taskctl.py validate (passed)."
+      ],
+      "notes": "Contract:\nInputs: Review findings 5 and 13, lord_runtime order_action, FastAPI order endpoints, order_status_rules and escrow reward flow.\nOutputs: Order lifecycle authority split between lords, players and masters, with validation based on explicit status flags.\nImplementation path: Add player-scoped order endpoints or actor-mode checks, preserve lord create/cancel surfaces, and update validation to read locks_object/counts_against_cap.\nInterfaces: /api/lords/{lord_id}/orders or replacement player order APIs, order_runtime_state, reward escrow/application and validation.py.\nFailure/review paths: Missing player proof, conflicting object claim or ambiguous paper recovery goes to review without awarding escrow.\nRequired tests: Behavior-level auth/escrow/status-rule tests."
+    },
+    {
+      "id": "TASK-073",
+      "title": "Harden seed business validation before generated content",
+      "description": "Close the review gaps where bad CSV content can pass validation despite breaking login, QR/act unlock, role ownership, tokens or lord battle rules.",
+      "status": "done",
+      "priority": "P1",
+      "category": "backend",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-023"
+      ],
+      "scope": [
+        "Required FK columns reject empty values while optional references remain optional",
+        "qr_objects.act_id matches the linked pve_scenarios.act_id",
+        "qr_mode maps to the correct consumption_rule: unique_object/consume_once, repeatable_scene/repeatable, always_available_scene/always_available",
+        "domains.lord_player_id must reference lord players only",
+        "sorceress_start_lord_id and player lord bindings reference valid lord/domain ownership where applicable",
+        "role_tokens validate owner role, required lord tokens and two NPC-master tokens",
+        "lord_battle_rules validate canonical 5x6 board, 60s timer, damage formula, initiative tiebreaker and repeated-timeout auto-resolve policy"
+      ],
+      "acceptance_criteria": [
+        "Invalid fixtures for empty required references fail with readable errors",
+        "Invalid QR/scenario act mismatch and QR mode/consumption mismatch fail validation",
+        "Invalid domain/token/role ownership fails validation",
+        "Invalid lord battle board size/timer/formula/auto-resolve fails validation",
+        "Current data/seed and tests/fixtures/seed_valid still import successfully"
+      ],
+      "test_steps": [
+        "Add invalid fixture for empty required reference fields",
+        "Add invalid fixture for QR scenario act mismatch",
+        "Add invalid fixture for QR mode consumption mismatch",
+        "Add invalid fixture for domain/token role mismatch",
+        "Add invalid fixture for lord_battle_rules canonical value mismatch",
+        "uv run pytest tests/test_seed_validation.py tests/test_seed_contract.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests\\test_seed_validation.py tests\\test_seed_contract.py -q; uv run pytest tests\\test_import_snapshot_pipeline.py -q; uv run ruff check backend\\witcher_larp\\validation.py tests\\test_seed_validation.py tests\\test_seed_contract.py tests\\test_import_snapshot_pipeline.py; uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Review findings 7, 8, 9 and 11, content_schema.py, validation.py and seed fixtures.\nOutputs: Business-level seed validation strong enough for Stage 3 generator/content packs.\nImplementation path: Add explicit required-reference metadata and cross-row validators instead of relying only on generic FK existence.\nInterfaces: CSV importer, validation report, tests/fixtures invalid packs and generated Stage 3 content pipeline.\nFailure/review paths: Bad content fails import transaction with readable file/row/record_id/code; no partial DB state.\nRequired tests: Invalid fixtures for every missed invariant plus valid seed import regression."
+    },
+    {
+      "id": "TASK-074",
+      "title": "Review and rewrite tests missed by Stage 2 code review",
+      "description": "Audit the tests that stayed green while the reviewed business bugs existed, then replace weak contract/string checks with behavior-level regressions.",
+      "status": "done",
+      "priority": "P0",
+      "category": "qa",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-068",
+        "TASK-069",
+        "TASK-070",
+        "TASK-071",
+        "TASK-072",
+        "TASK-073"
+      ],
+      "scope": [
+        "Map every Stage 2 review issue to at least one failing-before-fix regression test",
+        "Replace source-string or smoke-only assertions with API/service state-transition assertions where the issue is backend logic",
+        "Keep UI smoke tests, but add behavior assertions for paper recovery, lord battle and QR camera requirements where automatable",
+        "Record manual-only evidence gaps separately for real-device native QR scan and four-lord/browser smoke",
+        "Produce a short test audit note naming old tests that were too weak and the new coverage that supersedes them"
+      ],
+      "acceptance_criteria": [
+        "Regression tests would have caught PvE reward forgery, one-sided Gwent rounds, non-owned card conversion, reserve-to-fort teleport, lord order impersonation and bad seed validation",
+        "Admin paper recovery, lord battle UI and mobile camera QR gaps are represented as concrete Stage 2B acceptance tests or explicit manual blockers",
+        "Full pytest passes after the rewrites",
+        "Task notes or docs include the audit summary of why the old tests missed the bugs"
+      ],
+      "test_steps": [
+        "Run targeted tests before/while fixing and confirm each new regression fails on the old behavior",
+        "Run targeted backend groups: event sync, PvE, PvP, lord runtime, reward approvals, seed validation and fastapi contract",
+        "Run UI contract groups for admin, lord panel and mobile shell after rewriting weak checks",
+        "uv run pytest -q",
+        "uv run python -m json.tool tasks.json",
+        "uv run python scripts/taskctl.py validate",
+        "uv run python scripts/taskctl.py doctor",
+        "uv run pytest tests\\test_admin_studio_contract.py tests\\test_lord_panel_contract.py tests\\test_mobile_shell_contract.py -q; uv run pytest tests\\test_event_sync.py tests\\test_pve_runtime.py tests\\test_pvp_runtime.py tests\\test_lord_runtime.py tests\\test_lord_battle_runtime.py tests\\test_reward_approvals.py tests\\test_seed_validation.py tests\\test_fastapi_contract.py -q; uv run ruff check backend\\witcher_larp\\admin_studio.py backend\\witcher_larp\\lord_panel.py tests\\test_admin_studio_contract.py tests\\test_lord_panel_contract.py tests\\test_mobile_shell_contract.py tests\\test_stage1_fresh_regressions.py; uv run pytest -q; uv run python -m json.tool tasks.json; uv run python scripts\\taskctl.py validate; uv run python scripts\\taskctl.py doctor"
+      ],
+      "notes": "Contract:\nInputs: Completed TASK-068 through TASK-073 fixes, current tests that passed despite business bugs and the 2026-06-03 review findings.\nOutputs: Test suite and audit summary that would catch the reviewed bugs before TASK-050 acceptance.\nImplementation path: Add behavior-level tests first where practical, remove or supplement brittle source-string checks, and name manual-only checks instead of hiding them behind green pytest.\nInterfaces: tests/test_event_sync.py, tests/test_pve_runtime.py, tests/test_pvp_runtime.py, tests/test_lord_runtime.py, tests/test_reward_approvals.py, tests/test_seed_validation.py, tests/test_admin_studio_contract.py, tests/test_lord_panel_contract.py and tests/test_mobile_shell_contract.py.\nFailure/review paths: If a serious issue cannot be automated, TASK-050 and TASK-058 must name it as a manual blocker with owner/evidence, not an accepted green-test gap.\nRequired tests: Full pytest, targeted regression groups, TaskOS validate/doctor and generated board review."
+    },
+    {
+      "id": "TASK-075",
+      "title": "Fix paper recovery side effects and event-sync role scope",
+      "description": "Close backend review blockers around paper recovery and player-code event sync. Clean paper_recovered events must apply the same domain side effects as their original paper forms, and event sync must not let lord/operator/NPC codes submit mobile player-only PvE, QR, or reward events as ordinary players.",
+      "status": "done",
+      "priority": "P0",
+      "category": "backend",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-074"
+      ],
+      "scope": [
+        "Make paper_recovered apply clean paper_pve_result side effects through the same idempotency, conflict and reward/resource rules as digital PvE completion",
+        "Route supported paper_lord_action, paper_lord_battle, paper_order_resolution, paper_npc_deal and paper_final_evidence forms through the canonical domain handlers or explicit review paths",
+        "Reject player-only event-sync payloads when the authenticated code belongs to a lord, operator or NPC master role",
+        "Base event actor validation on canonical player/role data instead of trusting event_actor_type derived from the auth surface",
+        "Preserve audit trail and manual review for duplicate, stale, conflicting or unsupported paper recovery submissions"
+      ],
+      "acceptance_criteria": [
+        "paper_recovered with paper_pve_result changes player resources, reputation and relevant domain state exactly once",
+        "paper_recovered does not silently accept clean metadata-only submissions when a domain side effect is required",
+        "lord/operator/NPC codes cannot submit player-only mobile PvE, QR scan or reward events through /api/events/sync",
+        "legitimate witcher/sorceress player-code sync still works for offline mobile event queues",
+        "regression tests cover the reviewed broken behavior and pass after the fix"
+      ],
+      "test_steps": [
+        "Add paper_pve_result recovery test that asserts actual side effects, idempotency and duplicate handling",
+        "Add paper form coverage for lord action/battle/order, NPC deal and final evidence paths or explicit review-required outcomes",
+        "Add event-sync auth tests using real seeded lord, operator, NPC and player codes",
+        "Run targeted paper recovery and event sync tests",
+        "uv run pytest tests/test_paper_recovery.py tests/test_event_sync.py tests/test_fastapi_contract.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests\\test_paper_recovery.py tests\\test_event_sync.py tests\\test_fastapi_contract.py -q; uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Pre-Stage-2B review findings for paper_recovered side effects and player-code role scope, paper_forms seed, event_service, review_service and FastAPI auth context.\nOutputs: Paper recovery that actually mutates game state where the paper form represents a real event, plus event-sync role checks that stop lord/operator/NPC player-code privilege confusion.\nImplementation path: Reuse existing domain services where possible; unsupported or conflicting paper forms must become review items with clear reasons instead of green audit-only events.\nInterfaces: backend/witcher_larp/event_service.py, backend/witcher_larp/review_service.py, backend/witcher_larp/app.py, data/seed/paper_forms.csv and tests/test_paper_recovery.py.\nFailure/review paths: duplicate paper ids, stale ownership, locked rewards, wrong actor role and unsupported form types must reject or create master review without partial side effects.\nRequired tests: paper side-effect regressions, event-sync auth regressions, targeted FastAPI contract checks and TaskOS validate."
+    },
+    {
+      "id": "TASK-076",
+      "title": "Fix cross-lord order races and gold PvP stakes",
+      "description": "Close backend economy/order blockers. Competing lord orders must close across all lords for the same object, and personal PvP must support gold stakes with reserve, settle and cancel behavior instead of rejecting non-asset stakes.",
+      "status": "done",
+      "priority": "P0",
+      "category": "backend",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-074"
+      ],
+      "scope": [
+        "Close competing orders from any lord when an accepted or completed order claims the same object according to the core rules",
+        "Keep same-lord order conflict behavior intact while extending it to cross-lord competition",
+        "Make order reward escrow/refund idempotent under object races and repeated completion attempts",
+        "Add personal PvP gold stake validation, reservation, cancellation refund and winner settlement",
+        "Keep asset/card stake ownership protections from previous remediation intact"
+      ],
+      "acceptance_criteria": [
+        "when one lord order wins an object, competing open orders from other lords for the same object close or refund correctly",
+        "order race handling cannot double-pay the executor or double-refund the losing lord",
+        "personal PvP accepts valid gold stakes and rejects insufficient-balance gold stakes",
+        "gold stakes are reserved, transferred to the winner or refunded on cancellation exactly once",
+        "regression tests cover same-lord and cross-lord order races plus PvP gold stake win/cancel paths"
+      ],
+      "test_steps": [
+        "Add cross-lord competing order tests for accept, complete, close and refund paths",
+        "Add duplicate completion/idempotency tests for order escrow under object races",
+        "Add PvP gold stake tests for create, lock, cancel, finish and insufficient balance",
+        "Run targeted lord runtime and PvP tests",
+        "uv run pytest tests/test_lord_runtime.py tests/test_pvp_runtime.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests\\test_lord_runtime.py tests\\test_pvp_runtime.py -q; uv run ruff check backend\\witcher_larp\\lord_runtime.py backend\\witcher_larp\\pvp_service.py backend\\witcher_larp\\runtime_schema.py tests\\test_lord_runtime.py tests\\test_pvp_runtime.py; uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Pre-Stage-2B review findings for cross-lord order competition and gold PvP stakes, lord_runtime, pvp_service, asset/reward economy services and core rule docs.\nOutputs: Object-level order competition across lords and usable gold stakes for personal PvP.\nImplementation path: Move conflict lookup from lord-scoped object rows to object-scoped open rows, and model gold stake lock/settlement with the same idempotency discipline as asset locks.\nInterfaces: backend/witcher_larp/lord_runtime.py, backend/witcher_larp/pvp_service.py, backend/witcher_larp/asset_service.py and economy ledger tables.\nFailure/review paths: stale orders, insufficient gold, duplicate finish, cancellation after settlement and contradictory race states must reject or remain reviewable without partial transfers.\nRequired tests: cross-lord order race, escrow idempotency, PvP gold stake lifecycle and TaskOS validate."
+    },
+    {
+      "id": "TASK-077",
+      "title": "Fix lord battle and captured-territory UI blockers",
+      "description": "Make the lord panel playable for the reviewed lord-flow blockers. Captured foreign territories that require a garrison must be actionable, and lord battles must expose a usable 5x6 board flow instead of raw battle_id/action/payload JSON controls.",
+      "status": "done",
+      "priority": "P0",
+      "category": "frontend",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-075",
+        "TASK-076"
+      ],
+      "scope": [
+        "Show captured foreign territories with capture_pending_garrison as valid garrison targets for the capturing lord",
+        "Resolve pending capture through panel controls without requiring raw territory IDs or direct API calls",
+        "Render lord battle state as a visually distinct 5x6 tactical board with unit/cell selection and legal actions",
+        "Remove raw JSON/action payload workflow from normal lord battle gameplay while keeping diagnostics out of player acceptance",
+        "Verify desktop and phone-width layouts for lord panel battle and garrison controls"
+      ],
+      "acceptance_criteria": [
+        "a lord can garrison a just-captured foreign territory from the browser panel and complete ownership resolution",
+        "pending capture, contested state and garrison errors are visible and understandable in the panel",
+        "lord battle UI supports the expected move/attack/surrender or auto-resolve loop through board controls",
+        "normal lord battle acceptance no longer requires manually typing battle_id, side or JSON payload",
+        "browser contract tests and screenshot smoke cover the captured-territory and battle-board flows"
+      ],
+      "test_steps": [
+        "Add lord panel contract test for capture_pending_garrison territory visibility and garrison submission",
+        "Add lord battle UI contract test that requires rendered board cells/actions and rejects raw JSON-only workflow as acceptance",
+        "Run desktop and phone-width browser smoke for lord panel battle/garrison surfaces",
+        "uv run pytest tests/test_lord_panel_contract.py tests/test_lord_battle_runtime.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "uv run pytest tests\\test_lord_panel_contract.py tests\\test_lord_battle_runtime.py -q; uv run ruff check backend\\witcher_larp\\lord_panel.py tests\\test_lord_panel_contract.py; browser smoke desktop and 390px phone-width on http://127.0.0.1:8767/lord with screenshots in .test-data; uv run python scripts\\taskctl.py validate"
+      ],
+      "notes": "Contract:\nInputs: Current lord panel shell, lord_battle_service capture states and pre-Stage-2B review findings for lord gameplay UI blockers.\nOutputs: Lord panel controls that complete capture/garrison and lord battle loops through playable UI surfaces before Stage 2B starts.\nImplementation path: Bind panel state to capture_pending_garrison and battle board state returned by backend services; keep raw payload tools only as developer diagnostics if needed.\nInterfaces: backend/witcher_larp/lord_panel.py, backend/witcher_larp/lord_battle_service.py, backend/witcher_larp/web/lord/index.html and backend/witcher_larp/web/lord/lord.js.\nFailure/review paths: illegal garrison, stale capture, hidden enemy data, wrong-lord action and invalid battle action must show UI errors and not mutate state.\nRequired tests: lord panel contract, battle runtime regression, responsive smoke and TaskOS validate."
+    },
+    {
+      "id": "TASK-078",
+      "title": "Fix Admin Studio paper recovery and Game Ops blockers",
+      "description": "Complete the Admin Studio controls that the pre-Stage-2B review found missing: paper recovery forms, event log and sync status visibility, anti-snowball state, and correction tools for potion market/trade flows. Capture real laptop/local-Wi-Fi smoke evidence before stage acceptance.",
+      "status": "done",
+      "priority": "P0",
+      "category": "admin",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-023",
+        "TASK-075"
+      ],
+      "scope": [
+        "Expose master-friendly Admin Studio forms for all supported paper recovery forms without raw JSON entry",
+        "Show Game Ops recent event log, sync status and anti-snowball state from backend payloads",
+        "Add Admin correction surfaces for potion market and trade/economy recovery flows needed during the game day",
+        "Connect paper recovery forms to the fixed TASK-075 backend path with operator, reason and audit visibility",
+        "Record real laptop/local-Wi-Fi smoke evidence for Admin Studio before Stage 2B acceptance"
+      ],
+      "acceptance_criteria": [
+        "master can submit every supported paper recovery form from Admin Studio without Swagger, SQLite edits or raw JSON",
+        "Game Ops UI visibly includes recent events, sync health/status and anti-snowball state",
+        "potion market and trade corrections can be performed with reason/operator audit",
+        "conflicting recovery/correction paths create review items or readable errors instead of silent overwrite",
+        "TASK-058 and TASK-050 evidence include laptop/local-Wi-Fi smoke, not only localhost or in-app browser checks"
+      ],
+      "test_steps": [
+        "Add Admin Studio contract tests for paper recovery form controls and required fields",
+        "Add Game Ops UI/API tests for event log, sync status and anti-snowball visibility",
+        "Add correction tests for potion market and trade/economy recovery paths",
+        "Run Admin browser smoke on a local server and record target-surface evidence requirements",
+        "uv run pytest tests/test_admin_studio_contract.py tests/test_game_ops_service.py tests/test_fastapi_contract.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "node --check admin.js, ruff on touched Python/tests, pytest admin/game_ops/fastapi, pytest paper_recovery, taskctl validate, localhost:8798 headless Chrome render plus authenticated master-state smoke; real second-laptop LAN smoke remains documented TASK-058/TASK-050 gate evidence."
+      ],
+      "notes": "Contract:\nInputs: Completed Stage 2 Admin Studio, TASK-075 paper recovery backend fix, game_ops_service payloads and pre-Stage-2B review findings for Admin Studio gaps.\nOutputs: Master-operable recovery/correction and Game Ops visibility before Stage 2B starts.\nImplementation path: Extend static Admin Studio screens and backend contracts without direct DB writes from UI; use existing review/correction services and add missing correction types conservatively.\nInterfaces: backend/witcher_larp/admin_studio.py, backend/witcher_larp/game_ops_service.py, backend/witcher_larp/web/admin/index.html and backend/witcher_larp/web/admin/admin.js.\nFailure/review paths: missing required fields, duplicate paper form ids, stale trade/potion state and unauthorized correction actors must reject or create master review with audit reason.\nRequired tests: Admin contract regressions, Game Ops visibility, correction lifecycle, local-Wi-Fi smoke evidence and TaskOS validate."
+    },
+    {
+      "id": "TASK-079",
+      "title": "Hide exact reputation from mobile player UI",
+      "description": "Close the player information leak found in the pre-Stage-2B review. Mobile snapshots and UI must expose only allowed reputation bands or labels for players, while master/admin surfaces keep exact values where appropriate.",
+      "status": "done",
+      "priority": "P1",
+      "category": "mobile",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-074"
+      ],
+      "scope": [
+        "Remove exact reputation number from player-facing mobile snapshot payloads unless a master/admin export explicitly needs it",
+        "Render approved Good/Evil band, label or descriptive state in the mobile UI instead of Reputation: <number>",
+        "Keep exact reputation values available to master/admin APIs and moderation tools where the docs require them",
+        "Review inventory, profile and snapshot fallback surfaces for accidental exact reputation leaks",
+        "Add payload and mobile contract regressions for hidden exact reputation"
+      ],
+      "acceptance_criteria": [
+        "player mobile snapshot does not expose exact reputation value",
+        "mobile UI shows only the approved band/label and never the exact integer",
+        "admin/master endpoints that need exact reputation still work",
+        "tests cover both exported payload shape and rendered mobile state",
+        "TASK-050 visibility review treats exact player-facing reputation as a blocker"
+      ],
+      "test_steps": [
+        "Add snapshot exporter test for player-facing reputation payload shape",
+        "Add mobile shell contract test for displayed reputation text or state",
+        "Add admin/master regression proving exact reputation remains available on authorized surfaces",
+        "uv run pytest tests/test_snapshot_exporter.py tests/test_mobile_shell_contract.py tests/test_reputation_npc_runtime.py -q",
+        "uv run python scripts/taskctl.py validate",
+        "Passed focused TASK-079 pytest subset: 11 passed. Passed targeted suite excluding known TASK-075 actor_type test: 23 passed, 1 deselected. Passed ruff check for touched Python files. Passed taskctl validate. Full targeted suite attempted: 23 passed, 1 unrelated TASK-075 event-sync actor_type failure."
+      ],
+      "notes": "Contract:\nInputs: Pre-Stage-2B review finding for exact reputation leak, snapshot exporter, reputation service and Godot mobile shell.\nOutputs: Player-facing mobile surfaces expose only allowed reputation labels while master/admin surfaces preserve exact moderation data before Stage 2B starts.\nImplementation path: Align exported player snapshot with reputation_service player-facing scoping and update Godot display text/state accordingly.\nInterfaces: backend/witcher_larp/snapshot_exporter.py, backend/witcher_larp/reputation_service.py, mobile/scripts/main.gd and mobile snapshot fixtures.\nFailure/review paths: stale bundled snapshots, offline fallback payloads and admin exports must be checked so exact values are hidden only from player surfaces, not lost globally.\nRequired tests: snapshot payload, mobile display contract, admin/master exact-value regression and TaskOS validate."
+    },
+    {
+      "id": "TASK-080",
+      "title": "Review and rewrite tests missed by pre-Stage-2B issues",
+      "description": "After TASK-075 through TASK-079 are fixed, audit why the current test suite did not catch the new review defects and replace weak source, contract or smoke checks with behavior-first regressions. This task is required before Stage 2B starts.",
+      "status": "done",
+      "priority": "P0",
+      "category": "qa",
+      "stage": "STAGE-2A: Stage 2 Review Remediation",
+      "stage_gate": false,
+      "dependencies": [
+        "TASK-075",
+        "TASK-076",
+        "TASK-077",
+        "TASK-078",
+        "TASK-079"
+      ],
+      "scope": [
+        "Map every new pre-Stage-2B review issue to a failing-before-fix regression or an explicit manual blocker",
+        "Replace paper recovery tests that assert accepted metadata only with tests that assert real domain side effects",
+        "Replace auth tests that trust mocked actor_type shortcuts with tests using real seeded roles and codes",
+        "Strengthen UI contract tests so raw JSON/ID-only lord battle or Admin recovery flows cannot pass as playable UI",
+        "Document which old tests missed the defects and what new tests supersede them"
+      ],
+      "acceptance_criteria": [
+        "each bug from TASK-075 through TASK-079 has at least one behavior regression that would fail on the reviewed broken implementation",
+        "paper recovery side effects, event-sync role scope, cross-lord order races, PvP gold stakes, lord panel blockers, Admin blockers and mobile reputation leak are all covered",
+        "manual-only evidence gaps such as real local-Wi-Fi/laptop smoke are named as TASK-058/TASK-050 blockers instead of hidden behind green pytest",
+        "full pytest passes after rewritten regressions",
+        "Task notes or docs include the test audit summary"
+      ],
+      "test_steps": [
+        "Review tests that previously passed around paper recovery, event sync auth, lord orders, PvP stakes, lord panel, Admin Studio, Game Ops and snapshots",
+        "Add failing-before-fix regression tests for every TASK-075 through TASK-079 issue class",
+        "Remove or supplement source-string and smoke-only assertions where business behavior is automatable",
+        "Run targeted backend/UI/mobile regression groups",
+        "uv run pytest -q",
+        "uv run python -m json.tool tasks.json",
+        "uv run python scripts/taskctl.py validate",
+        "uv run python scripts/taskctl.py doctor",
+        "Targeted TASK-080 regression group: 102 passed; full uv run pytest -q: 221 passed; uv run python -m json.tool tasks.json passed; taskctl validate passed; taskctl doctor passed."
+      ],
+      "notes": "Contract:\nInputs: Completed fixes TASK-075 through TASK-079, current tests that missed the new pre-Stage-2B review findings and user request for a separate test-rewrite task after issue fixes.\nOutputs: Regression suite and audit summary that would catch these defects before TASK-045 starts and before TASK-050 acceptance.\nImplementation path: Prefer behavior-level API/state/UI contract tests over source-string checks, and explicitly separate automated proof from real-device/local-Wi-Fi manual blockers.\nInterfaces: tests/test_paper_recovery.py, tests/test_event_sync.py, tests/test_lord_runtime.py, tests/test_pvp_runtime.py, tests/test_lord_panel_contract.py, tests/test_admin_studio_contract.py, tests/test_game_ops_service.py, tests/test_snapshot_exporter.py and tests/test_mobile_shell_contract.py.\nFailure/review paths: Any serious issue without automated coverage must be named as a TASK-045/TASK-050 blocker or manual acceptance gap, not treated as green-test coverage.\nRequired tests: targeted regression groups, full pytest, json.tool, TaskOS validate/doctor and generated board review."
     },
     {
       "id": "TASK-045",
@@ -2233,7 +2747,7 @@
       "stage": "STAGE-2B: Playable Role UI",
       "stage_gate": false,
       "dependencies": [
-        "TASK-023"
+        "TASK-080"
       ],
       "scope": [
         "Role journey matrix: master, lord, witcher, sorceress and NPC-master operations",
@@ -2531,7 +3045,9 @@
         "TASK-047",
         "TASK-048",
         "TASK-067",
-        "TASK-049"
+        "TASK-049",
+        "TASK-074",
+        "TASK-080"
       ],
       "scope": [
         "Real-device mobile readiness: Android APK and iOS build/free provisioning install, launch, local network, physical QR camera scan, manual QR-ID fallback, snapshot, restart persistence and sync retry",
@@ -2585,7 +3101,9 @@
         "TASK-047",
         "TASK-048",
         "TASK-049",
-        "TASK-058"
+        "TASK-058",
+        "TASK-074",
+        "TASK-080"
       ],
       "scope": [
         "End-to-end UI smoke across Admin Studio, 4 lord panels and mobile gameplay UI",

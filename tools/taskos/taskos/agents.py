@@ -18,7 +18,10 @@ def render_agents_block(config: TaskosConfig) -> str:
         if config.canonical_docs
         else ""
     )
-    generated_views = [config.generated_kanban, config.generated_dashboard]
+    generated_views = []
+    if config.generated_active:
+        generated_views.append(config.generated_active)
+    generated_views.extend([config.generated_kanban, config.generated_dashboard])
     if config.generated_dashboard_entrypoint:
         generated_views.append(config.generated_dashboard_entrypoint)
     generated = ", ".join(f"`{path}`" for path in generated_views)
@@ -27,7 +30,9 @@ def render_agents_block(config: TaskosConfig) -> str:
 
 When a chat is opened to continue implementation from the TaskOS queue:
 
-- Treat `{config.tasks_file}` as the source of truth for task status and dependencies.
+- Use `{config.generated_active}` or `{config.command_name} ready` first for ordinary orientation; it is the compact generated view of unfinished work.
+- Treat `{config.tasks_file}` as the canonical source of truth for task status and dependencies, but open the full file only when editing task metadata/dependencies or when the compact view is insufficient.
+- Treat `{config.progress_file}` as the completion log, not as a replacement for the dependency graph.
 - Run `{config.command_name} claim` before implementation changes.
 - If the user names a task id, run `{config.command_name} claim <TASK_ID>`.
 - Never adopt an existing `in_progress` task unless the current user explicitly names it.

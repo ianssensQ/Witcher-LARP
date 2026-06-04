@@ -36,7 +36,9 @@ instead of a manually created virtual environment.
 
 When a chat is opened to continue implementation from the TaskOS queue:
 
-- Treat `tasks.json` as the source of truth for task status and dependencies.
+- Use `docs/active-tasks.md` or `uv run python scripts/taskctl.py ready` first for ordinary orientation; it is the compact generated view of unfinished work.
+- Treat `tasks.json` as the canonical source of truth for task status and dependencies, but open the full file only when editing task metadata/dependencies or when the compact view is insufficient.
+- Treat `progress.txt` as the completion log, not as a replacement for the dependency graph.
 - Run `uv run python scripts/taskctl.py claim` before implementation changes.
 - If the user names a task id, run `uv run python scripts/taskctl.py claim <TASK_ID>`.
 - Never adopt an existing `in_progress` task unless the current user explicitly names it.
@@ -44,7 +46,7 @@ When a chat is opened to continue implementation from the TaskOS queue:
 - Use `uv run python scripts/taskctl.py done <TASK_ID> --summary "..." --check "..."` after completion.
 - Use `uv run python scripts/taskctl.py block <TASK_ID> --reason "..."` when work is blocked.
 - Use `uv run python scripts/taskctl.py release <TASK_ID> --reason "..."` if abandoning a claim.
-- Do not manually edit generated views such as `docs/kanban.md`, `docs/helpers/task-board.html`, `docs/task-board.html`.
+- Do not manually edit generated views such as `docs/active-tasks.md`, `docs/kanban.md`, `docs/helpers/task-board.html`, `docs/task-board.html`.
 - Use `uv run python scripts/taskctl.py sync` after manual `tasks.json` metadata edits.
 - Run relevant checks before marking a task done.
 - Do not make a git commit unless the user explicitly asks.

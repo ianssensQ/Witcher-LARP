@@ -26,6 +26,7 @@ from .model import (
     validate_graph,
 )
 from .renderers import (
+    generated_active_tasks,
     generated_dashboard,
     generated_dashboard_wrapper,
     generated_kanban,
@@ -57,11 +58,20 @@ def empty_tasks(project_name: str) -> dict[str, Any]:
         "project": {
             "name": project_name,
             "task_source": "tasks.json",
+            "active_task_view": "docs/active-tasks.md",
             "created_at": datetime.now().astimezone().isoformat(),
         },
         "agent_instructions": {
             "before_start": [
-                "Use tasks.json as the source of truth for task status and dependency selection.",
+                (
+                    "Use docs/active-tasks.md or python scripts/taskctl.py ready "
+                    "for ordinary task orientation."
+                ),
+                (
+                    "Use tasks.json as the canonical full dependency graph only "
+                    "when editing task metadata/dependencies or when the compact view is insufficient."
+                ),
+                "Use progress.txt as the completion log, not as a replacement for the dependency graph.",
                 (
                     "Use python scripts/taskctl.py claim before implementation to atomically "
                     "claim one dependency-ready task."
@@ -115,6 +125,9 @@ def generated_outputs(root: Path, config: TaskosConfig, tasks: list[Task]) -> di
         config.path(root, config.generated_kanban): generated_kanban(config, tasks),
         dashboard_path: generated_dashboard(config, tasks),
     }
+    active_value = config.generated_active.strip()
+    if active_value:
+        outputs[config.path(root, active_value)] = generated_active_tasks(config, tasks)
     entrypoint_value = config.generated_dashboard_entrypoint.strip()
     if entrypoint_value:
         entrypoint_path = config.path(root, entrypoint_value)

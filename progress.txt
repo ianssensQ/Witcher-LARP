@@ -1465,3 +1465,642 @@ Generated files refreshed:
 
 Next Dependency-Ready Pending Task:
 - TASK-018 - STAGE 1 GATE: core game engine scripted role-flow
+
+2026-06-03 19:44 +03:00 TASK-018 Claim
+-------------------------------------
+Task: TASK-018 - STAGE 1 GATE: core game engine scripted role-flow.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-06-03 19:51 +03:00 TASK-018 Done
+------------------------------------
+Task: TASK-018 - STAGE 1 GATE: core game engine scripted role-flow.
+
+Done:
+- Stage 1 gate accepted: seed scripted role-flow, fresh regression suite, stack contract, restart persistence, paper recovery and runtime coverage passed through automated checks.
+
+Verification:
+- Passed targeted Stage 1 pytest group, full pytest suite, json.tool, taskctl validate, taskctl doctor and taskctl sync.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+Next Dependency-Ready Pending Task:
+- TASK-019 - Собрать Admin Studio shell и role access
+
+2026-06-03 19:52 +03:00 TASK-019 Claim
+-------------------------------------
+Task: TASK-019 - Собрать Admin Studio shell и role access.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 4 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-06-03 20:09 +03:00 TASK-019 Done
+------------------------------------
+Task: TASK-019 - Собрать Admin Studio shell и role access.
+
+Done:
+- Admin Studio shell подключен к FastAPI: /admin static entrypoint, master-only /api/master/admin/overview, browser login по npc_master role_token, навигация Content/Game Ops/Events/NPC/Backups/Final с pending states для отсутствующих backend endpoints.
+
+Verification:
+- uv run pytest tests/test_admin_studio_contract.py; uv run pytest tests/test_admin_studio_contract.py tests/test_lord_panel_contract.py tests/test_fastapi_contract.py; browser smoke /admin login MASTER-KING-4QZ8 on temporary FastAPI; uv run ruff check backend tests; uv run python scripts/taskctl.py validate; uv run pytest
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+Next Dependency-Ready Pending Task:
+- TASK-020 - Реализовать Admin content import/validation UI
+
+2026-06-03 20:36 +03:00 TASK-020 Claim
+-------------------------------------
+Task: TASK-020 - Реализовать Admin content import/validation UI.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 8 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-06-03 20:37 +03:00 TASK-021 Claim
+-------------------------------------
+Task: TASK-021 - Реализовать Admin game ops dashboard.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-020 - Реализовать Admin content import/validation UI. Parallel claims are allowed; avoid overlapping files.
+- worktree: 8 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-06-03 20:46 +03:00 TASK-020 Done
+------------------------------------
+Task: TASK-020 - Реализовать Admin content import/validation UI.
+
+Done:
+- Implemented master Admin Studio content import/validation UI, snapshot export controls, QR/manual checklist, handout checklist, and related validation coverage.
+
+Verification:
+- uv run pytest tests/test_admin_studio_contract.py tests/test_seed_validation.py; uv run ruff check backend tests; uv run python scripts/taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+Next Dependency-Ready Pending Task:
+- None
+
+2026-06-03 20:57 +03:00 TASK-021 Done
+------------------------------------
+Task: TASK-021 - Реализовать Admin game ops dashboard.
+
+Done:
+- Реализован Admin game ops dashboard: GET /api/master/state, backup status, audited game-ops corrections, UI controls for acts/unlock, review/reward queues, lord map corrections, PvP throttle and backups.
+
+Verification:
+- Passed: uv run pytest tests/test_admin_studio_contract.py -q; uv run pytest tests/test_act_timer_runtime.py tests/test_reward_approvals.py tests/test_pvp_runtime.py -q; node --check backend/witcher_larp/web/admin/admin.js; uv run python -m py_compile backend/witcher_larp/game_ops_service.py backend/witcher_larp/app.py; uv run python scripts/taskctl.py validate. In-app browser smoke attempted, but localhost/127.0.0.1 was blocked by Browser client with ERR_BLOCKED_BY_CLIENT.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+Next Dependency-Ready Pending Task:
+- TASK-022 - Реализовать Admin NPC, visibility и final tools
+
+2026-06-03 20:59 +03:00 TASK-022 Claim
+-------------------------------------
+Task: TASK-022 - Реализовать Admin NPC, visibility и final tools.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 12 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-06-03 21:09 +03:00 TASK-022 Done
+------------------------------------
+Task: TASK-022 - Реализовать Admin NPC, visibility и final tools.
+
+Done:
+- Implemented Admin NPC King/Wanderer tools, master visibility audit, exact reputation view, final summary UI/export, and role visibility contracts.
+
+Verification:
+- uv run pytest tests/test_admin_studio_contract.py tests/test_reputation_npc_runtime.py tests/test_final_summary_runtime.py tests/test_lord_panel_contract.py -q; uv run python scripts/taskctl.py validate; uv run ruff check backend/witcher_larp/app.py backend/witcher_larp/admin_studio.py backend/witcher_larp/game_ops_service.py tests/test_admin_studio_contract.py
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+Next Dependency-Ready Pending Task:
+- TASK-023 - STAGE 2 GATE: Admin Studio acceptance
+
+2026-06-03 21:19 +03:00 TASK-023 Claim
+-------------------------------------
+Task: TASK-023 - STAGE 2 GATE: Admin Studio acceptance.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 12 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+2026-06-03 21:31 +03:00 TASK-023 Done
+------------------------------------
+Task: TASK-023 - STAGE 2 GATE: Admin Studio acceptance.
+
+Done:
+- Stage 2 Admin Studio acceptance closed: documented Admin Studio acceptance checklist, ran in-app browser smoke across all 6 sections, verified local restart persistence on SQLite state, and kept second-laptop Wi-Fi smoke as an explicit manual LAN checklist step.
+
+Verification:
+- uv run pytest -q; node --check backend\\witcher_larp\\web\\admin\\admin.js; in-app browser smoke http://127.0.0.1:8794/admin with master token; restart persistence check on .test-data admin gate DB; uv run python scripts/taskctl.py validate; uv run python scripts/taskctl.py doctor
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+
+Next Dependency-Ready Pending Task:
+- TASK-045 - Зафиксировать playable UI contract и role journey matrix
+
+2026-06-03 22:45 +03:00 TASK-068 Claim
+-------------------------------------
+Task: TASK-068 - Fix PvE reward authority and cascade reward gates.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 23 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-03 22:51 +03:00 TASK-069 Claim
+-------------------------------------
+Task: TASK-069 - Fix personal Gwent round authority.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-068 - Fix PvE reward authority and cascade reward gates. Parallel claims are allowed; avoid overlapping files.
+- worktree: 25 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-03 22:55 +03:00 TASK-068 Done
+------------------------------------
+Task: TASK-068 - Fix PvE reward authority and cascade reward gates.
+
+Done:
+- Fixed authoritative PvE scenario-bound rewards, cascade reward seed validation, and regression coverage for forged or pending PvE rewards.
+
+Verification:
+- uv run pytest tests/test_event_sync.py tests/test_pve_runtime.py tests/test_reward_approvals.py tests/test_seed_validation.py -q; uv run ruff check backend/witcher_larp/event_service.py backend/witcher_larp/pve_runtime.py backend/witcher_larp/validation.py tests/test_event_sync.py tests/test_pve_runtime.py tests/test_seed_validation.py; uv run python scripts/taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-070 - Fix personal card conversion ownership
+
+2026-06-03 23:01 +03:00 TASK-070 Claim
+-------------------------------------
+Task: TASK-070 - Fix personal card conversion ownership.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-069 - Fix personal Gwent round authority. Parallel claims are allowed; avoid overlapping files.
+- worktree: 29 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-03 23:03 +03:00 TASK-069 Done
+------------------------------------
+Task: TASK-069 - Fix personal Gwent round authority.
+
+Done:
+- Fixed personal Gwent round authority: player submissions now persist as pending per-player state until both participants submit, full two-player rounds resolve once, and incomplete master-authored rounds go to review without stake transfer.
+
+Verification:
+- uv run pytest tests/test_pvp_runtime.py tests/test_fastapi_contract.py -q; uv run python scripts/taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-071 - Fix lord active-army movement, capture and garrison rules
+
+2026-06-03 23:05 +03:00 TASK-071 Claim
+-------------------------------------
+Task: TASK-071 - Fix lord active-army movement, capture and garrison rules.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-070 - Fix personal card conversion ownership. Parallel claims are allowed; avoid overlapping files.
+- worktree: 29 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-03 23:16 +03:00 TASK-072 Claim
+-------------------------------------
+Task: TASK-072 - Fix lord order lifecycle authority and validation flags.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-070 - Fix personal card conversion ownership; TASK-071 - Fix lord active-army movement, capture and garrison rules. Parallel claims are allowed; avoid overlapping files.
+- worktree: 35 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-03 23:16 +03:00 TASK-071 Done
+------------------------------------
+Task: TASK-071 - Fix lord active-army movement, capture and garrison rules.
+
+Done:
+- Fixed lord logistics so contested movement requires local active army, capture/fort garrisons debit active army instead of reserve, reserve_to_active is residence-only, and lord panel exposes active_to_fort/fort_to_active operations.
+
+Verification:
+- uv run pytest tests/test_lord_runtime.py tests/test_lord_battle_runtime.py tests/test_timer_runtime.py -q; uv run pytest tests/test_lord_panel_contract.py -q; uv run python scripts/taskctl.py validate; uv run ruff check backend/witcher_larp/lord_runtime.py tests/test_lord_runtime.py tests/test_lord_panel_contract.py tests/test_stage1_gate_role_flow.py
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-073 - Harden seed business validation before generated content
+
+2026-06-03 23:18 +03:00 TASK-070 Done
+------------------------------------
+Task: TASK-070 - Fix personal card conversion ownership.
+
+Done:
+- Personal-to-army card conversion now requires active ownership of the exact personal card, rejects locked/pending reward cards, debits one owned card before minting an army reserve unit, and audits ownership debit state. Added regression coverage for non-owned, pending locked, valid debit, reserve creation and duplicate idempotency paths.
+
+Verification:
+- uv run pytest tests\test_pvp_runtime.py -q; uv run pytest tests\test_pvp_runtime.py tests\test_trade_transfers.py tests\test_reward_approvals.py -q; uv run python scripts\taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-073 - Harden seed business validation before generated content
+
+2026-06-03 23:28 +03:00 TASK-072 Done
+------------------------------------
+Task: TASK-072 - Fix lord order lifecycle authority and validation flags.
+
+Done:
+- Fixed lord order lifecycle authority: player actions require player/master auth, completion requires master approval, escrow award stays idempotent, and order validation now uses locks_object/counts_against_cap flags.
+
+Verification:
+- uv run pytest tests/test_lord_runtime.py tests/test_fastapi_contract.py tests/test_seed_validation.py -q (35 passed); uv run python scripts/taskctl.py validate (passed).
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-073 - Harden seed business validation before generated content
+
+2026-06-03 23:37 +03:00 TASK-073 Claim
+-------------------------------------
+Task: TASK-073 - Harden seed business validation before generated content.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 35 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-03 23:47 +03:00 TASK-073 Done
+------------------------------------
+Task: TASK-073 - Harden seed business validation before generated content.
+
+Done:
+- Hardened seed business validation for required references, QR act/mode rules, lord/domain/token ownership, sorceress bindings and canonical lord battle rules; added invalid fixtures and regressions.
+
+Verification:
+- uv run pytest tests\test_seed_validation.py tests\test_seed_contract.py -q; uv run pytest tests\test_import_snapshot_pipeline.py -q; uv run ruff check backend\witcher_larp\validation.py tests\test_seed_validation.py tests\test_seed_contract.py tests\test_import_snapshot_pipeline.py; uv run python scripts\taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-074 - Review and rewrite tests missed by Stage 2 code review
+
+2026-06-03 23:49 +03:00 TASK-074 Claim
+-------------------------------------
+Task: TASK-074 - Review and rewrite tests missed by Stage 2 code review.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 43 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 00:06 +03:00 TASK-074 Done
+------------------------------------
+Task: TASK-074 - Review and rewrite tests missed by Stage 2 code review.
+
+Done:
+- Reviewed Stage 2 missed-test coverage, rewrote the stale one-sided Gwent fresh regression, added Admin paper recovery and lord battle behavior contracts, documented QR camera/manual blockers, and created docs/stage2-test-audit.md mapping review bugs to regressions.
+
+Verification:
+- uv run pytest tests\test_admin_studio_contract.py tests\test_lord_panel_contract.py tests\test_mobile_shell_contract.py -q; uv run pytest tests\test_event_sync.py tests\test_pve_runtime.py tests\test_pvp_runtime.py tests\test_lord_runtime.py tests\test_lord_battle_runtime.py tests\test_reward_approvals.py tests\test_seed_validation.py tests\test_fastapi_contract.py -q; uv run ruff check backend\witcher_larp\admin_studio.py backend\witcher_larp\lord_panel.py tests\test_admin_studio_contract.py tests\test_lord_panel_contract.py tests\test_mobile_shell_contract.py tests\test_stage1_fresh_regressions.py; uv run pytest -q; uv run python -m json.tool tasks.json; uv run python scripts\taskctl.py validate; uv run python scripts\taskctl.py doctor
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-045 - Зафиксировать playable UI contract и role journey matrix
+
+2026-06-04 01:00 +03:00 TASK-075 Claim
+-------------------------------------
+Task: TASK-075 - Fix paper recovery side effects and event-sync role scope.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 47 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 01:04 +03:00 TASK-076 Claim
+-------------------------------------
+Task: TASK-076 - Fix cross-lord order races and gold PvP stakes.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-075 - Fix paper recovery side effects and event-sync role scope. Parallel claims are allowed; avoid overlapping files.
+- worktree: 47 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 01:07 +03:00 TASK-079 Claim
+-------------------------------------
+Task: TASK-079 - Hide exact reputation from mobile player UI.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-075 - Fix paper recovery side effects and event-sync role scope; TASK-076 - Fix cross-lord order races and gold PvP stakes. Parallel claims are allowed; avoid overlapping files.
+- worktree: 48 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 01:10 +03:00 TASK-075 Done
+------------------------------------
+Task: TASK-075 - Fix paper recovery side effects and event-sync role scope.
+
+Done:
+- Fixed paper_pve_result recovery to apply canonical PvE side effects once, routed unsupported clean paper forms to master review, and enforced canonical role scope for player-only event sync.
+
+Verification:
+- uv run pytest tests\test_paper_recovery.py tests\test_event_sync.py tests\test_fastapi_contract.py -q; uv run python scripts\taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-078 - Fix Admin Studio paper recovery and Game Ops blockers
+
+2026-06-04 01:13 +03:00 TASK-079 Done
+------------------------------------
+Task: TASK-079 - Hide exact reputation from mobile player UI.
+
+Done:
+- Скрыт exact reputation в player-scoped mobile snapshot: player.reputation удален, добавлен reputation_state с label/descriptor/value_visibility; mobile UI показывает только descriptive reputation; добавлены snapshot/mobile regressions.
+
+Verification:
+- Passed focused TASK-079 pytest subset: 11 passed. Passed targeted suite excluding known TASK-075 actor_type test: 23 passed, 1 deselected. Passed ruff check for touched Python files. Passed taskctl validate. Full targeted suite attempted: 23 passed, 1 unrelated TASK-075 event-sync actor_type failure.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-078 - Fix Admin Studio paper recovery and Game Ops blockers
+
+2026-06-04 01:14 +03:00 TASK-076 Done
+------------------------------------
+Task: TASK-076 - Fix cross-lord order races and gold PvP stakes.
+
+Done:
+- Fixed cross-lord lord order object races by closing/refunding competing active orders across all lords, and added personal PvP gold stake reserve, refund and settlement behavior.
+
+Verification:
+- uv run pytest tests\test_lord_runtime.py tests\test_pvp_runtime.py -q; uv run ruff check backend\witcher_larp\lord_runtime.py backend\witcher_larp\pvp_service.py backend\witcher_larp\runtime_schema.py tests\test_lord_runtime.py tests\test_pvp_runtime.py; uv run python scripts\taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-077 - Fix lord battle and captured-territory UI blockers
+
+2026-06-04 01:18 +03:00 TASK-077 Claim
+-------------------------------------
+Task: TASK-077 - Fix lord battle and captured-territory UI blockers.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 54 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 01:22 +03:00 TASK-078 Claim
+-------------------------------------
+Task: TASK-078 - Fix Admin Studio paper recovery and Game Ops blockers.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-077 - Fix lord battle and captured-territory UI blockers. Parallel claims are allowed; avoid overlapping files.
+- worktree: 54 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 01:45 +03:00 TASK-078 Done
+------------------------------------
+Task: TASK-078 - Fix Admin Studio paper recovery and Game Ops blockers.
+
+Done:
+- Admin Studio now has typed paper recovery intake, visible event/sync/anti-snowball Game Ops panels, economy payloads, and audited potion/trade/player correction targets and forms.
+
+Verification:
+- node --check admin.js, ruff on touched Python/tests, pytest admin/game_ops/fastapi, pytest paper_recovery, taskctl validate, localhost:8798 headless Chrome render plus authenticated master-state smoke; real second-laptop LAN smoke remains documented TASK-058/TASK-050 gate evidence.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- None
+
+2026-06-04 01:47 +03:00 TASK-077 Done
+------------------------------------
+Task: TASK-077 - Fix lord battle and captured-territory UI blockers.
+
+Done:
+- Added lord panel garrison_targets and scoped battle list, replaced raw lord battle JSON action form with 5x6 board controls, and added capture/battle UI regressions.
+
+Verification:
+- uv run pytest tests\test_lord_panel_contract.py tests\test_lord_battle_runtime.py -q; uv run ruff check backend\witcher_larp\lord_panel.py tests\test_lord_panel_contract.py; browser smoke desktop and 390px phone-width on http://127.0.0.1:8767/lord with screenshots in .test-data; uv run python scripts\taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-080 - Review and rewrite tests missed by pre-Stage-2B issues
+
+2026-06-04 10:35 +03:00 TASK-080 Claim
+-------------------------------------
+Task: TASK-080 - Review and rewrite tests missed by pre-Stage-2B issues.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 56 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 10:54 +03:00 TASK-080 Done
+------------------------------------
+Task: TASK-080 - Review and rewrite tests missed by pre-Stage-2B issues.
+
+Done:
+- Audited TASK-075 through TASK-079 regressions, strengthened Admin paper recovery side-effect coverage, aligned canonical actor-role expectations, and documented the TASK-080 coverage matrix plus manual-only blockers.
+
+Verification:
+- Targeted TASK-080 regression group: 102 passed; full uv run pytest -q: 221 passed; uv run python -m json.tool tasks.json passed; taskctl validate passed; taskctl doctor passed.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-045 - Зафиксировать playable UI contract и role journey matrix

@@ -169,9 +169,31 @@ Gate: `TASK-023`.
 - backup запускается и виден мастеру;
 - final summary открывается и экспортируется.
 
+## Stage 2A - Stage 2 Review Remediation
+
+Gate: `TASK-080`.
+
+2026-06-03: после ревью кода Stage 2 перед следующим playable/UI-гейтом
+добавлен pre-Stage-2B remediation/test block. `TASK-068`-`TASK-073` закрывают
+серьезные runtime/validation issues: PvE reward authority, one-sided Gwent
+round authority, personal card ownership conversion, lord active-army/garrison/
+movement rules, lord order lifecycle authority and seed business validation.
+`TASK-074` отдельно ревьюит и переписывает тесты, которые не поймали эти баги.
+
+2026-06-04: added a second pre-Stage-2B remediation block: `TASK-075` paper
+recovery/event-sync role scope, `TASK-076` cross-lord order races and gold PvP
+stakes, `TASK-077` lord battle/captured-territory UI, `TASK-078` Admin Studio
+recovery/Game Ops blockers, `TASK-079` mobile reputation visibility, followed by
+`TASK-080` test review/rewrite. `TASK-045`, `TASK-058` and `TASK-050` depend on
+`TASK-080`, so Playable Role UI starts only after these fixes and their test
+audit are complete.
+
 ## Stage 2B - Playable Role UI
 
 Gate: `TASK-050`.
+
+Stage 2B starts with `TASK-045` only after the pre-stage remediation gate
+`TASK-080` is complete.
 
 Цель: сделать основные игровые интерфейсы ролей полноценными до генерации и балансировки контента, чтобы весь задуманный gameplay без generated/full PvE content можно было тестировать как приложение, а не как Swagger/API smoke.
 
@@ -383,7 +405,7 @@ Gate: `TASK-037`.
 - runbook проверяет physical act announcements, opaque QR/manual IDs, QR honesty policy, single-d20 checks, PvP refusal/safety table and player-facing handouts;
 - server restart, backups, restore и post-game export проверены;
 - paper fallback/recovery проверен на QR/PvE, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence;
-- dashboard, `tasks.json`, kanban и generated files синхронизированы.
+- dashboard, `tasks.json`, `docs/active-tasks.md`, kanban and generated files are synchronized.
 
 ## Общая проверка TaskOS
 
@@ -397,3 +419,4 @@ uv run python scripts\taskctl.py doctor
 ```
 
 Готовность очереди подтверждается, если `doctor` показывает, что generated files are up to date, а dashboard показывает stage tags, stage filters, gate-задачи и корректные dependency-ready задачи.
+For ordinary queue orientation, read `docs/active-tasks.md` or run `uv run python scripts\taskctl.py ready`; open full `tasks.json` only for graph edits or when the compact view is insufficient.

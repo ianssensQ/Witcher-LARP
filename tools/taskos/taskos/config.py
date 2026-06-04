@@ -16,6 +16,7 @@ class TaskosConfig:
     tasks_file: str = "tasks.json"
     progress_file: str = "progress.txt"
     lock_file: str = ".taskos.lock"
+    generated_active: str = "docs/active-tasks.md"
     generated_kanban: str = "docs/kanban.md"
     generated_dashboard: str = "docs/helpers/task-board.html"
     generated_dashboard_entrypoint: str = "docs/task-board.html"
@@ -71,6 +72,7 @@ def render_config(config: TaskosConfig) -> str:
             f'tasks_file = "{config.tasks_file}"',
             f'progress_file = "{config.progress_file}"',
             f'lock_file = "{config.lock_file}"',
+            f'generated_active = "{config.generated_active}"',
             f'generated_kanban = "{config.generated_kanban}"',
             f'generated_dashboard = "{config.generated_dashboard}"',
             f'generated_dashboard_entrypoint = "{config.generated_dashboard_entrypoint}"',
