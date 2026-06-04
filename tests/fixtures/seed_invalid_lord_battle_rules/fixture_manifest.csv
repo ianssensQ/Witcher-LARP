@@ -1,0 +1,2 @@
+fixture_id,fixture_type,base_path,override_files,expected_result
+seed_invalid_lord_battle_rules,invalid_overlay,../../../data/seed,lord_battle_rules.csv,invalid_lord_battle_rule

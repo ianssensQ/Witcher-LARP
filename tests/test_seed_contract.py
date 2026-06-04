@@ -886,6 +886,11 @@ class SeedContractTests(unittest.TestCase):
             "seed_invalid_gwent_deck",
             "seed_invalid_building_cycle",
             "seed_invalid_paper_conflict",
+            "seed_invalid_empty_required_refs",
+            "seed_invalid_qr_act_mismatch",
+            "seed_invalid_qr_consumption_mismatch",
+            "seed_invalid_domain_token_role_mismatch",
+            "seed_invalid_lord_battle_rules",
         }
         actual_invalid = {
             path.name

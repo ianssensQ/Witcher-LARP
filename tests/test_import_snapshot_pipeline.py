@@ -188,6 +188,11 @@ class ImportSnapshotPipelineTests(unittest.TestCase):
             "seed_invalid_gwent_deck": "gwent_deck_invalid",
             "seed_invalid_building_cycle": "building_cycle",
             "seed_invalid_paper_conflict": "paper_conflict_policy",
+            "seed_invalid_empty_required_refs": "missing_required_reference",
+            "seed_invalid_qr_act_mismatch": "qr_scenario_act_mismatch",
+            "seed_invalid_qr_consumption_mismatch": "qr_consumption_rule_mismatch",
+            "seed_invalid_domain_token_role_mismatch": "role_token_owner",
+            "seed_invalid_lord_battle_rules": "invalid_lord_battle_rule",
         }
         for fixture_name, expected_code in expected_codes.items():
             with self.subTest(fixture=fixture_name):

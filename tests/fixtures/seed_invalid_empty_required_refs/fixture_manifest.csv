@@ -1,0 +1,2 @@
+fixture_id,fixture_type,base_path,override_files,expected_result
+seed_invalid_empty_required_refs,invalid_overlay,../../../data/seed,qr_objects.csv,missing_required_reference

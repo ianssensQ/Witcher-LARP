@@ -218,10 +218,67 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                 {"trade_transfer_player", "trade_transfer_asset", "trade_transfer_lock_rule"},
             ),
             (
+                "rewards.csv",
+                "reward_id,xp,gold,item_ids,card_ids,artifact_ids,rarity,approval_policy\n"
+                "reward_pve_t1,4,10,item_herb_bundle,pc_infantry_t1,,Common,auto\n"
+                "reward_pve_t2,8,20,item_silver_dust,pc_guard_t1,,Uncommon,auto\n"
+                "reward_pve_t3,12,35,item_monster_trophy,pc_cavalry_t2,,Rare,pending_master_approval\n"
+                "reward_pve_t4,18,55,item_ancient_relic,pc_siege_t3,artifact_legend_crown,Legendary,pending_master_approval\n"
+                "reward_artifact_pending,10,0,,rare_gwent_01,artifact_mirror_shard,Rare,pending_master_approval\n"
+                "reward_lord_income_t1,0,8,,,,Common,auto\n"
+                "reward_order_success,6,15,item_order_seal,pc_specialist_t3,,Uncommon,auto\n"
+                "reward_gwent_stake,0,0,item_gwent_marker,gwent_larp_banner,,Uncommon,pending_master_approval\n"
+                "reward_final_evidence,5,0,item_final_token,,artifact_oath_stone,Rare,pending_master_approval\n",
+                {"reward_approval_policy"},
+            ),
+            (
+                "pve_scenarios.csv",
+                "scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome\n"
+                "scn_a1_001,act1,1,npc_deal,РҐР°СЂРёР·РјР°,11,single_d20,mob_neutral_patrol_t1,reward_pve_t2,ok,fail,fail_and_cooldown\n"
+                "scn_a1_002,act1,1,reputation_impact,РҐР°СЂРёР·РјР°,11,single_d20,mob_neutral_patrol_t1,reward_pve_t1,ok,fail,fail_and_cooldown\n",
+                {"reward_approval_policy"},
+            ),
+            (
                 "challenge_tokens.csv",
                 "token_rule_id,act_id,tokens_per_player,start_window_min\n"
                 "challenge_act1,act1,2,10\n",
                 {"invalid_token_window"},
+            ),
+            (
+                "physical_announcements.csv",
+                "announcement_id,act_id,required_signal,operator_role\n"
+                "ann_act1,act1,voice_or_bell,npc_master\n",
+                {"physical_announcement_coverage"},
+            ),
+            (
+                "qr_policies.csv",
+                "policy_id,physical_presence_required,manual_entry_allowed,manual_rate_limit,suspected_violation_outcome\n"
+                "qr_bad,false,false,none,ignore\n",
+                {"qr_honesty_policy"},
+            ),
+            (
+                "player_handouts.csv",
+                "handout_id,audience,required_topics\n"
+                "handout_common,all,common_rules;qr_honesty\n",
+                {"handout_readiness"},
+            ),
+            (
+                "pvp_refusal_rules.csv",
+                "rule_id,reason,severity,default_outcome\n"
+                "refusal_bad,active_scene,P2,deferred_window\n",
+                {"pvp_refusal_safety"},
+            ),
+            (
+                "potion_markets.csv",
+                "market_id,seller_role,potion_id,stock,refresh_rule\n"
+                "market_bad,lord,potion_common_swallow,0,never\n",
+                {"potion_market_access"},
+            ),
+            (
+                "anti_snowball_rules.csv",
+                "rule_id,army_power_ratio_threshold,income_cut_percent,notes\n"
+                "anti_bad,120,10,bad cut\n",
+                {"anti_snowball_threshold"},
             ),
             (
                 "pvp_throttle_rules.csv",
@@ -260,6 +317,12 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                 {"final_summary_fields"},
             ),
             (
+                "final_procedures.csv",
+                "procedure_id,final_act_window,start_offset_min,end_offset_min,station_count,master_role\n"
+                "final_act_load_plan,7:30-9:30,450,570,1,npc_king\n",
+                {"final_summary_fields"},
+            ),
+            (
                 "paper_forms.csv",
                 "form_type,description,required_fields_json,conflict_policy,recovery_event_type\n"
                 'paper_bad,Bad form,"[""paper_form_id""]",silent_overwrite,paper_recovered\n',
@@ -276,21 +339,152 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                     f"Expected {expected_codes}, got {actual_codes}",
                 )
 
+    def test_order_validation_uses_status_rule_flags_for_locks_and_caps(self) -> None:
+        duplicate_published = (
+            "order_id,lord_id,target_player_id,object_id,visibility,status,escrow_reward_id\n"
+            "order_open_1,p_lord_3,p_witcher_2,territory_well_city,public,published,reward_order_success\n"
+            "order_open_2,p_lord_3,p_witcher_2,territory_well_city,public,published,reward_order_success\n"
+        )
+        published_errors = self._validate_overlay("orders.csv", duplicate_published)
+        published_codes = {error.code for error in published_errors}
+        self.assertNotIn("order_object_conflict", published_codes)
+        self.assertNotIn("order_cap", published_codes)
+
+        duplicate_accepted = (
+            "order_id,lord_id,target_player_id,object_id,visibility,status,escrow_reward_id\n"
+            "order_lock_1,p_lord_3,p_witcher_2,territory_well_city,public,accepted,reward_order_success\n"
+            "order_lock_2,p_lord_3,p_witcher_2,territory_well_city,public,accepted,reward_order_success\n"
+        )
+        accepted_errors = self._validate_overlay("orders.csv", duplicate_accepted)
+        self.assertIn("order_object_conflict", {error.code for error in accepted_errors})
+
+        status_rules_without_published_cap = (
+            (PROJECT_ROOT / "data" / "seed" / "order_status_rules.csv")
+            .read_text(encoding="utf-8")
+            .replace("published,true,false,true", "published,true,false,false")
+        )
+        over_cap_published = (
+            "order_id,lord_id,target_player_id,object_id,visibility,status,escrow_reward_id\n"
+            "order_cap_1,p_lord_1,p_witcher_1,qr_a1_006,public,published,reward_order_success\n"
+            "order_cap_2,p_lord_1,p_witcher_2,qr_a1_007,public,published,reward_order_success\n"
+            "order_cap_3,p_lord_1,p_witcher_3,qr_a1_008,public,published,reward_order_success\n"
+        )
+        cap_errors = self._validate_overlay_files(
+            {
+                "order_status_rules.csv": status_rules_without_published_cap,
+                "orders.csv": over_cap_published,
+            }
+        )
+        self.assertNotIn("order_cap", {error.code for error in cap_errors})
+
+    def test_task073_business_validation_rejects_cross_row_seed_breaks(self) -> None:
+        bad_empty_required_ref = self._seed_csv("qr_objects.csv").replace(
+            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,",
+            "qr_a1_001,QR-A1-K7Q2,,",
+        )
+        bad_qr_act = self._seed_csv("qr_objects.csv").replace(
+            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,repeatable_scene,act1,",
+            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,repeatable_scene,act2,",
+        )
+        bad_qr_consumption = self._seed_csv("qr_objects.csv").replace(
+            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,repeatable_scene,act1,node_forest_dark,true,5_per_minute,repeatable",
+            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,repeatable_scene,act1,node_forest_dark,true,5_per_minute,consume_once",
+        )
+        bad_domains = self._seed_csv("domains.csv").replace(
+            "domain_north,p_lord_1,North Watch",
+            "domain_north,p_witcher_1,North Watch",
+        )
+        bad_role_tokens = self._seed_csv("role_tokens.csv").replace(
+            "token_lord_1,lord,p_lord_1",
+            "token_lord_1,lord,p_sorc_1",
+        ).replace(
+            "token_master_king,npc_master,npc_king",
+            "token_master_king,npc_master,p_lord_1",
+        )
+        bad_sorceress_binding = self._seed_csv("players.csv").replace(
+            "p_sorc_1,sorceress,Yennefer Circle,,p_lord_1",
+            "p_sorc_1,sorceress,Yennefer Circle,,p_witcher_1",
+        )
+        bad_lord_battle = (
+            "rule_id,grid_width,grid_height,turn_timer_seconds,damage_formula,initiative_tiebreaker,timeout_policy,auto_resolve_policy\n"
+            "lord_battle_default,6,6,45,attack_minus_defense,initiative_asc,manual_skip,manual_only\n"
+        )
+
+        cases = [
+            (
+                {"qr_objects.csv": bad_empty_required_ref},
+                {"missing_required_reference"},
+            ),
+            (
+                {"qr_objects.csv": bad_qr_act},
+                {"qr_scenario_act_mismatch"},
+            ),
+            (
+                {"qr_objects.csv": bad_qr_consumption},
+                {"qr_consumption_rule_mismatch"},
+            ),
+            (
+                {"domains.csv": bad_domains, "role_tokens.csv": bad_role_tokens},
+                {
+                    "domain_lord_owner",
+                    "invalid_player_lord_binding",
+                    "role_token_owner",
+                    "role_token_coverage",
+                },
+            ),
+            (
+                {"players.csv": bad_sorceress_binding},
+                {"invalid_sorceress_lord_binding"},
+            ),
+            (
+                {"lord_battle_rules.csv": bad_lord_battle},
+                {"invalid_lord_battle_rule"},
+            ),
+        ]
+
+        for files, expected_codes in cases:
+            with self.subTest(files=sorted(files)):
+                errors = self._validate_overlay_files(files)
+                actual_codes = {error.code for error in errors}
+                self.assertTrue(
+                    expected_codes.issubset(actual_codes),
+                    f"Expected {expected_codes}, got {actual_codes}",
+                )
+
+        missing_required = next(
+            error
+            for error in self._validate_overlay("qr_objects.csv", bad_empty_required_ref)
+            if error.code == "missing_required_reference"
+        )
+        self.assertEqual(missing_required.file, "qr_objects.csv")
+        self.assertEqual(missing_required.record_id, "qr_a1_001")
+        self.assertIn("required reference", missing_required.message)
+
     def _validate_overlay(self, file_name: str, content: str):
-        fixture_dir = TEST_TMP_ROOT / f"seed_policy_{file_name.replace('.', '_')}_{uuid4().hex}"
+        return self._validate_overlay_files({file_name: content})
+
+    def _validate_overlay_files(self, files: dict[str, str]):
+        file_names = sorted(files)
+        fixture_label = "_".join(file_name.replace(".", "_") for file_name in file_names)
+        fixture_dir = TEST_TMP_ROOT / f"seed_policy_{fixture_label}_{uuid4().hex}"
         fixture_dir.mkdir()
         manifest_path = fixture_dir / "fixture_manifest.csv"
         manifest_path.write_text(
             "\n".join(
                 [
                     "fixture_id,fixture_type,base_path,override_files,expected_result",
-                    f"seed_policy,invalid_overlay,{(PROJECT_ROOT / 'data' / 'seed').as_posix()},{file_name},policy_error",
+                    (
+                        "seed_policy,invalid_overlay,"
+                        f"{(PROJECT_ROOT / 'data' / 'seed').as_posix()},"
+                        f"{';'.join(file_names)},policy_error"
+                    ),
                 ]
             )
             + "\n",
             encoding="utf-8",
         )
-        (fixture_dir / file_name).write_text(content, encoding="utf-8")
+        for file_name, content in files.items():
+            (fixture_dir / file_name).write_text(content, encoding="utf-8")
         pack = load_pack_from_manifest(manifest_path)
         return validate_seed_pack(pack)
 
@@ -320,6 +514,10 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
         )
         (fixture_dir / file_name).write_text(content, encoding="utf-8")
         return manifest_path
+
+    @staticmethod
+    def _seed_csv(file_name: str) -> str:
+        return (PROJECT_ROOT / "data" / "seed" / file_name).read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,2 @@
+rule_id,grid_width,grid_height,turn_timer_seconds,damage_formula,initiative_tiebreaker,timeout_policy,auto_resolve_policy
+lord_battle_default,6,6,45,attack_minus_defense,initiative_asc,manual_skip,manual_only
