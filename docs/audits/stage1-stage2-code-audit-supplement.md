@@ -1,6 +1,6 @@
 # Stage 1 + Stage 2 code audit supplement
 
-Updated through Pass 8: 2026-06-04 14:45 +03:00.
+Updated through Pass 9: 2026-06-04 15:51 +03:00.
 
 Baseline: `docs/audits/stage1-stage2-code-audit.md`.
 
@@ -21,6 +21,7 @@ No TaskOS tasks were created.
 | 6 | 2026-06-04 14:22 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, lord movement/fort capacity/snapshot secrecy/mobile PvE/import-gate slices, no subagents available in this tool context, manual dedupe/recheck | 1 new substantial bug |
 | 7 | 2026-06-04 14:26 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, trade/assets lock lifecycle, reward approval corrections, review/final blockers, game-ops corrections and timer idempotency slices, no subagents available in this tool context, manual dedupe/recheck | 3 new substantial bugs |
 | 8 | 2026-06-04 14:33 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, NPC/reputation/final evidence, sorceress spell runtime, Gwent effects, lord economy build/recruit/anti-snowball and QR/manual honesty slices, no subagents available in this tool context, manual dedupe/recheck | 0 new substantial bugs |
+| 9 | 2026-06-04 15:51 +03:00 | `59e158b` | clean | `rg -n`, one 4-agent wave, act/final-lock, snapshot visibility, sync-retry recovery, Gwent sequencing, validation/import and final-evidence slices, manual dedupe/recheck | 4 new substantial bugs |
 
 ## Method And Context Strategy
 
@@ -660,6 +661,154 @@ No TaskOS tasks were created.
 
 No new substantial Stage 1/2/2A bugs were verified in this pass.
 
+### Pass 9
+
+### AUD-NEXT-027 - P1 - Direct Final Act start can skip final lock side effects
+
+- Severity: P1
+- Source requirement: `docs/app-technical-plan-v0.1.md:17`;
+  `docs/app-technical-plan-v0.1.md:48`; `docs/PRD.md:107`;
+  `docs/architecture.md:34`; `docs/architecture.md:355`;
+  `docs/architecture.md:385`; `data/seed/acts.csv:6`;
+  `data/seed/acts.csv:7`; `data/seed/auto_timers.csv:5`;
+  `data/seed/auto_timers.csv:6`.
+- Code/data/test location: `backend/witcher_larp/app.py:807`;
+  `backend/witcher_larp/app.py:817`;
+  `backend/witcher_larp/act_service.py:30`;
+  `backend/witcher_larp/act_service.py:47`;
+  `backend/witcher_larp/act_service.py:64`;
+  `backend/witcher_larp/act_service.py:164`;
+  `backend/witcher_larp/timer_service.py:37`;
+  `backend/witcher_larp/timer_service.py:226`;
+  `backend/witcher_larp/timer_service.py:338`;
+  `backend/witcher_larp/pvp_service.py:236`;
+  `backend/witcher_larp/lord_runtime.py:736`;
+  `backend/witcher_larp/sorceress_service.py:361`;
+  `tests/test_act_timer_runtime.py:160`;
+  `tests/test_final_summary_runtime.py:285`.
+- Expected / Actual: expected the fixed flow `Act 3 -> final_lock -> Final Act`
+  always applies final lock before Final Act play, closing new PvP challenges,
+  ordinary lord orders and post-lock magical intent paths. Actual master act
+  start accepts any `act_id` directly; starting `final_act` without an
+  `act_history` row for `final_lock` applies only timers for existing act
+  history rows, so `timer_final_lock` never sets `final_lock_state.locked_at`.
+- Gameplay impact: masters can accidentally enter Final Act with final lock
+  visibly skipped while final backup runs, leaving PvP, lord orders and locked
+  magical intent open during the final procedure.
+- Recommendation: enforce act sequence transitions or make `final_act` start
+  idempotently apply/require the `final_lock` act and timer first; add a
+  regression that direct `final_act` start from Act 3 leaves final-lock gates
+  closed.
+- Confirmation method: `rg -n` confirmed the route passes arbitrary `act_id`,
+  `start_act` has no sequence guard, final lock is only the `final_lock` timer,
+  and existing final-lock tests start `final_lock` explicitly before checking
+  locked behavior.
+- Pass number: 9
+
+### AUD-NEXT-028 - P2 - Duplicate event retry hides original review, rejection or pending status
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:160`;
+  `docs/architecture.md:321`; `docs/architecture.md:322`;
+  `docs/architecture.md:325`; `docs/architecture.md:349`;
+  `docs/app-technical-plan-v0.1.md:223`.
+- Code/data/test location: `backend/witcher_larp/event_service.py:73`;
+  `backend/witcher_larp/event_service.py:82`;
+  `mobile/scripts/app_state.gd:17`; `mobile/scripts/app_state.gd:595`;
+  `mobile/scripts/app_state.gd:596`; `tests/test_event_sync.py:553`;
+  `tests/test_pve_runtime.py:911`; `tests/test_pve_runtime.py:912`.
+- Expected / Actual: expected idempotent retry after a lost HTTP response
+  preserves the original server decision (`accepted`, `rejected`,
+  `needs_master_review` or `pending_master_approval`) so the phone and player
+  still see the real recovery state. Actual duplicate lookup returns only
+  generic `duplicate`, and the mobile queue maps `accepted` or `duplicate` to
+  local `synced`, erasing original review/rejected/pending visibility after a
+  retry.
+- Gameplay impact: during Wi-Fi loss or app restart, a player can lose visible
+  indication that a PvE/manual/reward event is waiting for master review or
+  approval; masters still have server-side state, but the player's recovery
+  workflow falsely looks complete.
+- Recommendation: return the stored event status/reason for duplicate event ids
+  or add duplicate metadata that the client maps back to the original terminal
+  or review state; add lost-response retry tests for `needs_master_review`,
+  `pending_master_approval` and `rejected`.
+- Confirmation method: `rg -n` confirmed server duplicate responses select only
+  `server_event_id`, mobile retry includes `pending`/`sync_error`, and mobile
+  marks `duplicate` as `synced`; this is separate from baseline `AUD-004`
+  first-time rejected-status mapping.
+- Pass number: 9
+
+### AUD-NEXT-029 - P1 - Player snapshots expose master-only artifact metadata
+
+- Severity: P1
+- Source requirement: `docs/architecture.md:145`;
+  `docs/architecture.md:146`; `docs/architecture.md:252`;
+  `docs/architecture.md:265`; `docs/architecture.md:385`;
+  `docs/app-technical-plan-v0.1.md:45`;
+  `docs/app-technical-plan-v0.1.md:92`.
+- Code/data/test location: `backend/witcher_larp/snapshot_exporter.py:36`;
+  `backend/witcher_larp/snapshot_exporter.py:52`;
+  `backend/witcher_larp/snapshot_exporter.py:152`;
+  `backend/witcher_larp/snapshot_exporter.py:238`;
+  `backend/witcher_larp/snapshot_exporter.py:443`;
+  `backend/witcher_larp/game_ops_service.py:268`;
+  `backend/witcher_larp/game_ops_service.py:901`;
+  `data/seed/artifacts.csv:4`; `data/seed/artifacts.csv:6`;
+  `data/seed/artifacts.csv:8`; `tests/test_snapshot_exporter.py:51`;
+  `tests/test_fastapi_contract.py:113`.
+- Expected / Actual: expected player-scoped mobile snapshots hide master-only
+  and hidden-until-reveal artifact metadata while preserving only player-safe
+  content. Actual scoped snapshots remove only `player_codes` and `role_tokens`
+  at top level, leaving the full `artifacts` table including `master_only`,
+  `hidden_until_used`, `npc_price`, `needs_final_review` and
+  `final_counter_evidence` rows.
+- Gameplay impact: any player code can download the snapshot and learn hidden
+  dark/legendary artifacts, final counter-evidence and NPC/final hints before
+  ownership or reveal, undermining secrecy, NPC deals and final procedure.
+- Recommendation: scope or redact artifact catalog rows/fields for players
+  using the same artifact visibility policy as Admin visibility audit; add
+  snapshot/API tests asserting no `master_only` or unrevealed hidden artifacts
+  appear in player snapshots.
+- Confirmation method: backend snapshot builder includes `artifacts`, player
+  scoping filters only secret tables and private player fields, seed artifacts
+  contain hidden/master-only final metadata, and existing snapshot tests assert
+  only code/token/reputation redaction.
+- Pass number: 9
+
+### AUD-NEXT-030 - P2 - Caller-supplied Gwent round numbers can skip ahead and poison match progression
+
+- Severity: P2
+- Source requirement: `docs/app-technical-plan-v0.1.md:29`;
+  `docs/app-technical-plan-v0.1.md:275`;
+  `docs/architecture.md:336`; `docs/architecture.md:355`;
+  `docs/architecture.md:357`; `docs/active-tasks.md:306`.
+- Code/data/test location: `backend/witcher_larp/app.py:301`;
+  `backend/witcher_larp/app.py:1517`; `backend/witcher_larp/app.py:1521`;
+  `backend/witcher_larp/pvp_service.py:512`;
+  `backend/witcher_larp/pvp_service.py:514`;
+  `backend/witcher_larp/pvp_service.py:809`;
+  `backend/witcher_larp/pvp_service.py:3134`;
+  `backend/witcher_larp/pvp_service.py:3136`;
+  `tests/test_pvp_runtime.py:251`; `tests/test_pvp_runtime.py:617`.
+- Expected / Actual: expected Gwent records rounds in best-of-3 sequence and
+  rejects out-of-sequence round numbers unless a master correction/review path
+  explicitly handles them. Actual participant payload can supply `round_number`
+  1..3; the service uses it directly, inserts a pending row for that number,
+  and future default progression uses `MAX(round_number)+1`.
+- Gameplay impact: one authenticated participant can submit round 3 as the
+  first pending round; after that ordinary next-round submission defaults to 4
+  and fails the best-of-3 bound, stalling the match and stake flow until manual
+  cleanup/backfill.
+- Recommendation: require caller-supplied `round_number` to equal
+  `_next_round_number` for player submissions, reserve skip/backfill for a
+  master correction path, and add regression coverage for first submission with
+  round 3 plus subsequent normal submission.
+- Confirmation method: `rg -n` and small code snippets confirmed API accepts
+  optional `round_number`, `record_gwent_round` only checks `1..3`, pending
+  inserts use the supplied number, and existing tests cover normal/duplicate
+  round 1 flow but not out-of-sequence round numbers.
+- Pass number: 9
+
 ## Checked Without New Issues
 
 - Production profile seed/validation for 4 lords, 4 sorceresses, 5 witchers and
@@ -865,6 +1014,34 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
   `tests/test_lord_runtime.py:193`,
   `tests/test_lord_runtime.py:539`).
 
+## Pass 9 Checked Without New Issues
+
+- Backup manual/status routes: `/api/backups/run` and
+  `/api/master/backups/status` require master role token, and backup artifacts
+  remain covered by earlier restart/manifest checks; no new auth or recovery
+  issue was verified (`backend/witcher_larp/app.py:875`,
+  `backend/witcher_larp/app.py:883`,
+  `tests/test_admin_studio_contract.py:316`).
+- Timer ordinary idempotency: sequential and restart timer replay remain
+  covered by primary-keyed `applied_timer_ticks` and regression tests. A
+  possible concurrent timer duplicate was not included because side effects and
+  tick insert are in one SQLite transaction with a unique tick key; no
+  substantial duplicate state mutation was proven in this pass
+  (`backend/witcher_larp/timer_service.py:69`,
+  `backend/witcher_larp/timer_service.py:372`,
+  `tests/test_act_timer_runtime.py:97`).
+- Review/correction closure: non-PvE review side effects, resolved review
+  blockers and correction-settlement gaps remain covered by baseline `AUD-002`
+  and existing `AUD-NEXT-015`, `AUD-NEXT-020`, `AUD-NEXT-022` and
+  `AUD-NEXT-024`; no additional distinct review lifecycle issue was verified.
+- Import/validation gates: production profile, role tokens, act/unlock coverage,
+  QR/manual honesty, reward policy, final-summary policy, paper forms and
+  lord/sorceress/PvP business validations were rechecked through targeted
+  `rg -n`; no new content validation issue beyond already recorded matrix
+  issues was verified.
+- Tests/TaskOS subagent returned the Gwent round sequencing issue integrated as
+  `AUD-NEXT-030`; no additional TaskOS/generated-view issue was integrated.
+
 ## Out Of Scope
 
 - Full Stage 2B playable mobile UI, lord action UI and personal Gwent UI.
@@ -900,6 +1077,10 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
 - Pass 7: `uv run pytest -q` -> 221 passed, 1 warning, 224.06s.
 - Pass 8: checks not rerun per user direction; no product code changed after
   the Pass 7 green `validate` and full-suite run.
+- Pass 9: `uv run python scripts/taskctl.py validate` -> `tasks.json is valid
+  (81 tasks)`.
+- Pass 9: `uv run pytest -q` not run per user direction; product code was not
+  changed.
 
 ## Convergence Log
 
@@ -911,3 +1092,4 @@ No new substantial Stage 1/2/2A bugs were verified in this pass.
 - After Pass 6: 1 new substantial finding; consecutive zero-new passes = 0.
 - After Pass 7: 3 new substantial findings; consecutive zero-new passes = 0.
 - After Pass 8: 0 new substantial findings; consecutive zero-new passes = 1.
+- After Pass 9: 4 new substantial findings; consecutive zero-new passes = 0.
