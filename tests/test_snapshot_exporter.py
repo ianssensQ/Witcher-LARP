@@ -10,6 +10,8 @@ from backend.witcher_larp.act_service import reveal_unlock_code, start_act
 from backend.witcher_larp.config import PROJECT_ROOT, Settings
 from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
+from backend.witcher_larp.reputation_service import apply_reputation_change
+from backend.witcher_larp.reputation_service import get_reputation_view
 from backend.witcher_larp.snapshot_exporter import build_snapshot_from_database
 
 
@@ -72,6 +74,42 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
                     self.assertEqual(snapshot["players"], [snapshot["player"]])
                     self.assertNotIn("player_code_id", snapshot["player"])
                     self.assert_secret_tables_absent(snapshot)
+
+    def test_player_scoped_snapshot_hides_exact_reputation_value(self) -> None:
+        settings = self._settings("scoped_reputation")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            apply_reputation_change(
+                connection,
+                "p_witcher_1",
+                3,
+                reason="public contract accepted",
+            )
+            snapshot = build_snapshot_from_database(
+                connection,
+                player_code="WC-WOLF-6GF4",
+            )
+            master_view = get_reputation_view(
+                connection,
+                "p_witcher_1",
+                visibility="master",
+            )
+
+        assert snapshot is not None
+        player = snapshot["player"]
+        assert isinstance(player, dict)
+        reputation = player["reputation_state"]
+        assert isinstance(reputation, dict)
+
+        self.assertEqual(master_view["value"], 3)
+        self.assertNotIn("reputation", player)
+        self.assertNotIn("value", reputation)
+        self.assertNotIn("change_log", reputation)
+        self.assertEqual(reputation["state_label"], "Good")
+        self.assertEqual(reputation["player_descriptor"], "trusted")
+        self.assertEqual(reputation["value_visibility"], "hidden_from_player")
+        self.assertEqual(snapshot["players"], [player])
 
     def test_exported_full_snapshot_file_does_not_contain_role_or_player_codes(self) -> None:
         settings = self._settings("exported_snapshot")

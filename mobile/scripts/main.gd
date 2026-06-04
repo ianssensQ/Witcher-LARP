@@ -179,15 +179,14 @@ func _refresh_from_state() -> void:
 		return
 
 	var stats := player.get("stats", {})
-	var reputation := int(player.get("reputation", 0))
-	_character_label.text = "%s\nRole: %s\nLevel %s, XP %s, Gold %s\nReputation: %d (%s)\nStats: %s\nLogin: %s" % [
+	var reputation_text := AppState.player_reputation_display(player)
+	_character_label.text = "%s\nRole: %s\nLevel %s, XP %s, Gold %s\nReputation: %s\nStats: %s\nLogin: %s" % [
 		str(player.get("display_name", "Unknown")),
 		str(player.get("role_type", "unknown")),
 		str(player.get("level", 1)),
 		str(player.get("xp", 0)),
 		str(player.get("gold", 0)),
-		reputation,
-		AppState.reputation_label(reputation),
+		reputation_text,
 		JSON.stringify(stats),
 		str(AppState.session.get("login_status", "signed_out"))
 	]

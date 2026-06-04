@@ -711,16 +711,20 @@ func active_pve_cooldown(qr_id: String) -> Dictionary:
 	return cooldown if typeof(cooldown) == TYPE_DICTIONARY else {}
 
 
-func reputation_label(value: int) -> String:
-	if value <= -4:
-		return "Dark"
-	if value <= -2:
-		return "Tainted"
-	if value <= 1:
-		return "Neutral"
-	if value <= 3:
-		return "Good"
-	return "Light"
+func player_reputation_display(player: Dictionary) -> String:
+	var state = player.get("reputation_state", {})
+	if typeof(state) != TYPE_DICTIONARY:
+		return "Hidden"
+
+	var label := str(state.get("state_label", state.get("canonical_label", ""))).strip_edges()
+	var descriptor := str(state.get("player_descriptor", "")).strip_edges()
+	if not label.is_empty() and not descriptor.is_empty():
+		return "%s (%s)" % [label, descriptor]
+	if not label.is_empty():
+		return label
+	if not descriptor.is_empty():
+		return descriptor
+	return "Hidden"
 
 
 func clear_session() -> void:

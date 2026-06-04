@@ -86,6 +86,13 @@ class MobileShellContractTests(unittest.TestCase):
         self.assertEqual(snapshot_payload["visibility"]["scope"], "player")
         self.assertEqual(snapshot_payload["player"]["player_id"], "p_witcher_1")
         self.assertEqual(snapshot_payload["players"], [snapshot_payload["player"]])
+        player_reputation = snapshot_payload["player"]["reputation_state"]
+        self.assertNotIn("reputation", snapshot_payload["player"])
+        self.assertNotIn("value", player_reputation)
+        self.assertNotIn("change_log", player_reputation)
+        self.assertEqual(player_reputation["state_label"], "Neutral")
+        self.assertEqual(player_reputation["player_descriptor"], "uncertain")
+        self.assertEqual(player_reputation["value_visibility"], "hidden_from_player")
         self.assertNotIn("player_codes", snapshot_payload)
         self.assertNotIn("role_tokens", snapshot_payload)
         self.assertTrue(
@@ -257,12 +264,12 @@ class MobileShellContractTests(unittest.TestCase):
 
         self.assertEqual(dict(forged_stored), {
             "actor_id": "p_witcher_1",
-            "actor_type": "player",
+            "actor_type": "witcher",
             "status": "accepted",
         })
         self.assertEqual(dict(rejected_stored), {
             "actor_id": "p_witcher_1",
-            "actor_type": "player",
+            "actor_type": "witcher",
             "status": "rejected",
         })
         self.assertEqual(audit["status"], "rejected")
@@ -398,6 +405,19 @@ class MobileShellContractTests(unittest.TestCase):
         self.assertIn("_ensure_app_generated_pve_roll", app_state)
         self.assertIn("_calculate_pve_outcome", app_state)
         self.assertNotIn("suggested_pve_roll_for_result", combined)
+
+    def test_mobile_character_ui_uses_descriptive_reputation_only(self) -> None:
+        app_state = (MOBILE_ROOT / "scripts" / "app_state.gd").read_text(
+            encoding="utf-8"
+        )
+        main = (MOBILE_ROOT / "scripts" / "main.gd").read_text(encoding="utf-8")
+
+        self.assertIn("func player_reputation_display(player: Dictionary)", app_state)
+        self.assertIn("reputation_state", app_state)
+        self.assertIn("AppState.player_reputation_display(player)", main)
+        self.assertIn("Reputation: %s", main)
+        self.assertNotIn("Reputation: %d", main)
+        self.assertNotIn('player.get("reputation"', main)
 
     def test_mobile_scripts_queue_qr_presence_and_review_contexts(self) -> None:
         app_state = (MOBILE_ROOT / "scripts" / "app_state.gd").read_text(
@@ -587,6 +607,9 @@ class MobileShellContractTests(unittest.TestCase):
     def test_export_presets_document_mobile_smoke_paths_and_permissions(self) -> None:
         presets = (MOBILE_ROOT / "export_presets.cfg").read_text(encoding="utf-8")
         readme = (MOBILE_ROOT / "README.md").read_text(encoding="utf-8")
+        technical_plan = (
+            PROJECT_ROOT / "docs" / "app-technical-plan-v0.1.md"
+        ).read_text(encoding="utf-8")
 
         self.assertIn('name="Android Debug APK"', presets)
         self.assertIn(
@@ -598,6 +621,11 @@ class MobileShellContractTests(unittest.TestCase):
         self.assertIn("privacy/local_network_usage_description", presets)
         self.assertIn("Android export smoke", readme)
         self.assertIn("iOS export smoke", readme)
+        self.assertIn("Native camera decoding still needs a", readme)
+        self.assertIn("target-device plugin smoke before release", readme)
+        self.assertIn("Camera permission is off in this shell", readme)
+        self.assertIn("launch-risk: qr-camera", technical_plan)
+        self.assertIn("TASK-047`/`TASK-058`/`TASK-050", technical_plan)
 
     def _settings(self, name: str) -> Settings:
         return Settings(database_path=TEST_TMP_ROOT / f"{name}_{uuid4().hex}.db")

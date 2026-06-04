@@ -10,6 +10,7 @@ import sqlite3
 
 from .csv_loader import SeedPack
 from .repository import fetch_table
+from .reputation_service import ReputationError, get_reputation_view
 
 
 SNAPSHOT_TABLES = (
@@ -49,6 +50,7 @@ SNAPSHOT_TABLES = (
 )
 
 SECRET_SNAPSHOT_KEYS = {"player_codes", "role_tokens"}
+PRIVATE_PLAYER_KEYS = {"player_code_id", "reputation"}
 
 
 def build_snapshot_from_pack(pack: SeedPack) -> tuple[str, str, dict[str, object]]:
@@ -94,7 +96,15 @@ def build_snapshot_from_database(
         act_unlocks=act_unlocks,
     )
     if player_scope is not None:
-        return _scope_snapshot_to_player_id(snapshot, player_scope)
+        reputation_view = _player_reputation_view(
+            connection,
+            str(player_scope["player_id"]),
+        )
+        return _scope_snapshot_to_player_id(
+            snapshot,
+            player_scope,
+            reputation_view=reputation_view,
+        )
     return snapshot
 
 
@@ -122,6 +132,8 @@ def scope_snapshot_to_player(
 def _scope_snapshot_to_player_id(
     snapshot: dict[str, object],
     player_scope: dict[str, str],
+    *,
+    reputation_view: dict[str, object] | None = None,
 ) -> dict[str, object] | None:
     player_id = str(player_scope["player_id"])
     players = snapshot.get("players", [])
@@ -139,7 +151,11 @@ def _scope_snapshot_to_player_id(
         for key, value in snapshot.items()
         if key not in SECRET_SNAPSHOT_KEYS
     }
-    public_player = _public_player_payload(player)
+    public_player = _public_player_payload(
+        player,
+        descriptors=snapshot.get("descriptors"),
+        reputation_view=reputation_view,
+    )
     scoped["auth"] = {
         "scope": "player_code",
         "player_id": player_id,
@@ -347,11 +363,80 @@ def _player_scope_from_code(
     }
 
 
-def _public_player_payload(player: dict[str, str]) -> dict[str, str]:
-    return {
+def _player_reputation_view(
+    connection: sqlite3.Connection,
+    player_id: str,
+) -> dict[str, object] | None:
+    try:
+        return get_reputation_view(connection, player_id, visibility="player")
+    except (ReputationError, sqlite3.OperationalError):
+        return None
+
+
+def _public_player_payload(
+    player: dict[str, object],
+    *,
+    descriptors: object = None,
+    reputation_view: dict[str, object] | None = None,
+) -> dict[str, object]:
+    public_player: dict[str, object] = {
         key: value
         for key, value in player.items()
-        if key != "player_code_id"
+        if key not in PRIVATE_PLAYER_KEYS
+    }
+    reputation_state = _public_reputation_payload(
+        player,
+        descriptors=descriptors,
+        reputation_view=reputation_view,
+    )
+    if reputation_state:
+        public_player["reputation_state"] = reputation_state
+    return public_player
+
+
+def _public_reputation_payload(
+    player: dict[str, object],
+    *,
+    descriptors: object,
+    reputation_view: dict[str, object] | None,
+) -> dict[str, object]:
+    if reputation_view:
+        return _redact_reputation_view(reputation_view)
+
+    if str(player.get("role_type", "")) not in {"witcher", "sorceress"}:
+        return {}
+
+    rules = []
+    if isinstance(descriptors, dict):
+        candidate = descriptors.get("reputation_rules", [])
+        if isinstance(candidate, list):
+            rules = candidate
+    value = _to_int(player.get("reputation"))
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        min_value = _to_int(rule.get("min_value"))
+        max_value = _to_int(rule.get("max_value"))
+        if min_value <= value <= max_value:
+            return {
+                "state_label": str(rule.get("label", "")),
+                "canonical_label": str(rule.get("label", "")),
+                "player_descriptor": str(rule.get("player_descriptor", "")),
+                "value_visibility": "hidden_from_player",
+            }
+    return {"value_visibility": "hidden_from_player"}
+
+
+def _redact_reputation_view(view: dict[str, object]) -> dict[str, object]:
+    return {
+        key: view[key]
+        for key in (
+            "state_label",
+            "canonical_label",
+            "player_descriptor",
+            "value_visibility",
+        )
+        if key in view
     }
 
 
@@ -386,6 +471,12 @@ def _truthy(value: object) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() == "true"
+
+
+def _to_int(value: object) -> int:
+    if value is None or value == "":
+        return 0
+    return int(value)
 
 
 def _is_announced(value: object) -> bool:
