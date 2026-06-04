@@ -550,9 +550,21 @@ not `STAGE-2B`, because Playable Role UI has not started yet.
 battle/captured-territory UI blockers, `TASK-078` Admin Studio paper recovery
 and Game Ops blockers, `TASK-079` mobile reputation visibility, then
 `TASK-080` review/rewrite of tests that missed these issues. `TASK-045`,
-`TASK-058` and `TASK-050` now depend on `TASK-080`, so Stage 2B cannot start
-and Stage 3 cannot inherit these runtime or test-coverage gaps until the fixes
-and the new test audit are complete.
+`TASK-058` and `TASK-050` now depend on the later `TASK-087` gate, so Stage 2B
+cannot start until the earlier fixes, the test audit and the new audit
+remediation stage are complete.
+
+2026-06-04: after iterative audit passes 1-11 produced `AUD-NEXT-001..046`, a
+separate `STAGE-2A2` / `TASK-087` gate was added before Playable Role UI. This
+gate explicitly separates backend/domain authority fixes from UI guardrails:
+UI can remove unsafe controls and guide honest users, but it does not close an
+issue while direct API/sync/snapshot paths can still mutate unsafe state or
+expose hidden data. `TASK-081` classifies every finding, `TASK-082` closes
+visibility leaks, `TASK-083` closes offline sync/paper recovery/restore gaps,
+`TASK-084` closes timers/final/review lifecycle blockers, `TASK-085` closes
+gameplay authority gaps for PvP/Gwent/assets/lord/sorceress runtime, and
+`TASK-086` closes import/content invariant gates. `TASK-045`, `TASK-058` and
+`TASK-050` stay blocked until `TASK-087` accepts the remediation state.
 
 Core Game Engine должен закрыть:
 
@@ -571,7 +583,7 @@ Core Game Engine должен закрыть:
 - reputation/NPC runtime: King/Wanderer events, deals, hidden prices, severity P0/P1/P2/P3;
 - NPC-led final tournament/final summary: evidence, missing locks, pending disputes, locked magical intent, personal hooks and export, without automatic winner calculation.
 
-Stage 2-5 remain important, but they build on this core: Admin Studio, Playable Role UI (`TASK-050`), PvE generator, full content pack and balance/rehearsal. They should not reintroduce alternative MVP stages or move core runtime rules into "later balance". Playable Role UI must be accepted before generated PvE/content/balance gates are treated as app-level tests. Stage 2B acceptance is now the hard real-device/non-PvE gameplay gate: Android/iOS install-launch-connect-snapshot-restart-sync, 4 lord panels, valid lord map, personal Gwent, orders/trade, sorceress gameplay and Admin recovery must pass before Stage 3 starts.
+Stage 2-5 remain important, but they build on this core: Admin Studio, pre-2B audit remediation (`TASK-087`), Playable Role UI (`TASK-050`), PvE generator, full content pack and balance/rehearsal. They should not reintroduce alternative MVP stages or move core runtime rules into "later balance". Playable Role UI must be accepted before generated PvE/content/balance gates are treated as app-level tests. Stage 2B acceptance is now the hard real-device/non-PvE gameplay gate: Android/iOS install-launch-connect-snapshot-restart-sync, 4 lord panels, valid lord map, personal Gwent, orders/trade, sorceress gameplay and Admin recovery must pass before Stage 3 starts.
 
 ## Тестирование и репетиция
 
@@ -588,6 +600,7 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, Playable 
 - Сервер не теряет состояние после перезапуска.
 - 4 ноутбука лордов одновременно работают с веб-панелью.
 - Лордская карта в UI совпадает с `venue_map_v1`: playable nodes/edges, excluded old house/shed, route costs, ownership, contested, thematic fort/garrison and raid states.
+- Перед `TASK-045` проходит `TASK-087`: `AUD-NEXT-001..046` распределены по backend fixes, UI guardrails или accepted residual risk; unresolved P0/P1 и blocking P2 без owner/workaround не допускаются.
 - Visual reference smoke passes before `TASK-050`: lord castle/city-development screen with Olden Era-like building tree, thematic territory forts, visually distinct lord battle board, personal PvP/Gwent table and illustrated lord venue map are readable on target surfaces, data-bound to runtime state and use only original/local/generated assets.
 - Мастер может вручную исправить спорное событие.
 - Бой PvE, личный PvP на двух реальных мобильных клиентах и бой лордов проходят от начала до конца.

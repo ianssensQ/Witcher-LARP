@@ -2,16 +2,18 @@
 
 ## Stage-gate architecture
 
-Архитектура делится на шесть проверяемых этапов, которые отражены в `tasks.json` через `project.stages`, поле `stage` и отдельные gate-задачи.
+Архитектура делится на восемь проверяемых этапов, которые отражены в `tasks.json` через `project.stages`, поле `stage` и отдельные gate-задачи.
 
 1. **Core Game Engine** (`TASK-018`) - локальный FastAPI/SQLite runtime, Godot mobile shell, lord runtime panels, event log, rule engines, auto timers, backup hooks и final summary runtime.
 2. **Admin Studio** (`TASK-023`) - браузерная мастерская панель и студия: import/validation UI, snapshot controls, game ops, event review, corrections, NPC tools, visibility audit, backups и final summary view.
-3. **Playable Role UI** (`TASK-050`) - полноценные игровые UI поверх Stage 1 runtime и Stage 2 Admin Studio: mobile gameplay UI на реальных Android/iOS устройствах, lord action UI с валидной картой, personal PvP/Gwent UI, paper recovery/correction forms и UI-first acceptance без Swagger для игроков/лордов.
-4. **PvE Generation Engine** (`TASK-028`) - генератор внутри Admin Studio: draft quest model, templates, tier/stat/reward controls, QR modes, artifact/reputation/NPC/order flags, compiler в authoring matrix/runtime CSV и validation harness.
-5. **Unique Quest Production** (`TASK-032`) - production-контур контента: 40+ QR/PvE-квестов, ручная полировка, full content pack, QR print/manual checklist и content smoke.
-6. **Balance Simulation** (`TASK-037`) - симулятор archetype players и отчеты по progression, rewards, PvP, lord battles, economy, magic, artifacts, NPC deals и rehearsal readiness.
+3. **Stage 2 Review Remediation** (`TASK-080`) - закрытые pre-2B runtime/test fixes из ранних Stage 2 code reviews.
+4. **Audit Remediation and UI Guardrails** (`TASK-087`) - pre-2B gate: все `AUD-NEXT-001..046` распределены по backend authority fixes, import/sync/recovery/visibility fixes, UI guardrails или явно принятому non-blocking residual risk; UI не считается authority boundary.
+5. **Playable Role UI** (`TASK-050`) - полноценные игровые UI поверх Stage 1 runtime и Stage 2 Admin Studio: mobile gameplay UI на реальных Android/iOS устройствах, lord action UI с валидной картой, personal PvP/Gwent UI, paper recovery/correction forms и UI-first acceptance без Swagger для игроков/лордов.
+6. **PvE Generation Engine** (`TASK-028`) - генератор внутри Admin Studio: draft quest model, templates, tier/stat/reward controls, QR modes, artifact/reputation/NPC/order flags, compiler в authoring matrix/runtime CSV и validation harness.
+7. **Unique Quest Production** (`TASK-032`) - production-контур контента: 40+ QR/PvE-квестов, ручная полировка, full content pack, QR print/manual checklist и content smoke.
+8. **Balance Simulation** (`TASK-037`) - симулятор archetype players и отчеты по progression, rewards, PvP, lord battles, economy, magic, artifacts, NPC deals и rehearsal readiness.
 
-Техническая граница важна: Stage 1 не должен зависеть от генератора квестов, Stage 2 должен быть готов до Stage 2B, Stage 2B доказывает UI-first тестирование ролей без Swagger и готовность всего non-PvE gameplay на реальных игровых поверхностях, Stage 3 строит генератор уже поверх playable UI, а Stage 5 балансирует полный content pack, а не технические заглушки.
+Техническая граница важна: Stage 1 не должен зависеть от генератора квестов, Stage 2 должен быть готов до pre-2B audit remediation, `TASK-087` должен закрыть или явно принять существенные authority/visibility/recovery/import bugs до Stage 2B, Stage 2B доказывает UI-first тестирование ролей без Swagger и готовность всего non-PvE gameplay на реальных игровых поверхностях, Stage 3 строит генератор уже поверх playable UI, а Stage 5 балансирует полный content pack, а не технические заглушки.
 
 ## Ключевые решения
 
@@ -459,5 +461,6 @@ Immediate paper fallback включается для конкретного кр
 - Device smoke: player code, snapshot download, QR/manual input, offline PvE, restart, sync retry.
 - UI-first smoke after `TASK-050`: Android/iOS mobile gameplay UI, lord action UI with valid illustrated `venue_map_v1`, personal PvP/Gwent UI, Admin Studio paper recovery/corrections and final summary without Swagger for player/lord steps.
 - Visual/reference smoke after `TASK-067`/before `TASK-050`: screenshots for lord castle/city-development screen with Olden Era-like building tree, thematic territory forts, lord battle board, personal Gwent table and lord venue map; check readability, state labels, data bindings, visual distinction between PvP surfaces and IP-safe original/local assets.
+- Pre-2B audit remediation before `TASK-045`: `TASK-087` confirms `AUD-NEXT-001..046` are fixed through backend/domain authority where needed, UI guardrails are labelled as mitigation only, and no unresolved P0/P1/blocking P2 defects remain without owner/workaround.
 - Non-PvE hardening before `TASK-050`: real-device install/launch/connect/snapshot/restart/sync, 4 lord panels, lord map audit, personal Gwent, orders/trade, sorceress potions/spells/favorites/alignment, Admin recovery and no unresolved P0/P1/blocking P2 defects.
 - Full rehearsal: мастерский ноутбук, 4 лордских ноутбука, реальные телефоны, домашний Wi-Fi, 15-person profile, 10-hour fixed schedule, 9 mobile-role load/idle risk, NPC-master load, order pressure, offline act unlock, pending reward approval, full Gwent volume/throttle, trade conflicts, favorites impact, visual/readability proof, master-led final summary, final lock and game-day ops checklist.

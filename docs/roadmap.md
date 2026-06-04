@@ -184,16 +184,35 @@ movement rules, lord order lifecycle authority and seed business validation.
 recovery/event-sync role scope, `TASK-076` cross-lord order races and gold PvP
 stakes, `TASK-077` lord battle/captured-territory UI, `TASK-078` Admin Studio
 recovery/Game Ops blockers, `TASK-079` mobile reputation visibility, followed by
-`TASK-080` test review/rewrite. `TASK-045`, `TASK-058` and `TASK-050` depend on
-`TASK-080`, so Playable Role UI starts only after these fixes and their test
-audit are complete.
+`TASK-080` test review/rewrite. Этот блок остается закрытым Stage 2A follow-up;
+после дополнительного audit pass 1-11 перед UI добавлен отдельный gate
+`STAGE-2A2`.
+
+## Stage 2A2 - Audit Remediation and UI Guardrails
+
+Gate: `TASK-087`.
+
+2026-06-04: после накопительного audit `AUD-NEXT-001..046` добавлен отдельный
+pre-Stage-2B stage. Его смысл - не "спрятать ручки UI", а закрыть существенные
+bugs там, где нужен backend/domain authority, и явно пометить UI guardrails как
+mitigation. `TASK-081` классифицирует все findings на backend fix, UI
+guardrail, test coverage или accepted residual risk. `TASK-082` закрывает
+player/lord visibility leaks, `TASK-083` - offline sync, paper recovery и
+restore authority, `TASK-084` - timers/final lock/review lifecycle,
+`TASK-085` - gameplay authority для PvP/Gwent, assets, lord и sorceress
+runtime, `TASK-086` - import/content invariant gates. `TASK-087` принимает
+stage и блокирует Playable Role UI, пока по `AUD-NEXT-001..046` не останется
+unresolved P0/P1 или blocking P2 без owner/workaround.
+
+`TASK-045`, `TASK-058` и `TASK-050` зависят от `TASK-087`, поэтому Stage 2B
+начинается только после этого audit-remediation gate.
 
 ## Stage 2B - Playable Role UI
 
 Gate: `TASK-050`.
 
 Stage 2B starts with `TASK-045` only after the pre-stage remediation gate
-`TASK-080` is complete.
+`TASK-087` is complete.
 
 Цель: сделать основные игровые интерфейсы ролей полноценными до генерации и балансировки контента, чтобы весь задуманный gameplay без generated/full PvE content можно было тестировать как приложение, а не как Swagger/API smoke.
 
