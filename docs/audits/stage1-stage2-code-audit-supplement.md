@@ -1,416 +1,412 @@
 # Stage 1 + Stage 2 code audit supplement
 
-Дата: 2026-06-04 12:35 +03:00.
-
-HEAD: `4798e77`.
-
-Dirty status: перед записью этого supplement и coverage matrix рабочее дерево было чистым.
-После записи артефактов ожидаемо изменены только:
-
-- `docs/audits/stage1-stage2-code-audit-supplement.md`
-- `docs/audits/stage1-stage2-business-coverage-matrix.md`
-
-## Baseline Used
+Updated through Pass 2: 2026-06-04 13:34 +03:00.
 
 Baseline: `docs/audits/stage1-stage2-code-audit.md`.
 
-Baseline findings `AUD-001`..`AUD-005` использованы как уже известные и не
-дублировались. Baseline был создан для более раннего `HEAD 317e9c1`; этот
-supplement проверяет текущий `HEAD 4798e77` поверх baseline.
+Baseline findings `AUD-001`..`AUD-005` are known issues and are not duplicated
+here. This supplement audits current code above the baseline. Product code,
+`tasks.json`, generated views and `docs/core-engine-v1.2.md` were not edited.
+No TaskOS tasks were created.
+
+## Pass Log
+
+| Pass | Date | HEAD checked | Dirty status before audit edits | Method | Result |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 2026-06-04 12:35 +03:00 | `4798e77` | clean | `rg -n`, small code/doc snippets, one 4-agent wave, manual dedupe/recheck | 6 new substantial bugs |
+| 2 | 2026-06-04 13:31 +03:00 | `9767186` | clean | `rg -n`, small code/doc snippets, no subagents available in this tool context, manual dedupe/recheck | 12 new substantial bugs |
 
 ## Method And Context Strategy
 
-- Сначала прочитаны только `AGENTS.md`,
-  `docs/audits/stage1-stage2-code-audit.md` и `docs/active-tasks.md`.
-- Канонические документы не открывались целиком. Требования подтверждались
-  точечно через `rg -n`, затем открывались только маленькие фрагменты.
-- Запущена ровно одна волна из 4 субагентов: Business Logic,
-  Backend/Auth/Visibility, Sync/Recovery/Offline и Tests/TaskOS Scope.
-- Главный агент дедуплицировал кандидатов и вручную перепроверил каждую новую
-  находку в коде.
-- Код, `tasks.json`, generated views и `docs/core-engine-v1.2.md` не
-  редактировались. TaskOS-задачи не создавались.
-- Stage 2B UI pending считался границей: отсутствие полноценного mobile/lord
-  или personal Gwent UI не включалось как баг Stage 1/2/2A.
+- Initial orientation used only `AGENTS.md`,
+  `docs/audits/stage1-stage2-code-audit.md` and `docs/active-tasks.md`.
+- Canonical docs were not read end to end. Requirements were confirmed through
+  targeted `rg -n` hits and small fragments.
+- Each pass used risk areas distinct from the previous pass.
+- Pass 1 recorded a subagent wave in the original supplement. In this
+  continuation no subagent tool was available, so Pass 2 candidates were found
+  through direct `rg -n` slices and manually rechecked in code before inclusion.
+- Stage 2B UI absence was treated as out of scope. Missing full mobile/lord/Gwent
+  UI was not counted as a Stage 1/2/2A bug.
 
 ## Baseline Issues Not Duplicated
 
-- `AUD-001` P1: offline act unlock не работает из pre-game snapshot.
-- `AUD-002` P1: non-PvE paper recovery не восстанавливает domain state.
-- `AUD-003` P1: player snapshot раскрывает `final_hooks` до reveal.
-- `AUD-004` P2: mobile sync мапит `rejected` в `needs_master_review`.
-- `AUD-005` P2: `/api/pvp/tables` без auth раскрывает queue/stakes.
+- `AUD-001` P1: offline act unlock cannot work from pre-game snapshot.
+- `AUD-002` P1: non-PvE paper recovery does not restore domain state.
+- `AUD-003` P1: player snapshot exposes final hooks before reveal.
+- `AUD-004` P2: mobile sync maps `rejected` to `needs_master_review`.
+- `AUD-005` P2: `/api/pvp/tables` exposes queue/stakes without auth.
 
-## New Findings
+## New Findings By Pass
+
+### Pass 1
 
 ### AUD-NEXT-001 - P1 - Attacker capture can leave defeated defender garrison active
 
-Severity: P1
-
-Source requirement:
-
-- `docs/architecture.md:371` - lord battle includes surrender, hero HP result,
-  persisted losses and capture/garrison settlement.
-- `docs/architecture.md:375` - battle verification includes
-  retreat/capture/garrison after lord battle result.
-
-Code/data/test location:
-
-- `backend/witcher_larp/lord_battle_service.py:750` finishes battle through
-  losses, retreat and capture.
-- `backend/witcher_larp/lord_battle_service.py:803` decrements only casualties
-  from `garrison_runtime_state`.
-- `backend/witcher_larp/lord_battle_service.py:874` retreats surviving losing
-  active army only, not fort garrisons.
-- `backend/witcher_larp/lord_battle_service.py:914` sets attacker victory to
-  `capture_pending_garrison` without deactivating surviving defender garrisons.
-- `backend/witcher_larp/lord_runtime.py:432` adds the attacker garrison, and
-  `backend/witcher_larp/lord_runtime.py:439` changes territory owner, but does
-  not clear old active foreign garrisons.
-- Existing lord battle tests cover capture handoff and defender victory, but do
-  not assert that losing defender garrisons are removed/reviewed after attacker
-  victory.
-
-Expected:
-
-When an attacker wins a territory battle by surrender, hero HP or unit wipe, the
-losing defender fort garrison must be settled before ownership changes:
-destroyed, retreated by explicit rule, or routed to master review.
-
-Actual:
-
-Surviving defender garrisons remain `active`. The attacker can then complete
-the capture by placing a new garrison and flipping `owner_domain_id`, leaving an
-active foreign garrison in the captured territory.
-
-Gameplay impact:
-
-Lord state becomes contradictory: the new owner controls the territory while the
-old owner still has active hidden military power in the same fort. This can
-distort hidden garrison visibility, army power, final summary and later
-capture/defense decisions.
-
-Recommendation:
-
-During attacker capture settlement, deactivate, burn, retreat or explicitly
-review every losing-side garrison in the territory before allowing
-`capture_pending_garrison` to become `controlled`. Add regression coverage for
-surrender/hero-HP capture with a surviving defender garrison.
-
-Confirmation method:
-
-Create a lord-vs-lord battle on `territory_res_river`, force attacker victory
-while `garrison_river_home` survives, complete attacker garrison handoff, then
-query active garrisons for that territory. Expected: no active defender garrison
-remains without review.
+- Severity: P1
+- Source requirement: `docs/architecture.md:371`; `docs/architecture.md:375`.
+- Code/data/test location: `backend/witcher_larp/lord_battle_service.py:750`,
+  `:803`, `:874`, `:914`; `backend/witcher_larp/lord_runtime.py:432`, `:439`;
+  lord battle tests do not assert defeated defender garrison cleanup.
+- Expected / Actual: expected losing defender garrison is destroyed, retreated or
+  routed to review before ownership flips; actual surviving defender garrison
+  can remain active after attacker capture handoff.
+- Gameplay impact: captured territory can contain active hidden military power
+  from the old owner, distorting lord visibility, battles and final evidence.
+- Recommendation: settle all losing-side garrisons before
+  `capture_pending_garrison` becomes controlled.
+- Confirmation method: force attacker victory over a territory with a surviving
+  defender garrison, complete attacker garrison handoff, and assert no active
+  defender garrison remains without review.
+- Pass number: 1
 
 ### AUD-NEXT-002 - P2 - `/api/qr/lookup` is unauthenticated and trusts caller-supplied player identity
 
-Severity: P2
-
-Source requirement:
-
-- `docs/PRD.md:71` - QR/manual ID use requires physical presence and чужой or
-  off-location use must block to master review.
-- `docs/app-technical-plan-v0.1.md:92` - mobile flow begins with player-code
-  login, snapshot and character display before QR/manual input.
-- `docs/architecture.md:349` - server sync checks QR/manual ID policy,
-  physical-presence honesty policy and act availability.
-
-Code/data/test location:
-
-- `backend/witcher_larp/app.py:69` accepts `player_id` and `device_id` in the
-  QR lookup body.
-- `backend/witcher_larp/app.py:413` exposes `POST /api/qr/lookup` without
-  `X-Player-Code` or `X-Role-Token`.
-- `backend/witcher_larp/app.py:420` passes caller-supplied `player_id` into
-  `QrLookupRequest`.
-- `backend/witcher_larp/qr_runtime.py:57` performs lookup and rate-limit
-  decisions from that request.
-- `backend/witcher_larp/qr_runtime.py:328` writes `qr_attempts` and `event_log`
-  rows under the supplied `player_id`.
-- `tests/test_fastapi_contract.py` calls `/api/qr/lookup` without auth in
-  multiple contract tests.
-
-Expected:
-
-Player QR/manual lookup should require authenticated player-code context and
-derive `player_id` from that auth. Anonymous diagnostics, if kept, should be
-non-mutating and should not return player-scoped scene payload or write
-player-scoped audit rows.
-
-Actual:
-
-Any device on the local network can submit a known QR/manual code, claim any
-`player_id`, receive QR/scenario/event context, and write attempts/log rows
-under the claimed identity.
-
-Gameplay impact:
-
-Players can preview scene and reward mechanics from observed/shared codes and
-can pollute another player's QR attempt history or manual-rate-limit review
-state. This weakens physical-presence and чужой-QR controls even though final
-PvE event sync remains separately authenticated.
-
-Recommendation:
-
-Require player-code auth for `/api/qr/lookup`, overwrite body identity from
-auth, and keep master/diagnostic lookup on a separate scoped endpoint if needed.
-Add tests for missing auth, wrong player spoofing and authenticated attempt
-ownership.
-
-Confirmation method:
-
-Call `/api/qr/lookup` without auth using `player_id=p_witcher_1`; expected
-future behavior is `401` and no `qr_attempts` row. Then call with
-`X-Player-Code: WC-WOLF-6GF4` and verify the attempt is recorded as
-`p_witcher_1` regardless of body identity.
+- Severity: P2
+- Source requirement: `docs/PRD.md:71`; `docs/app-technical-plan-v0.1.md:92`;
+  `docs/architecture.md:349`.
+- Code/data/test location: `backend/witcher_larp/app.py:413`, `:420`;
+  `backend/witcher_larp/qr_runtime.py:57`, `:328`;
+  `tests/test_fastapi_contract.py` calls the endpoint without auth.
+- Expected / Actual: expected player QR lookup derives `player_id` from
+  authenticated player code; actual anonymous caller can submit any `player_id`,
+  receive QR context and write attempt/log rows under that identity.
+- Gameplay impact: players can preview scene mechanics and pollute another
+  player's QR attempt/rate-limit history.
+- Recommendation: require player-code auth, overwrite body identity from auth,
+  and keep diagnostics on a separate scoped endpoint.
+- Confirmation method: unauthenticated lookup should return `401` and create no
+  `qr_attempts`; authenticated lookup should record the authenticated player.
+- Pass number: 1
 
 ### AUD-NEXT-003 - P2 - Player-code auth response leaks exact numeric reputation
 
-Severity: P2
-
-Source requirement:
-
-- `docs/app-technical-plan-v0.1.md:94` - player sees descriptive reputation and
-  hidden final hooks only after reveal.
-- `docs/PRD.md:97` and `docs/PRD.md:163` - players see only descriptive
-  Good/Evil state, while masters see exact value and reason log.
-- `docs/architecture.md:213` - master sees exact reputations.
-
-Code/data/test location:
-
-- `backend/witcher_larp/app.py:461` returns player-code auth payload.
-- `backend/witcher_larp/app.py:1897` builds the auth identity.
-- `backend/witcher_larp/app.py:1936` includes raw `player["reputation"]`.
-- `backend/witcher_larp/snapshot_exporter.py:53` treats `reputation` as a
-  private player key.
-- `backend/witcher_larp/snapshot_exporter.py:380` projects players through a
-  redacted `reputation_state`.
-- `tests/test_fastapi_contract.py:145` checks the auth response does not expose
-  the secret player code, but does not check reputation redaction.
-
-Expected:
-
-Player-code auth should return identity and permissions only, or the same
-redacted `reputation_state` used in player snapshots.
-
-Actual:
-
-The auth response includes a nested `player` object with raw numeric
-`reputation`.
-
-Gameplay impact:
-
-A player can see the exact hidden Good/Evil scalar and optimize around
-thresholds, NPC consequences and final reputation signals instead of seeing only
-the intended descriptive state.
-
-Recommendation:
-
-Sanitize `_authenticate_player_code` with the same public player projection used
-by snapshots, or remove the nested raw `player` object and let the client fetch
-the scoped snapshot after auth.
-
-Confirmation method:
-
-Add an API regression test for `/api/auth/player-code` asserting that neither
-`payload["player"]["reputation"]` nor any exact `value` field is present, while
-descriptive `reputation_state` is available if player reputation is included.
+- Severity: P2
+- Source requirement: `docs/app-technical-plan-v0.1.md:94`; `docs/PRD.md:97`,
+  `:163`; `docs/architecture.md:213`.
+- Code/data/test location: `backend/witcher_larp/app.py:461`, `:1897`, `:1936`;
+  `backend/witcher_larp/snapshot_exporter.py:53`, `:380`;
+  `tests/test_fastapi_contract.py:145`.
+- Expected / Actual: expected auth response omits exact reputation or returns
+  redacted `reputation_state`; actual nested `player.reputation` exposes the raw
+  value.
+- Gameplay impact: players can optimize against hidden Good/Evil thresholds and
+  NPC/final consequences.
+- Recommendation: sanitize auth identity through the same public player
+  projection used by snapshots, or remove nested raw player data.
+- Confirmation method: auth regression asserts no exact `reputation` or `value`
+  is present for a player-code response.
+- Pass number: 1
 
 ### AUD-NEXT-004 - P2 - Rejected paper recovery attempts poison later corrected input for the same paper form
 
-Severity: P2
-
-Source requirement:
-
-- `docs/architecture.md:323` - `paper_recovered` is a recovered event that
-  passes the same idempotency/conflict checks.
-- `docs/architecture.md:343` - paper recovery must not silently overwrite
-  digital state; conflicts go to review.
-- `docs/architecture.md:449` and `docs/app-technical-plan-v0.1.md:620` - paper
-  forms are applied through ordinary checks or routed to review.
-
-Code/data/test location:
-
-- `backend/witcher_larp/event_service.py:539` handles `paper_recovered`.
-- `backend/witcher_larp/event_service.py:575` rejects missing fields or bad
-  timestamps before duplicate handling.
-- `backend/witcher_larp/event_service.py:592` checks duplicate `paper_form_id`.
-- `backend/witcher_larp/event_service.py:1123` scans all prior
-  `paper_recovered` events regardless of status.
-- `tests/test_paper_recovery.py:115` covers readable rejection diagnostics.
-- `tests/test_paper_recovery.py:220` covers duplicate/conflict routing after
-  an already reviewable paper event, but not rejected-then-corrected intake.
-
-Expected:
-
-A malformed/rejected paper intake, such as a bad timestamp or missing operator,
-should not reserve the `paper_form_id`. A corrected clean intake for the same
-physical form should proceed through normal recovery checks.
-
-Actual:
-
-The first rejected `paper_recovered` row remains in `events`. Later corrected
-input with the same `paper_form_id` is treated as a duplicate and routed to
-`needs_master_review`.
-
-Gameplay impact:
-
-A master typo during outage recovery can turn an otherwise clean recovery into
-manual review. For PvE this can break the one paper form type that currently
-auto-applies; for non-PvE it compounds baseline `AUD-002` by adding extra
-master load and ambiguity.
-
-Recommendation:
-
-Exclude prior `rejected` rows from paper duplicate detection, or distinguish
-invalid intake attempts from accepted/reviewable recovered-form claims.
-
-Confirmation method:
-
-Submit `paper_pve_result` with `paper_form_id=paper-x` and invalid timestamp,
-then resubmit the same form with a valid timestamp. Expected future behavior:
-the corrected event is `accepted` and PvE side effects apply once.
+- Severity: P2
+- Source requirement: `docs/architecture.md:323`, `:343`, `:449`;
+  `docs/app-technical-plan-v0.1.md:620`.
+- Code/data/test location: `backend/witcher_larp/event_service.py:539`, `:575`,
+  `:592`, `:1123`; `tests/test_paper_recovery.py:115`, `:220`.
+- Expected / Actual: expected malformed rejected intake does not reserve
+  `paper_form_id`; actual later corrected intake with the same form id is treated
+  as duplicate review.
+- Gameplay impact: a master typo can convert clean recovery into avoidable
+  review and ambiguity during outage recovery.
+- Recommendation: exclude rejected rows from paper duplicate detection or split
+  invalid intake attempts from recovered-form claims.
+- Confirmation method: submit invalid timestamp for `paper_form_id`, then
+  resubmit valid data; corrected PvE paper form should apply normally.
+- Pass number: 1
 
 ### AUD-NEXT-005 - P2 - Player-controlled `mandatory=false` bypasses PvP token pacing and started-match cap
 
-Severity: P2
-
-Source requirement:
-
-- `docs/architecture.md:355` - server verifies challenge token; each witcher
-  and sorceress receives 3 challenge tokens per story act, and PvP throttle
-  enforces per-act started mandatory match cap.
-- `docs/PRD.md:139` - the 3 challenge tokens per act rule is part of personal
-  PvP/Gwent volume control.
-
-Code/data/test location:
-
-- `backend/witcher_larp/app.py:285` exposes `mandatory` in the player challenge
-  payload.
-- `backend/witcher_larp/app.py:1450` passes `payload.mandatory` directly into
-  challenge creation.
-- `backend/witcher_larp/pvp_service.py:273` spends a challenge token only when
-  `request.mandatory` is true.
-- `backend/witcher_larp/pvp_service.py:2226` skips started-cap checks for
-  non-mandatory challenges.
-- `rg` found no regression that a normal player cannot create a full
-  stake-locking `mandatory=false` challenge.
-
-Expected:
-
-Normal player-created full Gwent challenges should consume/validate the
-challenge token budget, or `mandatory=false` should be master-only/admin-only
-with separate non-match semantics.
-
-Actual:
-
-An authenticated player can create a full stake-locking, table-assigning PvP
-challenge with `mandatory=false`; no token is spent and started mandatory cap is
-bypassed.
-
-Gameplay impact:
-
-PvP volume and table pressure can exceed the 15-person pacing model. Players can
-create additional full Gwent matches and stake locks outside the intended token
-budget.
-
-Recommendation:
-
-Require token spend for all ordinary player-created full PvP challenges, or
-restrict `mandatory=false` to master-approved flows and make that branch
-explicit in tests and UI contracts.
-
-Confirmation method:
-
-POST `/api/pvp/challenges` with a valid player code and `"mandatory": false`;
-verify the challenge is assigned or queued and `player_runtime_state.challenge_tokens`
-does not decrement. Future expected behavior should reject or master-gate this
-path.
+- Severity: P2
+- Source requirement: `docs/architecture.md:355`; `docs/PRD.md:139`.
+- Code/data/test location: `backend/witcher_larp/app.py:285`, `:1450`;
+  `backend/witcher_larp/pvp_service.py:273`, `:2226`; no regression prevents
+  ordinary players from creating full `mandatory=false` challenges.
+- Expected / Actual: expected ordinary full PvP challenges consume token budget,
+  or non-mandatory flow is master-only; actual player can create full
+  stake-locking `mandatory=false` challenge without spending tokens or started
+  cap.
+- Gameplay impact: PvP volume and stake locks can exceed the intended 15-person
+  pacing model.
+- Recommendation: spend tokens for all ordinary full PvP challenges or restrict
+  non-mandatory challenges to master-approved flows.
+- Confirmation method: create challenge with valid player code and
+  `"mandatory": false`; token count should not remain unchanged in fixed code.
+- Pass number: 1
 
 ### AUD-NEXT-006 - P2 - Queued PvP challenges still count as active and can block the target before a table exists
 
-Severity: P2
+- Severity: P2
+- Source requirement: `docs/PRD.md:77`; `docs/architecture.md:260`, `:355`.
+- Code/data/test location: `backend/witcher_larp/pvp_service.py:23`, `:237`,
+  `:239`, `:2854`; `tests/test_pvp_runtime.py:2068`.
+- Expected / Actual: expected queued challenge does not block target/goal before
+  a table and start window exist; actual `queued` is in active challenge states.
+- Gameplay impact: queued challenges can become soft denial under limited/paused
+  tables and stall interception pressure.
+- Recommendation: clarify queue semantics and either remove `queued` from active
+  blockers or add visible bounded master policy.
+- Confirmation method: under limited throttle, create queued challenge involving
+  a target and attempt another valid challenge involving that target.
+- Pass number: 1
 
-Source requirement:
+### Pass 2
 
-- `docs/PRD.md:77` - PvP throttling says queued challenges do not block the
-  target/goal, while started mandatory matches are capped per player per act.
-- `docs/architecture.md:260` and `docs/architecture.md:355` - PvP runtime has
-  queued behavior, active challenge cap, table assignment and throttle.
+### AUD-NEXT-007 - P1 - Future-act offline PvE can be accepted by late sync after act reveal
 
-Code/data/test location:
+- Severity: P1
+- Source requirement: `docs/PRD.md:58`, `:59`; `docs/architecture.md:349`.
+- Code/data/test location: `backend/witcher_larp/event_service.py:275`;
+  `backend/witcher_larp/pve_runtime.py:300`, `:515`;
+  `tests/test_pve_runtime.py:516`.
+- Expected / Actual: expected Act 2/3/Final offline event created before
+  physical announcement/reveal is rejected or reviewed even if it syncs later;
+  actual validation uses current server act history at sync time.
+- Gameplay impact: players can pre-play future-act QR content and sync it after
+  reveal, polluting authoritative PvE attempts, rewards, unique consumption and
+  final evidence out of schedule.
+- Recommendation: validate `event.created_at` or app roll time against
+  `act_history`/unlock reveal time and require timestamped accepted unlock proof
+  for offline master-code paths.
+- Confirmation method: create Act 2 PvE event before Act 2 announcement, reveal
+  Act 2, sync old event, and assert no accepted PvE side effects.
+- Pass number: 2
 
-- `backend/witcher_larp/pvp_service.py:23` includes `queued` in
-  `ACTIVE_CHALLENGE_STATES`.
-- `backend/witcher_larp/pvp_service.py:237` and `:239` reject new challenges if
-  challenger or target has an active challenge.
-- `backend/witcher_larp/pvp_service.py:2854` implements that active check using
-  all `ACTIVE_CHALLENGE_STATES`, including `queued`.
-- `tests/test_pvp_runtime.py:2068` covers queued start-window timing, but not
-  the non-blocking target/goal behavior.
+### AUD-NEXT-008 - P1 - Standalone reward approval requests can mint pending rewards without PvE provenance
 
-Expected:
+- Severity: P1
+- Source requirement: `docs/architecture.md:349`;
+  `docs/app-technical-plan-v0.1.md:564`.
+- Code/data/test location: `backend/witcher_larp/event_service.py:200`, `:468`,
+  `:824`; `backend/witcher_larp/reward_service.py:226`;
+  `tests/test_reward_approvals.py`.
+- Expected / Actual: expected pending reward approval is bound to an accepted or
+  reviewable PvE/paper source; actual player sync can request any known pending
+  reward id and create a grantable approval.
+- Gameplay impact: rare assets, gold and final evidence rewards can be minted
+  through master queue without completing the source scene.
+- Recommendation: require source event/scenario/check provenance and verify it
+  belongs to the actor; make standalone approval creation master-only.
+- Confirmation method: sync `reward_approval_requested` for
+  `reward_final_evidence` without a matching PvE attempt; fixed behavior should
+  reject or review as missing provenance and create no grantable approval.
+- Pass number: 2
 
-A queued challenge that has no assigned table and no start window should not by
-itself block the target/player/object from other valid PvP flow, unless the
-design explicitly treats queued as an active engagement.
+### AUD-NEXT-009 - P2 - Unique QR conflict is ignored during concurrent sync side effects
 
-Actual:
+- Severity: P2
+- Source requirement: `docs/architecture.md:349`, `:453`.
+- Code/data/test location: `backend/witcher_larp/pve_runtime.py:352`, `:418`,
+  `:423`, `:436`; `tests/test_event_sync.py:371`.
+- Expected / Actual: expected atomic consume claim decides authority and losing
+  event skips side effects; actual `ON CONFLICT(qr_id) DO NOTHING` ignores the
+  losing insert and still records an accepted PvE attempt path.
+- Gameplay impact: during Wi-Fi recovery bursts, duplicate unique-object events
+  can both look accepted and create duplicate attempts/reward evidence.
+- Recommendation: inspect the consume insert result and convert conflict losers
+  to review/reject before writing accepted side effects.
+- Confirmation method: two SQLite connections validate the same unique QR before
+  commit; fixed behavior accepts one and gives the other no accepted side
+  effects.
+- Pass number: 2
 
-Queued challenges are considered active for both challenger and target. A queued
-challenge can therefore block another challenge involving the same player before
-a table exists or the 30-minute window starts.
+### AUD-NEXT-010 - P1 - Late post-lock magical intent can overwrite locked final evidence
 
-Gameplay impact:
+- Severity: P1
+- Source requirement: `docs/PRD.md:104`, `:169`; `docs/architecture.md:263`,
+  `:339`, `:385`.
+- Code/data/test location: `backend/witcher_larp/sorceress_service.py:359`,
+  `:405`; `backend/witcher_larp/final_summary_service.py:661`, `:688`, `:895`.
+- Expected / Actual: expected valid pre-final locked intent remains final
+  authority and later post-lock attempts are disputes; actual latest
+  review-pending post-lock record can change final summary state from `locked`
+  to `review_pending`.
+- Gameplay impact: a late invalid spell attempt can dirty a valid final signal
+  and create a false blocker during the NPC-led final.
+- Recommendation: prefer latest valid locked intent at/before final lock as
+  authority and expose later review/disputed attempts separately.
+- Confirmation method: lock intent before final lock, cast another locked-intent
+  spell after final lock, and assert summary remains `locked` with separate
+  dispute evidence.
+- Pass number: 2
 
-Under limited/paused tables, queued challenges can be used as a soft denial or
-can stall object/interception pressure despite the queue being intended as a
-throttle buffer rather than a live match.
+### AUD-NEXT-011 - P2 - Final summary counts seed Gwent fixture as real PvP evidence
 
-Recommendation:
+- Severity: P2
+- Source requirement: `docs/PRD.md:139`, `:171`;
+  `docs/app-technical-plan-v0.1.md:325`.
+- Code/data/test location: `data/seed/gwent_matches.csv:2`;
+  `backend/witcher_larp/final_summary_service.py:879`, `:1180`.
+- Expected / Actual: expected final readiness counts runtime Gwent, paper PvP or
+  explicit master evidence; actual imported seed fixture clears missing
+  `pvp_gwent` even if no match happened.
+- Gameplay impact: masters can miss absent PvP/Gwent evidence before final.
+- Recommendation: treat `gwent_matches.csv` as fixture/context only; clear
+  missing PvP evidence from runtime match statuses or recovered/master evidence.
+- Confirmation method: import seed without starting PvP and assert `pvp_gwent`
+  remains missing; finish a runtime match and assert it clears.
+- Pass number: 2
 
-Clarify queued semantics and enforce them in code: either remove `queued` from
-the active-player blocker, or add an explicit master/timeout policy that makes
-queued blocking visible and bounded.
+### AUD-NEXT-012 - P1 - Asset locks are global by asset id for items/cards/artifacts
 
-Confirmation method:
+- Severity: P1
+- Source requirement: `docs/PRD.md:67`; `docs/architecture.md:170`, `:255`,
+  `:357`.
+- Code/data/test location: `backend/witcher_larp/asset_service.py:270`, `:291`,
+  `:300`, `:480`; `backend/witcher_larp/sorceress_service.py:589`;
+  `backend/witcher_larp/pvp_service.py:1251`.
+- Expected / Actual: expected owned-asset lock reserves a specific owner's
+  quantity; actual item/card/artifact lock blocks every owner of the same asset
+  id.
+- Gameplay impact: one player's pending reward/trade/PvP stake can falsely
+  freeze common assets for unrelated players.
+- Recommendation: scope owned-asset locks by owner for all ownership asset
+  types and reserve global locks for explicit global cases.
+- Confirmation method: give two players the same item/card id, lock player A's
+  copy, and assert player B can still trade/stake their copy.
+- Pass number: 2
 
-Set PvP throttle to `limited`, create one assigned challenge and one queued
-challenge involving `p_witcher_3`, then attempt another valid challenge involving
-`p_witcher_3`. Expected future behavior should match the documented
-non-blocking queue policy.
+### AUD-NEXT-013 - P1 - Final summary omits current owned artifacts/items/cards
+
+- Severity: P1
+- Source requirement: `docs/PRD.md:169`; `docs/architecture.md:252`, `:265`,
+  `:385`.
+- Code/data/test location: `backend/witcher_larp/final_summary_service.py:57`,
+  `:58`, `:323`, `:349`; `backend/witcher_larp/asset_service.py:57`;
+  `backend/witcher_larp/game_ops_service.py:823`.
+- Expected / Actual: expected final summary exposes current final-relevant asset
+  ownership after approvals, trades and PvP settlement; actual it shows active
+  locks/pending rewards but omits ordinary `asset_ownership`.
+- Gameplay impact: NPC masters can miss who owns artifacts, plot keys, rare
+  cards or final tokens unless inferred from event history.
+- Recommendation: add owner-scoped asset ledger to final summary and role
+  evidence, separate from lock/dispute sections.
+- Confirmation method: approve or trade a final-relevant asset and assert final
+  summary shows the current owner.
+- Pass number: 2
+
+### AUD-NEXT-014 - P1 - Gwent start lets one participant control and inspect the opponent opening hand
+
+- Severity: P1
+- Source requirement: `docs/PRD.md:139`; `docs/architecture.md:355`, `:357`.
+- Code/data/test location: `backend/witcher_larp/app.py:1464`, `:1487`;
+  `backend/witcher_larp/pvp_service.py:405`, `:1349`, `:2340`.
+- Expected / Actual: expected non-master participant submits only own mulligans
+  and sees only own private hand/draw pile; actual either participant can submit
+  mulligans for both players and receives full `deck_state` for both.
+- Gameplay impact: a player can inspect/manipulate opponent opening hand in a
+  stake-bearing match, breaking Gwent fairness.
+- Recommendation: pass authenticated actor to start service, reject foreign
+  mulligan keys for non-masters, and return viewer-scoped match payloads.
+- Confirmation method: start as challenger with target mulligan key; fixed
+  behavior rejects target mutation and hides opponent hand/draw pile.
+- Pass number: 2
+
+### AUD-NEXT-015 - P2 - Resolved review items can remain final-summary blockers
+
+- Severity: P2
+- Source requirement: `docs/app-technical-plan-v0.1.md:21`, `:572`;
+  `docs/architecture.md:385`.
+- Code/data/test location: `backend/witcher_larp/npc_service.py:258`, `:263`;
+  `backend/witcher_larp/final_summary_service.py:516`, `:909`;
+  `backend/witcher_larp/game_ops_service.py:499`.
+- Expected / Actual: expected approved/rejected/corrected reviews are history;
+  actual review queue/final summary can still treat them as pending disputes and
+  create `unresolved_review`.
+- Gameplay impact: masters can close a P0/P1 review and still see it block final
+  summary while Admin/GameOps open count is zero.
+- Recommendation: split review history from open queue and filter final pending
+  disputes to non-final statuses.
+- Confirmation method: approve a P1 review, then assert review queue and final
+  summary no longer contain it as unresolved.
+- Pass number: 2
+
+### AUD-NEXT-016 - P2 - Final summary omits unresolved lord pending tick rewards
+
+- Severity: P2
+- Source requirement: `docs/PRD.md:147`, `:169`; `docs/architecture.md:385`.
+- Code/data/test location: `backend/witcher_larp/timer_service.py:505`;
+  `backend/witcher_larp/lord_runtime.py:1161`;
+  `backend/witcher_larp/game_ops_service.py:627`;
+  `backend/witcher_larp/final_summary_service.py:38`, `:270`.
+- Expected / Actual: expected unresolved lord income/influence pending tick
+  rewards appear as pending/disputed final evidence; actual final summary omits
+  them unless already awarded.
+- Gameplay impact: if final lock happens with contested lord income pending,
+  masters may miss unsettled economic evidence.
+- Recommendation: include `pending_tick_reward_runtime` in lord evidence and
+  pending dispute/missing-lock sections while status is `pending`.
+- Confirmation method: create contested claim, let income tick create a pending
+  reward, do not resolve battle, and assert final summary shows it.
+- Pass number: 2
+
+### AUD-NEXT-017 - P1 - Lord order final lock can be bypassed by client-controlled source
+
+- Severity: P1
+- Source requirement: `docs/PRD.md:107`; `docs/app-technical-plan-v0.1.md:48`;
+  `docs/architecture.md:385`, `:449`.
+- Code/data/test location: `backend/witcher_larp/lord_runtime.py:42`, `:733`;
+  `backend/witcher_larp/app.py:745`, `:787`;
+  `tests/test_final_summary_runtime.py:319`, `:330`.
+- Expected / Actual: expected only master/recovery authority can create
+  paper/final-evidence orders after final lock; actual a normal lord-token
+  request can set `source` to `paper_final_evidence`, `paper_recovered`,
+  `master_api` or `master_override` and pass the source-only final-lock check.
+- Gameplay impact: lords can reopen order/escrow flow after final lock, changing
+  final evidence and master workload during the NPC-led final window.
+- Recommendation: derive override source from authenticated master/recovery
+  routes, not client payload; for lord-token creates, normalize source to
+  `lord_panel` before final-lock checks.
+- Confirmation method: after `final_lock`, POST `/api/lords/{lord_id}/orders`
+  with a lord token and `source: "paper_final_evidence"`; fixed behavior should
+  return `final_lock_orders_closed` unless authenticated as master/recovery.
+- Pass number: 2
+
+### AUD-NEXT-018 - P2 - Potion per-scene cap accepts arbitrary scene ids
+
+- Severity: P2
+- Source requirement: `docs/PRD.md:94`; `docs/app-technical-plan-v0.1.md:44`;
+  `docs/architecture.md:379`; `docs/roadmap.md:120`.
+- Code/data/test location: `backend/witcher_larp/sorceress_service.py:880`,
+  `:896`, `:912`; `backend/witcher_larp/app.py:1229`, `:1247`;
+  `tests/test_sorceress_runtime.py:275`, `:282`, `:958`.
+- Expected / Actual: expected one potion per real PvE scene/check context;
+  actual `use_potion_in_scene` never validates `scene_id`, so a player can use
+  multiple potions by submitting different fake scene ids.
+- Gameplay impact: potion economy and scene modifiers can be spammed around the
+  intended one-potion cap, especially on hard PvE/final scenes.
+- Recommendation: validate `scene_id` against `pve_scenarios`/QR context or
+  bind potion use to an accepted scene event/check id; reject unknown or
+  mismatched scene ids before consuming inventory.
+- Confirmation method: audit probe on a temporary seed DB accepted two uses for
+  `not_a_real_scene_1` and `not_a_real_scene_2` with `usage_count = 2`; fixed
+  behavior should reject unknown scene ids and block the second potion in the
+  same real scene.
+- Pass number: 2
 
 ## Checked Without New Issues
 
 - Production profile seed/validation for 4 lords, 4 sorceresses, 5 witchers and
   2 NPC masters.
-- Act schedule, timers, physical announcement gates, final lock timer and
-  backup hooks.
-- Master/lord auth boundaries for Admin Studio, master state, lord panels,
-  lord battle list/get/actions, review queue, rewards, corrections, backups and
-  final summary.
+- Final lock blocks default-source new lord orders and ordinary new PvP
+  challenges; Pass 2 issue `AUD-NEXT-017` is the client-controlled source
+  bypass for lord orders.
+- Master/lord auth boundaries for Admin Studio, lord panels, lord battles,
+  review queue, rewards, corrections, backups and final summary.
 - Player-scoped snapshots hide player codes, role tokens, exact reputation and
   hidden goal flags. Baseline `AUD-003` remains the known final-hook exception.
-- Offline PvE sync authority: single d20 replay, QR/scenario checks, cooldown,
-  unique consumption, reward approval locks and event idempotency.
-- Reward approval locks and asset locks for cascade-prone rewards, trade,
-  stakes and finalization.
-- Gwent deck/hand/mulligan/round/effect/winner/stake settlement logic, except
-  the PvP token/queue issues listed above.
-- Trade transfers and potion transfers: two-party lock/accept/decline,
-  idempotency and ownership movement.
-- Lord route/MP movement, fort transfer, building, recruit, raid, order caps
-  and order escrow, except the lord-battle capture/garrison issue above.
-- Sorceress mana, potion economy, transfer pricing, consent favorites,
-  alignment evidence and locked magical intent behavior.
-- Reputation read endpoints are scoped to own player or master and hide exact
-  values from ordinary player responses; the new leak is limited to player-code
-  auth payload.
-- NPC hidden prices, master-led final summary, missing locks, final notes and
-  no automatic winner calculation.
-- Backup/restart persistence evidence and TaskOS Stage 2A remediation evidence.
+- Offline PvE replay validates single d20, QR/scenario, cooldown and ordinary
+  sequential unique-object consumption; Pass 2 issue is concurrency/stale-time
+  authority, not the sequential happy path.
+- Trade transfers and potion transfers enforce price/gold checks, two-party
+  accept/decline, idempotency and ownership movement; Pass 2 issues are
+  cross-owner false blocking and potion scene-id authority.
+- Favorite consent, slot caps, favored-player cap and change-per-act checks are
+  enforced.
+- Backup manifests include SQLite and event log; Admin content import/snapshot
+  and backup routes require master token.
+- Stage 2B UI absence remains out of scope.
 
 ## Out Of Scope
 
@@ -424,6 +420,14 @@ non-blocking queue policy.
 
 ## Checks Run
 
-- `uv run python scripts/taskctl.py validate` -> `tasks.json is valid (81 tasks)`.
-- `uv run pytest -q` -> 221 passed, 1 warning, 224.61s.
+- Pass 1: `uv run python scripts/taskctl.py validate` -> `tasks.json is valid
+  (81 tasks)`.
+- Pass 1: `uv run pytest -q` -> 221 passed, 1 warning, 224.61s.
+- Pass 2: `uv run python scripts/taskctl.py validate` -> `tasks.json is valid
+  (81 tasks)`.
+- Pass 2: `uv run pytest -q` -> 221 passed, 1 warning, 312.67s.
 
+## Convergence Log
+
+- After Pass 1: 6 new substantial findings; consecutive zero-new passes = 0.
+- After Pass 2: 12 new substantial findings; consecutive zero-new passes = 0.
