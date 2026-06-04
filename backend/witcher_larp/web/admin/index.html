@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin Studio</title>
+    <link rel="stylesheet" href="/static/admin/admin.css">
+  </head>
+  <body data-app="admin-studio">
+    <main class="shell">
+      <section class="login" id="login-panel">
+        <div class="brand">
+          <span class="mark" aria-hidden="true">AS</span>
+          <div>
+            <h1>Admin Studio</h1>
+            <p>Stage 2 master console</p>
+          </div>
+        </div>
+        <form id="token-form" class="token-form">
+          <label for="role-token">Master role token</label>
+          <div class="token-row">
+            <input
+              id="role-token"
+              name="role-token"
+              autocomplete="off"
+              placeholder="MASTER-KING-4QZ8"
+              required
+            >
+            <button type="submit">Enter</button>
+          </div>
+        </form>
+        <p class="status-line" id="login-status" role="status"></p>
+      </section>
+
+      <section class="dashboard" id="dashboard" hidden>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Admin Studio</p>
+            <h2 id="master-name">Master</h2>
+          </div>
+          <div class="top-actions">
+            <button type="button" id="refresh-button" title="Refresh overview">Refresh</button>
+            <button type="button" id="logout-button" title="Clear role token">Logout</button>
+          </div>
+        </header>
+        <p class="status-line dashboard-status" id="dashboard-status" role="status"></p>
+
+        <section class="summary-grid" aria-label="Admin summary">
+          <article class="metric">
+            <span>Stage</span>
+            <strong id="stage-value">-</strong>
+          </article>
+          <article class="metric">
+            <span>Snapshot</span>
+            <strong id="snapshot-value">-</strong>
+          </article>
+          <article class="metric">
+            <span>Sections</span>
+            <strong id="sections-value">-</strong>
+          </article>
+          <article class="metric">
+            <span>Attention</span>
+            <strong id="attention-value">-</strong>
+          </article>
+        </section>
+
+        <div class="studio-layout">
+          <nav class="section-nav" id="section-nav" aria-label="Admin sections"></nav>
+          <section class="workspace" id="workspace" aria-live="polite"></section>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/admin/admin.js" defer></script>
+  </body>
+</html>

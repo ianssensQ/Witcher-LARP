@@ -7,12 +7,20 @@ from typing import Any
 from .act_service import ActNotFoundError, UnlockCodeHiddenError
 from .act_service import get_act_state, record_physical_announcement, reveal_unlock_code
 from .act_service import start_act
+from .admin_content import build_handout_checklist, build_qr_checklist
+from .admin_content import export_latest_snapshot, latest_import_report
+from .admin_content import list_content_packs, resolve_manifest_path, resolve_snapshot_dir
+from .admin_studio import build_admin_overview
 from .asset_service import AssetContractError
 from .backup_service import run_backup
 from .config import Settings
 from .database import healthcheck_database, init_database
 from .database import connect
 from .final_summary_service import build_final_summary, record_final_master_note
+from .game_ops_service import GameOpsCorrectionError
+from .game_ops_service import apply_game_ops_correction, backup_status
+from .game_ops_service import build_master_state, build_visibility_audit
+from .import_service import DEFAULT_SNAPSHOT_DIR, import_seed_pack
 from .lord_battle_service import LordBattleError
 from .lord_battle_service import create_lord_battle, get_lord_battle, list_lord_battles
 from .lord_battle_service import record_lord_battle_action
@@ -55,6 +63,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in dependency smoke 
 
 WEB_ROOT = Path(__file__).parent / "web"
 LORD_PANEL_INDEX = WEB_ROOT / "lord" / "index.html"
+ADMIN_STUDIO_INDEX = WEB_ROOT / "admin" / "index.html"
 
 
 class QrLookupPayload(BaseModel):
@@ -86,6 +95,15 @@ class BackupRunPayload(BaseModel):
     operator: str = "master"
     source: str = "master_api"
     trigger_type: str = "manual"
+
+
+class ContentImportPayload(BaseModel):
+    manifest_path: str | None = None
+    export_snapshot: bool = True
+
+
+class SnapshotExportPayload(BaseModel):
+    target_dir: str | None = None
 
 
 class ReputationChangePayload(BaseModel):
@@ -186,6 +204,15 @@ class EventReviewPayload(BaseModel):
 
 class MasterCorrectionPayload(EventReviewPayload):
     event_id: str
+
+
+class GameOpsCorrectionPayload(BaseModel):
+    target_type: str
+    target_id: str
+    patch: dict[str, Any]
+    operator: str
+    reason: str
+    source: str = "master_api"
 
 
 class FavoriteCreatePayload(BaseModel):
@@ -358,6 +385,11 @@ def create_app(settings: Settings | None = None):
     def lord_panel():
         return FileResponse(LORD_PANEL_INDEX)
 
+    @api.get("/admin", include_in_schema=False)
+    @api.get("/admin/", include_in_schema=False)
+    def admin_studio():
+        return FileResponse(ADMIN_STUDIO_INDEX)
+
     @api.get("/health")
     def health() -> dict[str, object]:
         return {
@@ -439,6 +471,144 @@ def create_app(settings: Settings | None = None):
             "device_id": request.device_id,
             "snapshot_path": "/api/content/snapshot",
         }
+
+    @api.get("/api/master/admin/overview")
+    def master_admin_overview(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            return build_admin_overview(connection)
+
+    @api.get("/api/master/content/packs")
+    def master_content_packs(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+        return list_content_packs()
+
+    @api.get("/api/master/content/import-report/latest")
+    def master_latest_import_report(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            return latest_import_report(connection)
+
+    @api.post("/api/master/content/import")
+    def master_content_import(
+        payload: ContentImportPayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+        try:
+            manifest_path = resolve_manifest_path(payload.manifest_path)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "content_path", "message": str(exc)},
+            ) from exc
+        report = import_seed_pack(
+            runtime_settings,
+            manifest_path=manifest_path,
+            snapshot_dir=DEFAULT_SNAPSHOT_DIR if payload.export_snapshot else None,
+        )
+        return {
+            **report.as_dict(),
+            "error_count": len(report.errors),
+        }
+
+    @api.post("/api/master/content/snapshot/export")
+    def master_snapshot_export(
+        payload: SnapshotExportPayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        try:
+            snapshot_dir = resolve_snapshot_dir(payload.target_dir, DEFAULT_SNAPSHOT_DIR)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "content_path", "message": str(exc)},
+            ) from exc
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            result = export_latest_snapshot(connection, snapshot_dir)
+        if result["status"] != "success":
+            raise HTTPException(status_code=404, detail="No imported snapshot is available.")
+        return result
+
+    @api.get("/api/master/content/qr-checklist")
+    def master_qr_checklist(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            return build_qr_checklist(connection)
+
+    @api.get("/api/master/content/handout-checklist")
+    def master_handout_checklist(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            return build_handout_checklist(connection)
+
+    @api.get("/api/master/state")
+    def master_state(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            return build_master_state(connection, runtime_settings)
+
+    @api.get("/api/master/visibility-audit")
+    def master_visibility_audit(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            return build_visibility_audit(connection)
+
+    @api.get("/api/master/backups/status")
+    def master_backup_status(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            return backup_status(connection)
+
+    @api.post("/api/master/game-ops/corrections")
+    def master_game_ops_correction(
+        payload: GameOpsCorrectionPayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            try:
+                return apply_game_ops_correction(
+                    connection,
+                    target_type=payload.target_type,
+                    target_id=payload.target_id,
+                    patch=payload.patch,
+                    operator=payload.operator,
+                    reason=payload.reason,
+                    source=payload.source,
+                )
+            except GameOpsCorrectionError as exc:
+                raise _game_ops_http_error(exc) from exc
 
     @api.get("/api/lords/{lord_id}/state")
     def lord_state(
@@ -1766,6 +1936,13 @@ def _asset_http_error(exc: AssetContractError):
     return HTTPException(
         status_code=exc.status_code,
         detail={"code": exc.code, "message": str(exc)},
+    )
+
+
+def _game_ops_http_error(exc: GameOpsCorrectionError):
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": exc.message},
     )
 
 
