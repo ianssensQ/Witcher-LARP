@@ -20,9 +20,9 @@
 - `docs/app-technical-plan-v0.1.md`
 - `docs/active-tasks.md`
 - `docs/admin-studio-acceptance-checklist.md`
-- `docs/stage1-test-audit-task057.md`
-- `docs/stage1-test-audit-task066.md`
-- `docs/stage2-test-audit.md`
+- `docs/audits/stage1-test-audit-task057.md`
+- `docs/audits/stage1-test-audit-task066.md`
+- `docs/audits/stage2-test-audit.md`
 - `tasks.json`
 - `progress.txt`
 - `docs/core-engine-v1.2.md` used as historical context only
@@ -366,4 +366,3 @@ only for masters.
 - `uv run python scripts/taskctl.py ready` -> next ready task `TASK-045`.
 - `git status --short` reviewed before writing this audit; worktree was already
   dirty.
-
