@@ -619,6 +619,8 @@ class FastApiContractTests(unittest.TestCase):
         client = TestClient(create_app(settings))
         forged_event_id = f"evt_{uuid4().hex}"
         paper_event_id = f"evt_{uuid4().hex}"
+        lord_mobile_event_id = f"evt_{uuid4().hex}"
+        npc_mobile_event_id = f"evt_{uuid4().hex}"
 
         missing_auth = client.post(
             "/api/events/sync",
@@ -669,6 +671,46 @@ class FastApiContractTests(unittest.TestCase):
                 ],
             },
         )
+        lord_player_only = client.post(
+            "/api/events/sync",
+            headers={"X-Player-Code": "LC-NORTH-7QK2"},
+            json={
+                "device_id": "phone_lord",
+                "actor_id": "p_witcher_1",
+                "actor_type": "player",
+                "events": [
+                    {
+                        "event_id": lord_mobile_event_id,
+                        "client_sequence": 3,
+                        "created_at": "2026-06-02T09:10:00+00:00",
+                        "event_type": "qr_attempt",
+                        "payload": {
+                            "qr_id": "qr_a1_001",
+                            "source": "qr_scan",
+                            "local_status": "accepted",
+                        },
+                    }
+                ],
+            },
+        )
+        npc_player_only = client.post(
+            "/api/events/sync",
+            headers=MASTER_HEADERS,
+            json={
+                "device_id": "npc_terminal",
+                "actor_id": "p_witcher_1",
+                "actor_type": "player",
+                "events": [
+                    {
+                        "event_id": npc_mobile_event_id,
+                        "client_sequence": 4,
+                        "created_at": "2026-06-02T09:15:00+00:00",
+                        "event_type": "reward_approval_requested",
+                        "payload": {"reward_id": "reward_pve_t1"},
+                    }
+                ],
+            },
+        )
 
         self.assertEqual(missing_auth.status_code, 401)
         self.assertEqual(forged_actor.status_code, 200)
@@ -680,6 +722,14 @@ class FastApiContractTests(unittest.TestCase):
             master_only_result["reason"],
             "paper_recovered requires master auth context",
         )
+        self.assertEqual(lord_player_only.status_code, 200)
+        lord_result = lord_player_only.json()["results"][0]
+        self.assertEqual(lord_result["status"], "rejected")
+        self.assertIn("requires witcher or sorceress player actor", lord_result["reason"])
+        self.assertEqual(npc_player_only.status_code, 200)
+        npc_result = npc_player_only.json()["results"][0]
+        self.assertEqual(npc_result["status"], "rejected")
+        self.assertIn("requires witcher or sorceress player actor", npc_result["reason"])
 
         with connect(settings) as connection:
             forged_stored = connection.execute(
@@ -698,6 +748,22 @@ class FastApiContractTests(unittest.TestCase):
                 """,
                 (paper_event_id,),
             ).fetchone()
+            lord_stored = connection.execute(
+                """
+                SELECT actor_id, actor_type, status, metadata_json
+                FROM events
+                WHERE event_id = ?
+                """,
+                (lord_mobile_event_id,),
+            ).fetchone()
+            npc_stored = connection.execute(
+                """
+                SELECT actor_id, actor_type, status, metadata_json
+                FROM events
+                WHERE event_id = ?
+                """,
+                (npc_mobile_event_id,),
+            ).fetchone()
             review = connection.execute(
                 """
                 SELECT status, reason, severity
@@ -708,11 +774,22 @@ class FastApiContractTests(unittest.TestCase):
             ).fetchone()
 
         self.assertEqual(forged_stored["actor_id"], "p_witcher_1")
-        self.assertEqual(forged_stored["actor_type"], "player")
+        self.assertEqual(forged_stored["actor_type"], "witcher")
         self.assertEqual(forged_stored["status"], "accepted")
         self.assertEqual(rejected_stored["actor_id"], "p_witcher_1")
-        self.assertEqual(rejected_stored["actor_type"], "player")
+        self.assertEqual(rejected_stored["actor_type"], "witcher")
         self.assertEqual(rejected_stored["status"], "rejected")
+        self.assertEqual(lord_stored["actor_id"], "p_lord_1")
+        self.assertEqual(lord_stored["actor_type"], "lord")
+        self.assertEqual(lord_stored["status"], "rejected")
+        lord_metadata = json.loads(lord_stored["metadata_json"])
+        self.assertEqual(lord_metadata["canonical_actor_role_type"], "lord")
+        self.assertEqual(lord_metadata["auth_boundary"], "player_only_mobile_event")
+        self.assertEqual(npc_stored["actor_id"], "npc_king")
+        self.assertEqual(npc_stored["actor_type"], "master")
+        self.assertEqual(npc_stored["status"], "rejected")
+        npc_metadata = json.loads(npc_stored["metadata_json"])
+        self.assertEqual(npc_metadata["auth_boundary"], "player_only_mobile_event")
         self.assertEqual(review["status"], "rejected")
         self.assertEqual(review["severity"], "P0")
         self.assertEqual(review["reason"], "paper_recovered requires master auth context")

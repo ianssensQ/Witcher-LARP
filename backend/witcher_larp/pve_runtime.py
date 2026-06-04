@@ -305,8 +305,39 @@ def validate_pve_completion(
     if result not in PVE_RESULTS:
         return PveValidationResult("rejected", f"unsupported pve result: {result}", metadata)
     metadata["result"] = result
-    metadata["reward_id"] = payload.get("reward_id") or card["scenario"].get("reward_id")
-    metadata["reward_status"] = _reward_status_for_payload(card, result, metadata["reward_id"])
+    scenario_reward_id = str(card["scenario"].get("reward_id") or "").strip()
+    payload_has_reward_id = "reward_id" in payload
+    client_reward_id = str(payload.get("reward_id") or "").strip()
+    metadata["scenario_reward_id"] = scenario_reward_id or None
+    if payload_has_reward_id:
+        metadata["client_reward_id"] = client_reward_id or None
+    if result == "success":
+        if not scenario_reward_id:
+            metadata["reward_id"] = None
+            metadata["reward_status"] = "none"
+            return PveValidationResult(
+                "needs_master_review",
+                "pve scenario has no reward_id",
+                metadata,
+            )
+        if payload_has_reward_id and client_reward_id != scenario_reward_id:
+            metadata["reward_id"] = scenario_reward_id
+            metadata["reward_status"] = "none"
+            return PveValidationResult(
+                "needs_master_review",
+                f"pve reward_id mismatch for scenario {scenario_id}",
+                metadata,
+            )
+        if not isinstance(card.get("reward"), dict):
+            metadata["reward_id"] = scenario_reward_id
+            metadata["reward_status"] = "none"
+            return PveValidationResult(
+                "needs_master_review",
+                f"unknown scenario reward_id: {scenario_reward_id}",
+                metadata,
+            )
+    metadata["reward_id"] = scenario_reward_id or None
+    metadata["reward_status"] = _reward_status_for_payload(card, result, scenario_reward_id)
 
     if bool(card["physical_presence_required"]) and not _truthy(
         payload.get("physical_presence_confirmed")

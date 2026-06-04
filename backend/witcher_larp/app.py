@@ -1746,7 +1746,7 @@ def _require_actor_context(
             "player_id": str(auth["player_id"]),
             "actor_id": str(auth["player_id"]),
             "role_type": role_type,
-            "event_actor_type": "player",
+            "event_actor_type": role_type,
             "domain_id": auth["player"].get("lord_id") if isinstance(auth.get("player"), dict) else None,
             "player_code_id": auth.get("player_code_id"),
         }

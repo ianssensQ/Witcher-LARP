@@ -38,6 +38,20 @@ class PaperRecoveryTests(unittest.TestCase):
                     "conflict_status": "clean",
                 },
             )
+            duplicate = self._sync_one(
+                connection,
+                payload={
+                    "paper_form_id": "paper-pve-clean-1",
+                    "source_form_type": "paper_pve_result",
+                    "operator": "gm_king",
+                    "timestamp": "2026-06-02T13:35:00+00:00",
+                    "reason": "duplicate copy from the same recovered sheet",
+                    "player_id": "p_witcher_1",
+                    "qr_id": "qr_a1_001",
+                    "result": "success",
+                    "conflict_status": "clean",
+                },
+            )
             result = response.results[0]
             stored = connection.execute(
                 """
@@ -55,16 +69,48 @@ class PaperRecoveryTests(unittest.TestCase):
                 """,
                 ("%paper-pve-clean-1%",),
             ).fetchone()
+            runtime_state = connection.execute(
+                """
+                SELECT xp, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+            pve_attempt = connection.execute(
+                """
+                SELECT player_id, qr_id, result, reward_id, reward_status
+                FROM pve_attempts
+                WHERE server_event_id = ?
+                """,
+                (result.server_event_id,),
+            ).fetchone()
             review_count = connection.execute(
                 "SELECT COUNT(*) FROM event_reviews WHERE event_id = ?",
                 (result.event_id,),
             ).fetchone()[0]
+            duplicate_reviews = connection.execute(
+                "SELECT COUNT(*) FROM event_reviews WHERE event_id = ?",
+                (duplicate.results[0].event_id,),
+            ).fetchone()[0]
 
         self.assertEqual(result.status, "accepted")
+        self.assertEqual(duplicate.results[0].status, "needs_master_review")
+        self.assertIn("duplicate paper_form_id", duplicate.results[0].reason)
         self.assertEqual(stored["source"], "paper_recovered")
         self.assertEqual(log["source"], "paper_recovered")
-        self.assertTrue(json.loads(stored["metadata_json"])["paper_auto_applied"])
+        metadata = json.loads(stored["metadata_json"])
+        self.assertTrue(metadata["paper_auto_applied"])
+        self.assertEqual(metadata["recovered_event_type"], "pve_completed")
+        self.assertEqual(metadata["pve_side_effects"]["reward_update"]["status"], "applied")
+        self.assertEqual(runtime_state["xp"], 4)
+        self.assertEqual(runtime_state["gold"], 30)
+        self.assertEqual(pve_attempt["player_id"], "p_witcher_1")
+        self.assertEqual(pve_attempt["qr_id"], "qr_a1_001")
+        self.assertEqual(pve_attempt["result"], "success")
+        self.assertEqual(pve_attempt["reward_id"], "reward_pve_t1")
+        self.assertEqual(pve_attempt["reward_status"], "auto")
         self.assertEqual(review_count, 0)
+        self.assertEqual(duplicate_reviews, 1)
 
     def test_missing_paper_audit_fields_are_rejected_readably(self) -> None:
         settings = self._settings("paper_missing")
@@ -235,11 +281,79 @@ class PaperRecoveryTests(unittest.TestCase):
                 ).fetchall()
             ]
 
-        self.assertEqual(first.results[0].status, "accepted")
+        self.assertEqual(first.results[0].status, "needs_master_review")
+        self.assertIn("domain-specific master review", first.results[0].reason)
         self.assertEqual(duplicate.results[0].status, "needs_master_review")
         self.assertEqual(conflict.results[0].status, "needs_master_review")
+        self.assertTrue(
+            any("domain-specific master review" in reason for reason in review_reasons)
+        )
         self.assertTrue(any("duplicate paper_form_id" in reason for reason in review_reasons))
         self.assertTrue(any("paper battle result conflicts" in reason for reason in review_reasons))
+
+    def test_clean_non_pve_paper_forms_require_explicit_domain_review(self) -> None:
+        settings = self._settings("paper_domain_review")
+        self._import_valid_seed(settings)
+        cases = [
+            {
+                "paper_form_id": "paper-lord-action-review",
+                "source_form_type": "paper_lord_action",
+                "lord_id": "p_lord_1",
+                "territory_id": "territory_north_keep",
+                "action": "garrison",
+            },
+            {
+                "paper_form_id": "paper-lord-battle-review",
+                "source_form_type": "paper_lord_battle",
+                "battle_id": "battle-paper-1",
+                "result": "attacker_won",
+                "losses": {"attacker": 1, "defender": 2},
+            },
+            {
+                "paper_form_id": "paper-order-review",
+                "source_form_type": "paper_order_resolution",
+                "order_id": "order_river_review",
+                "result": "completed",
+            },
+            {
+                "paper_form_id": "paper-npc-review",
+                "source_form_type": "paper_npc_deal",
+                "npc_role": "wanderer",
+                "target_id": "p_sorc_1",
+                "price_json": {"gold": 2},
+            },
+            {
+                "paper_form_id": "paper-final-review",
+                "source_form_type": "paper_final_evidence",
+                "evidence_category": "artifact",
+                "target_id": "p_witcher_1",
+                "summary_text": "Recovered final evidence from a paper fallback.",
+            },
+        ]
+
+        with connect(settings) as connection:
+            results = [
+                self._sync_one(
+                    connection,
+                    payload={
+                        **case,
+                        "operator": "gm_king",
+                        "timestamp": "2026-06-02T14:30:00+00:00",
+                        "reason": "clean sheet still needs a domain handler",
+                        "conflict_status": "clean",
+                    },
+                ).results[0]
+                for case in cases
+            ]
+            review_count = connection.execute(
+                "SELECT COUNT(*) FROM event_reviews"
+            ).fetchone()[0]
+
+        self.assertEqual([result.status for result in results], ["needs_master_review"] * len(cases))
+        self.assertTrue(
+            all("domain-specific master review" in str(result.reason) for result in results)
+        )
+        self.assertEqual(review_count, len(cases))
 
     def _settings(self, name: str) -> Settings:
         return Settings(database_path=TEST_TMP_ROOT / f"{name}_{uuid4().hex}.db")

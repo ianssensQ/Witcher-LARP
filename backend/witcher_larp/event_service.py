@@ -22,6 +22,7 @@ from .pve_runtime import (
     APP_GENERATED_ROLL_SOURCE,
     MASTER_RECOVERED_ROLL_SOURCES,
     PVE_RESULTS,
+    resolve_pve_scene,
 )
 from .pve_runtime import apply_pve_completion_side_effects, validate_pve_completion
 from .repository import latest_snapshot_version
@@ -31,6 +32,13 @@ from .reward_service import create_pending_reward_approval
 MASTER_ACTOR_TYPES = {"master", "npc_master", "npc", "king", "wanderer"}
 PLAYER_ROLE_TYPES = {"player", "lord", "sorceress", "witcher"}
 MASTER_ONLY_EVENT_TYPES = {"paper_recovered"}
+MOBILE_PLAYER_ROLE_TYPES = {"sorceress", "witcher"}
+PLAYER_ONLY_SYNC_EVENT_TYPES = {
+    "pve_completed",
+    "qr_attempt",
+    "qr_scene_started",
+    "reward_approval_requested",
+}
 
 
 @dataclass(frozen=True)
@@ -147,6 +155,20 @@ def _decide_event(
     actor_reason = _actor_validation_reason(connection, request.actor_id, request.actor_type)
     if actor_reason is not None:
         return EventDecision(EventStatus.REJECTED, actor_reason, metadata)
+    canonical_role_type = _canonical_player_role_type(connection, request.actor_id)
+    if canonical_role_type is not None:
+        metadata["canonical_actor_role_type"] = canonical_role_type
+
+    player_only_reason = _player_only_sync_scope_reason(connection, request, event.event_type)
+    if player_only_reason is not None:
+        metadata.update(
+            {
+                "audit_review": True,
+                "review_severity": "P0",
+                "auth_boundary": "player_only_mobile_event",
+            }
+        )
+        return EventDecision(EventStatus.REJECTED, player_only_reason, metadata)
 
     if event.event_type in MASTER_ONLY_EVENT_TYPES and request.actor_type.lower() not in MASTER_ACTOR_TYPES:
         metadata.update(
@@ -194,6 +216,17 @@ def _decide_pve_completed(
     event: EventSyncEvent,
     metadata: dict[str, Any],
 ) -> EventDecision:
+    player_only_reason = _player_only_sync_scope_reason(connection, request, event.event_type)
+    if player_only_reason is not None:
+        metadata.update(
+            {
+                "audit_review": True,
+                "review_severity": "P0",
+                "auth_boundary": "player_only_mobile_event",
+            }
+        )
+        return EventDecision(EventStatus.REJECTED, player_only_reason, metadata)
+
     for field_name in ("qr_id", "scenario_id", "result"):
         if not event.payload.get(field_name):
             return EventDecision(EventStatus.REJECTED, f"missing pve field: {field_name}", metadata)
@@ -224,9 +257,14 @@ def _decide_pve_completed(
     roll_source = _pve_payload_roll_source(event.payload)
     if roll_source:
         metadata["roll_source"] = roll_source
+    paper_recovered_pve = (
+        metadata.get("source") == "paper_recovered"
+        and metadata.get("recovered_event_type") == "pve_completed"
+    )
     if (
         roll_source in MASTER_RECOVERED_ROLL_SOURCES
         and request.actor_type.lower() not in MASTER_ACTOR_TYPES
+        and not paper_recovered_pve
     ):
         return EventDecision(
             EventStatus.NEEDS_MASTER_REVIEW,
@@ -261,13 +299,36 @@ def _decide_pve_completed(
         "SELECT reward_id FROM pve_scenarios WHERE scenario_id = ?",
         (scenario_id,),
     )
-    reward_id = event.payload.get("reward_id")
-    if reward_id is None and scenario_row is not None:
-        reward_id = scenario_row["reward_id"]
-    if reward_id is None or str(reward_id) == "":
-        return EventDecision(EventStatus.ACCEPTED, None, metadata)
+    if scenario_row is None:
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            f"unknown pve scenario_id: {scenario_id}",
+            metadata,
+        )
+    scenario_reward_id = str(scenario_row["reward_id"] or "").strip()
+    client_has_reward_id = "reward_id" in event.payload
+    client_reward_id = str(event.payload.get("reward_id") or "").strip()
+    metadata["scenario_reward_id"] = scenario_reward_id or None
+    if client_has_reward_id:
+        metadata["client_reward_id"] = client_reward_id or None
+    if not scenario_reward_id:
+        metadata["reward_id"] = None
+        metadata["reward_status"] = "none"
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            "pve scenario has no reward_id",
+            metadata,
+        )
+    if client_has_reward_id and client_reward_id != scenario_reward_id:
+        metadata["reward_id"] = scenario_reward_id
+        metadata["reward_status"] = "none"
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            f"pve reward_id mismatch for scenario {scenario_id}",
+            metadata,
+        )
 
-    return _decide_reward(connection, str(reward_id), metadata)
+    return _decide_reward(connection, scenario_reward_id, metadata)
 
 
 def _pve_duplicate_check_reason(
@@ -547,12 +608,148 @@ def _decide_paper_recovered(
 
     metadata.update(
         {
-            "paper_auto_applied": True,
             "recovery_event_type": form["recovery_event_type"],
             "conflict_policy": form["conflict_policy"],
         }
     )
-    return EventDecision(EventStatus.ACCEPTED, None, metadata)
+    if source_form_type == "paper_pve_result":
+        return _decide_paper_pve_result(connection, event, metadata)
+
+    metadata["paper_auto_applied"] = False
+    metadata["review_severity"] = "P1"
+    return EventDecision(
+        EventStatus.NEEDS_MASTER_REVIEW,
+        f"paper recovery form requires domain-specific master review: {source_form_type}",
+        metadata,
+    )
+
+
+def _decide_paper_pve_result(
+    connection: sqlite3.Connection,
+    event: EventSyncEvent,
+    metadata: dict[str, Any],
+) -> EventDecision:
+    payload = event.payload
+    player_id = str(payload.get("player_id") or "").strip()
+    qr_id = str(payload.get("qr_id") or "").strip()
+    result = str(payload.get("result") or "").strip()
+    metadata.update(
+        {
+            "paper_recovered_player_id": player_id or None,
+            "paper_recovered_qr_id": qr_id or None,
+            "paper_recovered_result": result or None,
+            "recovered_event_type": "pve_completed",
+        }
+    )
+    if result not in PVE_RESULTS:
+        metadata["paper_auto_applied"] = False
+        return EventDecision(
+            EventStatus.REJECTED,
+            f"unsupported pve result: {result}",
+            metadata,
+        )
+
+    recovered_payload, recovery_reason = _paper_pve_payload(connection, event, metadata)
+    if recovered_payload is None:
+        metadata["paper_auto_applied"] = False
+        return EventDecision(EventStatus.NEEDS_MASTER_REVIEW, recovery_reason, metadata)
+
+    recovered_request = EventSyncRequest(
+        device_id="paper_recovery",
+        actor_id=player_id,
+        actor_type="player",
+        events=[],
+    )
+    recovered_event = EventSyncEvent(
+        event_id=f"{event.event_id}:pve_completed",
+        client_sequence=event.client_sequence,
+        created_at=event.created_at,
+        event_type="pve_completed",
+        payload=recovered_payload,
+    )
+    decision = _decide_pve_completed(
+        connection,
+        recovered_request,
+        recovered_event,
+        metadata,
+    )
+    decision.metadata["paper_auto_applied"] = decision.status in {
+        EventStatus.ACCEPTED,
+        EventStatus.PENDING_MASTER_APPROVAL,
+    }
+    if decision.status in {EventStatus.ACCEPTED, EventStatus.PENDING_MASTER_APPROVAL}:
+        decision.metadata["recovered_pve_payload"] = recovered_payload
+    return decision
+
+
+def _paper_pve_payload(
+    connection: sqlite3.Connection,
+    event: EventSyncEvent,
+    metadata: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str]:
+    payload = event.payload
+    player_id = str(payload.get("player_id") or "").strip()
+    qr_id = str(payload.get("qr_id") or "").strip()
+    result = str(payload.get("result") or "").strip()
+    roll_value = _paper_roll_value(payload)
+    candidate_rolls = [roll_value] if roll_value is not None else list(range(1, 21))
+    timestamp = _parse_server_time(str(payload.get("timestamp") or ""))
+    unlock_source = str(payload.get("unlock_source") or "") or None
+    check_id = f"paper:{str(payload.get('paper_form_id') or event.event_id)}"
+
+    last_reason = f"paper pve result cannot be replayed against current scenario: {result}"
+    for candidate_roll in candidate_rolls:
+        try:
+            recovered = resolve_pve_scene(
+                connection,
+                player_id=player_id,
+                qr_id=qr_id,
+                roll=candidate_roll,
+                result_override="timeout" if result == "timeout" else None,
+                unlock_source=unlock_source,
+                check_id=check_id,
+                roll_source="paper_recovered",
+                now=timestamp,
+            )
+        except LookupError as exc:
+            return None, str(exc)
+        if str(recovered.get("result") or "") != result:
+            continue
+        _overlay_paper_pve_claims(recovered, payload)
+        recovered.update(
+            {
+                "paper_form_id": payload.get("paper_form_id"),
+                "paper_operator": payload.get("operator"),
+                "paper_reason": payload.get("reason"),
+                "paper_recovered_event_id": event.event_id,
+            }
+        )
+        metadata["paper_recovered_roll"] = candidate_roll
+        return recovered, ""
+    return None, last_reason
+
+
+def _paper_roll_value(payload: dict[str, Any]) -> int | None:
+    for field_name in ("roll", "roll_value"):
+        if _payload_has_value(payload, field_name):
+            roll = _to_int(payload.get(field_name))
+            if 1 <= roll <= 20:
+                return roll
+    roll_log = payload.get("roll_log")
+    if isinstance(roll_log, list) and roll_log and isinstance(roll_log[0], dict):
+        roll_entry = roll_log[0]
+        for field_name in ("roll", "roll_value", "value"):
+            if _payload_has_value(roll_entry, field_name):
+                roll = _to_int(roll_entry.get(field_name))
+                if 1 <= roll <= 20:
+                    return roll
+    return None
+
+
+def _overlay_paper_pve_claims(recovered: dict[str, Any], payload: dict[str, Any]) -> None:
+    for field_name in ("scenario_id", "reward_id", "physical_presence_confirmed"):
+        if field_name in payload:
+            recovered[field_name] = payload[field_name]
 
 
 def _record_event_log(
@@ -621,13 +818,14 @@ def _record_pending_reward_if_needed(
     reward_id = decision.metadata.get("reward_id")
     if not reward_id:
         return decision
+    player_id = _side_effect_player_id(request, decision)
     approval_id = f"approval_event_{server_event_id}"
     try:
         create_pending_reward_approval(
             connection,
             approval_id=approval_id,
             reward_id=str(reward_id),
-            player_id=request.actor_id,
+            player_id=player_id,
             source_event_id=server_event_id,
         )
         return decision
@@ -669,7 +867,7 @@ def _record_pending_reward_if_needed(
         )
         log_payload = {
             "server_event_id": server_event_id,
-            "actor_id": request.actor_id,
+            "actor_id": player_id,
             "reward_id": str(reward_id),
             "reason": exc.message,
             "code": exc.code,
@@ -692,17 +890,19 @@ def _apply_pve_side_effects_if_needed(
     server_event_id: int,
     received_at: str,
 ) -> None:
-    if event.event_type != "pve_completed":
+    pve_payload = _side_effect_pve_payload(event, decision)
+    if pve_payload is None:
         return
     if decision.status not in {
         EventStatus.ACCEPTED,
         EventStatus.PENDING_MASTER_APPROVAL,
     }:
         return
+    player_id = _side_effect_player_id(request, decision)
     applied = apply_pve_completion_side_effects(
         connection,
-        player_id=request.actor_id,
-        payload=event.payload,
+        player_id=player_id,
+        payload=pve_payload,
         metadata=decision.metadata,
         status=decision.status.value,
         server_event_id=server_event_id,
@@ -717,6 +917,26 @@ def _apply_pve_side_effects_if_needed(
         """,
         (_json_dumps(decision.metadata), server_event_id),
     )
+
+
+def _side_effect_player_id(request: EventSyncRequest, decision: EventDecision) -> str:
+    recovered_player_id = str(decision.metadata.get("paper_recovered_player_id") or "").strip()
+    return recovered_player_id or request.actor_id
+
+
+def _side_effect_pve_payload(
+    event: EventSyncEvent,
+    decision: EventDecision,
+) -> dict[str, Any] | None:
+    if event.event_type == "pve_completed":
+        return event.payload
+    if (
+        event.event_type == "paper_recovered"
+        and decision.metadata.get("recovered_event_type") == "pve_completed"
+    ):
+        payload = decision.metadata.get("recovered_pve_payload")
+        return payload if isinstance(payload, dict) else None
+    return None
 
 
 def _record_client_sync_state(
@@ -773,6 +993,37 @@ def _actor_validation_reason(
     if normalized_actor_type != "player" and str(row["role_type"]) != normalized_actor_type:
         return f"actor_type mismatch: {actor_type}"
     return None
+
+
+def _player_only_sync_scope_reason(
+    connection: sqlite3.Connection,
+    request: EventSyncRequest,
+    event_type: str,
+) -> str | None:
+    if event_type not in PLAYER_ONLY_SYNC_EVENT_TYPES:
+        return None
+    if not _table_exists(connection, "players"):
+        return None
+    canonical_role_type = _canonical_player_role_type(connection, request.actor_id)
+    if canonical_role_type in MOBILE_PLAYER_ROLE_TYPES:
+        return None
+    role_label = canonical_role_type or request.actor_type
+    return (
+        f"{event_type} requires witcher or sorceress player actor; "
+        f"got {role_label}"
+    )
+
+
+def _canonical_player_role_type(connection: sqlite3.Connection, actor_id: str) -> str | None:
+    if not _table_exists(connection, "players"):
+        return None
+    row = connection.execute(
+        "SELECT role_type FROM players WHERE player_id = ?",
+        (actor_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return str(row["role_type"])
 
 
 def _fetch_optional_row(

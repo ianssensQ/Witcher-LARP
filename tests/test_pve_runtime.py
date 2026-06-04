@@ -806,6 +806,115 @@ class PveRuntimeTests(unittest.TestCase):
         self.assertEqual(state["gold"], 50)
         self.assertEqual(json.loads(state["stats_json"])["Сила"], 4)
 
+    def test_missing_client_reward_id_uses_scenario_bound_auto_reward(self) -> None:
+        settings = self._settings("pve_scenario_auto_reward")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            payload = resolve_pve_scene(
+                connection,
+                player_id="p_witcher_1",
+                qr_id="qr_a1_001",
+                roll=8,
+                now=datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
+            )
+            payload.pop("reward_id")
+            response, _ = self._sync_pve_payload(
+                connection,
+                actor_id="p_witcher_1",
+                payload=payload,
+                sequence=1,
+            )
+            state = connection.execute(
+                """
+                SELECT xp, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+            attempt = connection.execute(
+                """
+                SELECT reward_id, reward_status
+                FROM pve_attempts
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+
+        self.assertEqual(response.results[0].status, "accepted")
+        self.assertEqual(attempt["reward_id"], "reward_pve_t1")
+        self.assertEqual(attempt["reward_status"], "auto")
+        self.assertEqual(state["xp"], 4)
+        self.assertEqual(state["gold"], 30)
+
+    def test_scenario_bound_pending_reward_creates_approval_lock_once(self) -> None:
+        settings = self._settings("pve_scenario_pending_reward")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            payload = resolve_pve_scene(
+                connection,
+                player_id="p_witcher_1",
+                qr_id="qr_a1_006",
+                roll=9,
+                now=datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
+            )
+            payload.pop("reward_id")
+            first_response, first_event_id = self._sync_pve_payload(
+                connection,
+                actor_id="p_witcher_1",
+                payload=payload,
+                sequence=1,
+            )
+            duplicate_response = sync_events(
+                connection,
+                EventSyncRequest(
+                    device_id="phone_wolf",
+                    actor_id="p_witcher_1",
+                    actor_type="player",
+                    events=[
+                        EventSyncEvent(
+                            event_id=first_event_id,
+                            client_sequence=2,
+                            created_at="2026-06-02T09:02:00+00:00",
+                            event_type="pve_completed",
+                            payload=payload,
+                        )
+                    ],
+                ),
+            )
+            attempt = connection.execute(
+                """
+                SELECT reward_id, reward_status
+                FROM pve_attempts
+                WHERE player_id = 'p_witcher_1'
+                  AND qr_id = 'qr_a1_006'
+                """
+            ).fetchone()
+            approval_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM reward_approvals
+                WHERE reward_id = 'reward_order_success'
+                  AND status = 'pending_master_approval'
+                """
+            ).fetchone()[0]
+            lock_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM asset_locks
+                WHERE asset_type = 'item'
+                  AND asset_id = 'item_order_seal'
+                  AND status = 'active'
+                """
+            ).fetchone()[0]
+
+        self.assertEqual(first_response.results[0].status, "pending_master_approval")
+        self.assertEqual(duplicate_response.results[0].status, "duplicate")
+        self.assertEqual(attempt["reward_id"], "reward_order_success")
+        self.assertEqual(attempt["reward_status"], "pending_master_approval")
+        self.assertEqual(approval_count, 1)
+        self.assertEqual(lock_count, 1)
+
     def _settings(self, name: str) -> Settings:
         return Settings(database_path=TEST_TMP_ROOT / f"{name}_{uuid4().hex}.db")
 

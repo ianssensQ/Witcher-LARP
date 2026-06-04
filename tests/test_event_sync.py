@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import hashlib
+import json
 import unittest
 from uuid import uuid4
 
@@ -248,6 +249,66 @@ class EventSyncIntegrityTests(unittest.TestCase):
         )
         self.assertEqual(attempt_count, 0)
 
+    def test_pve_completion_rejects_forged_reward_id_without_applying_reward(self) -> None:
+        settings = self._settings("forged_pve_reward")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            payload = resolve_pve_scene(
+                connection,
+                player_id="p_witcher_1",
+                qr_id="qr_a1_001",
+                roll=8,
+                now=datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
+            )
+            payload["reward_id"] = "reward_pve_t2"
+            response = self._sync_one(connection, event_type="pve_completed", payload=payload)
+            state = connection.execute(
+                """
+                SELECT xp, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+            attempt_count = self._count(connection, "pve_attempts")
+
+        result = response.results[0]
+        self.assertEqual(result.status, "needs_master_review")
+        self.assertEqual(result.reason, "pve reward_id mismatch for scenario scn_a1_001")
+        self.assertEqual(state["xp"], 0)
+        self.assertEqual(state["gold"], 20)
+        self.assertEqual(attempt_count, 0)
+
+    def test_pve_completion_blank_or_unknown_client_reward_id_routes_to_review(self) -> None:
+        for supplied_reward_id in ("", "reward_missing"):
+            with self.subTest(supplied_reward_id=supplied_reward_id):
+                settings = self._settings("bad_pve_reward")
+                self._import_valid_seed(settings)
+
+                with connect(settings) as connection:
+                    payload = resolve_pve_scene(
+                        connection,
+                        player_id="p_witcher_1",
+                        qr_id="qr_a1_001",
+                        roll=8,
+                        now=datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
+                    )
+                    payload["reward_id"] = supplied_reward_id
+                    response = self._sync_one(
+                        connection,
+                        event_type="pve_completed",
+                        payload=payload,
+                    )
+                    attempt_count = self._count(connection, "pve_attempts")
+
+                result = response.results[0]
+                self.assertEqual(result.status, "needs_master_review")
+                self.assertEqual(
+                    result.reason,
+                    "pve reward_id mismatch for scenario scn_a1_001",
+                )
+                self.assertEqual(attempt_count, 0)
+
     def test_pve_completion_without_physical_presence_needs_review(self) -> None:
         settings = self._settings("missing_presence")
         self._import_valid_seed(settings)
@@ -492,6 +553,118 @@ class EventSyncIntegrityTests(unittest.TestCase):
         self.assertEqual(duplicate.results[0].reason, "event_id already processed")
         self.assertEqual(duplicate.results[0].server_event_id, first.results[0].server_event_id)
         self.assertEqual(stored_count, 1)
+
+    def test_player_only_sync_events_use_canonical_role_scope(self) -> None:
+        settings = self._settings("player_only_scope")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            lord_attempts = self._sync_request(
+                connection,
+                actor_id="p_lord_1",
+                actor_type="player",
+                events=[
+                    EventSyncEvent(
+                        event_id="evt_lord_pve_as_player",
+                        client_sequence=1,
+                        created_at="2026-06-02T09:00:00+00:00",
+                        event_type="pve_completed",
+                        payload={
+                            "qr_id": "qr_a1_001",
+                            "scenario_id": "scn_a1_001",
+                            "result": "success",
+                        },
+                    ),
+                    EventSyncEvent(
+                        event_id="evt_lord_qr_as_player",
+                        client_sequence=2,
+                        created_at="2026-06-02T09:01:00+00:00",
+                        event_type="qr_attempt",
+                        payload={"qr_id": "qr_a1_001", "local_status": "accepted"},
+                    ),
+                    EventSyncEvent(
+                        event_id="evt_lord_reward_as_player",
+                        client_sequence=3,
+                        created_at="2026-06-02T09:02:00+00:00",
+                        event_type="reward_approval_requested",
+                        payload={"reward_id": "reward_pve_t1"},
+                    ),
+                ],
+            )
+            npc_attempt = self._sync_request(
+                connection,
+                actor_id="npc_king",
+                actor_type="master",
+                events=[
+                    EventSyncEvent(
+                        event_id="evt_npc_qr_as_player",
+                        client_sequence=1,
+                        created_at="2026-06-02T09:03:00+00:00",
+                        event_type="qr_scene_started",
+                        payload={"qr_id": "qr_a1_001", "local_status": "accepted"},
+                    )
+                ],
+            )
+            sorceress_qr = self._sync_request(
+                connection,
+                actor_id="p_sorc_1",
+                actor_type="player",
+                events=[
+                    EventSyncEvent(
+                        event_id="evt_sorc_qr_allowed",
+                        client_sequence=1,
+                        created_at="2026-06-02T09:04:00+00:00",
+                        event_type="qr_scene_started",
+                        payload={"qr_id": "qr_a1_001", "local_status": "accepted"},
+                    )
+                ],
+            )
+            rejected_metadata = [
+                json.loads(row["metadata_json"])
+                for row in connection.execute(
+                    """
+                    SELECT metadata_json
+                    FROM events
+                    WHERE event_id LIKE 'evt_lord_%'
+                    ORDER BY server_event_id
+                    """
+                ).fetchall()
+            ]
+            review_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM event_reviews
+                WHERE event_id IN (
+                    'evt_lord_pve_as_player',
+                    'evt_lord_qr_as_player',
+                    'evt_lord_reward_as_player',
+                    'evt_npc_qr_as_player'
+                )
+                """
+            ).fetchone()[0]
+
+        self.assertEqual([result.status for result in lord_attempts.results], ["rejected"] * 3)
+        self.assertTrue(
+            all(
+                "requires witcher or sorceress player actor" in str(result.reason)
+                for result in lord_attempts.results
+            )
+        )
+        self.assertEqual(npc_attempt.results[0].status, "rejected")
+        self.assertIn(
+            "requires witcher or sorceress player actor",
+            str(npc_attempt.results[0].reason),
+        )
+        self.assertEqual(sorceress_qr.results[0].status, "accepted")
+        self.assertEqual(
+            {metadata["canonical_actor_role_type"] for metadata in rejected_metadata},
+            {"lord"},
+        )
+        self.assertEqual(
+            {metadata["auth_boundary"] for metadata in rejected_metadata},
+            {"player_only_mobile_event"},
+        )
+        self.assertEqual(review_count, 4)
 
     def test_event_sync_routes_client_review_unsupported_event_and_unknown_reward_to_review(self) -> None:
         settings = self._settings("event_review_routes")
