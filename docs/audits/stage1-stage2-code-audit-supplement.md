@@ -1,6 +1,6 @@
 # Stage 1 + Stage 2 code audit supplement
 
-Updated through Pass 2: 2026-06-04 13:34 +03:00.
+Updated through Pass 8: 2026-06-04 14:45 +03:00.
 
 Baseline: `docs/audits/stage1-stage2-code-audit.md`.
 
@@ -15,6 +15,12 @@ No TaskOS tasks were created.
 | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-06-04 12:35 +03:00 | `4798e77` | clean | `rg -n`, small code/doc snippets, one 4-agent wave, manual dedupe/recheck | 6 new substantial bugs |
 | 2 | 2026-06-04 13:31 +03:00 | `9767186` | clean | `rg -n`, small code/doc snippets, no subagents available in this tool context, manual dedupe/recheck | 12 new substantial bugs |
+| 3 | 2026-06-04 13:50 +03:00 | `bf7d891` | clean | `rg -n`, backend auth/visibility/recovery/lord-runtime slices, no subagents available in this tool context, manual dedupe/recheck | 2 new substantial bugs |
+| 4 | 2026-06-04 14:05 +03:00 | `bf7d891` | dirty: Pass 3 audit docs pending commit due escalated git limit | `rg -n`, production profile/lord-battle/sorceress/final-summary/mobile-sync slices, no subagents available in this tool context, manual dedupe/recheck | 1 new substantial bug |
+| 5 | 2026-06-04 14:08 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, order/PvP/NPC/reputation/Admin-correction/import-gate slices, no subagents available in this tool context, manual dedupe/recheck | 1 new substantial bug |
+| 6 | 2026-06-04 14:22 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, lord movement/fort capacity/snapshot secrecy/mobile PvE/import-gate slices, no subagents available in this tool context, manual dedupe/recheck | 1 new substantial bug |
+| 7 | 2026-06-04 14:26 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, trade/assets lock lifecycle, reward approval corrections, review/final blockers, game-ops corrections and timer idempotency slices, no subagents available in this tool context, manual dedupe/recheck | 3 new substantial bugs |
+| 8 | 2026-06-04 14:33 +03:00 | `bf7d891` | dirty: audit docs pending commit due escalated git limit | `rg -n`, NPC/reputation/final evidence, sorceress spell runtime, Gwent effects, lord economy build/recruit/anti-snowball and QR/manual honesty slices, no subagents available in this tool context, manual dedupe/recheck | 0 new substantial bugs |
 
 ## Method And Context Strategy
 
@@ -385,6 +391,275 @@ No TaskOS tasks were created.
   same real scene.
 - Pass number: 2
 
+### AUD-NEXT-019 - P2 - Raid effects never expire or apply timed debuff state
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:241`; `docs/architecture.md:365`;
+  `docs/architecture.md:367`; `docs/active-tasks.md:176`;
+  `docs/active-tasks.md:1156`; `data/seed/raid_rules.csv:2`.
+- Code/data/test location: `backend/witcher_larp/lord_runtime.py:632`;
+  `backend/witcher_larp/lord_runtime.py:679`;
+  `backend/witcher_larp/lord_runtime.py:692`;
+  `backend/witcher_larp/lord_runtime.py:2256`;
+  `backend/witcher_larp/final_summary_service.py:316`;
+  `backend/witcher_larp/final_summary_service.py:1101`;
+  `tests/test_lord_runtime.py:540`; `tests/test_lord_runtime.py:979`.
+- Expected / Actual: raid rules declare a timed debuff/loot duration and the
+  lord flow requires raid debuff/loot expiry. The runtime writes
+  `ends_at_offset_min` from `duration_min`, but no automatic transition updates
+  `raid_effects.status` away from `active`; the only nearby `expire` action is
+  for lord orders, while diplomacy/final-summary code counts active raid rows
+  indefinitely.
+- Gameplay impact: lord diplomacy pressure, raid status, optional loot/debuff
+  evidence and final domain summaries can all show stale active raids after the
+  intended duration, distorting lord strategy and master rulings.
+- Recommendation: store absolute start/end times or bind raid effects to timer
+  ticks, apply/remove the debuff or loot state, expire rows automatically, and
+  cover the duration boundary plus final-summary projection in tests.
+- Confirmation method: `rg -n "raid_effects|duration_min|ends_at_offset_min|UPDATE raid_effects|expired"`
+  across `backend/witcher_larp` and tests found insert/count paths but no
+  runtime expiry path; add a test that starts a raid, advances beyond duration
+  and expects non-active status plus cleared debuff/loot evidence.
+- Pass number: 3
+
+### AUD-NEXT-020 - P2 - Conflicted paper PvE recovery cannot apply PvE side effects after master ruling
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:323`;
+  `docs/architecture.md:343`; `docs/architecture.md:449`;
+  `docs/architecture.md:457`; `docs/active-tasks.md:348`;
+  `docs/active-tasks.md:369`; `docs/active-tasks.md:382`.
+- Code/data/test location: `backend/witcher_larp/event_service.py:601`;
+  `backend/witcher_larp/event_service.py:615`;
+  `backend/witcher_larp/event_service.py:627`;
+  `backend/witcher_larp/event_service.py:923`;
+  `backend/witcher_larp/review_service.py:411`;
+  `backend/witcher_larp/review_service.py:423`;
+  `tests/test_paper_recovery.py:31`; `tests/test_paper_recovery.py:96`;
+  `tests/test_paper_recovery.py:228`.
+- Expected / Actual: conflicting `paper_pve_result` should be saved for master
+  ruling and, once approved/corrected, apply the same QR/PvE reward/cooldown
+  side effects through ordinary checks. Instead non-clean conflict status exits
+  before `_decide_paper_pve_result` builds `recovered_pve_payload`, and review
+  side effects are gated to rows whose stored `event_type` is `pve_completed`;
+  the stored review row is `paper_recovered`, so approval closes audit without
+  a PvE attempt or reward/cooldown mutation.
+- Gameplay impact: a phone/Wi-Fi outage followed by a legitimate conflicting
+  paper QR result can be accepted by masters yet still lose the player's PvE
+  progress, reward approval state and cooldown history.
+- Recommendation: preserve parsed recovered PvE payload metadata for
+  `paper_pve_result` conflicts and let review approval/correction invoke the
+  PvE side-effect path for `paper_recovered` rows with
+  `recovered_event_type=pve_completed`, with duplicate/resource checks intact.
+- Confirmation method: targeted audit script submitted a conflicting
+  `paper_pve_result`, approved the review via `decide_event_review`, and
+  observed `decision_event_status='accepted'`, `pve_attempts_for_event=0` and
+  no player runtime state; add a regression test for approved/corrected
+  conflicted paper PvE recovery.
+- Pass number: 3
+
+### AUD-NEXT-021 - P2 - Favorite requests can deadlock consent lifecycle for an act
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:338`;
+  `docs/architecture.md:379`; `docs/architecture.md:453`;
+  `docs/active-tasks.md:236`; `docs/active-tasks.md:868`;
+  `data/seed/favorite_rules.csv:2`.
+- Code/data/test location: `backend/witcher_larp/app.py:1339`;
+  `backend/witcher_larp/app.py:1368`;
+  `backend/witcher_larp/sorceress_service.py:19`;
+  `backend/witcher_larp/sorceress_service.py:931`;
+  `backend/witcher_larp/sorceress_service.py:1005`;
+  `backend/witcher_larp/sorceress_service.py:1275`;
+  `backend/witcher_larp/sorceress_service.py:1330`;
+  `tests/test_sorceress_runtime.py:889`;
+  `tests/test_sorceress_runtime.py:908`.
+- Expected / Actual: favorites are specified as a consent-based lifecycle with
+  requested/accepted/changed/removed states, max primary/secondary slots, max 2
+  sorceresses per favored player and one change per act. Runtime/API only expose
+  create and accept; `ACTIVE_FAVORITE_STATUSES` includes `pending`, and
+  `_assert_favorite_caps` counts pending rows for duplicate, slot, favored-player
+  and per-act change limits. There is no favorite decline, cancel, remove or
+  change route to clear a non-consenting request.
+- Gameplay impact: a player can simply not accept a favorite request and still
+  consume the sorceress's slot/change budget for the act, blocking potion/spell
+  favorite targeting and distorting final favorite/alignment evidence without a
+  master-visible resolution path.
+- Recommendation: add explicit decline/cancel/remove/change transitions with
+  audit history and event log entries, and decide whether rejected/withdrawn
+  requests count toward per-act change limits; cover refusal/nonresponse and
+  re-request cases in API/runtime tests.
+- Confirmation method: `rg -n "favorite_changed|favorite_removed|decline|remove|cancel|/api/favorites"`
+  shows source requirements and only create/accept routes in implementation;
+  add a regression test that creates a pending favorite, declines/removes it,
+  and verifies the sorceress can use the slot according to the configured act
+  limit.
+- Pass number: 4
+
+### AUD-NEXT-022 - P2 - PvP match corrections can bypass stake settlement
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:178`;
+  `docs/architecture.md:355`; `docs/architecture.md:357`;
+  `docs/architecture.md:413`; `docs/active-tasks.md:354`;
+  `docs/active-tasks.md:370`; `docs/active-tasks.md:381`.
+- Code/data/test location: `backend/witcher_larp/game_ops_service.py:127`;
+  `backend/witcher_larp/game_ops_service.py:295`;
+  `backend/witcher_larp/game_ops_service.py:342`;
+  `backend/witcher_larp/pvp_service.py:969`;
+  `backend/witcher_larp/pvp_service.py:984`;
+  `backend/witcher_larp/pvp_service.py:1041`;
+  `backend/witcher_larp/pvp_service.py:2062`;
+  `tests/test_game_ops_service.py:68`;
+  `tests/test_pvp_runtime.py:630`; `tests/test_pvp_runtime.py:1769`.
+- Expected / Actual: Admin corrections are the recovery path for PvP timeout and
+  final evidence, while PvP finish must settle stake transfer exactly once. The
+  normal `finish_gwent_match` path refuses to apply stakes for
+  `needs_master_review` matches and only calls `_apply_stake_once` for
+  `awaiting_finish`; the game-ops correction target for `pvp_match` can patch
+  `status`, `winner_id`, `review_reason` and `duration_seconds` directly with a
+  generic SQL update, but it never calls the PvP settlement path, releases a
+  table, resolves the challenge, or updates `pvp_stake_ledger`.
+- Gameplay impact: a master can correct a reviewed/timeout PvP result to a
+  winner while the stake remains locked/not applied and the challenge/table
+  state remains inconsistent, corrupting player assets, final PvP evidence and
+  recovery authority.
+- Recommendation: route PvP match corrections through a domain-specific review
+  settlement helper that validates winner/outcome, calls `_apply_stake_once`,
+  resolves/reviews challenge/table resources and records the same event-log
+  evidence as `finish_gwent_match`.
+- Confirmation method: `rg -n "pvp_match|winner_id|stake_transfer|game_ops_correction|finish_gwent_match"`
+  shows the generic correction target and the separate stake-settlement path;
+  add a regression test that moves a match to `needs_master_review`, resolves it
+  through the correction API, and asserts stake ledger, asset/gold ownership,
+  challenge status and final-summary PvP evidence are consistent.
+- Pass number: 5
+
+### Pass 6
+
+### AUD-NEXT-023 - P2 - Fort garrison capacity is not modeled or enforced
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:238`, `:275`, `:284`, `:361`,
+  `:363`, `:367`.
+- Code/data/test location: `backend/witcher_larp/content_schema.py:6`,
+  `:80`; `backend/witcher_larp/lord_runtime.py:389`, `:416`, `:432`,
+  `:2156`; `tests/test_seed_contract.py:91`, `:130`;
+  `tests/test_lord_runtime.py:409`; no `territory_forts.csv`,
+  `garrison_capacity` or fort-capacity runtime path is present in seed data,
+  import validation or lord transfer tests.
+- Expected / Actual: expected each capturable territory has a fort record with
+  validated `garrison_capacity`, and fort transfers reject moves that exceed
+  that capacity while preserving minimum garrison rules; actual runtime only
+  checks active-army capacity on `fort_to_active`, then increments garrisons via
+  `_upsert_garrison` with no fort-capacity source or cap.
+- Gameplay impact: lords can overstack fort defenses, changing battle balance,
+  territory control pressure and final territorial evidence outside the planned
+  rule model.
+- Recommendation: add a `territory_forts` content/runtime source or explicit
+  fort capacity field, validate one fort and positive capacity for each
+  capturable territory, and check `current_garrison + count <= garrison_capacity`
+  before garrison upsert/capture handoff; cover over-cap rejection and
+  minimum-garrison capture tests.
+- Confirmation method: `rg -n "territory_forts|garrison_capacity|fort_id|defense_bonus"`
+  found no fort-capacity implementation, and targeted code review of the
+  transfer path confirmed no capacity check before `_upsert_garrison`; a
+  regression test should attempt to transfer above fort capacity and expect
+  rejection.
+- Pass number: 6
+
+### Pass 7
+
+### AUD-NEXT-024 - P2 - Trade transfer corrections can bypass settlement and lock release
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:170`, `:255`, `:335`, `:453`;
+  `docs/active-tasks.md:354`.
+- Code/data/test location: `backend/witcher_larp/game_ops_service.py:123`,
+  `:295`, `:342`; `backend/witcher_larp/sorceress_service.py:701`,
+  `:721`, `:750`, `:808`, `:843`; `tests/test_game_ops_service.py:68`;
+  `tests/test_trade_transfers.py:19`, `:70`.
+- Expected / Actual: expected master correction of a trade result preserves the
+  same atomic owner/gold movement and asset-lock audit semantics as normal
+  accept/decline/cancel; actual `trade_transfer` game-ops correction is a
+  generic SQL patch that can change `status`, `price_gold`, participants or
+  asset fields without calling `accept_trade_transfer`,
+  `decline_trade_transfer`, gold movement or `settle_owned_asset_lock`.
+- Gameplay impact: Admin recovery can mark a trade accepted, declined or
+  contested while the asset remains locked, gold is not moved, or ownership
+  still belongs to the previous player, corrupting inventory/trade/final
+  evidence.
+- Recommendation: route trade corrections through a domain-specific settlement
+  helper, restrict direct patch fields to audit-only metadata, and reject
+  terminal status changes unless the helper can settle/release locks and record
+  the same event-log evidence as the normal trade APIs.
+- Confirmation method: targeted review of `CORRECTION_TARGETS["trade_transfer"]`
+  and `_apply_table_correction` showed only a generic update; normal
+  accept/decline paths were rechecked and are the only paths that move gold and
+  settle locks. Add a regression that corrects a pending trade to `accepted` and
+  asserts ownership, gold and active locks are consistent.
+- Pass number: 7
+
+### AUD-NEXT-025 - P2 - Corrected reward approvals can grant replacement assets despite active locks
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:33`, `:173`, `:333`, `:349`,
+  `:453`; `docs/active-tasks.md:354`.
+- Code/data/test location: `backend/witcher_larp/reward_service.py:43`,
+  `:114`, `:273`, `:308`; `backend/witcher_larp/asset_service.py:208`,
+  `:291`, `:355`; `tests/test_reward_approvals.py:33`, `:171`, `:257`.
+- Expected / Actual: expected a corrected reward decision validates replacement
+  item/card/artifact assets against the same active reward/trade/stake locks
+  before granting them; actual `correct` releases the original approval locks,
+  then grants `reward_asset_entries(..., correction)` through
+  `grant_asset_ownership` without `assert_reward_assets_unlocked` or
+  per-asset lock availability checks.
+- Gameplay impact: a master correction can mint or duplicate an asset that is
+  already locked in another pending reward, trade or stake flow, undermining
+  cascade-prone reward locks and final object evidence.
+- Recommendation: before applying corrected assets, validate each corrected
+  asset against active locks; either create fresh approval locks for replacement
+  assets until the corrected decision is fully settled or reject/reroute to
+  review if any replacement asset is locked.
+- Confirmation method: `rg -n` showed lock checks during approval creation and
+  normal pending-reward conflict tests, but no corrected-asset conflict test or
+  runtime check before `grant_asset_ownership`; add a regression with one
+  pending reward locking an item and a second approval corrected to that same
+  item.
+- Pass number: 7
+
+### AUD-NEXT-026 - P2 - Pending trade locks never time out
+
+- Severity: P2
+- Source requirement: `docs/architecture.md:255`, `:335`, `:453`;
+  `docs/active-tasks.md:406`, `:1045`.
+- Code/data/test location: `backend/witcher_larp/sorceress_service.py:173`,
+  `:701`, `:808`; `backend/witcher_larp/timer_service.py`;
+  `backend/witcher_larp/validation.py:1232`; `tests/test_trade_transfers.py:70`,
+  `:162`; `tests/test_seed_contract.py:298`, `:774`;
+  `data/seed/trade_transfers.csv:2`.
+- Expected / Actual: expected pending trade locks have a configured timeout and
+  a runtime path that moves stale `pending_locked` transfers to a terminal
+  timeout/cancelled state while releasing the asset lock; actual `timed_out` is
+  only treated as already-final by `decline_trade_transfer`, the seed schema has
+  no timeout field, validation allows no `timed_out` seed status, and no timer,
+  service or API path sets the timeout/release.
+- Gameplay impact: a missed or abandoned online trade can lock an item/card/
+  artifact/potion indefinitely, blocking later trade, PvP stake, reward use or
+  final object settlement until a manual correction is invented.
+- Recommendation: add transfer timeout configuration/content, an idempotent
+  expiry helper invoked by timers/Admin operations, lock release with audit
+  reason `timed_out`, and tests for pending transfer expiry across restart.
+- Confirmation method: `rg -n "timed_out|pending_locked|trade_transfer.*timeout"`
+  found terminal handling and tests for accept/decline only, with no expiry
+  helper or timer; add a regression that advances past timeout and expects the
+  transfer terminal plus lock released.
+- Pass number: 7
+
+### Pass 8
+
+No new substantial Stage 1/2/2A bugs were verified in this pass.
+
 ## Checked Without New Issues
 
 - Production profile seed/validation for 4 lords, 4 sorceresses, 5 witchers and
@@ -408,6 +683,188 @@ No TaskOS tasks were created.
   and backup routes require master token.
 - Stage 2B UI absence remains out of scope.
 
+## Pass 3 Checked Without New Issues
+
+- Admin/master token boundaries: master-only routes use `_require_master_token`
+  and negative coverage includes missing, invalid, lord and master tokens
+  (`backend/witcher_larp/app.py:1874`,
+  `tests/test_admin_studio_contract.py:91`). No new issue beyond baseline
+  `AUD-002` and existing `AUD-NEXT-004`/`AUD-NEXT-015`.
+- Lord role-token and lord-battle visibility: lord panel state checks role type
+  and owner id, mutating lord routes use `_require_lord_token`, and lord battle
+  list/get paths scope visibility to attacker/defender domains or NPC master
+  (`backend/witcher_larp/app.py:613`, `:643`, `:1665`, `:1680`, `:1846`;
+  `tests/test_lord_panel_contract.py:123`, `:399`).
+- Player content snapshot secrecy: `/snapshot` requires player code, snapshot
+  export redacts private payload keys, and reputation/final-facing data remains
+  separated except known baseline final-hook leakage
+  (`backend/witcher_larp/app.py:402`;
+  `backend/witcher_larp/snapshot_exporter.py:52`, `:387`;
+  `tests/test_snapshot_exporter.py:114`).
+- NPC hidden-price handling: master NPC deal routes require master token, while
+  player-visible NPC actions redact hidden prices to master-only markers
+  (`backend/witcher_larp/app.py:989`;
+  `backend/witcher_larp/npc_service.py:245`, `:611`;
+  `tests/test_reputation_npc_runtime.py:126`).
+- Sorceress, favorite and trade participant scopes: runtime endpoints require
+  player-or-master auth, and service checks constrain accept/close actions to
+  transfer or favorite participants (`backend/witcher_larp/app.py:1119`,
+  `:1261`; `backend/witcher_larp/sorceress_service.py:712`, `:826`, `:1016`;
+  `tests/test_sorceress_runtime.py:996`).
+- PvP/Gwent endpoint visibility: route token requirements and Gwent/lord
+  visibility were rechecked without finding an additional exposure beyond
+  baseline `AUD-005` and existing `AUD-NEXT-014`.
+- Backup artifacts: a targeted audit script created an event and backup inside
+  one `connect()` scope; both manifest and copied SQLite contained the marker,
+  so no restart-recovery issue was confirmed for this slice.
+
+## Pass 4 Checked Without New Issues
+
+- Production profile validation: `profiles.csv`, `players.csv` and
+  `role_tokens.csv` are checked for 15 total people, 13 players, 2 NPC masters,
+  4 lords, 4 sorceresses, 5 witchers and exact NPC-master token owners
+  (`backend/witcher_larp/validation.py:400`,
+  `backend/witcher_larp/validation.py:554`,
+  `tests/test_seed_contract.py:560`).
+- Lord battle settlement/timeout: attack, surrender, repeated timeout
+  auto-resolve, burned cards, capture handoff, retreat and pending tick awards
+  have service paths and tests; no new issue beyond `AUD-NEXT-001`
+  (`backend/witcher_larp/lord_battle_service.py:746`,
+  `backend/witcher_larp/lord_battle_service.py:803`,
+  `tests/test_lord_battle_runtime.py:181`,
+  `tests/test_lord_battle_runtime.py:1081`).
+- Sorceress mana timers: hourly `lord_income_and_mana` applies mana regen capped
+  by max mana and has restart/idempotency coverage
+  (`backend/witcher_larp/timer_service.py:252`,
+  `backend/witcher_larp/timer_service.py:299`,
+  `tests/test_act_timer_runtime.py:97`).
+- Final summary/export policy: summary remains master-led without automatic
+  winner calculation and includes locked intent, paper recovery, pending
+  disputes and export metadata; existing missing evidence issues remain covered
+  by earlier findings (`backend/witcher_larp/final_summary_service.py:38`,
+  `tests/test_final_summary_runtime.py:38`).
+- Mobile sync/retry was rechecked for statuses outside baseline `AUD-004`; no
+  new substantial issue found beyond the known rejected-to-review mapping.
+
+## Pass 5 Checked Without New Issues
+
+- Lord order cap/object conflict/escrow: order creation, accept/submit/complete,
+  object conflict close-out and escrow reserve/refund/award paths were rechecked
+  without a new issue beyond existing recovery gaps
+  (`backend/witcher_larp/lord_runtime.py:789`,
+  `backend/witcher_larp/lord_runtime.py:1510`,
+  `backend/witcher_larp/lord_runtime.py:1627`;
+  `tests/test_lord_runtime.py:919`).
+- PvP finish/refusal regular path: normal awaiting-finish flow applies stake
+  once, invalid/partial/tie review flows intentionally leave stake unapplied
+  pending master action; the new issue is limited to the Admin correction path
+  for reviewed matches (`backend/witcher_larp/pvp_service.py:969`,
+  `tests/test_pvp_runtime.py:1713`).
+- NPC/reputation authority: master-only endpoints, NPC role/type validation,
+  hidden price redaction, P0/P1 review routing and reputation clamping remain
+  covered (`backend/witcher_larp/npc_service.py:81`,
+  `backend/witcher_larp/npc_service.py:320`,
+  `tests/test_reputation_npc_runtime.py:95`).
+- Content/import gates for this slice were rechecked through targeted `rg` on
+  order status, reputation range, NPC event flags and PvP rules; no new
+  structural import bug was verified.
+
+## Pass 6 Checked Without New Issues
+
+- Lord active-army movement and retreat: the runtime uses one active army per
+  domain, moves all active-army rows with the lord, and retreat updates both
+  `active_army_runtime.location_node_id` and `domain_runtime_state.current_node_id`;
+  no split-army/desync issue was verified
+  (`backend/witcher_larp/lord_runtime.py:220`,
+  `backend/witcher_larp/lord_battle_service.py:874`).
+- Player snapshot reputation secrecy: player-scoped reputation payloads redact
+  exact values and expose only band/label data, with tests asserting no raw
+  `value` in player endpoints; the known final-hook snapshot leak remains
+  baseline `AUD-003` (`backend/witcher_larp/snapshot_exporter.py:387`,
+  `tests/test_fastapi_contract.py:1419`).
+- Mobile PvE roll/result contract: targeted review of `qr_runtime`,
+  `pve_runtime`, mobile app state and tests found server-side result generation,
+  replay handling and offline sync coverage beyond existing stale-act issue
+  `AUD-NEXT-007` (`backend/witcher_larp/pve_runtime.py:383`,
+  `tests/test_pve_runtime.py:32`, `tests/test_event_sync.py:258`).
+- Import/content minima gates: QR mix, building cycles, Gwent deck limits,
+  trade transfer schema, reputation ranges, reward approval policy and favorite
+  rule shape are validated in seed checks; the new issue is limited to missing
+  fort/garrison-capacity data and enforcement
+  (`backend/witcher_larp/validation.py:1`, `tests/test_seed_contract.py:1`).
+
+## Pass 7 Checked Without New Issues
+
+- Normal trade accept/decline path: participant consent, pending-only status,
+  gold movement, inventory/ownership settlement and lock release are covered by
+  `accept_trade_transfer`/`decline_trade_transfer` and transfer tests; new
+  issues are limited to Admin correction and timeout lifecycle gaps
+  (`backend/witcher_larp/sorceress_service.py:701`,
+  `tests/test_trade_transfers.py:19`).
+- Normal reward approval approve/reject path: pending approvals lock assets,
+  reject releases locks, duplicate/conflicting approvals route to review, and
+  tests cover pending reward assets blocked from PvP stake/trade; new issue is
+  limited to replacement assets supplied in the `correct` branch
+  (`backend/witcher_larp/reward_service.py:71`,
+  `tests/test_reward_approvals.py:33`).
+- Review/final blocker lifecycle: unresolved reviews and locked magical intent
+  remain visible in final summary; missing generic non-PvE side effects and
+  resolved review blocker behavior are already covered by baseline `AUD-002`,
+  `AUD-NEXT-015` and `AUD-NEXT-020`
+  (`backend/witcher_larp/final_summary_service.py:56`,
+  `tests/test_final_summary_runtime.py:179`).
+- Auto timer idempotency: applied timer ticks are keyed by timer/due time and
+  restart tests cover income/mana/token idempotency; no new timer replay issue
+  was verified in this slice (`backend/witcher_larp/timer_service.py:69`,
+  `tests/test_act_timer_runtime.py:82`).
+
+## Pass 8 Checked Without New Issues
+
+- QR/manual honesty and opaque-code policy: lookup normalizes only printed
+  manual/opaque codes, future-act lookups redact scene payloads until physical
+  announcement, missing physical presence and manual-rate-limit attempts enter
+  review, and sync preserves those review reasons. No new issue beyond
+  `AUD-NEXT-002` and stale/future-act findings was verified
+  (`backend/witcher_larp/qr_runtime.py:57`,
+  `backend/witcher_larp/event_service.py:508`,
+  `tests/test_fastapi_contract.py:289`,
+  `tests/test_fastapi_contract.py:362`,
+  `tests/test_event_sync.py:396`).
+- NPC/reputation/final evidence authority: NPC event endpoints are master-only,
+  NPC role/type and severity are validated, hidden prices redact outside master
+  views, reputation applies only to witchers/sorceresses and final summary
+  includes NPC deals/reputation/master notes. No additional NPC/final authority
+  issue was verified (`backend/witcher_larp/npc_service.py:81`,
+  `backend/witcher_larp/npc_service.py:320`,
+  `backend/witcher_larp/final_summary_service.py:395`,
+  `tests/test_reputation_npc_runtime.py:27`,
+  `tests/test_admin_studio_contract.py:545`).
+- Sorceress spell runtime: cast ids are idempotent before mana spend, target
+  existence/type is validated before mutation, insufficient mana has no side
+  effect, and post-final locked intent is routed to review without mana spend;
+  no new issue beyond existing locked-intent/potion/favorite findings was
+  verified (`backend/witcher_larp/sorceress_service.py:327`,
+  `tests/test_sorceress_runtime.py:38`,
+  `tests/test_sorceress_runtime.py:125`).
+- Gwent effect resolution: weather, clear weather, horn, decoy, scorch,
+  spy/medic/muster, rare specials and leader usage have runtime validators and
+  tests; no additional game-mechanics issue beyond already recorded
+  PvP visibility/correction/stake findings was verified
+  (`backend/witcher_larp/gwent_effects.py:1`,
+  `backend/witcher_larp/pvp_service.py:1400`,
+  `tests/test_pvp_runtime.py:1104`,
+  `tests/test_pvp_runtime.py:1196`,
+  `tests/test_pvp_runtime.py:1338`).
+- Lord economy build/recruit/anti-snowball: building purchase checks duplicate
+  ownership, prerequisites and gold; recruit hold/purchase checks offer status,
+  holder and gold; timer tick applies anti-snowball cuts. No new issue beyond
+  existing fort-capacity, raid-expiry, final-lock and pending-tick findings was
+  verified (`backend/witcher_larp/lord_runtime.py:471`,
+  `backend/witcher_larp/lord_runtime.py:548`,
+  `backend/witcher_larp/timer_service.py:255`,
+  `tests/test_lord_runtime.py:193`,
+  `tests/test_lord_runtime.py:539`).
+
 ## Out Of Scope
 
 - Full Stage 2B playable mobile UI, lord action UI and personal Gwent UI.
@@ -426,8 +883,31 @@ No TaskOS tasks were created.
 - Pass 2: `uv run python scripts/taskctl.py validate` -> `tasks.json is valid
   (81 tasks)`.
 - Pass 2: `uv run pytest -q` -> 221 passed, 1 warning, 312.67s.
+- Pass 3: `uv run python scripts/taskctl.py validate` -> `tasks.json is valid
+  (81 tasks)`.
+- Pass 3: `uv run pytest -q` -> 221 passed, 1 warning, 505.85s.
+- Pass 4: checks were deferred while `uv`/`git` escalated commands were
+  temporarily blocked; after Pass 6 docs, `uv run python scripts/taskctl.py
+  validate` -> `tasks.json is valid (81 tasks)`, and `uv run pytest -q` -> 221
+  passed, 1 warning, 222.02s.
+- Pass 5: covered by the deferred post-Pass 6 validation/full-suite run above;
+  no product code changed between Pass 4 and Pass 6.
+- Pass 6: `uv run python scripts/taskctl.py validate` -> `tasks.json is valid
+  (81 tasks)`.
+- Pass 6: `uv run pytest -q` -> 221 passed, 1 warning, 222.02s.
+- Pass 7: `uv run python scripts/taskctl.py validate` -> `tasks.json is valid
+  (81 tasks)`.
+- Pass 7: `uv run pytest -q` -> 221 passed, 1 warning, 224.06s.
+- Pass 8: checks not rerun per user direction; no product code changed after
+  the Pass 7 green `validate` and full-suite run.
 
 ## Convergence Log
 
 - After Pass 1: 6 new substantial findings; consecutive zero-new passes = 0.
 - After Pass 2: 12 new substantial findings; consecutive zero-new passes = 0.
+- After Pass 3: 2 new substantial findings; consecutive zero-new passes = 0.
+- After Pass 4: 1 new substantial finding; consecutive zero-new passes = 0.
+- After Pass 5: 1 new substantial finding; consecutive zero-new passes = 0.
+- After Pass 6: 1 new substantial finding; consecutive zero-new passes = 0.
+- After Pass 7: 3 new substantial findings; consecutive zero-new passes = 0.
+- After Pass 8: 0 new substantial findings; consecutive zero-new passes = 1.
