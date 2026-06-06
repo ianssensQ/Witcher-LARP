@@ -1,0 +1,14 @@
+{
+  "created": "2026-06-05T11:46:47.745726+00:00",
+  "data": [
+    {
+      "is_image_safe": true,
+      "prompt": "A weathered fantasy game interface button featuring dark cold-blue enamel inset with thick raised aged-iron borders and old gold bevels. The Cyrillic text \"\u041e\u043d\u0431\u043e\u0440\u0434\u0438\u043d\u0433\" is prominently displayed in large pale silver-gold engraved medieval serif lettering across the center. Corner rivets, subtle frosty inner glow, and deep dimensional shadows create an authentic heavy metal aesthetic with visible scratches and dents. Dark fantasy styling with hand-painted textures and production-polished details evokes classic strategy game atmosphere.",
+      "resolution": "1312x736",
+      "seed": 304235102,
+      "style_type": "GENERAL",
+      "upscaled_resolution": null,
+      "url": "https://ideogram.ai/api/images/ephemeral/WDxeEMavU5igOT-PdD7fgg.png?exp=1780746421&sig=11ee0d1c7e3cf14fe4789a758c2a5890261eda21f075d13972ec63cfa1541a6e"
+    }
+  ]
+}

@@ -14,7 +14,7 @@
 
 Референсы пользователя фиксируются как механико-визуальные контракты, а не как источники копируемого контента:
 
-- лордская резиденция в UI должна работать как оригинальный castle/city-development screen с Olden Era-like building tree: здания видны как узлы дерева с prerequisite lines, locked/unlocked/purchased states, cost/resources, detail card, доходом, наймом, raid/order effects и развитием без копирования официального арта;
+- лордский `/lords/home` должен работать как оригинальный полноэкранный замок/выбранная территория в Heroes-like грамматике: фон занимает экран, ресурсы сверху, action dock слева, мини-карта снизу слева, армия/гарнизон/найм снизу по центру, акт/MP снизу справа; building tree открывается отдельным экраном с prerequisite lines, locked/unlocked/purchased states, cost/resources, detail card, доходом, наймом, raid/order effects и развитием без копирования официального арта;
 - личный Гвинт ведьмаков и чародеек использует экранную грамматику Witcher 3 Gwent: лидер, колода, рука, кладбище/discard, weather/special slots, три ряда, pass и score, но карты, имена, портреты, редкости и баланс являются кастомным LARP-контентом;
 - лордский PvP/бой использует отдельный стратегический 5x6 army board: он может брать у гвинтового стола читаемость поля и карт, но визуально отличается от личного Гвинта и не использует deck/hand/graveyard/weather/pass как личный PvP;
 - карта участка отображается как illustrated fantasy strategy map поверх `venue_map_v1`, `map_nodes` и `map_edges` для перемещения лордских героев/армий; лорды не используют QR, а QR/manual physical-presence confirmation относится к ведьмакам и чародейкам на физических локациях и не требует online-карты;
@@ -467,7 +467,7 @@ V1 edge cost defaults: короткое соседнее ребро стоит 1
 
 Если активная армия проиграла, выжившие карты отступают на предыдущую свою территорию. Если она недоступна, армия возвращается в резиденцию. Уничтоженные army unit cards сгорают навсегда.
 
-Гарнизоны можно забирать обратно, если активная армия находится на той же своей территории. Transfer между активной армией и фортом не тратит MP, но ограничен capacity активной армии и `garrison_capacity` форта. Transfer запрещен, если территория чужая, contested, находится в активном бою или если в результате собственная захваченная территория остается без минимального гарнизона. Резерв остается отдельным контуром резиденции: активная армия может забирать юнитов из reserve только в резиденции, а не из любого форта.
+Гарнизоны можно забирать обратно, если активная армия находится на той же своей территории. Transfer между активной армией и фортом не тратит MP, но ограничен capacity активной армии и `garrison_capacity` форта. Transfer запрещен, если территория чужая, contested, находится в активном бою или если в результате собственная захваченная территория остается без минимального гарнизона. Нанятые юниты попадают в гарнизон выбранной территории; активная армия забирает их только из той локации, где реально находится герой.
 
 ## Доход, влияние и pending tick rewards
 
@@ -477,7 +477,7 @@ V1 edge cost defaults: короткое соседнее ребро стоит 1
 
 - `gold` - дополнительный доход владения;
 - `influence` - победное влияние;
-- `recruit` - доступ к типам войск или улучшенный recruit market;
+- `recruit` - доступ к типам войск, `rate_per_hour` или `stock_cap`;
 - `magic` - синергия с чародейкой, mana/reveal/ward эффекты;
 - `order` - бонус к заказам, escrow, наградам или видимости доски заказов;
 - `defense` - усиление гарнизонов, raid resistance или defensive setup;
@@ -502,28 +502,29 @@ V0 economy defaults для лордов:
 
 Главный социальный баланс против лидера - дипломатия, союзы, заговоры и коалиции. Система не обязана автоматически "создавать союз", но должна дать лордам и мастерам видимые поводы: standings, influence, order history, рейды, спорные территории, NPC-решения и события, которые помогают игрокам понимать, против кого и почему объединяться.
 
-## Recruit market и reserve
+## Накопительный найм и гарнизон
 
-Новые карты-войска появляются через recruit market, а не напрямую из воздуха в активной армии. Recruit market обновляется на hourly tick по данным резиденции, казарм и контролируемых территорий.
+Новые карты-войска появляются через накопительный найм по выбранной территории, а не напрямую из воздуха в активной армии. Каждый доступный тип юнита имеет `rate_per_hour` и `current_stock`: тик/час добавляет войска в stock по данным резиденции, казарм, контролируемых территорий и локальных построек.
 
 Правила найма:
 
 - казармы задают базовый пул, тиры, active army capacity и stack/cap;
-- территории типа `recruit` открывают специальные юниты или повышают качество предложений;
+- территории типа `recruit` открывают специальные юниты или повышают `rate_per_hour`/stock cap;
 - лорд покупает юнитов за gold;
-- купленные юниты попадают в reserve резиденции;
-- активная армия может забрать юнитов из reserve только находясь в резиденции;
-- часть предложений recruit market можно поставить на hold, остальные обновляются на следующем refresh.
+- купленные юниты попадают в гарнизон выбранной территории;
+- активная армия героя может забрать юнитов из гарнизона только если находится в выбранной территории;
+- если герой-армия не в выбранной территории, верхняя линия армии на `/lords/home` пустая/заблокированная, но локальный гарнизон и разрешенный найм остаются видны;
+- UI каждой карточки найма показывает `+X/час` и `(current_stock)`, а recruit modal показывает арт/статы 1 юнита, slider количества, расчет стоимости и кнопку найма.
 
 Карты игроков остаются отдельным социальным усилением. Если ведьмак или чародейка передает личную карту лорду, она навсегда конвертируется в army unit card и выходит из личной колоды.
 
 ## Резиденция, building tree и рейды
 
-Резиденция лорда развивается за gold. В текущем ruleset нет act cap на строительство: если хватает золота и выполнены prerequisites, лорд может купить несколько зданий подряд. Чем сильнее здание, тем выше цена и требования по dependency tree. В UI резиденция отображается как оригинальный castle/city-development screen: Olden Era-like дерево узлов показывает branches, prerequisite lines, locked/unlocked/purchased state, cost, required buildings, recruit/economy/raid/order effects and visual_tag/art prompt; выбранное здание открывает detail card с эффектом и кнопкой постройки.
+Резиденция лорда и захваченные территории развиваются за gold. В текущем ruleset нет act cap на строительство: если хватает золота и выполнены prerequisites, лорд может купить несколько зданий подряд. Основной экран лорда - `/lords/home`: полноэкранный замок/выбранная территория с верхней строкой ресурсов, левыми круглыми кнопками действий, мини-картой снизу слева, армией/гарнизоном/наймом снизу по центру и актом/MP снизу справа. Building tree открывается отдельным экраном из кнопки зданий: Olden Era-like дерево узлов показывает branches, prerequisite lines, locked/unlocked/purchased state, cost, required buildings, recruit/economy/raid/order effects and visual_tag/art prompt; выбранное здание открывает detail card с эффектом и кнопкой постройки.
 
 Core-ветки резиденции:
 
-- казармы - найм войск, тиры юнитов, capacity активной армии и качество recruit market;
+- казармы - найм войск, тиры юнитов, capacity активной армии, rate_per_hour и stock cap;
 - казна - базовая экономика, скидки, доход, escrow efficiency и анти-снежный ком;
 - совет - заказы, дипломатия, visibility, raid subtree и политические операции;
 - башня мага - синергия с чародейкой, магическая защита, разведка, wards и стратегические эффекты.
@@ -533,17 +534,17 @@ Default catalog v1 фиксирует именованное дерево, но 
 Казармы:
 
 - `Training Yard` - базовая подготовка, первый recruit pool, малый прирост active army capacity;
-- `Barracks` - infantry/guard offers и более стабильный базовый найм; prerequisite: `Training Yard`;
-- `Archery Range` - ranged offers; prerequisite: `Training Yard`;
-- `Stables` - cavalry offers и мобильные отряды; prerequisite: `Barracks`;
-- `Siege Yard` - heavy/siege offers; prerequisite: `Barracks` + `Storehouse`;
-- `War Academy` - высокие tier offers, capacity и качество recruit market; prerequisite: `Archery Range` + `Stables` + `War Council`.
+- `Barracks` - infantry/guard unlock и более стабильный базовый прирост найма; prerequisite: `Training Yard`;
+- `Archery Range` - ranged unlock/rate; prerequisite: `Training Yard`;
+- `Stables` - cavalry unlock/rate и мобильные отряды; prerequisite: `Barracks`;
+- `Siege Yard` - heavy/siege unlock/rate; prerequisite: `Barracks` + `Storehouse`;
+- `War Academy` - высокие tier unlocks, capacity, rate_per_hour и stock cap; prerequisite: `Archery Range` + `Stables` + `War Council`.
 
 Казна:
 
-- `Market` - скидки, базовый trade/recruit hold, экономическая гибкость;
+- `Market` - скидки, базовый trade/recruit efficiency, экономическая гибкость;
 - `Tax Office` - стабильный доход; prerequisite: `Market`;
-- `Storehouse` - reserve capacity, защита запасов и подготовка к siege/recruit; prerequisite: `Market`;
+- `Storehouse` - garrison/storage capacity, защита запасов и подготовка к siege/recruit; prerequisite: `Market`;
 - `Bank` - сильная экономика и escrow efficiency; prerequisite: `Tax Office` + `Storehouse`;
 - `Treasury Hall` - высокий экономический потолок с учетом анти-снежного кома; prerequisite: `Bank` + `War Council`.
 
@@ -573,7 +574,7 @@ Raid subtree находится внутри ветки Совета. Здани
 
 - временно снижают доход или основной бонус территории;
 - ослабляют оборону или raid resistance;
-- блокируют recruit market, order tools или отдельные эффекты на ограниченный срок;
+- блокируют накопление найма, order tools или отдельные эффекты на ограниченный срок;
 - могут дать разовый loot-эффект: gold, карту, influence или сюжетный leverage, если это разрешено raid rule;
 - на высоком уровне открывают рейд резиденции ради gold/cards/influence или временного дебаффа, но резиденцию нельзя захватить.
 
@@ -603,7 +604,7 @@ Raid subtree находится внутри ветки Совета. Здани
 - `heavy_siege` - медленные тяжелые или осадные отряды с высоким уроном/HP, дороги и зависят от развитых казарм;
 - `specialist` - земные специалисты: разведчики, саперы, знаменосцы, инженеры и другие utility-юниты без массовой магии.
 
-Прогрессия войск идет через открытие новых army unit cards в recruit market. Старые стеки не апгрейдятся автоматически. Здания и территории дают `recruit_unlock`, `source_tags`, offer weights и редкие flavor-варианты; так у лордов появляется вкус владения без полностью отдельных фракционных ростеров.
+Прогрессия войск идет через открытие новых army unit cards для накопительного найма. Старые стеки не апгрейдятся автоматически. Здания и территории дают `recruit_unlock`, `source_tags`, `rate_per_hour`, `stock_cap` и редкие flavor-варианты; так у лордов появляется вкус владения без полностью отдельных фракционных ростеров.
 
 У юнита есть:
 
@@ -638,7 +639,7 @@ V1 уточнение для реализации:
 unit_power = count_alive * (attack + defense + hp) + initiative * 2 + move_range * 2 + attack_range * 2 + tier * 8
 deployed_army_power = sum(unit_power for deployed cards)
 active_army_power = sum(unit_power for active army cards)
-domain_army_power = active_army_power + sum(garrison unit_power) + floor(sum(reserve unit_power) * 0.75)
+domain_army_power = active_army_power + sum(garrison unit_power)
 ```
 
 `deployed_army_power` используется для HP лорда в конкретном бою. `domain_army_power` используется для anti-snowball и отчетов баланса. Reserve считается с коэффициентом 0.75, потому что эти войска усиливают владение, но не находятся на линии боя.
@@ -658,7 +659,7 @@ Deployment caps:
 - neutral capture default: атакующий до 5 карт, neutral defense до 5 карт;
 - lord-vs-lord default: каждая сторона до 7 карт;
 - здания, гарнизонные cap и special effects могут менять cap, но не выше 10 карт на сторону без master override;
-- карты вне deployment остаются в active army/reserve/garrison и не получают урон в этом бою.
+- карты вне deployment остаются в active army/garrison и не получают урон в этом бою.
 
 Ход боя:
 
@@ -1059,7 +1060,7 @@ Final Act разбивается на легкие мастерские тайм
 
 После восстановления мастер заносит бумажные события обратно как `source=paper_recovered`. Для каждого recovery-события обязательны `paper_form_id`, operator, timestamp и reason. Уже синхронизированное цифровое событие не перетирается молча; конфликт бумага/цифра уходит в master review.
 
-Если падает Wi-Fi или сервер, лордский слой не останавливается. NPC-мастера выдают каждому лорду текущий бумажный лист владения или последний известный snapshot: золото, income, influence, территории, армия, reserve, гарнизоны, здания, raid tokens, активные заказы и спорные claims. Лорды могут продолжать:
+Если падает Wi-Fi или сервер, лордский слой не останавливается. NPC-мастера выдают каждому лорду текущий бумажный лист владения или последний известный snapshot: золото, income, influence, территории, армия, гарнизоны, accumulated recruit stock, здания, raid tokens, активные заказы и спорные claims. Лорды могут продолжать:
 
 - выдавать бумажные заказы ведьмакам с escrow note и подписью мастера;
 - двигать армию по распечатанному `venue_map_v1`/weighted graph;
@@ -1198,6 +1199,6 @@ Runtime CSV остаются источником для приложения:
 2. **Stage 2 - Admin Studio.** Мастер получает UI для импорта, проверки, snapshot, игровых операций, lord map ops, contested/pending rewards, рейдов, anti-snowball, PvP timeout review, NPC, visibility, backups и final summary. Этот этап нужен до генератора, чтобы генерация PvE сразу жила в удобной мастерской модели.
 3. **Stage 3 - PvE Generation Engine.** В Admin Studio появляется генератор PvE/QR: шаблоны, tier/reward/stat controls, QR modes, artifact/reputation/NPC/order flags, preview, compiler и validation. Генератор обязан создавать квесты, которые проходят runtime importer и запускаются в PvE engine.
 4. **Stage 4 - Unique Quest Production.** Генератор используется для 40+ QR/PvE-сцен, включая минимум 15 always-available/repeatable сцен и 25+ unique objects, после чего мастер вручную полирует тексты, моральные развилки, скрытую правду, уникальные последствия, personal goal hooks, кастомные Gwent cards с row/leader/weather/special taxonomy and original art prompts, артефакты, редкие карты, сюжетные ключи, strategic items, building/unit visual tags, territory fort manifest, venue map manifest, NPC-связи, финальные флаги, favorites content, locked magical intent hooks, order cap и player-facing handouts/role packets.
-5. **Stage 5 - Balance Simulation.** Полный контент-пак прогоняется через симуляции: 10-часовой fixed schedule, offline act unlock friction, pending reward approvals, темп прокачки, ценность наград, PvE tiers, cooldown 30 min, role-load idle risk для 9 мобильных ролей, full Gwent volume/no-match-limit/throttle/deck-complexity risk, trade conflicts, лордское движение по карте с physical route assumptions and no GPS/internet/QR dependency, экономика лордов без критической зависимости от 5 ведьмаков, recruit market, Heroes-like building tree depth, anti-snowball 30/50, рейды, lord battle 5x6 с 60s timer, visual-content readability, магия и potion economy чародеек, V0 spell/potion catalog, primary/secondary favorites, locked magical intent, NPC-master load с severity P0/P1/P2/P3, артефакты, NPC-сделки, NPC-led Final Act tournament load, game-day ops checklist, lord paper fallback drill и финальная сводка без автоматического победителя.
+5. **Stage 5 - Balance Simulation.** Полный контент-пак прогоняется через симуляции: 10-часовой fixed schedule, offline act unlock friction, pending reward approvals, темп прокачки, ценность наград, PvE tiers, cooldown 30 min, role-load idle risk для 9 мобильных ролей, full Gwent volume/no-match-limit/throttle/deck-complexity risk, trade conflicts, лордское движение по карте с physical route assumptions and no GPS/internet/QR dependency, экономика лордов без критической зависимости от 5 ведьмаков, accumulated recruit stock/rates, Heroes-like `/lords/home` и building tree depth, anti-snowball 30/50, рейды, lord battle 5x6 с 60s timer, visual-content readability, магия и potion economy чародеек, V0 spell/potion catalog, primary/secondary favorites, locked magical intent, NPC-master load с severity P0/P1/P2/P3, артефакты, NPC-сделки, NPC-led Final Act tournament load, game-day ops checklist, lord paper fallback drill и финальная сводка без автоматического победителя.
 
 Переход между этапами фиксируется отдельной gate-задачей в `tasks.json`. Это защищает проект от ситуации, где есть много квестов, но не проверен runtime, или есть движок, но не доказано, что игрокам будет интересно 10 часов.

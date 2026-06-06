@@ -1,0 +1,2376 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  background: #080706;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(178, 111, 45, 0.18), transparent 34%),
+    radial-gradient(circle at 88% 6%, rgba(95, 111, 168, 0.14), transparent 30%),
+    #080706;
+}
+
+button {
+  font: inherit;
+}
+
+button:focus-visible {
+  outline: 2px solid rgba(217, 166, 79, .9);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .lord-login-screen {
+    @apply relative min-h-screen overflow-hidden bg-black text-ember-50;
+  }
+
+  .lord-login-bg {
+    @apply absolute inset-0 h-full w-full object-cover;
+    object-position: 50% 50%;
+    filter: saturate(.92) contrast(1.08) brightness(.78);
+    transform: scale(1.02);
+  }
+
+  .lord-login-mist {
+    @apply absolute inset-0;
+    background:
+      radial-gradient(circle at 33% 40%, rgba(220, 238, 255, .22), transparent 19%),
+      radial-gradient(circle at 22% 70%, rgba(121, 151, 177, .24), transparent 30%),
+      linear-gradient(90deg, rgba(4, 5, 7, .18), rgba(8, 7, 7, .18) 45%, rgba(0, 0, 0, .62) 72%, rgba(0, 0, 0, .88)),
+      linear-gradient(180deg, rgba(5, 7, 10, .08), rgba(4, 3, 3, .64));
+  }
+
+  .lord-login-logo {
+    @apply absolute left-10 top-8 z-10 flex items-start gap-5 select-none;
+    text-shadow:
+      0 4px 0 rgba(28, 13, 5, .95),
+      0 0 18px rgba(238, 201, 120, .24),
+      0 14px 36px rgba(0, 0, 0, .75);
+  }
+
+  .lord-login-logo div {
+    @apply relative z-10 grid;
+  }
+
+  .lord-login-logo span {
+    @apply font-display font-black uppercase leading-[.82];
+    color: #f8e8bd;
+    letter-spacing: 0;
+    font-size: clamp(4.8rem, 8.5vw, 8.8rem);
+  }
+
+  .lord-login-roman {
+    @apply absolute left-[18rem] top-[-1.5rem] font-display font-black opacity-70;
+    color: rgba(122, 25, 18, .86);
+    font-size: clamp(9rem, 16vw, 18rem) !important;
+    line-height: .8 !important;
+    -webkit-text-stroke: 4px rgba(255, 214, 126, .5);
+    filter: drop-shadow(0 8px 12px rgba(0, 0, 0, .72));
+  }
+
+  .lord-login-logo-image {
+    @apply absolute z-10 select-none;
+    left: clamp(1.5rem, 4vw, 4rem);
+    top: clamp(1rem, 3.4vh, 2.4rem);
+    width: min(35vw, 560px);
+    min-width: 330px;
+    filter:
+      drop-shadow(0 12px 0 rgba(0, 0, 0, .34))
+      drop-shadow(0 24px 38px rgba(0, 0, 0, .82))
+      drop-shadow(0 0 22px rgba(128, 202, 255, .22));
+  }
+
+  .lord-menu-sign {
+    @apply absolute z-20;
+    right: clamp(2rem, 5vw, 5.5rem);
+    top: clamp(.75rem, 3.8vh, 2.5rem);
+    width: clamp(380px, 34vw, 560px);
+    aspect-ratio: 1 / 1;
+    filter: drop-shadow(0 28px 34px rgba(0, 0, 0, .82));
+  }
+
+  .lord-menu-sign.is-login-panel {
+    aspect-ratio: 988 / 1186;
+  }
+
+  .lord-rise-chain {
+    position: absolute;
+    top: -72vh;
+    height: 78vh;
+    width: 8.6%;
+    z-index: 1;
+    background-image: url("./assets/generated/lords-login/menu-chain-extension.png");
+    background-position: center bottom;
+    background-repeat: repeat-y;
+    background-size: 100% auto;
+    pointer-events: none;
+    filter:
+      drop-shadow(0 12px 10px rgba(0, 0, 0, .68))
+      drop-shadow(0 0 8px rgba(155, 204, 230, .12));
+  }
+
+  .lord-rise-chain-left {
+    left: 27.2%;
+    transform: translateX(-50%);
+  }
+
+  .lord-rise-chain-right {
+    left: 72.9%;
+    transform: translateX(-50%) scaleX(-1);
+  }
+
+  .lord-menu-art {
+    @apply absolute inset-0 h-full w-full select-none object-contain;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .lord-chain {
+    @apply absolute -top-20 h-24 w-5;
+    background:
+      repeating-linear-gradient(
+        180deg,
+        rgba(23, 22, 25, .95) 0 8px,
+        rgba(95, 93, 98, .98) 8px 13px,
+        rgba(18, 17, 20, .98) 13px 23px
+      );
+    border-left: 1px solid rgba(215, 207, 190, .28);
+    border-right: 1px solid rgba(0, 0, 0, .85);
+    box-shadow: inset 0 0 8px rgba(0, 0, 0, .75), 0 8px 18px rgba(0, 0, 0, .48);
+  }
+
+  .lord-chain.left {
+    left: 58px;
+  }
+
+  .lord-chain.right {
+    right: 58px;
+  }
+
+  .lord-menu-frame {
+    @apply relative z-10 h-full w-full p-0;
+    z-index: 3;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .lord-menu-frame::before,
+  .lord-menu-frame::after {
+    content: "";
+    @apply absolute;
+    inset: 10px;
+    border: 1px solid rgba(255, 255, 255, .08);
+    pointer-events: none;
+    display: none;
+  }
+
+  .lord-menu-frame::after {
+    inset: 18px;
+    border-color: rgba(0, 0, 0, .48);
+  }
+
+  .lord-menu-buttons,
+  .lord-login-form,
+  .lord-onboarding-panel {
+    @apply relative z-10 grid gap-4;
+  }
+
+  .lord-menu-buttons {
+    @apply absolute;
+    inset: 0;
+    display: block;
+    padding: 0;
+  }
+
+  .lord-menu-buttons .lord-slot-button {
+    @apply absolute flex items-center justify-center border-0 bg-transparent p-0 font-display font-black uppercase transition;
+    left: 24%;
+    width: 52.5%;
+    height: 12.7%;
+    min-height: 0;
+    box-shadow: none;
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .7));
+    isolation: isolate;
+  }
+
+  .lord-menu-buttons .lord-slot-button:nth-child(1) {
+    top: 42.15%;
+  }
+
+  .lord-menu-buttons .lord-slot-button:nth-child(2) {
+    top: 59.35%;
+  }
+
+  .lord-menu-buttons .lord-slot-button::before {
+    content: "";
+    @apply absolute opacity-0 transition;
+    inset: 5% 1.5%;
+    background:
+      linear-gradient(180deg, rgba(229, 247, 255, .28), rgba(42, 88, 116, .3) 42%, rgba(5, 12, 17, .28)),
+      radial-gradient(circle at 50% 48%, rgba(146, 215, 255, .38), rgba(38, 64, 82, .18) 52%, rgba(0, 0, 0, .04) 78%);
+    clip-path: polygon(8% 0, 92% 0, 100% 50%, 92% 100%, 8% 100%, 0 50%);
+    box-shadow:
+      inset 0 0 18px rgba(141, 214, 255, .34),
+      inset 0 0 0 1px rgba(236, 198, 111, .42),
+      0 0 24px rgba(101, 174, 215, .32);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .lord-menu-buttons .lord-slot-button::after {
+    content: "";
+    @apply absolute opacity-0 transition;
+    inset: 2% -1%;
+    border: 1px solid rgba(243, 209, 129, .72);
+    clip-path: polygon(9% 0, 91% 0, 100% 50%, 91% 100%, 9% 100%, 0 50%);
+    filter:
+      drop-shadow(0 0 9px rgba(118, 190, 230, .42))
+      drop-shadow(0 0 3px rgba(246, 211, 130, .32));
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .lord-menu-buttons .lord-slot-button span {
+    @apply relative z-10 block;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: clamp(1.36rem, 1.86vw, 2.08rem);
+    font-variant: small-caps;
+    line-height: 1;
+    letter-spacing: 0;
+    transform: translateY(.09em);
+    color: #e1c98f;
+    -webkit-text-fill-color: #e1c98f;
+    -webkit-text-stroke: .65px rgba(5, 7, 9, .92);
+    text-shadow:
+      0 2px 0 rgba(0, 0, 0, .96),
+      0 -1px 0 rgba(255, 242, 201, .48),
+      0 0 10px rgba(115, 184, 222, .2),
+      1px 0 0 rgba(0, 0, 0, .58),
+      -1px 0 0 rgba(0, 0, 0, .58);
+  }
+
+  .lord-menu-buttons .lord-slot-button span::before {
+    content: attr(data-label);
+    @apply absolute inset-0;
+    z-index: -1;
+    color: rgba(0, 0, 0, .9);
+    -webkit-text-fill-color: rgba(0, 0, 0, .9);
+    -webkit-text-stroke: 2.4px rgba(0, 0, 0, .86);
+    transform: translateY(1px);
+  }
+
+  .lord-menu-buttons .lord-slot-button:hover,
+  .lord-menu-buttons .lord-slot-button.is-hover {
+    transform: translateY(-1px);
+  }
+
+  .lord-menu-buttons .lord-slot-button:hover::before,
+  .lord-menu-buttons .lord-slot-button:hover::after,
+  .lord-menu-buttons .lord-slot-button:focus-visible::before,
+  .lord-menu-buttons .lord-slot-button:focus-visible::after,
+  .lord-menu-buttons .lord-slot-button.is-hover::before,
+  .lord-menu-buttons .lord-slot-button.is-hover::after {
+    opacity: 1;
+  }
+
+  .lord-menu-buttons .lord-slot-button:hover span,
+  .lord-menu-buttons .lord-slot-button:focus-visible span,
+  .lord-menu-buttons .lord-slot-button.is-hover span {
+    color: #fff1bf;
+    -webkit-text-fill-color: #fff1bf;
+    text-shadow:
+      0 2px 0 rgba(0, 0, 0, .98),
+      0 -1px 0 rgba(255, 247, 210, .62),
+      0 0 18px rgba(128, 205, 255, .46),
+      1px 0 0 rgba(0, 0, 0, .54),
+      -1px 0 0 rgba(0, 0, 0, .54);
+  }
+
+  .lord-menu-buttons .lord-slot-button:active {
+    transform: translateY(1px);
+  }
+
+  .lord-menu-buttons .lord-slot-button:active::before {
+    opacity: .65;
+    background:
+      linear-gradient(180deg, rgba(6, 10, 14, .38), rgba(45, 67, 82, .18)),
+      radial-gradient(circle at 50% 45%, rgba(91, 145, 176, .16), transparent 66%);
+  }
+
+  .lord-menu-buttons .lord-slot-button:active span {
+    filter: brightness(.72);
+    transform: translateY(.15em);
+  }
+
+  .lord-login-form button,
+  .lord-onboarding-panel button {
+    @apply min-h-12 border px-5 font-display text-xl font-bold text-ember-50 transition;
+    background:
+      linear-gradient(180deg, rgba(22, 30, 91, .96), rgba(7, 11, 42, .98) 48%, rgba(3, 5, 22, .98));
+    border-color: #1c2c91;
+    box-shadow:
+      inset 0 0 0 1px rgba(120, 135, 255, .38),
+      inset 0 -6px 14px rgba(0, 0, 0, .58),
+      0 4px 0 rgba(0, 0, 0, .8);
+    text-shadow: 0 2px 0 rgba(0, 0, 0, .92);
+  }
+
+  .lord-login-form button:hover,
+  .lord-onboarding-panel button:hover {
+    filter: brightness(1.28);
+    transform: translateY(-1px);
+  }
+
+  .lord-menu-buttons .lord-slot-button:hover {
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .76));
+    transform: translateY(-1px);
+  }
+
+  .lord-menu-buttons .lord-slot-button.is-hover {
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .76));
+    transform: translateY(-1px);
+  }
+
+  .lord-menu-buttons .lord-slot-button:active {
+    transform: translateY(1px);
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .8));
+  }
+
+  .lord-login-form label {
+    @apply grid gap-2 pt-8 font-semibold text-stone-200;
+  }
+
+  .lord-login-form label span,
+  .lord-onboarding-panel h1 {
+    @apply font-display text-xl font-bold text-ember-50;
+  }
+
+  .lord-login-form input {
+    @apply h-12 border border-stone-500/60 bg-black/70 px-4 text-lg font-bold text-ember-50 outline-none;
+    box-shadow: inset 0 0 16px rgba(0, 0, 0, .78);
+  }
+
+  .lord-login-form input:focus {
+    border-color: rgba(217, 166, 79, .9);
+  }
+
+  .lord-onboarding-panel {
+    @apply pt-8 text-stone-200;
+  }
+
+  .lord-onboarding-panel p {
+    @apply text-base leading-6;
+  }
+
+  .lord-menu-sign[aria-busy="true"] .lord-panel-content {
+    pointer-events: none;
+  }
+
+  .lord-login-form.lord-panel-content {
+    @apply absolute z-10;
+    inset: 0;
+    display: block;
+    gap: 0;
+  }
+
+  .lord-login-form .lord-code-slot {
+    position: absolute;
+    left: 24%;
+    top: 35.45%;
+    width: 52.5%;
+    height: 10.75%;
+    display: block;
+    padding: 0;
+    z-index: 20;
+    cursor: text;
+  }
+
+  .lord-login-form .lord-code-slot span {
+    position: absolute;
+    left: 50%;
+    top: 10%;
+    transform: translateX(-50%);
+    width: 100%;
+    text-align: center;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: clamp(.58rem, .76vw, .82rem);
+    font-weight: 700;
+    line-height: 1;
+    color: rgba(224, 207, 160, .78);
+    -webkit-text-fill-color: rgba(224, 207, 160, .78);
+    text-shadow: 0 1px 0 rgba(0, 0, 0, .96), 0 0 8px rgba(106, 176, 213, .2);
+    pointer-events: none;
+  }
+
+  .lord-login-form .lord-code-slot input {
+    position: absolute;
+    left: 6%;
+    top: 14%;
+    width: 88%;
+    height: 76%;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    text-align: center;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: clamp(1rem, 1.34vw, 1.48rem);
+    font-weight: 900;
+    line-height: 1;
+    color: #f0d99a;
+    -webkit-text-fill-color: #f0d99a;
+    outline: none;
+    box-shadow: none;
+    cursor: text;
+    pointer-events: auto;
+    text-shadow:
+      0 2px 0 rgba(0, 0, 0, .98),
+      0 -1px 0 rgba(255, 247, 210, .4),
+      0 0 12px rgba(128, 205, 255, .24);
+  }
+
+  .lord-login-form .lord-code-slot input::placeholder {
+    color: rgba(220, 200, 148, .52);
+    -webkit-text-fill-color: rgba(220, 200, 148, .52);
+  }
+
+  .lord-login-form .lord-code-slot input:focus {
+    border: 0;
+  }
+
+  .lord-form-actions {
+    position: absolute;
+    inset: 0;
+    display: block;
+  }
+
+  .lord-login-form .lord-panel-action-button,
+  .lord-onboarding-panel .lord-panel-action-button {
+    position: relative;
+    min-height: 0;
+    height: 100%;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+    overflow: hidden;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: clamp(.88rem, 1.08vw, 1.2rem);
+    font-weight: 900;
+    font-variant: small-caps;
+    line-height: 1;
+    letter-spacing: 0;
+    color: #e1c98f;
+    -webkit-text-fill-color: #e1c98f;
+    -webkit-text-stroke: .45px rgba(5, 7, 9, .92);
+    text-shadow:
+      0 2px 0 rgba(0, 0, 0, .96),
+      0 -1px 0 rgba(255, 242, 201, .42),
+      0 0 10px rgba(115, 184, 222, .16);
+    transform: translateY(.05em);
+  }
+
+  .lord-login-form .lord-panel-action-button {
+    position: absolute;
+    left: 24%;
+    width: 52.5%;
+    height: 10.75%;
+    font-size: clamp(1.16rem, 1.58vw, 1.78rem);
+  }
+
+  .lord-login-form .lord-submit-button {
+    top: 50.05%;
+  }
+
+  .lord-login-form .lord-back-button {
+    top: 65.45%;
+  }
+
+  .lord-login-error {
+    position: absolute;
+    left: 24.8%;
+    top: 79.5%;
+    z-index: 22;
+    width: 50.8%;
+    min-height: 5.2%;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: .28rem .74rem .34rem;
+    overflow: hidden;
+    text-align: center;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: clamp(.66rem, .82vw, .95rem);
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: 0;
+    color: #ffdba4;
+    -webkit-text-fill-color: #ffdba4;
+    -webkit-text-stroke: .22px rgba(13, 6, 3, .95);
+    text-shadow:
+      0 1px 0 rgba(0, 0, 0, .95),
+      0 0 10px rgba(159, 38, 18, .36);
+    background:
+      linear-gradient(180deg, rgba(71, 25, 17, .72), rgba(24, 10, 8, .88)),
+      radial-gradient(circle at 50% 0%, rgba(239, 165, 94, .26), rgba(42, 10, 8, 0) 68%);
+    border: 1px solid rgba(195, 108, 63, .58);
+    border-radius: 2px;
+    clip-path: polygon(6% 0, 94% 0, 100% 50%, 94% 100%, 6% 100%, 0 50%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 227, 166, .18),
+      inset 0 -1px 0 rgba(0, 0, 0, .8),
+      0 2px 10px rgba(0, 0, 0, .52);
+    pointer-events: none;
+  }
+
+  .lord-login-form .lord-panel-action-button::before,
+  .lord-onboarding-panel .lord-panel-action-button::before {
+    content: "";
+    position: absolute;
+    inset: 9% 0;
+    z-index: -1;
+    opacity: 0;
+    background:
+      linear-gradient(180deg, rgba(229, 247, 255, .18), rgba(42, 88, 116, .24) 46%, rgba(5, 12, 17, .12)),
+      radial-gradient(circle at 50% 48%, rgba(146, 215, 255, .32), rgba(38, 64, 82, .14) 58%, rgba(0, 0, 0, .04) 82%);
+    clip-path: polygon(11% 0, 89% 0, 100% 50%, 89% 100%, 11% 100%, 0 50%);
+    box-shadow:
+      inset 0 0 14px rgba(141, 214, 255, .24),
+      inset 0 0 0 1px rgba(236, 198, 111, .34),
+      0 0 18px rgba(101, 174, 215, .24);
+    transition: opacity .18s ease, transform .18s ease;
+  }
+
+  .lord-login-form .lord-panel-action-button:hover,
+  .lord-login-form .lord-panel-action-button:focus-visible,
+  .lord-onboarding-panel .lord-panel-action-button:hover,
+  .lord-onboarding-panel .lord-panel-action-button:focus-visible {
+    color: #fff1bf;
+    -webkit-text-fill-color: #fff1bf;
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .72));
+  }
+
+  .lord-login-form .lord-panel-action-button:hover::before,
+  .lord-login-form .lord-panel-action-button:focus-visible::before,
+  .lord-onboarding-panel .lord-panel-action-button:hover::before,
+  .lord-onboarding-panel .lord-panel-action-button:focus-visible::before {
+    opacity: 1;
+  }
+
+  .lord-login-form .lord-panel-action-button:active,
+  .lord-onboarding-panel .lord-panel-action-button:active {
+    transform: translateY(.12em);
+    filter: brightness(.82);
+  }
+
+  .lord-onboarding-panel.lord-panel-content {
+    position: absolute;
+    inset: 0;
+    display: block;
+    padding: 39% 23% 0;
+  }
+
+  .lord-onboarding-panel.lord-panel-content h1 {
+    margin: 0 0 .55rem;
+    text-align: center;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: clamp(1.05rem, 1.34vw, 1.42rem);
+    color: #f0d99a;
+    -webkit-text-fill-color: #f0d99a;
+    text-shadow: 0 2px 0 rgba(0, 0, 0, .96), 0 0 12px rgba(115, 184, 222, .18);
+  }
+
+  .lord-onboarding-panel.lord-panel-content p {
+    margin: 0;
+    max-height: 6.4rem;
+    overflow: hidden;
+    text-align: center;
+    font-size: clamp(.72rem, .82vw, .88rem);
+    line-height: 1.28;
+    color: rgba(229, 219, 191, .82);
+    text-shadow: 0 1px 0 rgba(0, 0, 0, .9);
+  }
+
+  .lord-onboarding-panel.lord-panel-content .lord-panel-action-button {
+    position: absolute;
+    left: 24%;
+    top: 59.35%;
+    width: 52.5%;
+    height: 12.7%;
+  }
+
+  .lord-home-screen {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+    background: #05070a;
+    color: #f4e4bd;
+  }
+
+  .lord-home-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 52% 50%;
+    filter: saturate(.88) contrast(1.12) brightness(.66);
+    transform: scale(1.03);
+  }
+
+  .lord-home-vignette {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 47% 45%, rgba(34, 64, 82, .18), transparent 36%),
+      linear-gradient(90deg, rgba(2, 3, 5, .76), rgba(2, 3, 5, .18) 42%, rgba(2, 3, 5, .72)),
+      linear-gradient(180deg, rgba(0, 0, 0, .28), rgba(0, 0, 0, .7));
+  }
+
+  .lord-home-cold-fog {
+    position: absolute;
+    inset: -8%;
+    background:
+      radial-gradient(circle at 18% 72%, rgba(159, 203, 226, .18), transparent 25%),
+      radial-gradient(circle at 76% 22%, rgba(94, 126, 151, .16), transparent 28%),
+      linear-gradient(180deg, rgba(147, 179, 196, .08), transparent 42%);
+    mix-blend-mode: screen;
+    pointer-events: none;
+  }
+
+  .lord-home-shell {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 18px;
+    min-height: 100vh;
+    padding: 24px 28px;
+  }
+
+  .lord-home-rail {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    min-height: 92px;
+    padding: 14px 18px;
+    border: 1px solid rgba(214, 179, 108, .36);
+    background:
+      linear-gradient(180deg, rgba(31, 39, 46, .92), rgba(9, 12, 16, .94)),
+      radial-gradient(circle at 18% 0%, rgba(157, 200, 230, .16), transparent 38%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 244, 206, .08),
+      inset 0 -18px 26px rgba(0, 0, 0, .42),
+      0 18px 34px rgba(0, 0, 0, .46);
+    clip-path: polygon(1.2% 0, 98.8% 0, 100% 50%, 98.8% 100%, 1.2% 100%, 0 50%);
+  }
+
+  .lord-home-house {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 310px;
+  }
+
+  .lord-home-crest {
+    display: grid;
+    width: 58px;
+    height: 58px;
+    flex: 0 0 auto;
+    place-items: center;
+    color: #f0d99a;
+    border: 1px solid rgba(230, 196, 119, .55);
+    background:
+      radial-gradient(circle at 50% 30%, rgba(230, 196, 119, .18), transparent 42%),
+      linear-gradient(145deg, rgba(35, 45, 52, .96), rgba(7, 10, 14, .98));
+    box-shadow: inset 0 0 18px rgba(0, 0, 0, .72), 0 8px 16px rgba(0, 0, 0, .42);
+    clip-path: polygon(50% 0, 92% 20%, 92% 72%, 50% 100%, 8% 72%, 8% 20%);
+  }
+
+  .lord-home-house span,
+  .lord-home-stat span,
+  .lord-timer-slot span,
+  .lord-command-board-head span,
+  .lord-alert-head span,
+  .lord-action-preview span {
+    display: block;
+    font-size: .72rem;
+    font-weight: 700;
+    color: rgba(228, 214, 178, .66);
+  }
+
+  .lord-home-house h1 {
+    margin: 3px 0 0;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: 1.75rem;
+    font-weight: 900;
+    line-height: 1;
+    color: #f6e3ae;
+    text-shadow: 0 2px 0 rgba(0, 0, 0, .86), 0 0 16px rgba(127, 189, 222, .22);
+  }
+
+  .lord-home-stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(112px, 1fr));
+    gap: 8px;
+    flex: 1 1 auto;
+    max-width: 860px;
+  }
+
+  .lord-home-stat {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    align-items: center;
+    min-height: 62px;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid rgba(220, 195, 140, .24);
+    background: rgba(0, 0, 0, .34);
+    box-shadow: inset 0 0 18px rgba(0, 0, 0, .48);
+  }
+
+  .lord-home-stat svg {
+    color: var(--home-tone);
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--home-tone) 40%, transparent));
+  }
+
+  .lord-home-stat b {
+    display: block;
+    margin-top: 1px;
+    font-size: 1.12rem;
+    line-height: 1;
+    color: #fff0bd;
+  }
+
+  .lord-home-stat small,
+  .lord-timer-slot small,
+  .lord-action-slot small,
+  .lord-alert-item small {
+    display: block;
+    margin-top: 3px;
+    font-size: .72rem;
+    line-height: 1.2;
+    color: rgba(228, 221, 203, .64);
+  }
+
+  .lord-home-stat.gold,
+  .lord-action-slot.gold,
+  .lord-alert-item.gold,
+  .lord-action-preview.gold {
+    --home-tone: #d9a64f;
+  }
+
+  .lord-home-stat.green,
+  .lord-action-slot.green,
+  .lord-alert-item.green,
+  .lord-action-preview.green {
+    --home-tone: #74c68a;
+  }
+
+  .lord-home-stat.blue,
+  .lord-action-slot.blue,
+  .lord-alert-item.blue,
+  .lord-action-preview.blue {
+    --home-tone: #73c6d8;
+  }
+
+  .lord-home-stat.red,
+  .lord-action-slot.red,
+  .lord-alert-item.red,
+  .lord-action-preview.red {
+    --home-tone: #c86152;
+  }
+
+  .lord-home-stat.violet,
+  .lord-action-slot.violet,
+  .lord-alert-item.violet,
+  .lord-action-preview.violet {
+    --home-tone: #a88be8;
+  }
+
+  .lord-home-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 350px;
+    gap: 20px;
+    min-height: 0;
+  }
+
+  .lord-command-board,
+  .lord-alert-board {
+    border: 1px solid rgba(214, 179, 108, .34);
+    background:
+      linear-gradient(180deg, rgba(35, 43, 48, .9), rgba(9, 11, 13, .94)),
+      radial-gradient(circle at 50% 0%, rgba(149, 194, 224, .11), transparent 36%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 244, 206, .07),
+      inset 0 -22px 34px rgba(0, 0, 0, .48),
+      0 22px 38px rgba(0, 0, 0, .52);
+  }
+
+  .lord-command-board {
+    display: grid;
+    grid-template-rows: auto minmax(300px, 1fr) auto auto;
+    gap: 14px;
+    min-height: 0;
+    padding: 18px;
+    clip-path: polygon(1.2% 0, 98.8% 0, 100% 2.2%, 100% 97.8%, 98.8% 100%, 1.2% 100%, 0 97.8%, 0 2.2%);
+  }
+
+  .lord-command-board-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .lord-command-board-head h2,
+  .lord-alert-head h2,
+  .lord-action-preview h3 {
+    margin: 3px 0 0;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-weight: 900;
+    color: #f6e3ae;
+    text-shadow: 0 2px 0 rgba(0, 0, 0, .78);
+  }
+
+  .lord-command-board-head h2 {
+    font-size: 1.7rem;
+    line-height: 1;
+  }
+
+  .lord-command-army {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    align-items: center;
+    min-width: 210px;
+    gap: 8px;
+    padding: 10px 12px;
+    color: #d7eef5;
+    border: 1px solid rgba(115, 198, 216, .34);
+    background: rgba(11, 24, 31, .68);
+    box-shadow: inset 0 0 16px rgba(0, 0, 0, .48);
+  }
+
+  .lord-command-army svg {
+    grid-row: 1 / 3;
+    color: #73c6d8;
+  }
+
+  .lord-command-army span {
+    font-size: .72rem;
+    color: rgba(215, 238, 245, .68);
+  }
+
+  .lord-command-army b {
+    font-size: .95rem;
+    line-height: 1;
+  }
+
+  .lord-command-map {
+    position: relative;
+    min-height: 300px;
+    overflow: hidden;
+    border: 1px solid rgba(223, 190, 126, .35);
+    background: #060708;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 238, 197, .08),
+      inset 0 0 44px rgba(0, 0, 0, .72);
+  }
+
+  .lord-command-map img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: saturate(.84) contrast(1.04) brightness(.7);
+    transform: scale(1.02);
+  }
+
+  .lord-command-map-shadow {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 50% 50%, transparent 36%, rgba(0, 0, 0, .28) 73%),
+      linear-gradient(180deg, rgba(5, 8, 10, .16), rgba(0, 0, 0, .52));
+  }
+
+  .lord-map-pin {
+    position: absolute;
+    display: grid;
+    width: 46px;
+    height: 46px;
+    place-items: center;
+    color: #fff3cf;
+    border: 1px solid rgba(239, 207, 139, .58);
+    background:
+      radial-gradient(circle, rgba(239, 207, 139, .28), rgba(17, 23, 27, .78) 58%),
+      rgba(0, 0, 0, .62);
+    box-shadow: 0 0 22px rgba(217, 166, 79, .28), inset 0 0 18px rgba(0, 0, 0, .58);
+    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+    transition: transform .18s ease, filter .18s ease;
+  }
+
+  .lord-map-pin:hover,
+  .lord-map-pin:focus-visible {
+    transform: translateY(-2px) scale(1.06);
+    filter: brightness(1.2);
+  }
+
+  .lord-map-pin.home {
+    left: 48%;
+    top: 52%;
+  }
+
+  .lord-map-pin.route {
+    left: 33%;
+    top: 42%;
+  }
+
+  .lord-map-pin.dispute {
+    left: 55%;
+    top: 36%;
+    border-color: rgba(221, 95, 72, .7);
+    box-shadow: 0 0 24px rgba(198, 97, 82, .34), inset 0 0 18px rgba(0, 0, 0, .58);
+  }
+
+  .lord-map-pin.income {
+    left: 67%;
+    top: 59%;
+    border-color: rgba(116, 198, 138, .68);
+    box-shadow: 0 0 22px rgba(116, 198, 138, .25), inset 0 0 18px rgba(0, 0, 0, .58);
+  }
+
+  .lord-timer-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .lord-timer-slot {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: center;
+    min-height: 70px;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid rgba(214, 179, 108, .28);
+    background: rgba(0, 0, 0, .4);
+    box-shadow: inset 0 0 18px rgba(0, 0, 0, .52);
+  }
+
+  .lord-timer-slot svg {
+    color: #d9a64f;
+  }
+
+  .lord-timer-slot b {
+    display: block;
+    margin-top: 1px;
+    font-size: 1.05rem;
+    line-height: 1;
+    color: #fff0bd;
+  }
+
+  .lord-action-dock {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .lord-action-slot {
+    position: relative;
+    display: grid;
+    min-height: 92px;
+    place-items: center;
+    gap: 4px;
+    padding: 10px 6px;
+    color: #e8d7aa;
+    border: 1px solid rgba(214, 179, 108, .25);
+    background:
+      linear-gradient(180deg, rgba(42, 48, 52, .78), rgba(9, 12, 15, .92)),
+      radial-gradient(circle at 50% 12%, color-mix(in srgb, var(--home-tone) 14%, transparent), transparent 44%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 240, 203, .06),
+      inset 0 -14px 20px rgba(0, 0, 0, .5);
+    clip-path: polygon(10% 0, 90% 0, 100% 16%, 100% 84%, 90% 100%, 10% 100%, 0 84%, 0 16%);
+    transition: transform .16s ease, border-color .16s ease, filter .16s ease;
+  }
+
+  .lord-action-slot svg {
+    color: var(--home-tone);
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--home-tone) 32%, transparent));
+  }
+
+  .lord-action-slot span {
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: 1rem;
+    font-weight: 900;
+    line-height: 1;
+  }
+
+  .lord-action-slot:hover,
+  .lord-action-slot:focus-visible,
+  .lord-action-slot.is-active {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--home-tone) 72%, #f4d99b);
+    filter: brightness(1.13);
+  }
+
+  .lord-action-slot.is-active::after {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border: 1px solid color-mix(in srgb, var(--home-tone) 48%, transparent);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--home-tone) 24%, transparent);
+    clip-path: inherit;
+    pointer-events: none;
+  }
+
+  .lord-alert-board {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 18px;
+    clip-path: polygon(4% 0, 96% 0, 100% 3%, 100% 97%, 96% 100%, 4% 100%, 0 97%, 0 3%);
+  }
+
+  .lord-alert-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(214, 179, 108, .23);
+  }
+
+  .lord-alert-head svg {
+    color: #d9a64f;
+  }
+
+  .lord-alert-head h2 {
+    font-size: 1.35rem;
+    line-height: 1;
+  }
+
+  .lord-alert-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .lord-alert-item {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 9px;
+    width: 100%;
+    min-height: 76px;
+    padding: 11px 12px;
+    text-align: left;
+    color: #efe4c8;
+    border: 1px solid color-mix(in srgb, var(--home-tone) 38%, rgba(214, 179, 108, .18));
+    background:
+      linear-gradient(180deg, rgba(0, 0, 0, .24), rgba(0, 0, 0, .48)),
+      radial-gradient(circle at 0 0, color-mix(in srgb, var(--home-tone) 13%, transparent), transparent 42%);
+    box-shadow: inset 0 0 16px rgba(0, 0, 0, .48);
+  }
+
+  .lord-alert-item svg {
+    margin-top: 2px;
+    color: var(--home-tone);
+  }
+
+  .lord-alert-item b {
+    display: block;
+    font-size: .94rem;
+    line-height: 1.18;
+    color: #fff0bd;
+  }
+
+  .lord-alert-item:hover,
+  .lord-alert-item:focus-visible {
+    filter: brightness(1.12);
+  }
+
+  .lord-action-preview {
+    margin-top: auto;
+    padding: 16px;
+    color: #efe4c8;
+    border: 1px solid color-mix(in srgb, var(--home-tone) 42%, rgba(214, 179, 108, .18));
+    background:
+      radial-gradient(circle at 16% 0, color-mix(in srgb, var(--home-tone) 18%, transparent), transparent 42%),
+      linear-gradient(180deg, rgba(0, 0, 0, .28), rgba(0, 0, 0, .55));
+    box-shadow: inset 0 0 24px rgba(0, 0, 0, .52);
+  }
+
+  .lord-action-preview svg {
+    color: var(--home-tone);
+    filter: drop-shadow(0 0 10px color-mix(in srgb, var(--home-tone) 34%, transparent));
+  }
+
+  .lord-action-preview h3 {
+    font-size: 1.6rem;
+    line-height: 1;
+  }
+
+  .lord-action-preview p {
+    margin: 10px 0 0;
+    font-size: .95rem;
+    line-height: 1.45;
+    color: rgba(238, 229, 204, .72);
+  }
+
+  @media (max-width: 1180px) {
+    .lord-home-shell {
+      overflow: auto;
+    }
+
+    .lord-home-rail,
+    .lord-home-layout {
+      min-width: 1040px;
+    }
+  }
+
+  @media (max-height: 780px) {
+    .lord-home-shell {
+      padding-top: 16px;
+      padding-bottom: 16px;
+      gap: 12px;
+    }
+
+    .lord-home-rail {
+      min-height: 82px;
+    }
+
+    .lord-command-board {
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .lord-action-slot {
+      min-height: 78px;
+    }
+
+    .lord-timer-slot {
+      min-height: 62px;
+    }
+  }
+
+  .lord-home-screen {
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .lord-home-shell {
+    height: 100vh;
+    min-height: 0;
+    gap: 12px;
+    padding: 16px 22px;
+  }
+
+  .lord-home-rail {
+    min-height: 76px;
+    padding: 10px 16px;
+  }
+
+  .lord-home-house {
+    min-width: 300px;
+  }
+
+  .lord-home-crest {
+    width: 50px;
+    height: 50px;
+  }
+
+  .lord-home-house h1 {
+    font-size: 1.58rem;
+  }
+
+  .lord-home-stats {
+    grid-template-columns: repeat(3, minmax(132px, 1fr));
+    max-width: 560px;
+  }
+
+  .lord-home-stat {
+    min-height: 54px;
+    padding: 7px 10px;
+  }
+
+  .lord-home-layout {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .lord-command-board {
+    display: block;
+    height: 100%;
+    min-height: 0;
+    padding: 12px;
+  }
+
+  .lord-map-stage {
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid rgba(223, 190, 126, .34);
+    background: #060708;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 238, 197, .07),
+      inset 0 0 54px rgba(0, 0, 0, .74);
+  }
+
+  .lord-command-map {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+    text-align: left;
+    border: 0;
+    background: #060708;
+    box-shadow: none;
+    cursor: pointer;
+  }
+
+  .lord-map-zoom {
+    position: absolute;
+    inset: 0;
+    display: block;
+    transform: scale(1.68);
+    transform-origin: 51% 55%;
+    transition: transform .28s ease, filter .28s ease;
+  }
+
+  .lord-command-map:hover .lord-map-zoom,
+  .lord-command-map:focus-visible .lord-map-zoom {
+    filter: brightness(1.08);
+  }
+
+  .lord-map-zoom-expanded {
+    transform: scale(1.06);
+    transform-origin: 50% 50%;
+  }
+
+  .lord-command-map-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: saturate(.92) contrast(1.06) brightness(.74);
+  }
+
+  .lord-command-map-shadow {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 51% 55%, transparent 28%, rgba(0, 0, 0, .18) 56%, rgba(0, 0, 0, .42) 100%),
+      linear-gradient(180deg, rgba(5, 8, 10, .12), rgba(0, 0, 0, .36));
+    pointer-events: none;
+  }
+
+  .lord-map-expand-chip {
+    position: absolute;
+    right: 250px;
+    top: 18px;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 36px;
+    padding: 0 12px;
+    color: #f6e3ae;
+    border: 1px solid rgba(214, 179, 108, .38);
+    background: rgba(6, 10, 13, .72);
+    box-shadow: inset 0 0 14px rgba(0, 0, 0, .52), 0 10px 18px rgba(0, 0, 0, .28);
+    font-size: .86rem;
+    font-weight: 800;
+  }
+
+  .lord-map-pin {
+    position: absolute;
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    color: #fff3cf;
+    border: 1px solid rgba(239, 207, 139, .58);
+    background:
+      radial-gradient(circle, rgba(239, 207, 139, .28), rgba(17, 23, 27, .78) 58%),
+      rgba(0, 0, 0, .62);
+    box-shadow: 0 0 22px rgba(217, 166, 79, .28), inset 0 0 18px rgba(0, 0, 0, .58);
+    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+    transform: translate(-50%, -50%);
+  }
+
+  .lord-map-pin.home {
+    left: 51%;
+    top: 55%;
+  }
+
+  .lord-map-pin.route {
+    left: 43%;
+    top: 47%;
+  }
+
+  .lord-map-pin.dispute {
+    left: 57%;
+    top: 40%;
+    border-color: rgba(221, 95, 72, .72);
+    box-shadow: 0 0 24px rgba(198, 97, 82, .34), inset 0 0 18px rgba(0, 0, 0, .58);
+  }
+
+  .lord-map-pin.income {
+    left: 65%;
+    top: 57%;
+    border-color: rgba(116, 198, 138, .68);
+    box-shadow: 0 0 22px rgba(116, 198, 138, .25), inset 0 0 18px rgba(0, 0, 0, .58);
+  }
+
+  .lord-timer-row {
+    position: absolute;
+    left: 18px;
+    top: 18px;
+    z-index: 4;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(176px, 1fr));
+    gap: 8px;
+    width: min(390px, calc(100% - 520px));
+  }
+
+  .lord-timer-slot {
+    min-height: 56px;
+    padding: 8px 10px;
+    background: rgba(4, 7, 9, .7);
+    backdrop-filter: blur(5px);
+  }
+
+  .lord-minimap {
+    position: absolute;
+    right: 18px;
+    top: 18px;
+    z-index: 4;
+    width: 218px;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border: 1px solid rgba(214, 179, 108, .46);
+    background: #050607;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 238, 197, .08),
+      inset 0 0 20px rgba(0, 0, 0, .7),
+      0 14px 26px rgba(0, 0, 0, .46);
+  }
+
+  .lord-minimap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: saturate(.9) contrast(1.04) brightness(.78);
+  }
+
+  .lord-minimap-focus {
+    position: absolute;
+    left: 37%;
+    top: 36%;
+    width: 30%;
+    height: 34%;
+    border: 2px solid rgba(244, 237, 218, .92);
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, .64),
+      0 0 16px rgba(244, 237, 218, .32);
+  }
+
+  .lord-action-dock {
+    position: absolute;
+    left: 18px;
+    bottom: 18px;
+    z-index: 4;
+    display: grid;
+    grid-template-columns: repeat(3, 132px);
+    gap: 8px;
+  }
+
+  .lord-action-slot {
+    min-height: 68px;
+    gap: 2px;
+    padding: 8px 6px;
+    background:
+      linear-gradient(180deg, rgba(39, 45, 50, .82), rgba(7, 10, 13, .92)),
+      radial-gradient(circle at 50% 12%, color-mix(in srgb, var(--home-tone) 14%, transparent), transparent 44%);
+    backdrop-filter: blur(5px);
+  }
+
+  .lord-action-slot span {
+    font-size: .96rem;
+  }
+
+  .lord-action-slot small {
+    font-size: .67rem;
+  }
+
+  .lord-map-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    overflow: hidden;
+    background: rgba(1, 3, 5, .86);
+  }
+
+  .lord-map-fullscreen-backdrop {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(118, 164, 192, .13), transparent 44%),
+      linear-gradient(180deg, rgba(4, 6, 9, .7), rgba(0, 0, 0, .94));
+    backdrop-filter: blur(7px);
+  }
+
+  .lord-map-fullscreen-frame {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 12px;
+    height: 100vh;
+    padding: 22px;
+  }
+
+  .lord-map-fullscreen-canvas {
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid rgba(214, 179, 108, .48);
+    background: #050607;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 238, 197, .08),
+      inset 0 0 52px rgba(0, 0, 0, .7),
+      0 20px 42px rgba(0, 0, 0, .58);
+  }
+
+  .lord-map-fullscreen-canvas .lord-command-map-shadow {
+    background:
+      radial-gradient(circle at 50% 50%, transparent 48%, rgba(0, 0, 0, .16) 76%, rgba(0, 0, 0, .32) 100%),
+      linear-gradient(180deg, rgba(5, 8, 10, .04), rgba(0, 0, 0, .2));
+  }
+
+  .lord-minimap-expanded {
+    position: relative;
+    right: auto;
+    top: auto;
+    justify-self: center;
+    width: min(330px, 30vw);
+    min-width: 260px;
+  }
+
+  .lord-map-close {
+    position: absolute;
+    right: 34px;
+    top: 34px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 38px;
+    padding: 0 13px;
+    color: #f6e3ae;
+    border: 1px solid rgba(214, 179, 108, .46);
+    background: rgba(5, 8, 11, .78);
+    box-shadow: inset 0 0 14px rgba(0, 0, 0, .56), 0 12px 24px rgba(0, 0, 0, .42);
+    font-weight: 800;
+  }
+
+  @media (max-width: 1180px) {
+    .lord-home-shell {
+      overflow: hidden;
+    }
+
+    .lord-home-rail,
+    .lord-home-layout {
+      min-width: 0;
+    }
+
+    .lord-map-expand-chip {
+      right: 18px;
+      top: 150px;
+    }
+
+    .lord-timer-row {
+      width: 340px;
+    }
+  }
+
+  .lord-castle-screen {
+    position: relative;
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+    background: #05070a;
+    color: #f4e4bd;
+  }
+
+  .lord-castle-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 54% 52%;
+    filter: saturate(.86) contrast(1.08) brightness(.78);
+    transform: scale(1.02);
+  }
+
+  .lord-castle-cool-overlay {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 72% 25%, rgba(118, 182, 214, .18), transparent 30%),
+      radial-gradient(circle at 23% 72%, rgba(24, 42, 58, .34), transparent 36%),
+      linear-gradient(180deg, rgba(3, 8, 14, .42), rgba(3, 5, 8, .1) 34%, rgba(0, 0, 0, .42));
+    mix-blend-mode: multiply;
+    pointer-events: none;
+  }
+
+  .lord-castle-vignette {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg, rgba(0, 0, 0, .66), transparent 21%, transparent 78%, rgba(0, 0, 0, .58)),
+      linear-gradient(180deg, rgba(1, 3, 7, .72), transparent 18%, transparent 68%, rgba(0, 0, 0, .78));
+    pointer-events: none;
+  }
+
+  .lord-castle-topbar {
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    top: 14px;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: auto minmax(240px, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 72px;
+    padding: 8px 14px 8px 8px;
+    border: 1px solid rgba(214, 179, 108, .36);
+    background:
+      linear-gradient(180deg, rgba(25, 35, 49, .84), rgba(7, 10, 15, .88)),
+      radial-gradient(circle at 18% 0, rgba(109, 173, 210, .16), transparent 32%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 244, 206, .08),
+      inset 0 -18px 24px rgba(0, 0, 0, .42),
+      0 14px 28px rgba(0, 0, 0, .42);
+    clip-path: polygon(1% 0, 99% 0, 100% 50%, 99% 100%, 1% 100%, 0 50%);
+  }
+
+  .lord-castle-round-button,
+  .lord-castle-branch {
+    display: grid;
+    place-items: center;
+    color: #f6e3ae;
+    border: 1px solid rgba(216, 178, 98, .54);
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 50% 34%, rgba(49, 92, 123, .62), rgba(11, 16, 23, .92) 58%),
+      linear-gradient(145deg, rgba(42, 53, 63, .98), rgba(5, 8, 12, .98));
+    box-shadow:
+      inset 0 0 0 3px rgba(0, 0, 0, .54),
+      inset 0 0 18px rgba(115, 198, 216, .18),
+      0 8px 18px rgba(0, 0, 0, .44);
+    transition: transform .16s ease, filter .16s ease, border-color .16s ease;
+  }
+
+  .lord-castle-round-button {
+    width: 58px;
+    height: 58px;
+  }
+
+  .lord-castle-round-button:hover,
+  .lord-castle-round-button:focus-visible,
+  .lord-castle-branch:hover,
+  .lord-castle-branch:focus-visible,
+  .lord-castle-branch.is-active {
+    transform: translateY(-2px);
+    filter: brightness(1.16);
+    border-color: rgba(246, 218, 144, .88);
+  }
+
+  .lord-castle-title span {
+    display: block;
+    font-size: .75rem;
+    font-weight: 800;
+    color: rgba(230, 220, 194, .68);
+  }
+
+  .lord-castle-title h1 {
+    margin: 2px 0 0;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: 1.74rem;
+    font-weight: 900;
+    line-height: 1;
+    color: #f6e3ae;
+    text-shadow: 0 2px 0 rgba(0, 0, 0, .9), 0 0 18px rgba(104, 175, 214, .22);
+  }
+
+  .lord-castle-resources {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(128px, 1fr));
+    gap: 8px;
+    min-width: 440px;
+  }
+
+  .lord-castle-resource {
+    --castle-tone: #d9a64f;
+    display: grid;
+    grid-template-columns: 20px auto minmax(28px, max-content);
+    align-items: center;
+    gap: 7px;
+    min-height: 48px;
+    padding: 7px 10px;
+    border: 1px solid color-mix(in srgb, var(--castle-tone) 30%, rgba(214, 179, 108, .18));
+    background: rgba(2, 6, 10, .55);
+    box-shadow: inset 0 0 16px rgba(0, 0, 0, .46);
+  }
+
+  .lord-castle-resource.gold,
+  .lord-castle-hotspot.gold,
+  .lord-castle-building-panel.gold {
+    --castle-tone: #d9a64f;
+  }
+
+  .lord-castle-resource.blue,
+  .lord-castle-hotspot.blue,
+  .lord-castle-branch.blue,
+  .lord-castle-building-panel.blue {
+    --castle-tone: #73c6d8;
+  }
+
+  .lord-castle-resource.violet,
+  .lord-castle-hotspot.violet,
+  .lord-castle-branch.violet,
+  .lord-castle-building-panel.violet {
+    --castle-tone: #a88be8;
+  }
+
+  .lord-castle-hotspot.red,
+  .lord-castle-branch.red,
+  .lord-castle-building-panel.red {
+    --castle-tone: #c86152;
+  }
+
+  .lord-castle-hotspot.green,
+  .lord-castle-branch.green,
+  .lord-castle-building-panel.green {
+    --castle-tone: #74c68a;
+  }
+
+  .lord-castle-resource svg,
+  .lord-castle-hotspot svg,
+  .lord-castle-building-panel svg {
+    color: var(--castle-tone);
+    filter: drop-shadow(0 0 10px color-mix(in srgb, var(--castle-tone) 38%, transparent));
+  }
+
+  .lord-castle-resource span {
+    font-size: .72rem;
+    font-weight: 800;
+    color: rgba(230, 220, 194, .68);
+  }
+
+  .lord-castle-resource b {
+    color: #fff0bd;
+    font-size: 1.05rem;
+  }
+
+  .lord-castle-branch-rail {
+    position: absolute;
+    left: 18px;
+    top: 105px;
+    z-index: 9;
+    display: grid;
+    gap: 10px;
+  }
+
+  .lord-castle-branch {
+    position: relative;
+    width: 62px;
+    height: 62px;
+  }
+
+  .lord-castle-branch span {
+    position: absolute;
+    left: 70px;
+    top: 50%;
+    min-width: 92px;
+    transform: translateY(-50%);
+    padding: 5px 9px;
+    color: #f4e4bd;
+    border: 1px solid rgba(214, 179, 108, .28);
+    background: rgba(5, 8, 12, .72);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, .32);
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: .9rem;
+    font-weight: 900;
+    opacity: .78;
+    pointer-events: none;
+  }
+
+  .lord-castle-branch.is-active span,
+  .lord-castle-branch:hover span,
+  .lord-castle-branch:focus-visible span {
+    opacity: 1;
+    border-color: color-mix(in srgb, var(--castle-tone) 62%, rgba(214, 179, 108, .28));
+  }
+
+  .lord-castle-hotspots {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+  }
+
+  .lord-castle-hotspot {
+    --castle-tone: #d9a64f;
+    position: absolute;
+    display: grid;
+    width: 58px;
+    height: 58px;
+    place-items: center;
+    transform: translate(-50%, -50%);
+    color: #f4e4bd;
+    border: 1px solid color-mix(in srgb, var(--castle-tone) 64%, rgba(230, 196, 119, .48));
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 50% 36%, color-mix(in srgb, var(--castle-tone) 30%, transparent), rgba(10, 14, 18, .88) 60%),
+      rgba(0, 0, 0, .5);
+    box-shadow:
+      inset 0 0 0 3px rgba(0, 0, 0, .52),
+      inset 0 0 18px rgba(0, 0, 0, .46),
+      0 0 22px color-mix(in srgb, var(--castle-tone) 22%, transparent),
+      0 12px 24px rgba(0, 0, 0, .42);
+    transition: transform .16s ease, filter .16s ease, opacity .16s ease;
+  }
+
+  .lord-castle-hotspot span {
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 7px);
+    min-width: max-content;
+    transform: translateX(-50%);
+    padding: 4px 8px;
+    color: #fff0bd;
+    border: 1px solid color-mix(in srgb, var(--castle-tone) 42%, rgba(214, 179, 108, .18));
+    background: rgba(3, 6, 10, .75);
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: .76rem;
+    font-weight: 900;
+    line-height: 1;
+    opacity: 0;
+    pointer-events: none;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, .9);
+  }
+
+  .lord-castle-hotspot:hover,
+  .lord-castle-hotspot:focus-visible,
+  .lord-castle-hotspot.is-selected {
+    transform: translate(-50%, -50%) scale(1.08);
+    filter: brightness(1.16);
+  }
+
+  .lord-castle-hotspot:hover span,
+  .lord-castle-hotspot:focus-visible span,
+  .lord-castle-hotspot.is-selected span {
+    opacity: 1;
+  }
+
+  .lord-castle-hotspot.locked {
+    opacity: .55;
+    filter: grayscale(.3);
+  }
+
+  .lord-castle-hotspot.available {
+    animation: castle-pulse 2.6s ease-in-out infinite;
+  }
+
+  @keyframes castle-pulse {
+    0%, 100% {
+      box-shadow:
+        inset 0 0 0 3px rgba(0, 0, 0, .52),
+        inset 0 0 18px rgba(0, 0, 0, .46),
+        0 0 18px color-mix(in srgb, var(--castle-tone) 20%, transparent),
+        0 12px 24px rgba(0, 0, 0, .42);
+    }
+
+    50% {
+      box-shadow:
+        inset 0 0 0 3px rgba(0, 0, 0, .52),
+        inset 0 0 18px rgba(0, 0, 0, .46),
+        0 0 34px color-mix(in srgb, var(--castle-tone) 42%, transparent),
+        0 12px 24px rgba(0, 0, 0, .42);
+    }
+  }
+
+  .lord-castle-building-panel {
+    --castle-tone: #d9a64f;
+    position: absolute;
+    left: 50%;
+    bottom: 15px;
+    z-index: 12;
+    display: grid;
+    grid-template-columns: 104px minmax(260px, 1fr) minmax(320px, .88fr) 150px;
+    align-items: stretch;
+    gap: 12px;
+    width: min(1030px, calc(100vw - 290px));
+    min-height: 164px;
+    transform: translateX(-50%);
+    padding: 12px;
+    color: #efe4c8;
+    border: 1px solid color-mix(in srgb, var(--castle-tone) 46%, rgba(214, 179, 108, .24));
+    background:
+      radial-gradient(circle at 16% 0, color-mix(in srgb, var(--castle-tone) 16%, transparent), transparent 42%),
+      linear-gradient(180deg, rgba(20, 32, 46, .88), rgba(6, 9, 14, .94));
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 244, 206, .08),
+      inset 0 -22px 30px rgba(0, 0, 0, .46),
+      0 22px 42px rgba(0, 0, 0, .58);
+    clip-path: polygon(2% 0, 98% 0, 100% 12%, 100% 88%, 98% 100%, 2% 100%, 0 88%, 0 12%);
+  }
+
+  .lord-castle-portrait {
+    display: grid;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--castle-tone) 40%, rgba(214, 179, 108, .2));
+    background:
+      radial-gradient(circle at 50% 36%, color-mix(in srgb, var(--castle-tone) 20%, transparent), transparent 58%),
+      rgba(0, 0, 0, .36);
+    box-shadow: inset 0 0 22px rgba(0, 0, 0, .56);
+    clip-path: polygon(50% 0, 96% 24%, 96% 76%, 50% 100%, 4% 76%, 4% 24%);
+  }
+
+  .lord-castle-building-main span,
+  .lord-castle-building-slots span {
+    display: block;
+    color: rgba(230, 220, 194, .66);
+    font-size: .74rem;
+    font-weight: 800;
+  }
+
+  .lord-castle-building-main h2 {
+    margin: 2px 0 8px;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: 1.92rem;
+    font-weight: 900;
+    line-height: 1;
+    color: #fff0bd;
+    text-shadow: 0 2px 0 rgba(0, 0, 0, .9);
+  }
+
+  .lord-castle-building-main p {
+    margin: 0;
+    max-width: 520px;
+    color: rgba(238, 229, 204, .76);
+    font-size: .94rem;
+    line-height: 1.38;
+  }
+
+  .lord-castle-building-slots {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .lord-castle-building-slots div {
+    min-height: 0;
+    padding: 8px 10px;
+    border: 1px solid rgba(214, 179, 108, .22);
+    background: rgba(0, 0, 0, .3);
+    box-shadow: inset 0 0 14px rgba(0, 0, 0, .38);
+  }
+
+  .lord-castle-building-slots b {
+    display: block;
+    margin-top: 2px;
+    color: #f4e4bd;
+    font-size: .86rem;
+    line-height: 1.22;
+  }
+
+  .lord-castle-main-action {
+    align-self: center;
+    min-height: 58px;
+    padding: 0 12px;
+    color: #fff0bd;
+    border: 1px solid color-mix(in srgb, var(--castle-tone) 58%, rgba(214, 179, 108, .2));
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--castle-tone) 24%, rgba(33, 40, 49, .9)), rgba(5, 8, 12, .95));
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 244, 206, .08),
+      inset 0 -12px 18px rgba(0, 0, 0, .5),
+      0 8px 16px rgba(0, 0, 0, .34);
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: 1.05rem;
+    font-weight: 900;
+    clip-path: polygon(9% 0, 91% 0, 100% 50%, 91% 100%, 9% 100%, 0 50%);
+  }
+
+  .lord-castle-main-action:hover:not(:disabled),
+  .lord-castle-main-action:focus-visible:not(:disabled) {
+    filter: brightness(1.18);
+    transform: translateY(-1px);
+  }
+
+  .lord-castle-main-action:disabled {
+    cursor: not-allowed;
+    opacity: .52;
+    filter: grayscale(.35);
+  }
+
+  @media (max-width: 1180px) {
+    .lord-castle-resources {
+      min-width: 390px;
+      grid-template-columns: repeat(3, minmax(112px, 1fr));
+    }
+
+    .lord-castle-building-panel {
+      left: 168px;
+      right: 16px;
+      width: auto;
+      transform: none;
+      grid-template-columns: 82px minmax(220px, 1fr) minmax(240px, .8fr) 130px;
+    }
+  }
+
+  .lord-endpoints-screen {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+    background: #05070a;
+    color: #f4e4bd;
+  }
+
+  .lord-endpoints-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: saturate(.86) contrast(1.12) brightness(.58);
+    transform: scale(1.03);
+  }
+
+  .lord-endpoints-vignette {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 44% 36%, rgba(88, 147, 182, .18), transparent 34%),
+      linear-gradient(90deg, rgba(0, 0, 0, .68), rgba(0, 0, 0, .22) 48%, rgba(0, 0, 0, .72)),
+      linear-gradient(180deg, rgba(0, 0, 0, .36), rgba(0, 0, 0, .82));
+  }
+
+  .lord-endpoints-panel {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    gap: 18px;
+    width: min(1180px, calc(100vw - 44px));
+    margin: 22px auto;
+    padding: 18px;
+    border: 1px solid rgba(214, 179, 108, .34);
+    background:
+      linear-gradient(180deg, rgba(31, 39, 46, .9), rgba(8, 11, 15, .94)),
+      radial-gradient(circle at 18% 0, rgba(109, 173, 210, .15), transparent 38%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 244, 206, .08),
+      inset 0 -26px 40px rgba(0, 0, 0, .44),
+      0 22px 42px rgba(0, 0, 0, .58);
+    clip-path: polygon(1.2% 0, 98.8% 0, 100% 2.5%, 100% 97.5%, 98.8% 100%, 1.2% 100%, 0 97.5%, 0 2.5%);
+  }
+
+  .lord-endpoints-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 72px;
+    border-bottom: 1px solid rgba(214, 179, 108, .22);
+    padding-bottom: 14px;
+  }
+
+  .lord-endpoints-crest {
+    display: grid;
+    width: 58px;
+    height: 58px;
+    place-items: center;
+    color: #73c6d8;
+    border: 1px solid rgba(115, 198, 216, .46);
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 50% 34%, rgba(49, 92, 123, .62), rgba(11, 16, 23, .92) 58%),
+      rgba(0, 0, 0, .5);
+    box-shadow: inset 0 0 0 3px rgba(0, 0, 0, .54), inset 0 0 18px rgba(115, 198, 216, .18);
+  }
+
+  .lord-endpoints-head span {
+    display: block;
+    color: rgba(230, 220, 194, .68);
+    font-size: .75rem;
+    font-weight: 800;
+  }
+
+  .lord-endpoints-head h1 {
+    margin: 2px 0 0;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: 2.1rem;
+    font-weight: 900;
+    line-height: 1;
+    color: #f6e3ae;
+    text-shadow: 0 2px 0 rgba(0, 0, 0, .9), 0 0 18px rgba(104, 175, 214, .22);
+  }
+
+  .lord-endpoints-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .lord-endpoint-card {
+    --endpoint-tone: #d9a64f;
+    position: relative;
+    min-height: 178px;
+    padding: 14px;
+    color: #efe4c8;
+    text-decoration: none;
+    border: 1px solid color-mix(in srgb, var(--endpoint-tone) 42%, rgba(214, 179, 108, .2));
+    background:
+      radial-gradient(circle at 14% 0, color-mix(in srgb, var(--endpoint-tone) 16%, transparent), transparent 42%),
+      linear-gradient(180deg, rgba(20, 32, 46, .72), rgba(4, 7, 11, .86));
+    box-shadow: inset 0 0 0 1px rgba(255, 244, 206, .06), inset 0 -18px 28px rgba(0, 0, 0, .42);
+    transition: transform .16s ease, filter .16s ease, border-color .16s ease;
+  }
+
+  .lord-endpoint-card.gold {
+    --endpoint-tone: #d9a64f;
+  }
+
+  .lord-endpoint-card.green {
+    --endpoint-tone: #74c68a;
+  }
+
+  .lord-endpoint-card.blue {
+    --endpoint-tone: #73c6d8;
+  }
+
+  .lord-endpoint-card.violet {
+    --endpoint-tone: #a88be8;
+  }
+
+  .lord-endpoint-card.muted {
+    --endpoint-tone: #b4aa9c;
+  }
+
+  .lord-endpoint-card:hover,
+  .lord-endpoint-card:focus-visible {
+    transform: translateY(-3px);
+    filter: brightness(1.14);
+    border-color: color-mix(in srgb, var(--endpoint-tone) 72%, #f4d99b);
+  }
+
+  .lord-endpoint-card svg {
+    color: var(--endpoint-tone);
+    filter: drop-shadow(0 0 10px color-mix(in srgb, var(--endpoint-tone) 34%, transparent));
+  }
+
+  .lord-endpoint-card > span {
+    position: absolute;
+    right: 12px;
+    top: 12px;
+    color: rgba(230, 220, 194, .68);
+    font-size: .7rem;
+    font-weight: 900;
+  }
+
+  .lord-endpoint-card h2 {
+    margin: 12px 0 6px;
+    font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+    font-size: 1.34rem;
+    font-weight: 900;
+    line-height: 1;
+    color: #fff0bd;
+  }
+
+  .lord-endpoint-card code {
+    display: inline-block;
+    color: color-mix(in srgb, var(--endpoint-tone) 78%, #fff0bd);
+    font-size: .86rem;
+    font-weight: 800;
+  }
+
+  .lord-endpoint-card p {
+    margin: 10px 0 0;
+    color: rgba(238, 229, 204, .72);
+    font-size: .92rem;
+    line-height: 1.35;
+  }
+
+  @media (max-width: 900px) {
+    .lord-endpoints-screen {
+      overflow: auto;
+    }
+
+    .lord-endpoints-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .panel {
+    @apply rounded-lg border border-ember-300/25 bg-[linear-gradient(145deg,rgba(39,31,24,.92),rgba(14,12,10,.94))] shadow-brass;
+  }
+
+  .slot {
+    @apply grid min-h-20 place-items-center rounded-md border border-ember-300/25 bg-black/40 p-2 text-center text-xs text-stone-300;
+  }
+
+  .slot b {
+    @apply font-display text-xl text-ember-50;
+  }
+
+  .battle-cell {
+    @apply grid aspect-square place-items-center rounded border border-ember-300/20 bg-black/30 text-stone-500;
+  }
+
+  .battle-cell-active {
+    @apply border-ember-300/60 bg-ember-300/15 text-ember-50 shadow-brass;
+  }
+
+  .gwent-row {
+    @apply flex min-h-20 items-center gap-3 rounded-md border border-ember-300/20 bg-black/30 p-2 shadow-insetDeep;
+  }
+
+  .score-chip {
+    @apply grid h-12 w-12 shrink-0 place-items-center rounded-full border border-cyan-100/60 bg-slate-100 text-xl font-black text-slate-900 shadow-brass;
+  }
+
+  .row-label {
+    @apply w-20 text-xs uppercase tracking-[.18em] text-stone-400;
+  }
+
+  .mini-card {
+    @apply grid h-16 w-12 place-items-start rounded border border-ember-300/35 bg-[linear-gradient(145deg,rgba(38,24,16,.88),rgba(9,7,6,.96))] p-1 text-xs font-bold text-ember-50 shadow-brass;
+  }
+
+  .map-cutout {
+    @apply absolute select-none opacity-0 transition duration-300 ease-out;
+    transform: translate(-50%, -50%) scale(.98);
+    filter: brightness(.96) saturate(.9) drop-shadow(0 0 0 rgba(0, 0, 0, 0));
+    z-index: 10;
+  }
+
+  .map-cutout-active {
+    @apply opacity-100;
+    transform: translate(-50%, -50%) scale(1.08);
+    filter:
+      brightness(1.18)
+      saturate(1.12)
+      contrast(1.03)
+      drop-shadow(0 0 18px color-mix(in srgb, var(--map-tone) 55%, transparent))
+      drop-shadow(0 16px 26px rgba(0, 0, 0, .55));
+  }
+
+  .map-hotspot {
+    @apply absolute grid h-20 w-20 place-items-center rounded-full border text-ember-50 transition duration-200;
+    z-index: 20;
+    transform: translate(-50%, -50%);
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .map-hotspot::before {
+    content: "";
+    @apply absolute inset-3 rounded-full border opacity-0 transition;
+    border-color: color-mix(in srgb, var(--map-tone) 48%, rgba(255, 245, 220, .18));
+    background: radial-gradient(circle, color-mix(in srgb, var(--map-tone) 18%, transparent), transparent 68%);
+  }
+
+  .map-hotspot svg {
+    @apply transition;
+    color: color-mix(in srgb, var(--map-tone) 82%, #fff4d6);
+    opacity: .42;
+    transform: scale(.72);
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .85));
+  }
+
+  .map-hotspot:hover,
+  .map-hotspot-active {
+    transform: translate(-50%, -50%) scale(1.07);
+    box-shadow: 0 0 24px color-mix(in srgb, var(--map-tone) 22%, transparent);
+  }
+
+  .map-hotspot:hover svg,
+  .map-hotspot-active svg {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .map-hotspot:hover::before,
+  .map-hotspot-active::before {
+    @apply opacity-100;
+  }
+
+  .map-hotspot-label {
+    @apply pointer-events-none absolute left-1/2 top-[calc(100%+8px)] min-w-max -translate-x-1/2 rounded border px-2.5 py-1 text-[11px] font-semibold opacity-0 transition;
+    color: #fff5dc;
+    border-color: color-mix(in srgb, var(--map-tone) 38%, rgba(0, 0, 0, .5));
+    background: linear-gradient(180deg, rgba(35, 24, 17, .92), rgba(8, 7, 6, .92));
+    box-shadow: 0 10px 18px rgba(0, 0, 0, .48);
+  }
+
+  .map-hotspot:hover .map-hotspot-label,
+  .map-hotspot-active .map-hotspot-label {
+    @apply opacity-100;
+  }
+
+  .gwent-card-piece {
+    @apply relative h-36 overflow-hidden rounded-md border p-2 text-left text-ember-50 shadow-brass transition duration-200;
+    background:
+      linear-gradient(180deg, rgba(255, 236, 190, .12), transparent 18%),
+      radial-gradient(circle at 50% 28%, rgba(230, 184, 94, .18), transparent 34%),
+      linear-gradient(145deg, rgba(45, 27, 18, .94), rgba(11, 8, 7, .98));
+    border-color: rgba(217, 166, 79, .48);
+  }
+
+  .gwent-card-piece::before {
+    content: "";
+    @apply absolute left-2 right-2 top-9 rounded border border-ember-300/25;
+    height: 54px;
+    background:
+      radial-gradient(circle at 50% 35%, rgba(255, 228, 177, .2), transparent 34%),
+      linear-gradient(145deg, rgba(21, 35, 28, .88), rgba(8, 7, 6, .92));
+  }
+
+  .gwent-card-piece::after {
+    content: "";
+    @apply pointer-events-none absolute inset-1 rounded border border-black/50;
+    box-shadow: inset 0 0 0 1px rgba(255, 237, 200, .08);
+  }
+
+  .gwent-card-piece:hover {
+    transform: translateY(-12px) rotate(-1.5deg) scale(1.04);
+    filter: brightness(1.14);
+  }
+
+  .gwent-card-piece.green {
+    border-color: rgba(116, 198, 138, .55);
+  }
+
+  .gwent-card-piece.blue {
+    border-color: rgba(115, 198, 216, .55);
+  }
+
+  .gwent-card-piece.red {
+    border-color: rgba(198, 97, 82, .55);
+  }
+
+  .gwent-card-piece.violet {
+    border-color: rgba(168, 139, 232, .58);
+  }
+
+  .gwent-card-piece.gold {
+    border-color: rgba(217, 166, 79, .68);
+  }
+
+  .deck-stack {
+    @apply grid min-h-32 place-items-center rounded-md border bg-black/50 p-3 text-center shadow-brass;
+  }
+
+  .deck-stack span {
+    @apply mt-2 font-display text-3xl font-black;
+  }
+
+  .deck-stack.blue {
+    @apply border-cyan-300/50 text-cyan-100;
+  }
+
+  .deck-stack.red {
+    @apply border-red-300/50 text-red-100;
+  }
+
+  .deck-stack.grave {
+    @apply border-stone-300/30 text-stone-200;
+  }
+
+  .phone-frame {
+    @apply mx-auto w-full max-w-[430px] rounded-[34px] border border-stone-500/45 bg-black p-3 shadow-brass;
+  }
+
+  .phone-screen {
+    @apply flex min-h-[830px] flex-col rounded-[26px] border border-ember-300/20 p-4 shadow-insetDeep;
+  }
+
+  .witcher-phone {
+    background:
+      radial-gradient(circle at 18% 6%, rgba(52, 112, 153, .28), transparent 30%),
+      linear-gradient(180deg, rgba(18, 22, 24, .96), rgba(8, 8, 7, .98));
+  }
+
+  .sorceress-phone {
+    background:
+      radial-gradient(circle at 20% 0%, rgba(119, 104, 201, .34), transparent 32%),
+      linear-gradient(180deg, rgba(20, 18, 32, .96), rgba(8, 8, 12, .98));
+  }
+
+  .mobile-action {
+    @apply flex min-h-12 items-center justify-between rounded-md border border-ember-300/20 bg-black/40 px-3 text-sm text-ember-50;
+  }
+
+  .mobile-action span:last-child {
+    @apply text-xs uppercase tracking-[.16em] text-ember-300/70;
+  }
+
+  .mobile-tab {
+    @apply grid min-h-12 place-items-center rounded-md border border-ember-300/20 bg-black/40 text-stone-300;
+  }
+
+  .review-row {
+    @apply grid min-h-14 grid-cols-[92px_minmax(0,1fr)_92px] items-center gap-3 rounded-md border border-ember-300/20 bg-black/30 p-3;
+  }
+
+  .review-row button,
+  .nav-row {
+    @apply rounded border border-ember-300/25 bg-ember-300/10 px-3 py-2 text-sm font-semibold text-ember-50;
+  }
+
+  .nav-row {
+    @apply flex min-h-11 items-center justify-between text-left;
+  }
+
+  .nav-row-active {
+    @apply border-ember-300/70 bg-ember-300/20;
+  }
+
+  .input {
+    @apply rounded border border-ember-300/20 bg-black/40 px-3 py-2 text-sm text-stone-300;
+  }
+
+  .input.danger {
+    @apply border-red-300/40 bg-red-500/10 text-red-100;
+  }
+}

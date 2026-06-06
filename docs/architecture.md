@@ -102,16 +102,42 @@ and iOS build/free provisioning smoke must pass on real devices before
 fallback. Paper fallback is tested as outage recovery only and does not replace
 missing normal UI.
 
-Stage 2B also has a visual/asset boundary in `TASK-067`. The lord panel uses an
-original castle/city-development screen with an Olden Era-like building tree,
-each capturable territory has a thematic fort image/card, personal PvP for
-witchers/sorceresses uses a Gwent-like table grammar, the lord battle uses a
-visually distinct 5x6 army board, and the plot map is an illustrated layer over
-`venue_map_v1` for lord/count hero-army movement only. Lords do not use QR for
-movement; witcher/sorceress QR/manual location flows do not require an online
-map. These are data-bound UI treatments, not new rule engines: no production
-screen may depend on copied third-party art, official card images, logos,
-screenshots, GPS, cloud services, or internet access during the game.
+Before implementation of role UI surfaces, Stage 2B must produce a persistent
+blueprint rather than relying on task prose or chat notes. `TASK-045` owns
+`docs/ui/stage2b-screen-map.md`, `docs/ui/stage2b-flow-map.md`,
+`docs/ui/stage2b-api-map.md` and `docs/ui/stage2b-state-matrix.md`. These files
+must enumerate every witcher, sorceress, lord, master/NPC and shared
+auth/sync/error screen; record click -> client event/request -> backend/snapshot
+decision -> visible state transitions; and map every read model and mutation to
+an endpoint, snapshot field or explicit blocker. If a UI needs current Gwent
+match state, trade/favorite state, hidden-data redaction, review state, locked
+assets or final-lock state and no read source exists, the relevant UI task is
+blocked until the backend/read model is named.
+
+Stage 2B also has a visual/asset boundary in `TASK-067`. The lord panel opens
+after login to `/lords/home`, whose player-facing home is a full-screen
+castle/selected-territory screen; the strategic map is a separate destination opened
+from that home. It uses an original
+painted castle or territory background, a thin top resource strip, circular
+action icons on the left, a bottom-left minimap, bottom-center active
+army/garrison/recruit lanes, a bottom-right act timer plaque and a semicircle MP
+gauge above that plaque. Each owned territory reuses the same UI pattern with
+its own background, income, garrison, accumulated recruit stock and minimal
+building tree; if the hero-army is not at the selected territory, the top active
+army lane is empty/locked. The plot map remains a separate illustrated layer
+over `venue_map_v1` for lord/count hero-army movement only, and the lord battle
+uses a visually distinct 5x6 army board. Lords do not use QR for movement;
+witcher/sorceress QR/manual location flows do not require an online map. These
+are data-bound UI treatments, not new rule engines: no production screen may
+depend on copied third-party art, official card images, logos, screenshots, GPS,
+cloud services, or internet access during the game.
+`TASK-067` also owns the pre-implementation visual acceptance prototype:
+`prototypes/stage2b/` or an Open Design artifact linked from
+`docs/ui/stage2b-visual-acceptance.md`, plus
+`docs/ui/stage2b-visual-asset-manifest.md` or `visual_assets.csv`. Generated
+raster art may be used for original castles, forts, map texture and card
+portraits; text-heavy UI mockups should remain in HTML/CSS/Open Design or
+Godot-style layouts so labels, states and data bindings remain exact.
 
 ### Task implementation contract
 
@@ -204,12 +230,14 @@ python`, а не raw `pip`.
 
 ### Lord panel
 
-Панель лорда показывает только разрешенное состояние его владения:
+Панель лорда показывает только разрешенное состояние его владения. Главная
+поверхность после входа - экран замка/выбранной территории, а не служебная
+таблица API и не карта-first dashboard:
 
 - ресурсы, доход, влияние;
 - weighted map, movement pool, цифровые территории, active army, reserve и гарнизоны;
-- развитие резиденции;
-- recruit market, building tree, raid tokens и raid effects;
+- развитие резиденции и минимальные деревья построек территорий;
+- накопительный найм по выбранной локации, building tree, raid tokens и raid effects;
 - standings/diplomacy signals для союзов, заговоров и коалиций против лидера;
 - публичные и адресные заказы, escrow награды;
 - trade/order object conflicts, если они раскрыты владельцу;
@@ -264,7 +292,7 @@ python`, а не raw `pip`.
 - `acts.csv` - акты, стартовые параметры, доступность контента.
 - `act_unlock_codes.csv` - offline unlock tokens/QR для Act 2, Act 3 и Final Act, раскрываемые мастером после старта акта.
 - `physical_announcements.csv` или runbook-only manifest - кто и как громко объявляет старт Act 1/2/3/Final Act на участке.
-- `auto_timers.csv` - 10-часовой fixed schedule, 3 сюжетных акта + финальный акт, буферы, final lock, тики дохода, hourly mana regen, 3 challenge tokens per act, movement pool refill и recruit market refresh.
+- `auto_timers.csv` - 10-часовой fixed schedule, 3 сюжетных акта + финальный акт, буферы, final lock, тики дохода, hourly mana regen, 3 challenge tokens per act, movement pool refill и accumulated recruit stock tick.
 - `pvp_tables.csv` / `pvp_throttle_rules.csv` - количество столов/слотов, queued behavior, режимы `normal/limited/paused`, max started mandatory matches per player per act.
 - `npc_events.csv` - события Короля/Странника, адресность, полномочия Короля, сделки Странника, последствия.
 - `anti_snowball_rules.csv` - пороги силы армии относительно средней и income multiplier, включая default штрафы 30% и 50%.
@@ -370,7 +398,7 @@ PvP валиден в доме/у лордов и считается как full
 
 Владение землей требует гарнизон в тематическом форте. После победы атакующий должен оставить минимум одну выжившую army unit card в fort garrison; без гарнизона доход и основной бонус не активны. Owner может перебрасывать текущие army unit cards между активной армией и фортом, если активная армия находится на этой территории; transfer не тратит MP, но логируется, проверяет ownership, non-contested state, active battle lock, active army capacity, fort `garrison_capacity` и правило minimum garrison. Чужие гарнизоны скрыты от других лордов, но owner и primary bonus type видны. Если hourly income/influence tick попадает на ongoing claim, сервер создает `pending_tick_reward` и применяет его победителю боя ровно один раз без сдвига расписания.
 
-Recruit market обновляется на hourly tick по зданиям, казармам и территориям. Купленные юниты попадают в reserve резиденции; active army забирает их только в резиденции. Building tree покупается за gold по prerequisites без act cap. Default catalog v1 содержит 4 ветки: казармы (`Training Yard`, `Barracks`, `Archery Range`, `Stables`, `Siege Yard`, `War Academy`), казна (`Market`, `Tax Office`, `Storehouse`, `Bank`, `Treasury Hall`), совет (`Notice Board`, `Envoy Hall`, `Map Room`, `Raid Office`, `War Council`), башня мага (`Mage Study`, `Alchemy Lab`, `Scrying Room`, `Wards`, `Ritual Chamber`). Anti-snowball rule режет income на 30% или 50%, если сила армии сильно или огромно выше средней. Diplomacy signals показывают мастеру/лордам поводы для союзов, заговоров и коалиций против лидера. Raid engine отделен от battle engine: raid token + gold -> target validation -> defense/magic check -> timed debuff and optional gold/cards/influence loot. Orders capped at 2 public + 1 addressed active orders per lord, and lord progression remains playable without witcher availability.
+Найм в лордском UI показывается как накопление войск в выбранной локации: слот юнита отображает `+X/час` и текущий накопленный запас в скобках, а покупка через модальное окно со слайдером отправляет войска в гарнизон выбранной территории. Backend может сохранять compatibility с recruit offers, но player-facing интерфейс для замка/территорий не должен выглядеть как служебный список offers. Building tree покупается за gold по prerequisites без act cap. Резиденция имеет полный default catalog v1 из 4 веток: казармы (`Training Yard`, `Barracks`, `Archery Range`, `Stables`, `Siege Yard`, `War Academy`), казна (`Market`, `Tax Office`, `Storehouse`, `Bank`, `Treasury Hall`), совет (`Notice Board`, `Envoy Hall`, `Map Room`, `Raid Office`, `War Council`), башня мага (`Mage Study`, `Alchemy Lab`, `Scrying Room`, `Wards`, `Ritual Chamber`). Захваченные территории используют тот же building-tree UX с меньшим локальным деревом, которое позднее расширяется контентом. Anti-snowball rule режет income на 30% или 50%, если сила армии сильно или огромно выше средней. Diplomacy signals показывают мастеру/лордам поводы для союзов, заговоров и коалиций против лидера. Raid engine отделен от battle engine: raid token + gold -> target validation -> defense/magic check -> timed debuff and optional gold/cards/influence loot. Orders capped at 2 public + 1 addressed active orders per lord, and lord progression remains playable without witcher availability.
 
 Проверяется после lord panels и act timers: movement refill to cap -> route spends MP -> contested claim visible -> neutral battle -> fort garrison required -> active army <-> fort transfer -> pending tick winner -> recruit refresh/hold/reserve -> building prerequisite -> anti-snowball 30/50 -> raid debuff/loot expiry.
 
@@ -466,7 +494,9 @@ Immediate paper fallback включается для конкретного кр
 - Browser smoke: master panel, 4 lord panels, синхронный lord battle.
 - Device smoke: player code, snapshot download, QR/manual input, offline PvE, restart, sync retry.
 - UI-first smoke after `TASK-050`: Android/iOS mobile gameplay UI, lord action UI with valid illustrated `venue_map_v1`, personal PvP/Gwent UI, Admin Studio paper recovery/corrections and final summary without Swagger for player/lord steps.
-- Visual/reference smoke after `TASK-067`/before `TASK-050`: screenshots for lord castle/city-development screen with Olden Era-like building tree, thematic territory forts, lord battle board, personal Gwent table and lord venue map; check readability, state labels, data bindings, visual distinction between PvP surfaces and IP-safe original/local assets.
+- Blueprint/API-map smoke after `TASK-045`: `docs/ui/stage2b-screen-map.md`, `docs/ui/stage2b-flow-map.md`, `docs/ui/stage2b-api-map.md` and `docs/ui/stage2b-state-matrix.md` exist and map every release-critical screen/action/state to an endpoint, snapshot field, queued event or explicit blocker.
+- Visual/reference smoke after `TASK-067`/before `TASK-050`: prototype/Open Design artifact plus screenshots for lord `/lords/home` castle/selected-territory screen, bottom-left minimap, bottom-right act/MP, army/garrison/recruit lanes, Olden Era-like building tree, thematic territory forts/backgrounds, lord battle board, personal Gwent table, mobile class screens, Admin recovery/final screens and lord venue map; check readability, state labels, data bindings, visual distinction between PvP surfaces and IP-safe original/local assets.
+- Evidence smoke after `TASK-058`: `reports/stage2b/device-evidence.md`, `reports/stage2b/ui-flow-evidence.md`, `reports/stage2b/defects.md` and `reports/stage2b/screenshots/` capture the hardening run, not just chat notes.
 - Pre-2B audit remediation before `TASK-045`: `TASK-087` confirms `AUD-NEXT-001..046` are fixed through backend/domain authority where needed, UI guardrails are labelled as mitigation only, and no unresolved P0/P1/blocking P2 defects remain without owner/workaround.
 - Non-PvE hardening before `TASK-050`: real-device install/launch/connect/snapshot/restart/sync, 4 lord panels, lord map audit, personal Gwent, orders/trade, sorceress potions/spells/favorites/alignment, Admin recovery and no unresolved P0/P1/blocking P2 defects.
 - Full rehearsal: мастерский ноутбук, 4 лордских ноутбука, реальные телефоны, домашний Wi-Fi, 15-person profile, 10-hour fixed schedule, 9 mobile-role load/idle risk, NPC-master load, order pressure, offline act unlock, pending reward approval, full Gwent volume/throttle, trade conflicts, favorites impact, visual/readability proof, master-led final summary, final lock and game-day ops checklist.

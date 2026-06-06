@@ -2345,3 +2345,71 @@ Generated files refreshed:
 
 Next Dependency-Ready Pending Task:
 - TASK-045 - Зафиксировать playable UI contract и role journey matrix
+
+2026-06-04 22:18 +03:00 TASK-045 Claim
+-------------------------------------
+Task: TASK-045 - Зафиксировать playable UI contract и role journey matrix.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 9 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 22:23 +03:00 TASK-045 Done
+------------------------------------
+Task: TASK-045 - Зафиксировать playable UI contract и role journey matrix.
+
+Done:
+- Created Stage 2B UI screen, flow, API/read-model and state matrix docs with role screen flow diagrams, no-Swagger scripts, visibility boundaries and explicit read-model blockers.
+
+Verification:
+- uv run python scripts/taskctl.py validate
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-067 - Собрать visual reference и asset brief для UI
+
+2026-06-04 23:07 +03:00 TASK-067 Claim
+-------------------------------------
+Task: TASK-067 - Собрать visual reference и asset brief для UI.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 10 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-04 23:16 +03:00 TASK-067 Done
+------------------------------------
+Task: TASK-067 - Собрать visual reference и asset brief для UI.
+
+Done:
+- Созданы Stage 2B visual acceptance артефакты: локальный HTML/CSS прототип для Shared/Lord/Witcher/Sorceress/Gwent/Admin, visual acceptance doc, asset manifest и reports evidence contract; зафиксированы IP-safe policy, runtime bindings и territory_forts.csv binding gap.
+
+Verification:
+- Проверки: rg --files prototypes\\stage2b docs\\ui reports\\stage2b; uv run python -m json.tool tasks.json; uv run python scripts\\taskctl.py validate; rg key visual routes/IP-safety/binding-gap terms.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- TASK-046 - Реализовать полноценный lord action UI

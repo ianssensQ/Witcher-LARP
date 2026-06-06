@@ -31,6 +31,22 @@ Python/backend/tooling environment is managed with `uv`. Use `uv sync` to create
 or update the project `.venv`, and run Python commands through `uv run python`
 instead of a manually created virtual environment.
 
+## Frontend UX/UI Screen Work
+
+When continuing visual frontend work, especially for lord browser screens,
+read `docs/ui/frontend-ux-ui-screen-workflow.md` before editing. It defines the
+current screen-by-screen workflow, accepted tool choices, asset rules, Motion
+design rules, and the handoff for the lord login screen.
+
+For visual prototyping chats that are not explicitly working from TaskOS, do
+one screen at a time. Confirm the role, device, screen purpose and references
+before generating assets or editing code. Game UI must feel native to the
+illustration: use generated/local bitmap layers, transparent cutouts, exact
+hit-zones over painted slots, React + Tailwind for interaction, Motion for
+runtime animation, OpenRouter as the default image-generation provider, and
+Figma MCP for design handoff/acceptance boards. Do not put technical labels,
+API notes or acceptance text into player-facing screens.
+
 <!-- TASKOS:START -->
 ## Codex TaskOS Loop
 

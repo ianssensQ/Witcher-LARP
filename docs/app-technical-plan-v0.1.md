@@ -33,7 +33,7 @@ Production profile текущей игры: 15 человек всего = 13 и
 - online-only `trade_transfers`: two confirmations, pending asset lock, atomic owner change, audit log;
 - venue map v1: 4 резиденции находятся в активном новом доме; старый дом и соседний сарай исключены из игры; лордский weighted graph использует беседки-крепости, поля, деревни-сараи, колодец-город ресурсодобычи, испанский уголок-город магии, двухэтажный сарай-город науки, леса, озера, болото и горы;
 - territory forts v1: каждая захватываемая территория имеет тематический форт с одной original/local/generated картинкой/карточкой, garrison capacity и transfer active army <-> fort, если активная армия находится на своей не-contested территории;
-- visual direction v1: `TASK-067` фиксирует пять IP-safe референсных поверхностей - Heroes Olden Era-like castle/city-development и точное Olden Era-like building-tree взаимодействие для лордов, thematic territory forts, Witcher 3 Gwent-like table grammar для личного PvP ведьмаков/чародеек, visually distinct 5x6 lord battle board и illustrated fantasy strategy map для лордского `venue_map_v1`; это layout/interaction references only, все production assets должны быть original/local/generated, без копирования официальных артов, логотипов, скриншотов или gallery images;
+- visual direction v1: `TASK-067` фиксирует IP-safe лордскую поверхность `/lords/home` как главный экран замка/выбранной территории, максимально близкий к принятому Heroes-like референсу: full-screen background, thin top resource strip, left circular action dock, bottom-left minimap, bottom-center active-army/garrison/recruit lanes, bottom-right act plaque and MP semicircle. Захваченные территории используют тот же UI с другим фоном, локальным доходом, гарнизоном, накопительным наймом и минимальным деревом построек; если герой-армия не в выбранной локации, верхняя линия армии пустая и locked. Отдельно остаются illustrated fantasy strategy map для лордского `venue_map_v1`, thematic territory forts/cards, Witcher 3 Gwent-like table grammar для личного PvP ведьмаков/чародеек и visually distinct 5x6 lord battle board; это layout/interaction references only, все production assets должны быть original/local/generated, без копирования официальных артов, логотипов, скриншотов или gallery images;
 - map tech rule: иллюстрированная карта участка является UI-слоем поверх `map_nodes`/`map_edges` и route costs для лордского графа перемещения героев/армий; лорды не используют QR, а QR/manual physical-presence confirmation относится к ведьмакам и чародейкам на локациях и не требует online-карты;
 - deterministic lord battle 5x6: `attack`, `defense`, `hp`, `initiative`, `move_range`, `attack_range`, `tier`, `unit_class`, damage `max(1, attack - defense + modifiers)`, 60s turn timer, auto-resolve;
 - lord battle appendix: V1 фиксирует `unit_power`, `deployed_army_power`, `domain_army_power`, partial stack wounds, deployment caps, line of sight, hero targeting, neutral AI priority and auto-resolve score;
@@ -147,6 +147,25 @@ Python/backend/tooling окружение управляется через `uv`
 ведьмаки/чародейки тестируют мобильное приложение, лорды - браузерные action
 панели, мастера - Admin Studio. Swagger, curl и ручные API остаются
 developer diagnostics и не считаются штатным пользовательским путем.
+Перед кодингом этих поверхностей `TASK-045` должен создать UI blueprint, а не
+только общую матрицу намерений: `docs/ui/stage2b-screen-map.md`,
+`docs/ui/stage2b-flow-map.md`, `docs/ui/stage2b-api-map.md` и
+`docs/ui/stage2b-state-matrix.md`. В них каждый экран ведьмака, чародейки,
+лорда, мастера/NPC и shared auth/sync/error state связывается с read source,
+mutation endpoint или offline queued event, payload/response, visibility
+boundary и итоговым состоянием UI. Если экрану нужен Gwent/trade/favorite/review
+state, locked asset, hidden-data redaction или final-lock state без понятного
+endpoint/snapshot field, это blocker соответствующей UI-задачи, а не локальная
+догадка клиента.
+
+Перед реализацией `TASK-046`-`TASK-049` `TASK-067` должен дать визуальную
+приемку будущей картинки: `prototypes/stage2b/` или Open Design artifact,
+`docs/ui/stage2b-visual-acceptance.md` и
+`docs/ui/stage2b-visual-asset-manifest.md`/`visual_assets.csv`. Codex может
+делать такой дизайн прямо в локальном прототипе/Open Design; image generation
+используется для original raster assets вроде замков, фортов, карт и портретов
+карт, а текстовые UI-макеты остаются code/Open Design, чтобы подписи и состояния
+были точными.
 Для Stage 2B это жесткий gate: Android APK и iOS build/free provisioning должны
 быть установлены и проверены на реальных телефонах, включая camera QR scan
 физического QR и ручной QR-ID fallback, 4 лордские панели должны
@@ -583,7 +602,7 @@ Core Game Engine должен закрыть:
 - offline PvE engine: app-generated `single_d20`, temporary `scene_hp`, tier defaults, 30-minute failure cooldown, reward approval locks and order/object outcomes;
 - personal goals, goal_tracks, hidden goal_flags and final_hooks visibility;
 - online-only trade_transfers with two confirmations, pending asset locks and atomic owner change;
-- lord runtime panel shell, weighted map, MP, territories, thematic forts with active army <-> fort transfer, garrisons, recruit market, named Olden Era-like building tree, orders status machine, raids and anti-snowball;
+- lord runtime panel shell, `/lords/home` castle/selected-territory UI, weighted map, MP, territories, thematic forts with active army <-> fort transfer, garrisons, accumulated recruit stock UI, named Olden Era-like residence building tree plus minimal territory trees, orders status machine, raids and anti-snowball;
 - deterministic lord battle 5x6 with stack wounds, line of sight, 60s timer, auto-resolve and persistence;
 - full Gwent personal PvP in online zone with challenge tokens, pvp_tables, throttle, refusal/safety and stake transfer;
 - sorceress runtime: mana, spells, potion market, favorites lifecycle and `sorceress_alignment`;
@@ -608,11 +627,21 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, pre-2B au
 - 4 ноутбука лордов одновременно работают с веб-панелью.
 - Лордская карта в UI совпадает с `venue_map_v1`: playable nodes/edges, excluded old house/shed, route costs, ownership, contested, thematic fort/garrison and raid states.
 - Перед `TASK-045` проходит `TASK-087`: `AUD-NEXT-001..046` распределены по backend fixes, UI guardrails или accepted residual risk; unresolved P0/P1 и blocking P2 без owner/workaround не допускаются.
-- Visual reference smoke passes before `TASK-050`: lord castle/city-development screen with Olden Era-like building tree, thematic territory forts, visually distinct lord battle board, personal PvP/Gwent table and illustrated lord venue map are readable on target surfaces, data-bound to runtime state and use only original/local/generated assets.
+- После `TASK-045` существуют `docs/ui/stage2b-screen-map.md`,
+  `docs/ui/stage2b-flow-map.md`, `docs/ui/stage2b-api-map.md` и
+  `docs/ui/stage2b-state-matrix.md`; every role screen/action has a read model,
+  mutation/event, visibility boundary and offline/review/locked/error state.
+- Visual reference smoke passes before `TASK-050`: lord castle/selected-territory home screen matching the accepted reference layout, Olden Era-like building tree, thematic territory surfaces/forts, visually distinct lord battle board, personal PvP/Gwent table and illustrated lord venue map are readable on target surfaces, data-bound to runtime state and use only original/local/generated assets.
+- Visual acceptance prototype/Open Design artifact passes before implementation
+  acceptance: witcher, sorceress, lord, personal Gwent and Admin
+  recovery/final screens are visually reviewable by the user before Stage 2B UI
+  coding is treated as accepted.
 - Мастер может вручную исправить спорное событие.
 - Бой PvE, личный PvP на двух реальных мобильных клиентах и бой лордов проходят от начала до конца.
 - После `TASK-050` PvE smoke, personal PvP/Gwent, лордские действия, магия/зелья/фавориты и paper recovery проходят через реальные UI-поверхности, а не через Swagger/manual API.
 - Перед `TASK-050` проходит отдельный non-PvE hardening script: orders/trade/inventory/reputation, sorceress potion/spell/favorite/alignment, PvP/Gwent, lord map/fort transfer/economy/battle/raid/order, Admin recovery/final_summary и дефект-триаж.
+- `TASK-058` writes persistent evidence to `reports/stage2b/`: device evidence,
+  UI-flow evidence, screenshot evidence and defect triage with owner/workaround.
 - Перед Stage 3 нет известных P0/P1 и блокирующих P2 дефектов в non-PvE gameplay; P2/P3 имеют owner, severity и workaround.
 - Personal goals, goal_flags, trade_transfers, favorites lifecycle, locked magical intent, reputation thresholds and final_summary проходят scripted run.
 - Offline act unlock, reward approval locks, PvP tables/throttle, spell/potion catalog, master-led final summary and final lock проходят scripted run.
