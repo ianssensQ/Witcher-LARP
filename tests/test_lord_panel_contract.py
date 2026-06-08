@@ -30,7 +30,7 @@ class LordPanelContractTests(unittest.TestCase):
         script = client.get("/static/lord/lord.js")
         styles = client.get("/static/lord/lord.css")
         layout = client.get("/static/lord/assets/lord_map_layout.json")
-        map_art = client.get("/static/lord/assets/lord_map_playable_v1_holes.png")
+        map_art = client.get("/static/lord/assets/lord_map_playable_v1_display.webp")
 
         self.assertEqual(page.status_code, 200)
         self.assertIn('data-app="lord-panel"', page.text)
@@ -80,9 +80,10 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertEqual(layout.status_code, 200)
         layout_payload = json.loads(layout.text)
         self.assertEqual(layout_payload["layout_id"], "venue_map_v3_playable_holes")
-        self.assertEqual(layout_payload["art_asset"], "assets/lord_map_playable_v1_holes.png")
+        self.assertEqual(layout_payload["art_asset"], "assets/lord_map_playable_v1_display.webp")
         self.assertEqual(map_art.status_code, 200)
-        self.assertEqual(map_art.content[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(map_art.content[:4], b"RIFF")
+        self.assertEqual(map_art.content[8:12], b"WEBP")
         self.assertFalse(
             (PROJECT_ROOT / "backend" / "witcher_larp" / "web" / "package.json").exists()
         )

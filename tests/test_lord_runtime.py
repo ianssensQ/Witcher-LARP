@@ -243,14 +243,14 @@ class LordRuntimeTests(unittest.TestCase):
             json={"building_id": "b_siege_yard"},
         )
         self.assertEqual(blocked_siege.status_code, 400)
-        self.assertIn("b_storehouse", blocked_siege.json()["detail"]["message"])
+        self.assertIn("b_archery_range", blocked_siege.json()["detail"]["message"])
 
-        storehouse = client.post(
+        archery = client.post(
             "/api/lords/p_lord_1/buildings",
             headers=self._headers("north"),
-            json={"building_id": "b_storehouse"},
+            json={"building_id": "b_archery_range"},
         )
-        self.assertEqual(storehouse.status_code, 200)
+        self.assertEqual(archery.status_code, 200)
         siege = client.post(
             "/api/lords/p_lord_1/buildings",
             headers=self._headers("north"),
