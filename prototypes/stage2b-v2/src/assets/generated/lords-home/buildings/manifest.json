@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-06-08T12:52:54.491Z",
+  "provider": "openrouter",
+  "model": "openai/gpt-5.4-image-2",
+  "key_color": "#00ff00",
+  "assets": [
+    {
+      "id": "b_tax_office",
+      "name": "Tax Office",
+      "file": "building-tax-office-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_storehouse",
+      "name": "Storehouse",
+      "file": "building-storehouse-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_bank",
+      "name": "Bank",
+      "file": "building-bank-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    }
+  ]
+}
