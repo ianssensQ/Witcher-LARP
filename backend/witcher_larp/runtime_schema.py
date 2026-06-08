@@ -193,6 +193,36 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             battle_required INTEGER NOT NULL DEFAULT 1
         );
 
+        CREATE TABLE IF NOT EXISTS pending_lord_moves (
+            move_id TEXT PRIMARY KEY,
+            domain_id TEXT NOT NULL,
+            lord_id TEXT NOT NULL,
+            from_node_id TEXT NOT NULL,
+            to_node_id TEXT NOT NULL,
+            requested_to_node_id TEXT,
+            route_node_ids_json TEXT NOT NULL DEFAULT '[]',
+            mp_cost INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            source TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            arrival_at TEXT NOT NULL,
+            completed_at TEXT,
+            result_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_pending_lord_moves_domain_status
+        ON pending_lord_moves(domain_id, status, arrival_at);
+
+        CREATE TABLE IF NOT EXISTS lord_map_intel (
+            domain_id TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            intel_level TEXT NOT NULL DEFAULT 'presence',
+            revealed_at TEXT NOT NULL,
+            source TEXT NOT NULL,
+            PRIMARY KEY (domain_id, target_type, target_id)
+        );
+
         CREATE TABLE IF NOT EXISTS pending_tick_reward_runtime (
             pending_reward_id TEXT PRIMARY KEY,
             domain_id TEXT,

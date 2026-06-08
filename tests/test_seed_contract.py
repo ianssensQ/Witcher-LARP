@@ -96,6 +96,16 @@ REQUIRED_HEADERS = {
         "tier",
         "neutral_defense_profile_id",
     ],
+    "territory_forts.csv": [
+        "fort_id",
+        "territory_id",
+        "name",
+        "theme",
+        "garrison_capacity",
+        "art_prompt_id",
+        "background_asset_id",
+        "card_asset_id",
+    ],
     "movement_rules.csv": [
         "rule_id",
         "mp_cap",
@@ -646,6 +656,38 @@ class SeedContractTests(unittest.TestCase):
         owned = [row for row in self.rows["territories.csv"] if row["owner_domain_id"]]
         self.assertEqual(len(owned), 4)
         self.assertTrue(all(row["bonus_type"] == "residence" for row in owned))
+
+        capturable = [
+            row for row in self.rows["territories.csv"] if row["bonus_type"] != "residence"
+        ]
+        self.assertEqual(len(capturable), 19)
+        capturable_ids = {row["territory_id"] for row in capturable}
+        fort_territory_ids = {
+            row["territory_id"] for row in self.rows["territory_forts.csv"]
+        }
+        self.assertEqual(fort_territory_ids, capturable_ids)
+        self.assertEqual(
+            Counter(row["node_type"] for row in self.rows["map_nodes.csv"])["mountain"],
+            3,
+        )
+        self.assertTrue(
+            {
+                "territory_mountain_north_alpine",
+                "territory_mountain_gray",
+                "territory_mountain_west_alpine",
+            }.issubset(capturable_ids)
+        )
+        expected_capacity_by_tier = {1: 2, 2: 3, 3: 4}
+        forts_by_territory = {
+            fort["territory_id"]: fort for fort in self.rows["territory_forts.csv"]
+        }
+        for territory in capturable:
+            tier = int(territory["tier"])
+            fort = forts_by_territory[territory["territory_id"]]
+            self.assertEqual(
+                int(fort["garrison_capacity"]),
+                expected_capacity_by_tier[tier],
+            )
 
         self.assertEqual(len(self.rows["movement_pools.csv"]), 4)
         self.assertTrue(self.rows["pending_tick_rewards.csv"])

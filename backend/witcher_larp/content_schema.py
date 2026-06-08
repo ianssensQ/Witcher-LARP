@@ -71,6 +71,7 @@ TABLE_ID_COLUMNS: dict[str, str] = {
     "sorceress_alignment_rules.csv": "rule_id",
     "spells.csv": "spell_id",
     "territories.csv": "territory_id",
+    "territory_forts.csv": "fort_id",
     "territory_claims.csv": "claim_id",
     "trade_transfers.csv": "transfer_id",
     "venue_map_profiles.csv": "profile_id",

@@ -244,6 +244,12 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                 {"invalid_map_edge_cost", "invalid_map_edge_bidirectional"},
             ),
             (
+                "territory_forts.csv",
+                "fort_id,territory_id,name,theme,garrison_capacity,art_prompt_id,background_asset_id,card_asset_id\n"
+                "fort_bad,territory_fort_east,Bad Fort,bad_theme,99,prompt_bad,asset_bg_bad,asset_card_bad\n",
+                {"invalid_garrison_capacity", "missing_territory_fort"},
+            ),
+            (
                 "auto_timers.csv",
                 "timer_id,act_id,timer_type,offset_min,interval_min,effect_type\n"
                 "timer_bad,act1,typo_tick,10,0,unknown_noop\n",

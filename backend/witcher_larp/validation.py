@@ -189,6 +189,7 @@ def validate_seed_pack(pack: SeedPack) -> list[ImportErrorDetail]:
     errors.extend(_validate_stat_model(tables))
     errors.extend(_validate_acts_and_unlocks(tables, ids))
     errors.extend(_validate_map_and_timer_invariants(tables))
+    errors.extend(_validate_territory_forts(tables))
     errors.extend(_validate_qr_and_pve(tables, ids))
     errors.extend(_validate_buildings_and_units(tables, ids))
     errors.extend(_validate_signed_economy_resources(tables))
@@ -294,6 +295,7 @@ def _validate_references(
         ("map_nodes.csv", "territory_id", "territories.csv", False),
         ("territories.csv", "owner_domain_id", "domains.csv", False),
         ("territories.csv", "neutral_defense_profile_id", "mobs.csv", False),
+        ("territory_forts.csv", "territory_id", "territories.csv", True),
         ("movement_pools.csv", "domain_id", "domains.csv", True),
         ("movement_pools.csv", "act_id", "acts.csv", True),
         ("territory_claims.csv", "territory_id", "territories.csv", True),
@@ -904,6 +906,77 @@ def _validate_acts_and_unlocks(
                     message="Act unlock codes must stay hidden until the physical act start.",
                 )
             )
+    return errors
+
+
+def _validate_territory_forts(tables: dict[str, CsvTable]) -> list[ImportErrorDetail]:
+    errors: list[ImportErrorDetail] = []
+    territory_rows = {
+        record.values["territory_id"]: record
+        for record in tables["territories.csv"].rows
+    }
+    capturable_territory_ids = {
+        territory_id
+        for territory_id, record in territory_rows.items()
+        if record.values["bonus_type"] != "residence"
+    }
+
+    forts_by_territory: dict[str, list[CsvRecord]] = defaultdict(list)
+    for record in tables["territory_forts.csv"].rows:
+        territory_id = record.values["territory_id"]
+        forts_by_territory[territory_id].append(record)
+        capacity = _to_int(record.values["garrison_capacity"], default=-1)
+        if capacity <= 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_garrison_capacity",
+                    file="territory_forts.csv",
+                    row=record.row_number,
+                    record_id=record.values["fort_id"],
+                    message="Territory fort garrison_capacity must be a positive integer.",
+                )
+            )
+            continue
+        territory = territory_rows.get(territory_id)
+        if territory is None or territory.values["bonus_type"] == "residence":
+            continue
+        tier = _to_int(territory.values["tier"], default=0)
+        expected_capacity = {1: 2, 2: 3, 3: 4}.get(tier)
+        if expected_capacity is not None and capacity != expected_capacity:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_garrison_capacity",
+                    file="territory_forts.csv",
+                    row=record.row_number,
+                    record_id=record.values["fort_id"],
+                    message=(
+                        "Territory fort garrison_capacity must match V1 tier "
+                        f"default {expected_capacity} for territory tier {tier}."
+                    ),
+                )
+            )
+
+    for territory_id in sorted(capturable_territory_ids):
+        fort_rows = forts_by_territory.get(territory_id, [])
+        if not fort_rows:
+            errors.append(
+                ImportErrorDetail(
+                    code="missing_territory_fort",
+                    file="territory_forts.csv",
+                    record_id=territory_id,
+                    message=f"Capturable territory {territory_id} must have one territory fort.",
+                )
+            )
+        elif len(fort_rows) > 1:
+            errors.append(
+                ImportErrorDetail(
+                    code="duplicate_territory_fort",
+                    file="territory_forts.csv",
+                    record_id=territory_id,
+                    message=f"Capturable territory {territory_id} has multiple territory forts.",
+                )
+            )
+
     return errors
 
 

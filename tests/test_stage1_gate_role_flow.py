@@ -11,6 +11,7 @@ from backend.witcher_larp.config import PROJECT_ROOT, Settings
 from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
 from backend.witcher_larp.lord_runtime import anti_snowball_cut_for_domain
+from backend.witcher_larp.lord_runtime import reconcile_pending_lord_moves
 from backend.witcher_larp.pve_runtime import resolve_pve_scene
 from backend.witcher_larp.timer_service import apply_due_timers
 
@@ -316,7 +317,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         client = TestClient(create_app(settings))
         self._assert_stack_contract(client, report.snapshot_version, snapshot_dir)
 
-        started_at = datetime(2026, 6, 2, 10, 0, tzinfo=UTC)
+        started_at = datetime.now(UTC).replace(microsecond=0)
         with connect(settings) as connection:
             act1 = start_act(
                 connection,
@@ -345,21 +346,37 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             client,
             "/api/lords/p_lord_1/move",
             headers=self._headers("north"),
-            json={"route_node_ids": ["node_res_north", "node_fort_east", "node_village_barn"]},
+            json={
+                "route_node_ids": [
+                    "node_res_north",
+                    "node_fort_east",
+                    "node_well_city",
+                    "node_village_east_shed",
+                ],
+            },
         )
-        self.assertEqual(moved["claim"]["territory_id"], "territory_village_barn")
-        self.assertIn(moved["claim"]["status"], {"in_battle", "contested_pending_tick"})
+        self.assertEqual(moved["status"], "pending_move")
+        self.assertIsNone(moved["claim"])
+        move_arrived_at = datetime.fromisoformat(moved["pending_move"]["arrival_at"])
+        with connect(settings) as connection:
+            completed = reconcile_pending_lord_moves(
+                connection,
+                domain_id="domain_north",
+                now=move_arrived_at + timedelta(seconds=1),
+            )
+        self.assertEqual(completed[0]["claim"]["territory_id"], "territory_village_east_shed")
+        self.assertIn(completed[0]["claim"]["status"], {"in_battle", "contested_pending_tick"})
 
         with connect(settings) as connection:
             first_tick = apply_due_timers(
                 connection,
                 settings,
-                now=started_at + timedelta(minutes=31),
+                now=move_arrived_at + timedelta(minutes=31),
             )
         self.assertEqual(first_tick[0]["effect_type"], "lord_income_and_mana")
         self.assertEqual(
             first_tick[0]["pending_tick_rewards"][0]["territory_id"],
-            "territory_village_barn",
+            "territory_village_east_shed",
         )
 
         battle = self._post_ok(
@@ -369,7 +386,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             json={
                 "battle_id": "stage1_neutral_field",
                 "attacker_domain_id": "domain_north",
-                "territory_id": "territory_village_barn",
+                "territory_id": "territory_village_east_shed",
                 "seed": "stage1-gate-neutral",
             },
         )
@@ -404,7 +421,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             second_tick = apply_due_timers(
                 connection,
                 settings,
-                now=started_at + timedelta(minutes=91),
+                now=move_arrived_at + timedelta(minutes=91),
             )
             act2 = start_act(
                 connection,
@@ -412,12 +429,12 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
                 "act2",
                 operator="gm_stage1",
                 physical_announcement_state="announced",
-                now=datetime(2026, 6, 2, 12, 30, tzinfo=UTC),
+                now=move_arrived_at + timedelta(hours=2, minutes=30),
             )
             act2_tick = apply_due_timers(
                 connection,
                 settings,
-                now=datetime(2026, 6, 2, 13, 1, tzinfo=UTC),
+                now=move_arrived_at + timedelta(hours=3, minutes=1),
             )
         self.assertEqual(second_tick[0]["effect_type"], "lord_income_and_mana")
         self.assertTrue(act2["unlock_code"]["available"])
@@ -435,7 +452,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
                 "act3",
                 operator="gm_stage1",
                 physical_announcement_state="announced",
-                now=datetime(2026, 6, 2, 15, 0, tzinfo=UTC),
+                now=move_arrived_at + timedelta(hours=5),
             )
             start_act(
                 connection,
@@ -443,7 +460,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
                 "final_lock",
                 operator="gm_stage1",
                 physical_announcement_state="announced",
-                now=datetime(2026, 6, 2, 17, 15, tzinfo=UTC),
+                now=move_arrived_at + timedelta(hours=7, minutes=15),
             )
             start_act(
                 connection,
@@ -451,7 +468,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
                 "final_act",
                 operator="gm_stage1",
                 physical_announcement_state="announced",
-                now=datetime(2026, 6, 2, 17, 30, tzinfo=UTC),
+                now=move_arrived_at + timedelta(hours=7, minutes=30),
             )
 
         restarted_client = TestClient(create_app(settings))
@@ -521,7 +538,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         lord_panel = client.get("/lord")
         self.assertEqual(lord_panel.status_code, 200, lord_panel.text)
         self.assertIn('data-app="lord-panel"', lord_panel.text)
-        self.assertIn("Role token", lord_panel.text)
+        self.assertIn("Код графа", lord_panel.text)
         self.assertTrue((PROJECT_ROOT / "mobile" / "project.godot").exists())
         self.assertTrue((PROJECT_ROOT / "mobile" / "scripts" / "main.gd").exists())
 
@@ -581,7 +598,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             "/api/lords/p_lord_1/garrisons/transfer",
             headers=self._headers("north"),
             json={
-                "territory_id": "territory_village_barn",
+                "territory_id": "territory_village_east_shed",
                 "card_id": "unit_infantry_t1",
                 "count": 1,
             },

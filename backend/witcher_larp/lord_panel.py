@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+import json
+from pathlib import Path
 from typing import Any
 import sqlite3
 
 from pydantic import BaseModel, Field
 
 from .lord_runtime import ACTIVE_ORDER_STATUSES
+from .lord_runtime import active_pending_lord_move, build_lord_map_intel
 from .lord_runtime import anti_snowball_cut_for_domain, build_diplomacy_signals
-from .lord_runtime import ensure_lord_runtime_state, visible_garrisons_for
+from .lord_runtime import ensure_lord_runtime_state, reconcile_pending_lord_moves
+from .lord_runtime import visible_garrisons_for
 from .lord_battle_service import list_lord_battles
 from .repository import fetch_table, latest_snapshot_version
+
+LORD_MAP_LAYOUT_PATH = (
+    Path(__file__).resolve().parent
+    / "web"
+    / "lord"
+    / "assets"
+    / "lord_map_layout.json"
+)
 
 
 class RoleTokenRequest(BaseModel):
@@ -102,6 +115,7 @@ def build_lord_state(
         None,
     )
     domain_id = domain.get("domain_id") if domain else lord.get("lord_id", "")
+    reconcile_pending_lord_moves(connection, domain_id=domain_id)
     runtime_domain = _runtime_domain(connection, domain_id) or {}
     domain_payload = {**domain, **runtime_domain} if domain else runtime_domain
 
@@ -200,6 +214,7 @@ def build_lord_state(
         domain_id,
     )
     battles = list_lord_battles(connection, domain_id=domain_id)["items"]
+    claims = _visible_claims(connection, domain_id)
     pending_domain_rewards = [
         reward
         for reward in pending_rewards
@@ -219,6 +234,7 @@ def build_lord_state(
             "pending_rewards": len(pending_domain_rewards),
             "garrison_targets": len(garrison_targets),
             "active_battles": sum(1 for battle in battles if battle.get("status") == "active"),
+            "active_claims": len(claims),
             "available_recruits": sum(
                 1 for offer in recruit_market if offer.get("status") == "available"
             ),
@@ -229,6 +245,7 @@ def build_lord_state(
         "neutral_territories": neutral_territories,
         "other_territories": other_territories,
         "garrison_targets": garrison_targets,
+        "claims": claims,
         "battles": battles,
         "orders": orders,
         "recruit_market": recruit_market,
@@ -237,11 +254,22 @@ def build_lord_state(
         "owned_buildings": owned_buildings,
         "building_catalog": _building_catalog_payload(building_catalog, owned_buildings),
         "raid_effects": raid_effects,
+        "map_nodes": map_nodes,
         "map_edges": map_edges,
+        "lord_map_layout": _lord_map_layout(),
+        "lord_map_intel": build_lord_map_intel(connection, domain_id),
+        "pending_move": active_pending_lord_move(connection, domain_id),
         "diplomacy_signals": build_diplomacy_signals(connection, domain_id),
         "anti_snowball": anti_snowball_cut_for_domain(connection, domain_id),
         "action_surfaces": _action_surfaces(lord_id),
     }
+
+
+@lru_cache(maxsize=1)
+def _lord_map_layout() -> dict[str, Any]:
+    if not LORD_MAP_LAYOUT_PATH.exists():
+        return {}
+    return json.loads(LORD_MAP_LAYOUT_PATH.read_text(encoding="utf-8"))
 
 
 def _lord_payload(lord: dict[str, str], domain_id: str) -> dict[str, str]:
@@ -279,6 +307,7 @@ def _territory_payload(
         "node_id": node.get("node_id", ""),
         "node_name": node.get("name", territory["name"]),
         "node_type": node.get("node_type", ""),
+        "fort": _territory_fort_payload(connection, territory_id),
         "garrisons": visible_garrisons_for(connection, territory_id, viewer_domain_id),
         "pending_rewards": [
             row for row in pending_rewards if row.get("territory_id") == territory_id
@@ -297,6 +326,33 @@ def _building_catalog_payload(
         }
         for row in rows
     ]
+
+
+def _territory_fort_payload(
+    connection: sqlite3.Connection, territory_id: str
+) -> dict[str, Any] | None:
+    if (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'territory_forts'"
+        ).fetchone()
+        is None
+    ):
+        return None
+    row = connection.execute(
+        """
+        SELECT fort_id, territory_id, name, theme, garrison_capacity,
+               art_prompt_id, background_asset_id, card_asset_id
+        FROM territory_forts
+        WHERE territory_id = ?
+        LIMIT 1
+        """,
+        (territory_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    payload = dict(row)
+    payload["garrison_capacity"] = int(payload["garrison_capacity"])
+    return payload
 
 
 def _garrison_targets(
@@ -318,6 +374,49 @@ def _garrison_targets(
                 {**territory, "garrison_target_reason": "capture_pending_garrison"}
             )
     return targets
+
+
+def _visible_claims(connection: sqlite3.Connection, domain_id: str) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT
+            claim.claim_id,
+            claim.territory_id,
+            claim.claimant_domain_id,
+            claim.defender_domain_id,
+            claim.status,
+            claim.source,
+            claim.created_at,
+            claim.resolved_at,
+            claim.battle_required,
+            territory.name AS territory_name,
+            node.node_id,
+            node.name AS node_name
+        FROM territory_claim_runtime claim
+        LEFT JOIN territories territory ON territory.territory_id = claim.territory_id
+        LEFT JOIN map_nodes node ON node.territory_id = claim.territory_id
+        WHERE claim.status IN (
+            'in_battle',
+            'contested',
+            'contested_pending_tick',
+            'awaiting_garrison',
+            'capture_pending_garrison'
+        )
+          AND (
+            claim.claimant_domain_id = ?
+            OR claim.defender_domain_id = ?
+          )
+        ORDER BY claim.created_at, claim.claim_id
+        """,
+        (domain_id, domain_id),
+    ).fetchall()
+    return [
+        {
+            **dict(row),
+            "battle_required": bool(row["battle_required"]),
+        }
+        for row in rows
+    ]
 
 
 def _action_surfaces(lord_id: str) -> list[dict[str, str]]:

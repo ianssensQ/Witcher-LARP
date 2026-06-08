@@ -70,6 +70,14 @@ LOCKED_GARRISON_TRANSFER_STATUSES = {
     "capture_pending_garrison",
     "awaiting_garrison",
 }
+BLOCKING_ROUTE_STATUSES = {
+    "in_battle",
+    "contested",
+    "contested_pending_tick",
+    "capture_pending_garrison",
+    "awaiting_garrison",
+}
+LORD_MOVE_SECONDS_PER_EDGE = 1
 
 
 class LordRuntimeError(ValueError):
@@ -273,28 +281,44 @@ def move_lord(
     *,
     to_node_id: str | None = None,
     route_node_ids: list[str] | None = None,
+    expected_cost: int | None = None,
     source: str = "lord_panel",
 ) -> dict[str, Any]:
     ensure_lord_runtime_state(connection)
     domain = _domain_for_lord(connection, lord_id)
+    reconcile_pending_lord_moves(connection, domain_id=str(domain["domain_id"]))
+    domain = _domain_for_lord(connection, lord_id)
+    if active_pending_lord_move(connection, str(domain["domain_id"])) is not None:
+        raise LordRuntimeError(
+            "pending_move_active",
+            "Active army is already moving; wait for arrival before moving again.",
+        )
     current_node_id = domain["current_node_id"] or _residence_node(connection, domain["domain_id"])
     if current_node_id is None:
         raise LordRuntimeError("missing_residence", "Lord domain has no residence node.")
 
-    route = [node for node in (route_node_ids or []) if node]
-    if to_node_id and not route:
-        route = [current_node_id, to_node_id]
-    elif route and route[0] != current_node_id:
-        route = [current_node_id, *route]
-    if to_node_id and route and route[-1] != to_node_id:
-        raise LordRuntimeError(
-            "route_target_mismatch",
-            "Route final node must match to_node_id.",
-        )
-    if len(route) < 2:
+    requested_to_node_id = to_node_id or next(
+        (node for node in reversed(route_node_ids or []) if node),
+        None,
+    )
+    if requested_to_node_id is None:
         raise LordRuntimeError("missing_route", "Movement requires a target node or route.")
+    if requested_to_node_id == current_node_id:
+        raise LordRuntimeError("already_at_target", "Lord army is already at the target node.")
 
+    route = _planned_movement_route(
+        connection,
+        domain_id=str(domain["domain_id"]),
+        current_node_id=current_node_id,
+        requested_to_node_id=requested_to_node_id,
+        route_node_ids=route_node_ids,
+    )
     cost = _route_cost(connection, route)
+    if expected_cost is not None and expected_cost != cost:
+        raise LordRuntimeError(
+            "route_cost_mismatch",
+            f"Server route costs {cost} MP, not {expected_cost}.",
+        )
     current_mp = _to_int(domain["current_mp"])
     if cost > current_mp:
         raise LordRuntimeError(
@@ -310,44 +334,188 @@ def move_lord(
                 "Contesting or capturing territory requires an active army at the moving node.",
             )
 
-    now = _iso()
+    now_dt = datetime.now(UTC)
+    now = _iso(now_dt)
+    arrival_at = _iso(now_dt + timedelta(seconds=_movement_duration_seconds(route)))
+    move_id = f"move_{uuid4().hex}"
     connection.execute(
         """
         UPDATE domain_runtime_state
-        SET current_mp = current_mp - ?, current_node_id = ?, updated_at = ?
+        SET current_mp = current_mp - ?, updated_at = ?
         WHERE domain_id = ?
         """,
-        (cost, target_node_id, now, domain["domain_id"]),
+        (cost, now, domain["domain_id"]),
     )
     connection.execute(
         """
-        UPDATE active_army_runtime
-        SET location_node_id = ?, updated_at = ?
-        WHERE domain_id = ? AND status = 'active' AND count > 0
+        INSERT INTO pending_lord_moves (
+            move_id, domain_id, lord_id, from_node_id, to_node_id,
+            requested_to_node_id, route_node_ids_json, mp_cost, status,
+            source, started_at, arrival_at, result_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, '{}')
         """,
-        (target_node_id, now, domain["domain_id"]),
+        (
+            move_id,
+            domain["domain_id"],
+            lord_id,
+            current_node_id,
+            target_node_id,
+            requested_to_node_id,
+            json.dumps(route, ensure_ascii=True),
+            cost,
+            source,
+            now,
+            arrival_at,
+        ),
     )
 
-    claim = _create_claim_if_needed(
-        connection,
-        domain_id=str(domain["domain_id"]),
-        target_node_id=target_node_id,
-        now=now,
-        source=source,
-    )
+    pending_move = {
+        "move_id": move_id,
+        "domain_id": domain["domain_id"],
+        "lord_id": lord_id,
+        "from_node_id": current_node_id,
+        "to_node_id": target_node_id,
+        "requested_to_node_id": requested_to_node_id,
+        "route": route,
+        "mp_spent": cost,
+        "current_mp": current_mp - cost,
+        "started_at": now,
+        "arrival_at": arrival_at,
+        "status": "pending",
+    }
     result = {
-        "status": "moved",
+        "status": "pending_move",
+        "pending_move": pending_move,
         "domain_id": domain["domain_id"],
         "from_node_id": current_node_id,
         "to_node_id": target_node_id,
+        "requested_to_node_id": requested_to_node_id,
         "route": route,
         "mp_spent": cost,
         "current_mp": current_mp - cost,
         "battle_spent_mp": 0,
-        "claim": claim,
+        "claim": None,
     }
-    log_event(connection, "lord_moved", result, source=source)
+    log_event(connection, "lord_move_started", result, source=source)
     return result
+
+
+def preview_lord_route(
+    connection: sqlite3.Connection,
+    lord_id: str,
+    *,
+    to_node_id: str | None = None,
+    route_node_ids: list[str] | None = None,
+    source: str = "lord_panel",
+) -> dict[str, Any]:
+    """Return the server-authoritative map route before mutating movement state."""
+
+    ensure_lord_runtime_state(connection)
+    domain = _domain_for_lord(connection, lord_id)
+    reconcile_pending_lord_moves(connection, domain_id=str(domain["domain_id"]))
+    domain = _domain_for_lord(connection, lord_id)
+    domain_id = str(domain["domain_id"])
+    current_node_id = domain["current_node_id"] or _residence_node(connection, domain_id)
+    current_mp = _to_int(domain["current_mp"])
+    requested_to_node_id = to_node_id or next(
+        (node for node in reversed(route_node_ids or []) if node),
+        None,
+    )
+    base_payload: dict[str, Any] = {
+        "status": "blocked",
+        "can_move": False,
+        "domain_id": domain_id,
+        "lord_id": lord_id,
+        "from_node_id": current_node_id,
+        "to_node_id": None,
+        "requested_to_node_id": requested_to_node_id,
+        "route": [],
+        "mp_cost": 0,
+        "mp_available": current_mp,
+        "source": source,
+    }
+    if current_node_id is None:
+        return {
+            **base_payload,
+            "reason_code": "missing_residence",
+            "reason": "Lord domain has no residence node.",
+        }
+    pending = active_pending_lord_move(connection, domain_id)
+    if pending is not None:
+        return {
+            **base_payload,
+            "reason_code": "pending_move_active",
+            "reason": "Active army is already moving; wait for arrival before moving again.",
+            "pending_move": pending,
+        }
+    if requested_to_node_id is None:
+        return {
+            **base_payload,
+            "reason_code": "missing_route",
+            "reason": "Movement requires a target node or route.",
+        }
+    if requested_to_node_id == current_node_id:
+        return {
+            **base_payload,
+            "to_node_id": current_node_id,
+            "route": [current_node_id],
+            "reason_code": "already_at_target",
+            "reason": "Lord army is already at the target node.",
+        }
+
+    route = _planned_movement_route(
+        connection,
+        domain_id=domain_id,
+        current_node_id=current_node_id,
+        requested_to_node_id=requested_to_node_id,
+        route_node_ids=route_node_ids,
+    )
+    cost = _route_cost(connection, route)
+    target_node_id = route[-1]
+    arrival_at = _iso(datetime.now(UTC) + timedelta(seconds=_movement_duration_seconds(route)))
+    requires_active_army = _movement_requires_active_army(connection, domain_id, target_node_id)
+    active_army_ready = (
+        not requires_active_army
+        or _active_army_at_node(connection, domain_id, current_node_id)
+    )
+    affordable = cost <= current_mp
+    stopped = target_node_id != requested_to_node_id
+    reason_code = None
+    reason = None
+    if stopped:
+        reason_code = "route_stopped_at_front"
+        reason = "Route stops at the first foreign or contested territory."
+    if not affordable:
+        reason_code = "insufficient_mp"
+        reason = f"Route costs {cost} MP, but domain has {current_mp}."
+    if not active_army_ready:
+        reason_code = "missing_active_army"
+        reason = "Contesting or capturing territory requires an active army at the moving node."
+
+    return {
+        "status": "blocked" if reason_code in {"insufficient_mp", "missing_active_army"} else (
+            "stopped" if stopped else "ready"
+        ),
+        "can_move": affordable and active_army_ready,
+        "domain_id": domain_id,
+        "lord_id": lord_id,
+        "from_node_id": current_node_id,
+        "to_node_id": target_node_id,
+        "requested_to_node_id": requested_to_node_id,
+        "route": route,
+        "mp_cost": cost,
+        "mp_available": current_mp,
+        "arrival_at": arrival_at,
+        "arrival_seconds": _movement_duration_seconds(route),
+        "affordable": affordable,
+        "requires_active_army": requires_active_army,
+        "active_army_ready": active_army_ready,
+        "reason_code": reason_code,
+        "reason": reason,
+        "outcome": _movement_outcome_preview(connection, domain_id, target_node_id),
+        "source": source,
+    }
 
 
 def transfer_garrison(
@@ -364,6 +532,13 @@ def transfer_garrison(
     if count <= 0:
         raise LordRuntimeError("invalid_count", "Transfer count must be positive.")
     domain = _domain_for_lord(connection, lord_id)
+    reconcile_pending_lord_moves(connection, domain_id=str(domain["domain_id"]))
+    domain = _domain_for_lord(connection, lord_id)
+    if active_pending_lord_move(connection, str(domain["domain_id"])) is not None:
+        raise LordRuntimeError(
+            "pending_move_active",
+            "Active army is moving and cannot transfer units until arrival.",
+        )
 
     if operation == "reserve_to_active":
         return _transfer_reserve_to_active(
@@ -429,6 +604,7 @@ def transfer_garrison(
             "Contested territory cannot be changed by garrison transfer until its claim is resolved.",
         )
 
+    _assert_fort_capacity_available(connection, territory_id, count)
     _consume_active_army_at_territory(connection, domain_id, territory_id, card_id, count, now)
     _upsert_garrison(connection, territory_id, domain_id, card_id, count, now)
 
@@ -1055,6 +1231,78 @@ def visible_garrisons_for(
     return visible
 
 
+def active_pending_lord_move(
+    connection: sqlite3.Connection, domain_id: str
+) -> dict[str, Any] | None:
+    ensure_runtime_schema(connection)
+    row = connection.execute(
+        """
+        SELECT *
+        FROM pending_lord_moves
+        WHERE domain_id = ? AND status = 'pending'
+        ORDER BY started_at, move_id
+        LIMIT 1
+        """,
+        (domain_id,),
+    ).fetchone()
+    return _pending_move_payload(row) if row is not None else None
+
+
+def reconcile_pending_lord_moves(
+    connection: sqlite3.Connection,
+    *,
+    domain_id: str | None = None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    ensure_runtime_schema(connection)
+    current_time = now or datetime.now(UTC)
+    current_iso = _iso(current_time)
+    params: list[Any] = [current_iso]
+    domain_filter = ""
+    if domain_id is not None:
+        domain_filter = " AND domain_id = ?"
+        params.append(domain_id)
+    rows = connection.execute(
+        f"""
+        SELECT *
+        FROM pending_lord_moves
+        WHERE status = 'pending'
+          AND arrival_at <= ?
+          {domain_filter}
+        ORDER BY arrival_at, started_at, move_id
+        """,
+        params,
+    ).fetchall()
+    completed = []
+    for row in rows:
+        completed.append(_complete_pending_lord_move(connection, row, current_iso))
+    return completed
+
+
+def build_lord_map_intel(
+    connection: sqlite3.Connection, viewer_domain_id: str
+) -> dict[str, Any]:
+    ensure_runtime_schema(connection)
+    revealed = [
+        dict(row)
+        for row in connection.execute(
+            """
+            SELECT target_type, target_id, intel_level, revealed_at, source
+            FROM lord_map_intel
+            WHERE domain_id = ?
+            ORDER BY target_type, target_id
+            """,
+            (viewer_domain_id,),
+        ).fetchall()
+    ]
+    return {
+        "graph_visible": True,
+        "hidden_detail_policy": "enemy_army_and_garrison_details_redacted",
+        "enemy_armies": [],
+        "revealed": revealed,
+    }
+
+
 def runtime_table(connection: sqlite3.Connection, table_name: str) -> list[dict[str, Any]]:
     ensure_lord_runtime_state(connection)
     if not _table_exists(connection, table_name):
@@ -1385,6 +1633,323 @@ def _node_for_territory(connection: sqlite3.Connection, territory_id: str) -> st
     return str(row["node_id"])
 
 
+def _complete_pending_lord_move(
+    connection: sqlite3.Connection, move: sqlite3.Row, completed_at: str
+) -> dict[str, Any]:
+    route = json.loads(move["route_node_ids_json"] or "[]")
+    target_node_id = str(move["to_node_id"])
+    connection.execute(
+        """
+        UPDATE domain_runtime_state
+        SET current_node_id = ?, updated_at = ?
+        WHERE domain_id = ?
+        """,
+        (target_node_id, completed_at, move["domain_id"]),
+    )
+    connection.execute(
+        """
+        UPDATE active_army_runtime
+        SET location_node_id = ?, updated_at = ?
+        WHERE domain_id = ? AND status = 'active' AND count > 0
+        """,
+        (target_node_id, completed_at, move["domain_id"]),
+    )
+    claim = _create_claim_if_needed(
+        connection,
+        domain_id=str(move["domain_id"]),
+        target_node_id=target_node_id,
+        now=completed_at,
+        source=str(move["source"]),
+    )
+    result = {
+        "status": "moved",
+        "move_id": move["move_id"],
+        "domain_id": move["domain_id"],
+        "lord_id": move["lord_id"],
+        "from_node_id": move["from_node_id"],
+        "to_node_id": target_node_id,
+        "requested_to_node_id": move["requested_to_node_id"],
+        "route": route,
+        "mp_spent": _to_int(move["mp_cost"]),
+        "battle_spent_mp": 0,
+        "claim": claim,
+        "completed_at": completed_at,
+    }
+    connection.execute(
+        """
+        UPDATE pending_lord_moves
+        SET status = 'completed', completed_at = ?, result_json = ?
+        WHERE move_id = ?
+        """,
+        (completed_at, json.dumps(result, ensure_ascii=True), move["move_id"]),
+    )
+    log_event(connection, "lord_move_arrived", result, source=str(move["source"]))
+    return result
+
+
+def _pending_move_payload(row: sqlite3.Row) -> dict[str, Any]:
+    result = json.loads(row["result_json"] or "{}")
+    route = json.loads(row["route_node_ids_json"] or "[]")
+    return {
+        "move_id": row["move_id"],
+        "domain_id": row["domain_id"],
+        "lord_id": row["lord_id"],
+        "from_node_id": row["from_node_id"],
+        "to_node_id": row["to_node_id"],
+        "requested_to_node_id": row["requested_to_node_id"],
+        "route": route,
+        "mp_cost": _to_int(row["mp_cost"]),
+        "mp_spent": _to_int(row["mp_cost"]),
+        "status": row["status"],
+        "source": row["source"],
+        "started_at": row["started_at"],
+        "arrival_at": row["arrival_at"],
+        "completed_at": row["completed_at"],
+        "result": result,
+    }
+
+
+def _movement_duration_seconds(route: list[str]) -> int:
+    return max(1, len(route) - 1) * LORD_MOVE_SECONDS_PER_EDGE
+
+
+def _route_stopped_for_blocking_territory(
+    connection: sqlite3.Connection, domain_id: str, route: list[str]
+) -> list[str]:
+    stopped = [route[0]]
+    for index, node_id in enumerate(route[1:], start=1):
+        _assert_movement_node_allowed(
+            connection,
+            domain_id,
+            node_id,
+            route_position="target" if index == len(route) - 1 else "route",
+        )
+        stopped.append(node_id)
+        if index < len(route) - 1 and _node_blocks_route(connection, domain_id, node_id):
+            break
+    return stopped
+
+
+def _planned_movement_route(
+    connection: sqlite3.Connection,
+    *,
+    domain_id: str,
+    current_node_id: str,
+    requested_to_node_id: str,
+    route_node_ids: list[str] | None,
+) -> list[str]:
+    _assert_movement_node_allowed(
+        connection,
+        domain_id,
+        requested_to_node_id,
+        route_position="target",
+    )
+    route = [node for node in (route_node_ids or []) if node]
+    if route:
+        if route[0] != current_node_id:
+            route = [current_node_id, *route]
+        if route[-1] != requested_to_node_id:
+            if not _node_blocks_route(connection, domain_id, route[-1]):
+                raise LordRuntimeError(
+                    "route_target_mismatch",
+                    "Route final node must match to_node_id or stop at a blocking territory.",
+                )
+    else:
+        route = _shortest_movement_route(
+            connection,
+            domain_id=domain_id,
+            current_node_id=current_node_id,
+            requested_to_node_id=requested_to_node_id,
+        )
+    if len(route) < 2:
+        raise LordRuntimeError("missing_route", "Movement requires a target node or route.")
+    return _route_stopped_for_blocking_territory(connection, domain_id, route)
+
+
+def _shortest_movement_route(
+    connection: sqlite3.Connection,
+    *,
+    domain_id: str,
+    current_node_id: str,
+    requested_to_node_id: str,
+) -> list[str]:
+    edges = connection.execute(
+        """
+        SELECT from_node_id, to_node_id, mp_cost, bidirectional
+        FROM map_edges
+        ORDER BY _row_number
+        """
+    ).fetchall()
+    graph: dict[str, list[tuple[str, int]]] = {}
+    for edge in edges:
+        cost = _to_int(edge["mp_cost"])
+        if cost <= 0:
+            raise LordRuntimeError(
+                "invalid_route_cost",
+                f"Map edge between {edge['from_node_id']} and {edge['to_node_id']} must have positive MP cost.",
+            )
+        graph.setdefault(str(edge["from_node_id"]), []).append((str(edge["to_node_id"]), cost))
+        if str(edge["bidirectional"]).lower() == "true" or edge["bidirectional"] is True:
+            graph.setdefault(str(edge["to_node_id"]), []).append((str(edge["from_node_id"]), cost))
+
+    route = _dijkstra_route(
+        graph,
+        current_node_id,
+        requested_to_node_id,
+        can_expand=lambda node_id: not _node_blocks_route(connection, domain_id, node_id),
+        can_enter=lambda node_id: _movement_node_can_enter(
+            connection,
+            domain_id,
+            node_id,
+            route_position="target" if node_id == requested_to_node_id else "route",
+        ),
+    )
+    if route is not None:
+        return route
+
+    raw_route = _dijkstra_route(
+        graph,
+        current_node_id,
+        requested_to_node_id,
+        can_expand=lambda _node_id: True,
+        can_enter=lambda node_id: _movement_node_can_enter(
+            connection,
+            domain_id,
+            node_id,
+            route_position="target" if node_id == requested_to_node_id else "route",
+        ),
+    )
+    if raw_route is not None:
+        return raw_route
+    raise LordRuntimeError(
+        "invalid_route",
+        f"No map route between {current_node_id} and {requested_to_node_id}.",
+    )
+
+
+def _dijkstra_route(
+    graph: dict[str, list[tuple[str, int]]],
+    start_node_id: str,
+    target_node_id: str,
+    *,
+    can_expand,
+    can_enter,
+) -> list[str] | None:
+    distances: dict[str, int] = {start_node_id: 0}
+    previous: dict[str, str] = {}
+    pending = {start_node_id}
+    visited: set[str] = set()
+    while pending:
+        current = min(pending, key=lambda node_id: distances.get(node_id, 10**9))
+        pending.remove(current)
+        if current in visited:
+            continue
+        visited.add(current)
+        if current == target_node_id:
+            break
+        if current != start_node_id and not can_expand(current):
+            continue
+        for neighbor, cost in graph.get(current, []):
+            if neighbor in visited or not can_enter(neighbor):
+                continue
+            candidate = distances[current] + cost
+            if candidate < distances.get(neighbor, 10**9):
+                distances[neighbor] = candidate
+                previous[neighbor] = current
+                pending.add(neighbor)
+
+    if target_node_id not in distances:
+        return None
+    route = [target_node_id]
+    while route[0] != start_node_id:
+        prior = previous.get(route[0])
+        if prior is None:
+            return None
+        route.insert(0, prior)
+    return route
+
+
+def _movement_node_can_enter(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    node_id: str,
+    *,
+    route_position: str,
+) -> bool:
+    try:
+        _assert_movement_node_allowed(
+            connection,
+            domain_id,
+            node_id,
+            route_position=route_position,
+        )
+    except LordRuntimeError:
+        return False
+    return True
+
+
+def _assert_movement_node_allowed(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    node_id: str,
+    *,
+    route_position: str,
+) -> None:
+    node = _movement_node(connection, node_id)
+    if str(node["zone_status"]) == "no_play_excluded" or str(node["node_type"]) == "no_play_zone":
+        raise LordRuntimeError(
+            "forbidden_map_target",
+            "Excluded map zones cannot be used for lord movement.",
+        )
+    owner_domain_id = _optional(node["owner_domain_id"])
+    if str(node["node_type"]) == "residence" or str(node["bonus_type"]) == "residence":
+        if owner_domain_id != domain_id:
+            code = "forbidden_residence_route" if route_position == "route" else "forbidden_residence_target"
+            raise LordRuntimeError(
+                code,
+                "Lord residences are raid-only and cannot be attacked by ordinary movement.",
+            )
+
+
+def _movement_node(connection: sqlite3.Connection, node_id: str) -> sqlite3.Row:
+    row = connection.execute(
+        """
+        SELECT
+            n.node_id,
+            n.node_type,
+            n.zone_status,
+            n.territory_id,
+            tr.owner_domain_id,
+            tr.status,
+            tr.contested_by_domain_id,
+            t.bonus_type
+        FROM map_nodes n
+        LEFT JOIN territory_runtime_state tr ON tr.territory_id = n.territory_id
+        LEFT JOIN territories t ON t.territory_id = n.territory_id
+        WHERE n.node_id = ?
+        LIMIT 1
+        """,
+        (node_id,),
+    ).fetchone()
+    if row is None:
+        raise LordRuntimeError("map_node_not_found", "Map node is not available.", 404)
+    return row
+
+
+def _node_blocks_route(
+    connection: sqlite3.Connection, domain_id: str, node_id: str
+) -> bool:
+    node = _movement_node(connection, node_id)
+    territory_id = _optional(node["territory_id"])
+    if territory_id is None:
+        return False
+    if _optional(node["owner_domain_id"]) not in {None, domain_id}:
+        return True
+    if _optional(node["contested_by_domain_id"]) is not None:
+        return True
+    return str(node["status"]) in BLOCKING_ROUTE_STATUSES
+
+
 def _route_cost(connection: sqlite3.Connection, route: list[str]) -> int:
     total = 0
     for from_node, to_node in zip(route, route[1:]):
@@ -1409,6 +1974,49 @@ def _route_cost(connection: sqlite3.Connection, route: list[str]) -> int:
             )
         total += mp_cost
     return total
+
+
+def _movement_outcome_preview(
+    connection: sqlite3.Connection, domain_id: str, target_node_id: str
+) -> dict[str, Any]:
+    node = _movement_node(connection, target_node_id)
+    territory_id = _optional(node["territory_id"])
+    if territory_id is None:
+        return {"kind": "waypoint", "battle_required": False}
+    owner_domain_id = _optional(node["owner_domain_id"])
+    if owner_domain_id == domain_id:
+        return {
+            "kind": "controlled",
+            "territory_id": territory_id,
+            "owner_domain_id": owner_domain_id,
+            "battle_required": False,
+        }
+    existing = connection.execute(
+        """
+        SELECT claim_id, territory_id, claimant_domain_id, defender_domain_id, status
+        FROM territory_claim_runtime
+        WHERE territory_id = ?
+          AND status IN ('in_battle', 'contested', 'contested_pending_tick', 'awaiting_garrison')
+        ORDER BY created_at
+        LIMIT 1
+        """,
+        (territory_id,),
+    ).fetchone()
+    if existing is not None:
+        return {
+            "kind": "existing_claim",
+            "territory_id": territory_id,
+            "owner_domain_id": owner_domain_id,
+            "battle_required": True,
+            "claim": dict(existing),
+        }
+    return {
+        "kind": "will_create_claim",
+        "territory_id": territory_id,
+        "owner_domain_id": owner_domain_id,
+        "defender_domain_id": owner_domain_id,
+        "battle_required": True,
+    }
 
 
 def _domain_for_lord(connection: sqlite3.Connection, lord_id: str) -> sqlite3.Row:
@@ -2161,6 +2769,38 @@ def _consume_active_army_at_territory(
         """,
         (remaining, "active" if remaining > 0 else "empty", now, row["army_id"]),
     )
+
+
+def _assert_fort_capacity_available(
+    connection: sqlite3.Connection, territory_id: str, incoming_count: int
+) -> None:
+    if not _table_exists(connection, "territory_forts"):
+        return
+    fort = connection.execute(
+        """
+        SELECT garrison_capacity
+        FROM territory_forts
+        WHERE territory_id = ?
+        LIMIT 1
+        """,
+        (territory_id,),
+    ).fetchone()
+    if fort is None:
+        return
+    current = connection.execute(
+        """
+        SELECT COALESCE(SUM(count), 0) AS count
+        FROM garrison_runtime_state
+        WHERE territory_id = ? AND status = 'active' AND count > 0
+        """,
+        (territory_id,),
+    ).fetchone()["count"]
+    capacity = _to_int(fort["garrison_capacity"])
+    if _to_int(current) + incoming_count > capacity:
+        raise LordRuntimeError(
+            "fort_capacity_exceeded",
+            f"Fort garrison capacity is {capacity}.",
+        )
 
 
 def _consume_garrison(

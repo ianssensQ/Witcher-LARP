@@ -2,9 +2,9 @@ building_id,branch,name,tier,gold_cost,prerequisite_ids,recruit_unlock_ids,capac
 b_training_yard,military,Training Yard,1,40,,unit_infantry_t1;unit_guard_t1,2,false
 b_barracks,military,Barracks,2,75,b_training_yard,unit_ranged_t1,3,false
 b_archery_range,military,Archery Range,2,75,b_training_yard,unit_ranged_t1,1,false
-b_stables,military,Stables,2,75,b_training_yard,unit_cavalry_t2,1,false
-b_siege_yard,military,Siege Yard,3,120,b_barracks; b_storehouse,unit_heavy_siege_t3,1,true
-b_war_academy,military,War Academy,4,180,b_archery_range; b_stables; b_war_council,unit_specialist_t3,2,true
+b_stables,military,Stables,3,75,b_barracks,unit_cavalry_t2,1,false
+b_siege_yard,military,Siege Yard,3,120,b_archery_range,unit_heavy_siege_t3,1,true
+b_war_academy,military,War Academy,4,180,b_siege_yard; b_war_council,unit_specialist_t3,2,true
 b_market,economy,Market,1,40,,unit_infantry_t1,0,false
 b_tax_office,economy,Tax Office,2,75,b_market,,0,false
 b_storehouse,economy,Storehouse,2,75,b_market,,4,false

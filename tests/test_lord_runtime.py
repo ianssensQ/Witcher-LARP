@@ -11,6 +11,7 @@ from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
 from backend.witcher_larp.lord_runtime import anti_snowball_cut_for_domain
 from backend.witcher_larp.lord_runtime import ensure_lord_runtime_state
+from backend.witcher_larp.lord_runtime import reconcile_pending_lord_moves
 from backend.witcher_larp.timer_service import apply_due_timers
 
 try:
@@ -66,11 +67,14 @@ class LordRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(moved.status_code, 200)
         move_payload = moved.json()
+        self.assertEqual(move_payload["status"], "pending_move")
         self.assertEqual(move_payload["mp_spent"], 2)
         self.assertEqual(move_payload["current_mp"], 4)
         self.assertEqual(move_payload["battle_spent_mp"], 0)
-        self.assertEqual(move_payload["claim"]["status"], "in_battle")
-        self.assertTrue(move_payload["claim"]["visible_to_lords"])
+        self.assertIsNone(move_payload["claim"])
+        completed = self._complete_pending_moves(settings)
+        self.assertEqual(completed[0]["claim"]["status"], "in_battle")
+        self.assertTrue(completed[0]["claim"]["visible_to_lords"])
 
         with connect(settings) as connection:
             ticks = apply_due_timers(connection, settings, now=started_at + timedelta(minutes=31))
@@ -337,6 +341,7 @@ class LordRuntimeTests(unittest.TestCase):
             json={"to_node_id": "node_fort_east"},
         )
         self.assertEqual(moved_away.status_code, 200)
+        self._complete_pending_moves(settings)
         blocked_active_army = client.post(
             "/api/lords/p_lord_1/garrisons/transfer",
             headers=self._headers("north"),
@@ -406,6 +411,129 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertIsNone(fort["contested_by_domain_id"])
         self.assertEqual(claims, 0)
 
+    def test_movement_rejects_foreign_residence_and_stops_at_blocking_territory(self) -> None:
+        settings = self._settings("lord_map_route_guards")
+        self._import_seed(settings)
+        self._set_reserve_count(settings, "reserve_north_infantry", 4)
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_river',
+                    status = 'controlled',
+                    contested_by_domain_id = NULL
+                WHERE territory_id = 'territory_fort_east'
+                """
+            )
+        client = TestClient(create_app(settings))
+
+        active = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "reserve_to_active",
+                "territory_id": "territory_res_north",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(active.status_code, 200, active.text)
+
+        residence_preview = client.post(
+            "/api/lords/p_lord_1/route-preview",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_res_river"},
+        )
+        self.assertEqual(residence_preview.status_code, 400)
+        self.assertEqual(
+            residence_preview.json()["detail"]["code"],
+            "forbidden_residence_target",
+        )
+
+        preview = client.post(
+            "/api/lords/p_lord_1/route-preview",
+            headers=self._headers("north"),
+            json={
+                "to_node_id": "node_mountain_north_alpine",
+                "route_node_ids": [
+                    "node_res_north",
+                    "node_fort_east",
+                    "node_mountain_north_alpine",
+                ],
+            },
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        preview_payload = preview.json()
+        self.assertEqual(preview_payload["status"], "stopped")
+        self.assertTrue(preview_payload["can_move"])
+        self.assertEqual(preview_payload["reason_code"], "route_stopped_at_front")
+        self.assertEqual(preview_payload["requested_to_node_id"], "node_mountain_north_alpine")
+        self.assertEqual(preview_payload["to_node_id"], "node_fort_east")
+        self.assertEqual(preview_payload["route"], ["node_res_north", "node_fort_east"])
+        self.assertEqual(preview_payload["mp_cost"], 2)
+        self.assertEqual(preview_payload["outcome"]["kind"], "will_create_claim")
+        with connect(settings) as connection:
+            self.assertEqual(
+                connection.execute(
+                    """
+                    SELECT current_mp
+                    FROM domain_runtime_state
+                    WHERE domain_id = 'domain_north'
+                    """
+                ).fetchone()["current_mp"],
+                6,
+            )
+
+        residence_attack = client.post(
+            "/api/lords/p_lord_1/move",
+            headers=self._headers("north"),
+            json={
+                "to_node_id": "node_res_river",
+                "route_node_ids": [
+                    "node_res_north",
+                    "node_fort_east",
+                    "node_well_city",
+                    "node_res_river",
+                ],
+            },
+        )
+        self.assertEqual(residence_attack.status_code, 400)
+        self.assertEqual(
+            residence_attack.json()["detail"]["code"],
+            "forbidden_residence_target",
+        )
+
+        stopped = client.post(
+            "/api/lords/p_lord_1/move",
+            headers=self._headers("north"),
+            json={
+                "to_node_id": "node_mountain_north_alpine",
+                "route_node_ids": [
+                    "node_res_north",
+                    "node_fort_east",
+                    "node_mountain_north_alpine",
+                ],
+            },
+        )
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        payload = stopped.json()
+        self.assertEqual(payload["status"], "pending_move")
+        self.assertEqual(payload["requested_to_node_id"], "node_mountain_north_alpine")
+        self.assertEqual(payload["to_node_id"], "node_fort_east")
+        self.assertEqual(payload["route"], ["node_res_north", "node_fort_east"])
+        self.assertEqual(payload["mp_spent"], 2)
+        pending_preview = client.post(
+            "/api/lords/p_lord_1/route-preview",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_mountain_north_alpine"},
+        )
+        self.assertEqual(pending_preview.status_code, 200, pending_preview.text)
+        self.assertEqual(pending_preview.json()["status"], "blocked")
+        self.assertEqual(pending_preview.json()["reason_code"], "pending_move_active")
+        completed = self._complete_pending_moves(settings)
+        self.assertEqual(completed[0]["claim"]["territory_id"], "territory_fort_east")
+
     def test_local_active_army_fort_transfers_reject_remote_reserve_and_contested_state(self) -> None:
         settings = self._settings("lord_local_fort_transfers")
         self._import_seed(settings)
@@ -467,6 +595,9 @@ class LordRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(moved.status_code, 200, moved.text)
         self.assertIsNone(moved.json()["claim"])
+        self.assertEqual(moved.json()["status"], "pending_move")
+        completed = self._complete_pending_moves(settings)
+        self.assertIsNone(completed[0]["claim"])
 
         placed = client.post(
             "/api/lords/p_lord_1/garrisons/transfer",
@@ -916,25 +1047,33 @@ class LordRuntimeTests(unittest.TestCase):
                 "route_node_ids": [
                     "node_res_north",
                     "node_fort_east",
-                    "node_village_barn",
                     "node_well_city",
                 ],
             },
         )
         self.assertEqual(moved.status_code, 200, moved.text)
-        self.assertEqual(moved.json()["mp_spent"], 5)
-        self.assertEqual(moved.json()["current_mp"], 1)
+        self.assertEqual(moved.json()["mp_spent"], 4)
+        self.assertEqual(moved.json()["current_mp"], 2)
         self.assertEqual(
             moved.json()["route"],
-            ["node_res_north", "node_fort_east", "node_village_barn", "node_well_city"],
+            ["node_res_north", "node_fort_east", "node_well_city"],
         )
+        self._complete_pending_moves(settings)
 
         too_expensive = client.post(
             "/api/lords/p_lord_1/move",
             headers=self._headers("north"),
             json={
-                "to_node_id": "node_lake_mist",
-                "route_node_ids": ["node_res_river", "node_lake_mist"],
+                "to_node_id": "node_lake_south_pond",
+                "route_node_ids": [
+                    "node_well_city",
+                    "node_village_east_shed",
+                    "node_lake_mist",
+                    "node_field_east_large",
+                    "node_science_barn",
+                    "node_forest_south_garden",
+                    "node_lake_south_pond",
+                ],
             },
         )
         self.assertEqual(too_expensive.status_code, 400)
@@ -1142,6 +1281,24 @@ class LordRuntimeTests(unittest.TestCase):
     def _import_seed(self, settings: Settings) -> None:
         report = import_seed_pack(settings, manifest_path=FIXTURE_MANIFEST, snapshot_dir=None)
         self.assertEqual(report.status, "success")
+
+    def _complete_pending_moves(
+        self, settings: Settings, domain_id: str = "domain_north"
+    ) -> list[dict[str, object]]:
+        with connect(settings) as connection:
+            return reconcile_pending_lord_moves(
+                connection,
+                domain_id=domain_id,
+                now=datetime.now(UTC) + timedelta(minutes=1),
+            )
+
+    def _set_reserve_count(self, settings: Settings, reserve_id: str, count: int) -> None:
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                "UPDATE army_reserve_runtime SET count = ? WHERE reserve_id = ?",
+                (count, reserve_id),
+            )
 
     @staticmethod
     def _headers(lord: str) -> dict[str, str]:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 import unittest
 from uuid import uuid4
@@ -10,6 +10,7 @@ from backend.witcher_larp.config import PROJECT_ROOT, Settings
 from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
 from backend.witcher_larp.lord_runtime import ensure_lord_runtime_state
+from backend.witcher_larp.lord_runtime import reconcile_pending_lord_moves
 
 try:
     from fastapi.testclient import TestClient
@@ -58,7 +59,9 @@ class LordBattleRuntimeTests(unittest.TestCase):
             json={"to_node_id": "node_field_oats"},
         )
         self.assertEqual(moved.status_code, 200)
-        self.assertIn(moved.json()["claim"]["status"], {"in_battle", "contested_pending_tick"})
+        self.assertEqual(moved.json()["status"], "pending_move")
+        completed = self._complete_pending_moves(settings)
+        self.assertIn(completed[0]["claim"]["status"], {"in_battle", "contested_pending_tick"})
 
         created = client.post(
             "/api/lord-battles",
@@ -1023,6 +1026,7 @@ class LordBattleRuntimeTests(unittest.TestCase):
             json={"to_node_id": "node_field_oats"},
         )
         self.assertEqual(moved.status_code, 200)
+        self._complete_pending_moves(settings)
         created = client.post(
             "/api/lord-battles",
             headers=self._headers("north"),
@@ -1401,6 +1405,16 @@ class LordBattleRuntimeTests(unittest.TestCase):
                     """,
                     (army_id, domain_id, card_id, count, node_id),
                 )
+
+    def _complete_pending_moves(
+        self, settings: Settings, domain_id: str = "domain_north"
+    ) -> list[dict[str, object]]:
+        with connect(settings) as connection:
+            return reconcile_pending_lord_moves(
+                connection,
+                domain_id=domain_id,
+                now=datetime.now(UTC) + timedelta(minutes=1),
+            )
 
     @staticmethod
     def _headers(lord: str) -> dict[str, str]:

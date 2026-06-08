@@ -9,7 +9,7 @@ import sqlite3
 from typing import Any
 from uuid import uuid4
 
-from .lord_runtime import ensure_lord_runtime_state
+from .lord_runtime import active_pending_lord_move, ensure_lord_runtime_state
 from .runtime_schema import ensure_runtime_schema, log_event
 
 
@@ -71,6 +71,15 @@ def create_lord_battle(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     ensure_lord_battle_runtime_state(connection)
+    if (
+        actor_role_type == "lord"
+        and actor_domain_id
+        and active_pending_lord_move(connection, actor_domain_id) is not None
+    ):
+        raise LordBattleError(
+            "pending_move_active",
+            "Active army is moving and cannot start a battle until arrival.",
+        )
     current_time = now or datetime.now(UTC)
     battle_id = battle_id or f"lord_battle_{uuid4().hex}"
     existing = _fetch_battle(connection, battle_id)

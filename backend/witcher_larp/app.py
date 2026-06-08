@@ -26,7 +26,9 @@ from .lord_battle_service import create_lord_battle, get_lord_battle, list_lord_
 from .lord_battle_service import record_lord_battle_action
 from .lord_panel import RoleTokenRequest, authenticate_role_token, build_lord_state
 from .lord_runtime import LordRuntimeError
-from .lord_runtime import buy_building, move_lord, order_action, recruit_action
+from .lord_runtime import buy_building, move_lord, order_action
+from .lord_runtime import preview_lord_route, recruit_action
+from .lord_runtime import reconcile_pending_lord_moves
 from .lord_runtime import start_raid, transfer_garrison
 from .npc_service import NpcEventError, NpcEventInput
 from .npc_service import list_npc_deals, list_npc_events, record_npc_event
@@ -249,6 +251,13 @@ class AlignmentEvidencePayload(BaseModel):
 class LordMovePayload(BaseModel):
     to_node_id: str | None = None
     route_node_ids: list[str] | None = None
+    expected_cost: int | None = None
+    source: str = "lord_panel"
+
+
+class LordRoutePreviewPayload(BaseModel):
+    to_node_id: str | None = None
+    route_node_ids: list[str] | None = None
     source: str = "lord_panel"
 
 
@@ -390,6 +399,8 @@ def create_app(settings: Settings | None = None):
 
     @api.get("/lord", include_in_schema=False)
     @api.get("/lord/", include_in_schema=False)
+    @api.get("/lords/login", include_in_schema=False)
+    @api.get("/lords/home", include_in_schema=False)
     def lord_panel():
         return FileResponse(LORD_PANEL_INDEX)
 
@@ -669,6 +680,28 @@ def create_app(settings: Settings | None = None):
             _reconcile_due_timers(connection, runtime_settings)
             try:
                 return move_lord(
+                    connection,
+                    lord_id,
+                    to_node_id=payload.to_node_id,
+                    route_node_ids=payload.route_node_ids,
+                    expected_cost=payload.expected_cost,
+                    source=payload.source,
+                )
+            except LordRuntimeError as exc:
+                raise _lord_http_error(exc) from exc
+
+    @api.post("/api/lords/{lord_id}/route-preview")
+    def lord_route_preview(
+        lord_id: str,
+        payload: LordRoutePreviewPayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_lord_token(connection, lord_id, x_role_token or role_token)
+            _reconcile_due_timers(connection, runtime_settings)
+            try:
+                return preview_lord_route(
                     connection,
                     lord_id,
                     to_node_id=payload.to_node_id,
@@ -1708,6 +1741,10 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             auth = _require_lord_battle_actor_token(connection, x_role_token or role_token)
+            reconcile_pending_lord_moves(
+                connection,
+                domain_id=auth.domain_id if auth.role_type == "lord" else None,
+            )
             try:
                 return create_lord_battle(
                     connection,
@@ -1734,6 +1771,10 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             auth = _require_lord_battle_actor_token(connection, x_role_token or role_token)
+            reconcile_pending_lord_moves(
+                connection,
+                domain_id=auth.domain_id if auth.role_type == "lord" else None,
+            )
             scoped_domain_id = domain_id
             if auth.role_type == "lord":
                 if domain_id and domain_id != auth.domain_id:
@@ -1749,6 +1790,10 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             auth = _require_lord_battle_actor_token(connection, x_role_token or role_token)
+            reconcile_pending_lord_moves(
+                connection,
+                domain_id=auth.domain_id if auth.role_type == "lord" else None,
+            )
             try:
                 battle = get_lord_battle(connection, battle_id)
                 _assert_lord_battle_visible_to_auth(battle, auth)
@@ -1765,6 +1810,10 @@ def create_app(settings: Settings | None = None):
     ):
         with connect(runtime_settings) as connection:
             auth = _require_lord_battle_actor_token(connection, x_role_token or role_token)
+            reconcile_pending_lord_moves(
+                connection,
+                domain_id=auth.domain_id if auth.role_type == "lord" else None,
+            )
             actor_domain_id = auth.domain_id if auth.role_type == "lord" else payload.actor_domain_id
             try:
                 return record_lord_battle_action(
