@@ -11,7 +11,7 @@
   screenshot с мобильными экранами.
 - Castle/city: светлая painted fantasy city/castle scene with readable UI zones.
 - Strategy map: illustrated fantasy map with territories, roads, landmarks,
-  fog/unknown areas and controlled overlay UI.
+  full visible topology, enemy unknown-detail states and controlled overlay UI.
 - Personal Gwent: dark wooden table, leader area, score columns, graveyard,
   deck, weather/special zones, three rows per side and hand at bottom.
 - Building tree: Olden Era-like node tree, prerequisite lines, detail card,
@@ -117,6 +117,45 @@ Required states:
 - insufficient gold / missing prerequisite;
 - battle timer / timeout / master takeover.
 
+### 01B Lord Strategic Map Mode
+
+Desktop target: 1280x720, 1440x900, 1600x1000 and 16:10 laptop screens.
+
+Composition, inspired by the provided Olden Era-like reference:
+
+- Separate full-screen map opened from `/lords/home`, not an embedded widget.
+- Large painted fantasy-over-real venue map bigger than the viewport; the user
+  pans across it with mouse/touchpad and can use the bottom-left minimap to
+  re-center the camera. Zoom is fixed in V1.
+- Top resource strip stays thin and readable; the map art remains the primary
+  object.
+- One visible horse/hero-army marker per lord. The current lord's horse is
+  prominent; enemy horses/details are shown according to intel visibility.
+- Right rail contains hero portrait/status, action sockets and active
+  warnings, matching the dense tactical-map grammar of the reference without
+  copying its chrome.
+- Bottom army strip shows the active army stack and movement points; it becomes
+  read-only while `pending_move` is active.
+- Clicking a territory opens a compact tactical popup over the map:
+  name, owner/neutral/contested state, visible bonus, route cost and the Move
+  command. Build/recruit/raid controls stay out of this popup.
+- Route preview draws the cheapest path, cost and any forced stop on
+  enemy/contested land. Confirming the route triggers a fast horse animation
+  along the saved polyline.
+- Arrival on neutral/enemy territory shows a battle/prebattle banner immediately
+  on the map, with a transition to the 5x6 lord battle board.
+- The full route graph is visible from the start. Enemy army/garrison details
+  are redacted unless owner/master/scouting/magic/NPC visibility reveals them.
+
+Required states:
+
+- territory popup / enemy unknown-details state;
+- owned / route waypoint / neutral capturable / enemy / contested territory;
+- valid route / no MP / route blocked by enemy or contested stop;
+- pending move with ETA / reload auto-completed arrival;
+- own horse marker / enemy presence marker / hidden enemy army details;
+- battle banner and prebattle/deployment entry.
+
 ### 02 Personal Gwent
 
 Mobile and tablet-first target: 390x844, 430x932, plus desktop preview.
@@ -142,33 +181,44 @@ Required states:
 - locked stake;
 - refusal/review.
 
-### 03 Mobile Witcher Field Journal
+### 03 Shared Mobile Field Journal
 
 Phone target: 390x844 and 430x932.
 
 Composition:
 
-- Character sheet first: portrait, school/role mark, HP/resources, reputation
-  label, current act and sync strip.
-- Bottom tab/navigation: journal, QR, inventory, contracts, Gwent.
+- Character sheet first for witcher and sorceress V0: portrait, role mark,
+  resources, reputation label, current act and sync strip.
+- Player-facing start is code login after background auto-connect; manual
+  server URL belongs only to hidden master/tech diagnostics.
+- Main menu/tabs: journal, QR, gear inventory, bag, orders, trade, Gwent/PvP.
 - QR/manual flow: scanner/manual code, physical-presence oath, PvE scene,
   immutable d20 result, reward/cooldown/sync status.
-- Inventory/contracts as object-like cards, not generic lists.
+- Gear inventory is weapons, protection and equipment. Bag is items, potions,
+  artifacts, quest objects and locked rewards. Gwent deck is opened from the
+  Gwent/PvP entry and may have a quick deck section.
+- Gear/bag/deck/orders/trade as object-like cards or slips, not generic lists.
+- Sorceress V0 uses the same screen structure with a different portrait,
+  silver/violet accent and role label. Magic controls are not shown in the
+  first production mobile UI.
 
 Required states:
 
 - offline snapshot;
 - future act locked;
+- act unlock code;
 - manual code invalid/rate limited;
 - cooldown;
 - locked reward;
 - pending sync / sync error / needs master review.
 
-### 04 Mobile Sorceress Arcane Dossier
+### 04 Mobile Sorceress Future Arcane Dossier
 
 Phone target: 390x844 and 430x932.
 
 Composition:
+
+Future layer after shared mobile V0 acceptance:
 
 - Arcane dossier home with portrait, mana, potions, alignment, favorites.
 - Spell catalog as annotated cards with target/visibility indicators.
@@ -218,8 +268,8 @@ The new Figma file should contain pages or large named sections:
 - `02 Components / Game UI Kit`
 - `03 Lord Castle / Territory Home`
 - `04 Personal Gwent`
-- `05 Witcher Mobile`
-- `06 Sorceress Mobile`
+- `05 Shared Mobile`
+- `06 Sorceress Future`
 - `07 Admin Ops`
 - `08 Asset Board / Generated Originals`
 - `09 Handoff / Implementation Notes`
@@ -269,8 +319,10 @@ Priority 1:
   act plaque and semicircle MP gauge.
 - `lord-unit-icons-v1`: unit icons/cards for infantry, guard, ranged, cavalry,
   heavy siege and specialist, plus locked empty recruit slot art.
-- `lord-map-v2`: separate illustrated fantasy territory map, 16:9, high detail,
-  roads, mountains, rivers, forest, fort nodes, no labels baked into image.
+- `lord-map-v2`: separate illustrated fantasy territory map, 16:9/16:10-safe,
+  high detail, roads, mountains, rivers, forest, fort nodes, fantasy-over-real
+  venue logic, no labels baked into image; hit-zones, labels, node coordinates,
+  intel markers and routes are live JSON/SVG/UI layers over the raster art.
 - `gwent-table-v2`: dark wooden card table background with empty rows and
   side panels, no official UI symbols.
 - `building-tree-bg-v2`: subtle blue-green arcane/castle upgrade background.

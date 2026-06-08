@@ -47,7 +47,7 @@ backend/domain/import/sync/snapshot authority checks.
 ```text
 Телефоны ведьмаков и чародеек
   Godot 4 client
-  player code -> snapshot -> offline PvE shell / online PvP prep -> event_queue
+  auto-connect -> player code -> snapshot -> offline PvE shell / online PvP prep -> event_queue
         |
         | sync в домашнем Wi-Fi
         v
@@ -126,7 +126,13 @@ its own background, income, garrison, accumulated recruit stock and minimal
 building tree; if the hero-army is not at the selected territory, the top active
 army lane is empty/locked. The plot map remains a separate illustrated layer
 over `venue_map_v1` for lord/count hero-army movement only, and the lord battle
-uses a visually distinct 5x6 army board. Lords do not use QR for movement;
+uses a visually distinct 5x6 army board. The accepted map mode is a large
+panoramic Olden Era-like screen: pan camera over a painted fantasy-over-real
+map, bottom-left minimap, right hero/action rail, bottom army strip, full visible
+route topology and tactical popups over territories or revealed army presence.
+The map does not use terrain fog in V1; it redacts exact enemy army/garrison
+details until owner/master visibility, scouting, magic or NPC events reveal them.
+Lords do not use QR for movement;
 witcher/sorceress QR/manual location flows do not require an online map. These
 are data-bound UI treatments, not new rule engines: no production screen may
 depend on copied third-party art, official card images, logos, screenshots, GPS,
@@ -176,6 +182,7 @@ python`, а не raw `pip`.
 
 Клиент отвечает за:
 
+- background auto-connect к встроенному/saved/last-good локальному серверу;
 - ввод предвыданного `player_code` и привязку устройства к персонажу;
 - скачивание актуального `snapshot_version` в доме перед игрой;
 - отображение персонажа, статов, описательной репутации и локальных ресурсов;
@@ -189,7 +196,12 @@ python`, а не raw `pip`.
 - PvE-квесты в любых игровых зонах независимо от владельца территории;
 - подготовку full Gwent PvP в online-зоне: challenge, deck/hand UI, rows, pass, round log и stake result;
 - trade transfer UI в online-зоне: request, pending lock status, accept/decline и history;
-- контур чародейки: мана, зелья, заклинания, consent-based фавориты;
+- общий V0 mobile UI для ведьмаков и чародеек: одинаковые QR/PvE,
+  gear inventory (оружие/защита/экипировка), bag
+  (предметы/зелья/артефакты/квестовые объекты/locked rewards), Gwent deck,
+  orders, trade, goals, sync and Gwent entry screens; контур чародейки с
+  маной, зельями, заклинаниями и consent-based фаворитами остается runtime
+  capability/future UI layer после приемки общего мобильного flow;
 - `event_queue` с `event_id`, `device_id`, `client_sequence`, `created_at`, payload и локальным статусом;
 - sync statuses: `offline`, `pending`, `synced`, `sync_error`, `needs_master_review`.
 
@@ -268,11 +280,12 @@ python`, а не raw `pip`.
 - `domains.csv` - 4 владения, лорды, стартовые ресурсы, влияние.
 - `buildings.csv` - именованное дерево резиденций: `building_id`, `branch`, `name`, `gold_cost`, `prerequisites`, `effects`, `unlock_tags`, `capacity_delta`, `raid_unlock`, `recruit_unlock`, `visual_tag`, `art_prompt`.
 - `venue_map_profile.csv` или seed manifest - физические зоны участка, игровые названия, `no_play_excluded`, safety notes, online/offline hints и связь с map node IDs.
-- `map_nodes.csv` - узлы стратегической карты: 4 стартовые резиденции в активном новом доме, нейтральные территории, города, форты, особые места; старый дом и соседний сарай помечаются как excluded и не становятся игровыми узлами; для лордского UI/печати фиксируются `visual_label`, physical landmark, route flavor and art prompt, без QR-привязок.
-- `map_edges.csv` - связи узлов, movement point cost, terrain tags, travel/safety notes, route flavor и ограничения маршрута.
-- `territories.csv` - цифровые территории, owner, tier, primary bonus type, defense profile, visibility, special effect and linked `fort_id`.
-- `territory_forts.csv` - тематический форт каждой захватываемой территории: `fort_id`, `territory_id`, `theme`, `visual_tag`, `art_prompt`, `garrison_capacity`, optional `defense_bonus`; каждая территория получает одну оригинальную картинку/карточку форта.
-- `movement_rules.csv` - default movement pool cap, refill interval, act modifiers.
+- `map_nodes.csv` - узлы стратегической карты: 4 стартовые raid-only резиденции/замки лордов в центральном активном доме, 19 захватываемых территорий, optional route waypoints у дома/дорожек только если они нужны для строгой схемы участка, особые места и excluded старый дом/соседний сарай; для лордского UI/печати фиксируются `visual_label`, physical landmark, route flavor and art prompt, без QR-привязок.
+- `map_edges.csv` - связи узлов, movement point cost, terrain tags, travel/safety notes, route flavor и ограничения маршрута; route validation не должна проводить лошадь сквозь чужую или contested территорию без остановки.
+- `territories.csv` - цифровые территории, owner, tier, primary bonus type, defense profile, visibility, special effect and linked `fort_id`; резиденции и technical route waypoints явно не являются capturable territory.
+- `territory_forts.csv` - тематический форт каждой захватываемой территории: `fort_id`, `territory_id`, `theme`, `visual_tag`, `art_prompt`, `garrison_capacity`, optional `defense_bonus`; V1 capacity defaults: T1 = 2, T2 = 3, T3 = 4; каждая capturable territory получает одну оригинальную картинку/карточку форта.
+- `lord_map_layout.json` или `lord_map_layout.csv` - ручная разметка visual layer: art asset id, canvas bounds, node coordinates, edge polylines, territory hit-zones, label anchors, minimap transform, intel marker anchors and viewport defaults for 16:9/16:10 screens.
+- `movement_rules.csv` - default movement pool cap, refill interval, act modifiers; V1 default = cap `6`, refill `+3/hour`.
 - `recruit_markets.csv` - источники найма, refresh rules, hold slots, offer weights, required building/territory tags, reserve spawn.
 - `raid_rules.csv` - raid subtree, token/gold costs, targets, defense/magic checks, debuff duration, optional loot effects `gold/cards/influence`.
 - `mobs.csv` - мобы, HP, урон, награды, QR-ID, сценарий.
@@ -317,7 +330,7 @@ Core tables:
 - `players`, `devices`, `player_codes`, `role_tokens`;
 - `snapshot_versions`, `client_sync_state`;
 - `acts`, `act_unlock_codes`, `auto_timers`, `timer_ticks`, `global_modifiers`, `pending_tick_rewards`;
-- `domains`, `buildings`, `venue_map_profiles`, `map_nodes`, `map_edges`, `territories`, `territory_forts`, `movement_pools`, `territory_claims`;
+- `domains`, `buildings`, `venue_map_profiles`, `map_nodes`, `map_edges`, `territories`, `territory_forts`, `movement_pools`, `territory_claims`, `pending_lord_moves`, `lord_map_intel`;
 - `armies`, `army_cards`, `army_reserves`, `garrisons`, `recruit_markets`, `recruit_offers`;
 - `qr_objects`, `pve_scenarios`, `mobs`, `items`, `cards`, `potions`, `spells`, `artifacts`;
 - `personal_goals`, `goal_tracks`, `goal_progress`, `goal_flags`, `final_hooks`;
@@ -394,7 +407,11 @@ PvP валиден в доме/у лордов и считается как full
 
 ### Lord strategic map
 
-Стратегическая карта лордов хранится как weighted graph. Venue map v1 фиксирует 4 резиденции в активном новом доме и исключает старый дом с соседним сараем через `no_play_excluded`; excluded zones не получают QR, territory ownership, orders, raids or battle routes. Каждая захватываемая территория имеет linked `territory_fort` с theme/art prompt и garrison capacity. Сервер валидирует route по `map_edges`, списывает movement points только за передвижение, пополняет movement pool каждые 30 минут до cap и не дает копить MP выше cap. Arrival на нейтральную или чужую территорию создает `territory_claim`; первый валидный claim переводит территорию в contested/in_battle и делает этот факт видимым всем лордам.
+Стратегическая карта лордов хранится как weighted graph, а большая illustrated map является визуальным слоем поверх этого графа. Venue map v1 фиксирует 4 резиденции/замка лордов в центральном активном доме как raid-only зоны и 19 capturable territories. Старый дом и соседний сарай исключены через `no_play_excluded`; excluded zones не получают QR, territory ownership, orders, raids or battle routes. Optional route waypoints у центрального дома/дорожек допустимы только как технические узлы строгой схемы участка: без владельца, дохода, гарнизона, захвата, боя и отдельного territory UI. Каждая захватываемая территория имеет linked `territory_fort` с theme/art prompt и garrison capacity. Сервер валидирует route по `map_edges`, показывает UI самый дешевый доступный маршрут, списывает movement points только за передвижение, пополняет movement pool раз в час до cap и не дает копить MP выше cap.
+
+Движение карты V1 работает через `pending_lord_moves`: лорд видит весь граф и может выбрать разрешенную цель по схеме участка, маршрут не проходит сквозь чужую или contested территорию без остановки, а подтверждение создает pending move с route, MP cost, start time and arrival time. Клиент быстро анимирует лошадь по маршруту, но сервер остается authority: при закрытии вкладки или сетевом сбое arrival автозавершается по сохраненному времени. Пока pending move активен, новые movement/battle actions этой армией запрещены. Arrival на нейтральную или чужую территорию создает `territory_claim` и prebattle/deployment; первый валидный claim переводит территорию в contested/in_battle и делает этот факт видимым всем лордам.
+
+Разведка карты V1 хранится как `lord_map_intel`, а не как terrain fog. Все лорды видят полную топологию дорог, территории, владельцев, contested states and route costs; скрываются только точные детали чужих армий, гарнизонов и отдельных эффектов. Мастер и владелец видят все; разведка/магия/NPC-события могут повышать intel level от presence-only до full details по отдельным rules.
 
 Владение землей требует гарнизон в тематическом форте. После победы атакующий должен оставить минимум одну выжившую army unit card в fort garrison; без гарнизона доход и основной бонус не активны. Owner может перебрасывать текущие army unit cards между активной армией и фортом, если активная армия находится на этой территории; transfer не тратит MP, но логируется, проверяет ownership, non-contested state, active battle lock, active army capacity, fort `garrison_capacity` и правило minimum garrison. Чужие гарнизоны скрыты от других лордов, но owner и primary bonus type видны. Если hourly income/influence tick попадает на ongoing claim, сервер создает `pending_tick_reward` и применяет его победителю боя ровно один раз без сдвига расписания.
 
@@ -498,5 +515,10 @@ Immediate paper fallback включается для конкретного кр
 - Visual/reference smoke after `TASK-067`/before `TASK-050`: prototype/Open Design artifact plus screenshots for lord `/lords/home` castle/selected-territory screen, bottom-left minimap, bottom-right act/MP, army/garrison/recruit lanes, Olden Era-like building tree, thematic territory forts/backgrounds, lord battle board, personal Gwent table, mobile class screens, Admin recovery/final screens and lord venue map; check readability, state labels, data bindings, visual distinction between PvP surfaces and IP-safe original/local assets.
 - Evidence smoke after `TASK-058`: `reports/stage2b/device-evidence.md`, `reports/stage2b/ui-flow-evidence.md`, `reports/stage2b/defects.md` and `reports/stage2b/screenshots/` capture the hardening run, not just chat notes.
 - Pre-2B audit remediation before `TASK-045`: `TASK-087` confirms `AUD-NEXT-001..046` are fixed through backend/domain authority where needed, UI guardrails are labelled as mitigation only, and no unresolved P0/P1/blocking P2 defects remain without owner/workaround.
-- Non-PvE hardening before `TASK-050`: real-device install/launch/connect/snapshot/restart/sync, 4 lord panels, lord map audit, personal Gwent, orders/trade, sorceress potions/spells/favorites/alignment, Admin recovery and no unresolved P0/P1/blocking P2 defects.
+- Non-PvE hardening before `TASK-050`: real-device
+  install/launch/connect/snapshot/restart/sync, 4 lord panels, lord map audit,
+  personal Gwent, orders/trade, shared witcher/sorceress mobile V0, Admin
+  recovery and no unresolved P0/P1/blocking P2 defects. Sorceress
+  potions/spells/favorites/alignment are future-layer UI after the shared mobile
+  flow is accepted.
 - Full rehearsal: мастерский ноутбук, 4 лордских ноутбука, реальные телефоны, домашний Wi-Fi, 15-person profile, 10-hour fixed schedule, 9 mobile-role load/idle risk, NPC-master load, order pressure, offline act unlock, pending reward approval, full Gwent volume/throttle, trade conflicts, favorites impact, visual/readability proof, master-led final summary, final lock and game-day ops checklist.

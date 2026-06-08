@@ -7,6 +7,11 @@ __pycache__/
 node_modules/
 dist/
 .codegraph/
+mobile/.godot/
+mobile/builds/*.log
+reports/map-debug-crops/*
+!reports/map-debug-crops/lord-map-technical-overlay-v1.png
+!reports/map-debug-crops/lord-map-sparse-graph-v0.3-planar-no-castle-cut-overlay.png
 .taskos.lock
 .codex-taskos-upstream/
 .test-data/

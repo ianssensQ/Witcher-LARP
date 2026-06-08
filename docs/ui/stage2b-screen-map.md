@@ -16,10 +16,17 @@
 - `L*` - экраны графа/лорда в браузере на компьютере.
 - `A*` - мастерские и NPC-master экраны в Admin Studio.
 - `Shared*` - общие auth/sync/error экраны.
+- `Ops*` - скрытые технические/мастерские экраны, не входящие в обычный
+  player flow.
 - Swagger, curl, API docs и ручная SQLite-правка не являются пользовательским
   маршрутом приемки для игроков и лордов.
 - Бумажный режим является outage recovery и не заменяет отсутствующий штатный
   экран.
+- Для первой мобильной реализации ведьмаки и чародейки используют общий
+  `Mobile Adventurer V0` flow из
+  `docs/ui/mobile-witcher-sorceress-shared-flow-v0.1.md`: `W1-W11` применяются
+  к обеим ролям, а чародейская магия/зелья/favorites/alignment остаются
+  выключенным future layer.
 
 ## Screen flow diagrams
 
@@ -27,48 +34,49 @@
 
 ```mermaid
 flowchart TD
-  S1["Shared1 Подключение / адрес сервера"] -->|"Health OK"| S2["Shared2 Вход"]
-  S1 -->|"сервер недоступен"| S1E["Shared1 state: offline / retry / keep last snapshot"]
+  BOOT["Auto-connect bootstrap в фоне"] -->|"server ok / last good server"| S2["Shared2 Вход по коду"]
+  BOOT -->|"нет связи, есть snapshot"| S2O["Shared2 state: offline badge / игра по последнему snapshot"]
+  BOOT -->|"нет связи, нет snapshot"| S2H["Shared2 state: обратиться к мастеру"]
+  OPS0["Ops0 скрытая настройка подключения"] -. "только мастер/техник" .-> BOOT
   S2 -->|"неверный player_code или role_token"| S2E["Shared2 state: invalid code message"]
-  S2 -->|"код ведьмака или чародейки OK"| M1["Mobile Home"]
+  S2 -->|"код ведьмака или чародейки OK"| M1["W1 Mobile Home / Journal"]
   S2 -->|"token графа OK"| L1["L1 Castle / Territory Home"]
   S2 -->|"token мастера OK"| A1["A1 Admin Overview"]
 ```
 
-### Ведьмак: обычный игровой маршрут
+### Mobile Adventurer V0: ведьмак и чародейка
 
 ```mermaid
 flowchart TD
-  W1["W1 Home"] -->|"QR / Manual ID"| W2["W2 QR / Manual ID"]
+  W1["W1 Home / Journal"] -->|"QR / Manual ID"| W2["W2 QR / Manual ID"]
   W2 -->|"valid code"| W3["W3 Physical Presence"]
   W2 -->|"unknown code"| W2E["W2 state: invalid / manual_rate_limit"]
-  W2 -->|"future act"| W2L["W2 state: locked until sync or unlock code"]
+  W2 -->|"future act"| W11["W11 Act Unlock"]
   W3 -->|"confirm"| W4["W4 PvE Scene"]
   W3 -->|"flag issue"| W3R["W3 state: queued needs_master_review"]
   W4 -->|"roll app d20"| W5["W5 PvE Result"]
   W5 -->|"sync later"| Shared3["Shared3 Sync Queue"]
-  W1 -->|"inventory"| W6["W6 Inventory"]
+  W5 -->|"reward / locked reward"| W6B["W6B Bag"]
+  W1 -->|"inventory / gear"| W6A["W6A Gear Inventory"]
+  W1 -->|"bag"| W6B
   W1 -->|"orders"| W7["W7 Orders"]
   W1 -->|"trade"| W8["W8 Trade"]
   W1 -->|"goals"| W9["W9 Personal Goals"]
   W1 -->|"Gwent / PvP"| W10["W10 Personal Gwent"]
+  W10 -->|"deck"| W6C["W6C Gwent Deck"]
+  W1 -->|"sync strip"| Shared3
+  W11 -->|"valid unlock code"| W1
 ```
 
-### Чародейка: магический контур поверх player flow
+### Чародейка: future layer после V0
 
 ```mermaid
 flowchart TD
-  S1["Sorc1 Home"] -->|"cast spell"| S2["Sorc2 Spell Catalog"]
-  S2 -->|"choose target"| S2T["Sorc2 Target Picker"]
-  S2T -->|"valid mana/target"| S2R["Sorc2 state: cast result"]
-  S2T -->|"invalid target or mana"| S2E["Sorc2 state: validation error"]
-  S1 -->|"buy potion"| S3["Sorc3 Potion Market"]
-  S1 -->|"transfer potion"| S4["Sorc4 Potion Transfer"]
-  S1 -->|"favorites"| S5["Sorc5 Favorites"]
-  S5 -->|"request"| S5P["Sorc5 state: pending consent"]
-  S5P -->|"favored accepts"| S5A["Sorc5 state: accepted"]
-  S1 -->|"alignment evidence"| S6["Sorc6 Alignment Evidence"]
-  S1 -->|"final hook spell"| S7["Sorc7 Locked Magical Intent"]
+  W1["W1 Shared Home / Journal"] -. "future: enable magic module" .-> S1["Sorc1 Magic Hub"]
+  S1 -. "future" .-> S2["Sorc2 Spell Catalog"]
+  S1 -. "future" .-> S3["Sorc3 Potion Market"]
+  S1 -. "future" .-> S5["Sorc5 Favorites"]
+  S1 -. "future" .-> S6["Sorc6 Alignment / Intent"]
 ```
 
 ### Граф: замок и территории на компьютере
@@ -79,9 +87,11 @@ flowchart TD
   L0 -->|"Обучение"| L12["L12 Tutorial / Mock Lord"]
   L1 -->|"левая иконка зданий"| L6["L6 Building Tree"]
   L1 -->|"левая иконка карты или мини-карта снизу слева"| L2["L2 Illustrated Map"]
-  L2 -->|"select route"| L3["L3 Move / Claim"]
-  L3 -->|"valid route"| L1U["L1 state: hero moved / selected territory updates"]
-  L3 -->|"invalid / no MP"| L3E["L3 state: validation error"]
+  L2 -->|"клик видимой территории"| L3["L3 Route Preview / Move / Claim"]
+  L3 -->|"confirm route"| L3M["L3 state: pending move / horse animation"]
+  L3M -->|"arrival owned/route waypoint"| L1U["L1 state: hero moved / selected territory updates"]
+  L3M -->|"arrival neutral/enemy"| L3B["L3 state: battle banner / prebattle"]
+  L3 -->|"invalid / no MP / forbidden target"| L3E["L3 state: validation error"]
   L1 -->|"доска объявлений"| L9["L9 Orders"]
   L1 -->|"иконка рейдов"| L8["L8 Raid"]
   L1 -->|"красная иконка боя активна"| L10["L10 Lord Battle"]
@@ -111,44 +121,42 @@ flowchart TD
 
 | Screen | Surface | Purpose | Primary actions | Read source | Mutation/event | Visibility | States | Visual acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Shared1 Connection / Server URL` | Godot mobile, browser panels | Подключить клиента к локальному серверу | Ввести URL, проверить `/health`, принять connection QR payload | `/health`, saved local settings | Save local server URL | shared | server unreachable, retry, stale local data | TASK-067 mobile + desktop auth screenshots |
-| `Shared2 Login` | Godot mobile, browser panels | Войти по игровому коду | Ввести `player_code` или `role_token` | local session, auth response | `POST /api/auth/player-code`, `POST /api/auth/role-token` | scoped by returned role | wrong token, invalid code, rejected device | TASK-067 auth screenshots |
+| `Ops0 Connection Bootstrap` | Godot mobile diagnostic, browser panels if needed | Скрыто настроить/проверить локальный сервер до игры | Проверить `/health`, принять connection QR payload, сохранить fallback URL | `/health`, saved local settings | Save local server URL | master/tech only; not normal player flow | server unreachable, retry, stale local data | diagnostic state only, not player-first screenshot |
+| `Shared2 Login` | Godot mobile, browser panels | Войти по игровому коду | Ввести `player_code` или `role_token`; увидеть короткий auto-connect/offline badge | local session, auth response, background `/health` | `POST /api/auth/player-code`, `POST /api/auth/role-token` | scoped by returned role | wrong token, invalid code, rejected device, offline snapshot/help state | TASK-067 auth screenshots |
 | `Shared3 Snapshot / Sync Queue` | Godot mobile | Показать snapshot и очередь событий | Refresh snapshot, sync queue, retry failed sync | `GET /api/content/snapshot`, `user://event_queue.json`, `user://sync_status.json` | `POST /api/events/sync` | current player only | offline, pending, synced, sync_error, needs_master_review, duplicate, rejected | TASK-067 mobile sync states |
 
-## Witcher mobile screens
+## Shared witcher/sorceress mobile screens
 
 | Screen | Purpose | Primary actions | Read source | Mutation/event | Visibility | States | Visual acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `W1 Home` | Главный экран ведьмака | Open QR, inventory, orders, trade, goals, Gwent | player-scoped snapshot; player reputation endpoint when online | none | player-visible only; descriptive reputation | stale snapshot, offline, sync badge, final lock hint | mobile home screenshot |
+| `W1 Home / Journal` | Главный экран ведьмака или чародейки V0 | Open QR, gear inventory, bag, orders, trade, goals, Gwent, sync queue | player-scoped snapshot; player reputation endpoint when online | none | player-visible only; descriptive reputation | stale snapshot, offline, sync badge, final lock hint | shared mobile home screenshot with witcher and sorceress skins |
 | `W2 QR / Manual ID` | Найти QR/manual сцену | Scan QR text, enter manual ID | snapshot `qr_objects`, optional `POST /api/qr/lookup` | local QR context event if review needed | no hidden scene truth beyond visible snapshot row | unknown_qr, manual_rate_limit, future act locked, cooldown | QR/manual states |
 | `W3 Physical Presence` | Подтвердить честность сцены | Confirm physical presence, flag issue | local QR context | queued `qr_scene_started` or `qr_attempt` | current player and master review | needs_master_review, honesty_violation_suspected | presence confirmation |
 | `W4 PvE Scene` | Провести offline PvE | Roll app-generated d20 | snapshot `pve_scenarios`, `mobs`, `rewards`, player stats | local `pve_completed` event | current player; master sees roll log after sync | no editable d20, one-roll-only, scene already rolled | PvE roll/result |
 | `W5 PvE Result` | Показать итог сцены | Review reward, return home, sync later | local PvE event, sync response | `POST /api/events/sync` through Shared3 | player sees local result; locked reward is explicit | success, failure cooldown, locked reward, pending sync, rejected | reward/cooldown/locked |
-| `W6 Inventory` | Предметы, карты, артефакты, зелья | Use potion, start trade, inspect locked asset | player-scoped snapshot and player inventory read model blocker | `POST /api/players/{player_id}/potions/use`; trade endpoints | no master-only locks/reasons | locked asset, pending transfer, rejected use | inventory/trade states |
+| `W6A Gear Inventory` | Оружие, защита, экипировка и активные бонусы | Equip, unequip, inspect requirements | player-scoped snapshot and player inventory read model blocker | player equipment endpoint/blocker; local draft until sync where allowed | no master-only locks/reasons | locked gear, stale gear, rejected equip | gear/inventory states |
+| `W6B Bag` | Предметы, зелья, артефакты, квестовые объекты и locked rewards | Use potion/item, start trade, inspect locked asset | player-scoped snapshot and player inventory read model blocker | `POST /api/players/{player_id}/potions/use`; trade endpoints | no master-only locks/reasons | locked asset, pending transfer, rejected use | bag/trade states |
+| `W6C Gwent Deck` | Карты и колода Гвинта | Add/remove card, auto-build, inspect deck validity | snapshot plus Gwent deck/card read model | deck save/validation endpoint blocker; PvP/Gwent endpoints | current player; opponent hand hidden | invalid deck, locked card, stale deck | deck states |
 | `W7 Orders` | Заказы лордов | Accept, submit success | player order board read model blocker | `POST /api/lords/{lord_id}/orders` with player auth | public/addressed visible only | active cap, object conflict, contested_review | orders list/state |
 | `W8 Trade` | Торговля online-only | Create, accept, decline transfer | trade transfer read model blocker | `POST /api/trade-transfers`, accept, decline | participants and master only | pending_locked, accepted, declined, contested_review | trade states |
 | `W9 Personal Goals` | Личные цели и прогресс | Inspect known goals | snapshot `personal_goals`, `goal_tracks` | none in player UI | hidden `goal_flags` redacted | locked final hook, stale snapshot | goals screenshot |
 | `W10 Personal Gwent` | Личный PvP/Gwent | Challenge, queue/table, start, round, pass, finish, refusal | `GET /api/pvp/tables`; Gwent match read model blocker | `POST /api/pvp/challenges`, start, rounds, finish, refusal | participants and master only | queued, active challenge cap, table full, needs_master_review, locked stake | mobile Gwent table |
+| `W11 Act Unlock` | Открыть будущий акт вне Wi-Fi после мастерского объявления | Enter unlock code, scan unlock QR, return | snapshot `act_unlock_codes`, local act state | queued/local unlock event and later sync validation | current player only; hidden future content redacted | invalid code, future act still hidden, accepted unlock | act unlock state |
 
 ## Sorceress mobile screens
 
-| Screen | Purpose | Primary actions | Read source | Mutation/event | Visibility | States | Visual acceptance |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `Sorc1 Home` | Главный экран чародейки | Open magic, potions, favorites, alignment, shared player flows | `GET /api/sorceresses/{sorceress_id}/state`, snapshot | none | current sorceress and master | stale/offline, mana tick pending, final lock hint | sorceress home |
-| `Sorc2 Spell Catalog` | Заклинания и цели | Choose spell, choose target, cast | sorceress state `spells`, `mana`, allowed targets | `POST /api/sorceresses/{id}/spells/cast` | visibility from spell/effect rules | insufficient mana, invalid target, needs_master_review | spell cast states |
-| `Sorc3 Potion Market` | Купить зелья | Buy wholesale potion | sorceress state `potion_market`, gold | `POST /api/sorceresses/{id}/potions/buy` | sorceress and master | insufficient gold, unavailable potion, duplicate | potion market |
-| `Sorc4 Potion Transfer` | Передать/продать зелье | Select recipient, price, mode, send | sorceress state; trade read model blocker | `POST /api/sorceresses/{id}/potions/transfer` | participants and master | pending_locked, accepted, declined, favorite-only target error | potion transfer |
-| `Sorc5 Favorites` | Consent-based favorites | Request primary/secondary, accept if target | sorceress state `favorites`; player pending favorite read blocker | `POST /api/favorites`, `POST /api/favorites/{id}/accept` | sorceress, favored player, master | pending consent, cap exceeded, duplicate, change limit | favorite consent |
-| `Sorc6 Alignment Evidence` | Зафиксировать интригу/лояльность | Record evidence | sorceress state `alignment` | `POST /api/sorceresses/{id}/alignment-evidence` | by event visibility; master sees full | public/private evidence, review | alignment evidence |
-| `Sorc7 Locked Magical Intent` | Финальная магическая воля | Cast/record final-hook intent | sorceress state `locked_magical_intent` | spell cast or alignment evidence endpoint | master sees review reason | accepted locked, after final lock needs_master_review | locked intent |
+В V0 чародейка не имеет обязательных отдельных экранов. Она использует
+`W1-W11` с чародейским portrait/accent/role label. Future screens
+`Sorc1-Sorc7` остаются в backlog для магии, рынка зелий, favorites, alignment
+evidence and locked magical intent после принятия общего мобильного gameplay.
 
 ## Lord desktop screens
 
 | Screen | Purpose | Primary actions | Read source | Mutation/event | Visibility | States | Visual acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `L1 Castle / Territory Home` | Главный экран после входа: замок или выбранная территория | Hover/click circular action icons, switch owned territory, open minimap/map, drag army/garrison, open recruit modal, logout, replay tutorial | `GET /api/lords/{lord_id}/state` plus selected `territory_id` | none directly; actions open scoped screens/modals | lord-scoped | wrong token, stale state, active battle alert, selected territory unavailable | lord castle/territory home |
-| `L2 Illustrated Map` | Полноэкранная стратегическая карта `venue_map_v1` | Select node/route/territory, return to selected territory UI | lord state `map_nodes`, `map_edges`, territories | none until move | own full state; enemy redactions | owner/neutral/contested, excluded zones hidden/no-play | illustrated map |
-| `L3 Move / Claim` | Движение и захват | Select route, submit move | lord state route preview | `POST /api/lords/{lord_id}/move` | lord-scoped; contested visible to lords | no MP, invalid route, contested, battle required | move/claim states |
+| `L2 Illustrated Map` | Полноэкранная стратегическая карта `venue_map_v1` в стиле Olden Era-like tactical map | Pan camera, click territory/army, inspect tactical popup, preview route, return to selected territory UI | `GET /api/lords/{lord_id}/state` with `map_nodes`, `map_edges`, territories, `lord_map_layout`, `lord_map_intel`, pending move slice | none until move confirm | full graph visible; enemy details redacted; master sees all in Admin | full graph, owner/neutral/contested, excluded zones hidden/no-play, hidden enemy army/garrison details, pending move read-only | illustrated map with pan/minimap/intel overlays |
+| `L3 Route Preview / Move / Claim` | Движение лошади, server-authoritative arrival и запуск захвата | Confirm cheapest route, cancel preview, watch horse animation, open battle/prebattle banner | lord state route graph plus pending move/arrival status | `POST /api/lords/{lord_id}/move` | lord-scoped; contested visible to lords | no MP, invalid route, forbidden target, route stopped by enemy/contested, pending_move, arrival_autocomplete, battle required | move/claim states |
 | `L4 Territory Detail` | Тот же UI для конкретной захваченной территории | Inspect local income, garrison, recruit stock, local building tree | lord state selected territory, garrisons, recruit stock, building tree | none until action | own garrison visible; enemy hidden/redacted | owner, contested, capacity, hero not here locks top army lane | territory home variant |
 | `L5 Army Transfer` | Переброска армии и гарнизона из нижних рядов | Active to garrison, garrison to active, reserve to active where allowed | lord state active army location, reserve, garrisons | `POST /api/lords/{lord_id}/garrisons/transfer` | lord-scoped | capacity, minimum garrison, active battle lock, selected territory not hero location | transfer UI/modal |
 | `L6 Building Tree` | Дерево построек выбранной локации | Select building, inspect bonus branch, buy/upgrade | lord state buildings/catalog scoped by selected `territory_id` | `POST /api/lords/{lord_id}/buildings` | lord-scoped | locked, unlocked, purchased, missing prerequisite, insufficient gold | castle/territory tree |
@@ -180,7 +188,10 @@ flowchart TD
 `TASK-067` must turn this screen map into visual acceptance artifacts before
 role UI implementation tasks start. Required screenshot/prototype set:
 
-- mobile: `Shared1`, `Shared2`, `Shared3`, `W1-W10`, `Sorc1-Sorc7`;
+- mobile: `Shared2`, `Shared3`, `W1-W11` plus `W6A/W6B/W6C` for witcher and
+  sorceress skins; hidden `Ops0` connection diagnostics are not a normal
+  player-first screenshot; `Sorc1-Sorc7` are future-layer references, not first
+  V0 blockers;
 - lord desktop: `L1-L10` plus outage-only `L11` notice;
 - Admin desktop: `A1-A11`;
 - state variants: invalid code, server unreachable, offline snapshot, pending

@@ -58,13 +58,17 @@ For every release-critical flow, record:
 
 Examples:
 
-- Witcher: login -> snapshot -> QR/manual PvE -> result -> cooldown/reward
-  approval -> offline restart -> sync.
-- Sorceress: potion buy/transfer/use -> spell -> favorite consent ->
-  alignment evidence -> locked magical intent.
+- Witcher: app launch auto-connect -> code login -> snapshot -> QR/manual PvE
+  -> result -> cooldown/reward approval -> offline restart -> sync.
+- Sorceress V0: same shared mobile route as witcher -> QR/manual PvE ->
+  gear/bag/deck -> orders/trade/reputation -> sync -> Gwent entry. Potion
+  buy/transfer/use, spell, favorite consent, alignment evidence and locked
+  magical intent are future-layer scripts after shared mobile V0 acceptance.
 - Lord: login -> castle/selected territory home -> territory switch -> recruit
   accumulated units -> army/garrison transfer -> building -> order -> raid ->
-  map route -> contested claim -> battle -> return to castle/territory home.
+  open strategic map -> pan/click visible territory -> route preview ->
+  pending horse move/arrival -> contested claim -> battle -> return to
+  castle/territory home.
 - Personal Gwent: challenge -> table/queue -> deck/hand/mulligan ->
   rows/pass/rounds -> finish/stake -> refusal/review.
 - Admin: paper recovery form -> conflict preview -> event sync/review ->
@@ -90,8 +94,9 @@ it must show:
 
 - all player class home screens and critical action screens;
 - lord castle/territory home, bottom-left minimap, bottom-center
-  army/garrison/recruit lanes, bottom-right act/MP controls, map, building tree,
-  battle board, recruit/raid/order;
+  army/garrison/recruit lanes, bottom-right act/MP controls, separate strategic
+  map with pan/full graph/enemy-intel/route preview/horse pending move/battle banner, building
+  tree, battle board, recruit/raid/order;
 - personal Gwent table in mobile portrait;
 - Admin paper recovery, review and final summary surfaces;
 - major error/offline/review/locked states;

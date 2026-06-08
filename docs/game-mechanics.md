@@ -412,52 +412,94 @@ V1 map nodes для seed-графа:
 
 | Node ID | Физическая зона | Игровая роль | Бонус | Tier / defense |
 | --- | --- | --- | --- | --- |
-| `residence_01..04` | комнаты активного нового дома | 4 стартовые резиденции лордов | home / orders | not capturable |
-| `central_court` | двор у нового дома и центральных дорожек | перекресток карты | visibility | T1 |
-| `fort_north_gazebo` | верхняя беседка | крепость | defense | T2 |
-| `fort_west_gazebo` | центральная/западная беседка | крепость | defense / order | T2 |
-| `fort_south_gazebo` | нижняя беседка | крепость | defense | T2 |
-| `field_north_strip` | узкое поле севернее нового дома | сельская местность | gold | T1 |
-| `field_west_large` | большое левое поле | сельская местность | gold | T1 |
-| `field_east_large` | большое правое поле | сельская местность | gold | T1 |
-| `village_west_shed` | сарай у западного пруда/сада | деревня | order / gold | T1 |
-| `village_east_shed` | сарай справа от нового дома | деревня | gold / recruit | T1 |
-| `resource_well_city` | колодец | независимый город ресурсодобычи | recruit / gold | T2 |
-| `magic_spanish_corner` | испанский уголок | независимый город магии | magic | T2 |
-| `science_two_story_shed` | двухэтажный сарай внизу | независимый город науки | recruit / visibility | T2 |
-| `forest_west_botanical` | ботанический сад | лес | artifact / hidden | T2 |
-| `forest_south_garden` | садик внизу справа | лес | artifact / hidden | T2 |
-| `lake_pool` | бассейн | озеро | special / clue | T1 |
-| `lake_south_pond` | правый нижний пруд | озеро | magic / clue | T1 |
-| `swamp_west_pond` | западный пруд | болото | artifact / risk | T2 |
-| `mountain_north_alpine` | верхняя альпийская горка | гора | defense / rare | T3 |
-| `mountain_center_alpine` | центральная альпийская горка | гора | visibility / rare | T2 |
-| `mountain_west_alpine` | левая альпийская горка | гора | defense / rare | T2 |
+| `node_res_north`, `node_res_river`, `node_res_forest`, `node_res_hill` | комнаты центрального активного дома | 4 стартовые резиденции/замки лордов | home / orders | raid-only, not capturable |
+| `node_fort_east` | верхняя беседка | крепость | defense | T2 |
+| `node_fort_west` | беседка у центрального дома | крепость | defense / order | T2 |
+| `node_fort_southwest` | нижняя левая беседка | крепость | defense | T2 |
+| `node_field_oats` | верхнее поле | сельская местность | gold | T1 |
+| `node_field_west_large` | большое левое поле | сельская местность | gold | T1 |
+| `node_field_east_large` | большое правое поле | сельская местность | gold | T1 |
+| `node_village_barn` | сарай ниже центрального дома | деревня | order / gold | T1 |
+| `node_village_east_shed` | сарай справа от центрального дома | деревня | gold / recruit | T1 |
+| `node_well_city` | колодец | независимый город ресурсодобычи | recruit / gold | T2 |
+| `node_spanish_magic` | испанский уголок | независимый город магии | magic | T2 |
+| `node_science_barn` | двухэтажный сарай внизу | независимый город науки | recruit / visibility | T2 |
+| `node_forest_dark` | ботанический сад + теплица | лес | artifact / hidden | T2 |
+| `node_forest_south_garden` | садик внизу справа | лес | artifact / hidden | T2 |
+| `node_lake_mist` | бассейн | озеро | special / clue | T1 |
+| `node_lake_south_pond` | правый нижний пруд | озеро | magic / clue | T1 |
+| `node_swamp_black` | левый прудик/болото | болото | artifact / risk | T2 |
+| `node_mountain_north_alpine` | gameplay-северная горная зона | гора | defense / rare | T3 |
+| `node_mountain_gray` | альпийская горка у колодца/центрального дома | гора | visibility / rare | T2 |
+| `node_mountain_west_alpine` | альпийская горка слева/ниже центрального дома | гора | defense / rare | T2 |
 
 V1 route model:
 
-- все резиденции соединены с `central_court`;
-- `central_court` соединен с `fort_west_gazebo`, `field_north_strip`, `resource_well_city`, `magic_spanish_corner`, `village_east_shed` и `lake_pool`;
-- северная ветка: `field_north_strip` -> `fort_north_gazebo` -> `mountain_north_alpine`;
-- западная ветка: `fort_west_gazebo` -> `field_west_large` -> `village_west_shed` -> `swamp_west_pond` -> `forest_west_botanical`, с боковым ребром к `mountain_west_alpine`;
-- восточная ветка: `village_east_shed` -> `lake_pool` -> `field_east_large`;
-- южная ветка: `magic_spanish_corner` -> `science_two_story_shed` -> `forest_south_garden` -> `lake_south_pond`, с ребром `science_two_story_shed` -> `field_east_large`;
-- `resource_well_city` соединен с `mountain_center_alpine` и `field_east_large`, чтобы ресурсная точка была спорным центром, а не тупиком.
+- центральный активный дом является реальным центром участка и содержит 4 неприступные резиденции/замки лордов; это стартовая зона, а не отдельная нейтральная территория;
+- стартовые route edges от резиденций к внешней карте задаются строго по адаптированной схеме участка; если для layout нужен технический узел выхода/дорожки у дома, он остается route waypoint без владельца, гарнизона, дохода, захвата, боя и отдельного UI-таргета;
+- северная ветка: `node_field_oats` -> `node_fort_west` и `node_res_north` -> `node_fort_east` -> `node_mountain_north_alpine`; северо-восточный gateway к ресурсной зоне идет через `node_fort_east` -> `node_well_city`, без дороги через центральный замок;
+- западная ветка: `node_fort_west` -> `node_field_west_large` -> `node_swamp_black` -> `node_forest_dark` -> `node_mountain_west_alpine` -> `node_village_barn` -> `node_fort_southwest`;
+- восточная ветка: `node_well_city` -> `node_village_east_shed` -> `node_lake_mist` -> `node_field_east_large`; речная резиденция также выходит в `node_village_east_shed`, а холм - в `node_field_east_large`;
+- южная ветка: `node_spanish_magic` -> `node_science_barn` -> `node_forest_south_garden` -> `node_lake_south_pond`, с ребром `node_science_barn` -> `node_field_east_large`;
+- `node_well_city` соединен с `node_fort_east`, `node_village_east_shed` и `node_res_river`, а `node_mountain_gray` соединяет `node_village_barn` и `node_res_hill`; дорога `node_field_oats` -> `node_well_city` удалена, чтобы технические дороги карты не проходили через центральный замок и не пересекались.
 
 V1 edge cost defaults: короткое соседнее ребро стоит 1 MP, длинное поле/лес/гора - 2 MP, маршрут через гору или болото может иметь `terrain_tag` и требовать 2 MP даже при близком физическом расстоянии. Перед релизом edge costs уточняются по фактическому travel time, освещению и безопасности, но seed-граф выше уже считается каноном для лордской адаптации карты.
 
-У каждого лорда одна активная армия. Она стартует в резиденции. Каждые 30 минут сервер пополняет movement pool до cap, но не выше cap: движение не копится бесконечно и не превращается в рывок через всю карту. Передвижение тратит только MP. Бой сам по себе MP не тратит, поэтому после боя остаток движения сохраняется в пределах текущего capped pool.
+Принятый V1 UI-контракт карты:
+
+- `/lords/home` остается экраном замка/выбранной территории; большая карта открывается отдельным полноэкранным режимом из левой кнопки карты или нижней левой мини-карты.
+- Визуальная грамматика большой карты близка к Olden Era-like референсу: painted fantasy-over-real карта, верхняя строка ресурсов, нижняя левая мини-карта, правая вертикальная панель героя/действий, нижняя линия армии и тактические карточки поверх карты. Это только композиционная грамматика: production assets должны быть original/local/generated.
+- Карта больше экрана и панорамируется мышью/мини-картой; зум в первой версии фиксированный, чтобы hit-zones оставались предсказуемыми.
+- У каждого лорда ровно одна фигурка лошади/герой-армия. Несколько героев и отдельные разведчики не входят в V1.
+- Весь граф дорог и территорий виден лордам с начала игры. Туман местности не блокирует клики и route preview.
+- Скрываются только детали чужих армий, гарнизонов и отдельных эффектов: точный состав, количество, часть статусов и раскрытые модификаторы показываются только владельцу, мастеру или после разведки/магии/NPC-события.
+- UI выбирает самый дешевый путь по MP автоматически, показывает маршрут и стоимость, затем просит подтверждение.
+- Маршрут не проходит сквозь чужую или contested территорию: если кратчайший путь упирается в такую землю, лошадь останавливается на ней и запускает конфликт.
+- После подтверждения сервер создает `pending_move` с route, MP cost, start time и расчетным arrival time. Быстрая анимация лошади идет примерно 1 секунда на ребро; если вкладка закрылась или сеть моргнула, сервер автозавершает arrival по сохраненному времени.
+- Пока есть `pending_move`, лорд может смотреть и панорамировать карту, но не может начать новое движение или боевое действие этой армией.
+- При arrival на нейтральную или чужую территорию сразу создается `territory_claim` и prebattle/deployment; карта показывает боевой баннер.
+- 4 стартовые резиденции лордов являются raid-only зонами: их нельзя захватывать и нельзя выбирать целью обычного движения чужой лошади.
+- На карте V1 нет отдельных pickup-объектов, сундуков или ресурсов: интерактивны только территории, дороги, армии, разведданные, claims и overlays.
+
+V1 capturable territory catalog:
+
+| Игровое имя | Node ID | Физическая зона | Tier | Основной бонус | Garrison capacity |
+| --- | --- | --- | ---: | --- | ---: |
+| Северная Застава | `node_fort_east` | верхняя беседка | 2 | defense | 3 |
+| Западный Острог | `node_fort_west` | беседка у центрального дома | 2 | order / defense | 3 |
+| Южная Крепь | `node_fort_southwest` | нижняя левая беседка | 2 | defense | 3 |
+| Северные Овсы | `node_field_oats` | верхнее поле | 1 | gold | 2 |
+| Левобережные Пашни | `node_field_west_large` | большое левое поле | 1 | gold | 2 |
+| Правые Пашни | `node_field_east_large` | большое правое поле | 1 | recruit | 2 |
+| Сенной Посад | `node_village_barn` | сарай ниже центрального дома | 1 | order | 2 |
+| Восточная Слобода | `node_village_east_shed` | сарай справа от центрального дома | 1 | recruit | 2 |
+| Колодезный Торг | `node_well_city` | колодец | 2 | resource | 3 |
+| Чародейский Угол | `node_spanish_magic` | испанский уголок | 2 | magic | 3 |
+| Двухъярусная Мануфактура | `node_science_barn` | двухэтажный сарай | 2 | research | 3 |
+| Травничья Роща | `node_forest_dark` | ботанический сад + теплица | 2 | artifact | 3 |
+| Нижний Сад | `node_forest_south_garden` | садик справа внизу | 2 | hidden / artifact | 3 |
+| Зеркальный Пруд | `node_lake_mist` | бассейн | 1 | clue / special | 2 |
+| Лунная Заводь | `node_lake_south_pond` | правый нижний пруд | 1 | magic / clue | 2 |
+| Черная Топь | `node_swamp_black` | левый прудик/болото | 2 | raid_cover | 3 |
+| Северный Кряж | `node_mountain_north_alpine` | gameplay-северная горная зона | 3 | defense / rare | 4 |
+| Серый Дозор | `node_mountain_gray` | альпийская горка у колодца/центрального дома | 2 | visibility / rare | 3 |
+| Волчий Утес | `node_mountain_west_alpine` | альпийская горка слева/ниже центрального дома | 2 | defense / rare | 3 |
+
+Neutral defense V1 задается по тиру: T1 = patrol, T2 = guard/mage по бонусу территории, T3 = beast/elite. Индивидуальная ручная оборона каждой земли остается задачей контентной полировки, а не блокером первой карты.
+
+У каждого лорда одна активная армия. Она стартует в резиденции. Сервер пополняет movement pool раз в час до cap, но не выше cap: V1 default = cap `6`, refill `+3/hour`. Движение не копится бесконечно и не превращается в рывок через всю карту. Передвижение тратит только MP. Бой сам по себе MP не тратит, поэтому после боя остаток движения сохраняется в пределах текущего capped pool.
 
 Видимость карты:
 
 - мастер видит все узлы, владельцев, гарнизоны, claims, pending rewards и логи;
 - лорд видит владельца и основной тип бонуса всех территорий;
 - точный чужой гарнизон скрыт, пока его не раскроет разведка, магия, NPC-событие или мастерская процедура;
+- чужая лошадь/армия видна только в раскрытой и находящейся на экране области; без разведки тактическая карточка показывает почти ничего, кроме факта присутствия;
 - факт попытки захвата территории виден всем сразу как contested/in_battle состояние.
 
 ## Захват, гарнизоны и contested territories
 
-Захват происходит через активную армию. Лорд тратит MP на маршрут до соседнего или достижимого по weighted graph узла. Если цель нейтральная или чужая, первый валидный arrival создает `territory_claim` и блокирует параллельный захват этой территории до результата. Остальные лорды видят, что территория уже contested.
+Захват происходит через активную армию. Лорд тратит MP на маршрут до видимого достижимого по weighted graph узла. Если цель нейтральная или чужая, первый валидный arrival создает `territory_claim`, сразу открывает prebattle/deployment и блокирует параллельный захват этой территории до результата. Остальные лорды видят, что территория уже contested.
 
 Нейтральные территории защищены обороной тира 1-3. В отличие от авторасчета, нейтральный захват разыгрывается как короткий 5x6 бой против `neutral_defense_profile`. По умолчанию нейтральной стороной управляет серверный AI по простым deterministic правилам, но мастер может подключиться к бою и взять управление.
 
@@ -537,8 +579,8 @@ Default catalog v1 фиксирует именованное дерево, но 
 - `Barracks` - infantry/guard unlock и более стабильный базовый прирост найма; prerequisite: `Training Yard`;
 - `Archery Range` - ranged unlock/rate; prerequisite: `Training Yard`;
 - `Stables` - cavalry unlock/rate и мобильные отряды; prerequisite: `Barracks`;
-- `Siege Yard` - heavy/siege unlock/rate; prerequisite: `Barracks` + `Storehouse`;
-- `War Academy` - высокие tier unlocks, capacity, rate_per_hour и stock cap; prerequisite: `Archery Range` + `Stables` + `War Council`.
+- `Siege Yard` - heavy/siege unlock/rate; prerequisite: `Archery Range`;
+- `War Academy` - высокие tier unlocks, capacity, rate_per_hour и stock cap; prerequisite: `Siege Yard` + `War Council`.
 
 Казна:
 
@@ -553,7 +595,7 @@ Default catalog v1 фиксирует именованное дерево, но 
 - `Notice Board` - публичные заказы и базовая работа с исполнителями;
 - `Envoy Hall` - адресные заказы, дипломатия и договоренности; prerequisite: `Notice Board`;
 - `Map Room` - разведка, visibility и информация о карте; prerequisite: `Notice Board`;
-- `Raid Office` - raid tokens и базовые рейды по территориям; prerequisite: `Map Room` + `Barracks`;
+- `Raid Office` - raid tokens и базовые рейды по территориям; prerequisite: `Map Room` + `Stables`;
 - `War Council` - сильные рейды, политические операции и военная координация; prerequisite: `Envoy Hall` + `Raid Office`.
 
 Башня мага:

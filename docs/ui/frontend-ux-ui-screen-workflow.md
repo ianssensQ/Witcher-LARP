@@ -114,6 +114,13 @@ OpenRouter, если качество достаточно.
 или headless Chrome. Пользователь оценивает картинку, поэтому “сборка прошла”
 недостаточно.
 
+Если `vite build`/Vite prototype build на Windows падает внутри Codex sandbox
+с `Error: spawn EPERM` из `esbuild` при загрузке `vite.config.ts`, считать это
+ограничением sandbox на запуск дочернего процесса, а не ошибкой приложения или
+Vite-конфига. Нужно повторить ровно ту же команду с
+`sandbox_permissions: "require_escalated"` и коротким justification, затем в
+отчете указать оба факта: sandbox failure и результат escalated build.
+
 ## Правила ассетов
 
 - Не копировать официальный Witcher, Warcraft, Heroes или Gwent art.

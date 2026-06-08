@@ -8,14 +8,13 @@ Use this compact view for ordinary task orientation. `tasks.json` remains the ca
 - Total tasks in graph: 88
 - Active tasks shown here: 20
 - Done tasks hidden here: 68
-- In progress: 0
+- In progress: 1
 - Blocked: 0
-- Can start now / dependency-ready pending: 3
+- Can start now / dependency-ready pending: 2
 - Pending but waiting on dependencies: 17
 - Done dependency ids referenced by active tasks: 10
 
 Ready to start now:
-- `TASK-046` - Реализовать полноценный lord action UI
 - `TASK-047` - Реализовать mobile gameplay UI для ведьмаков и чародеек
 - `TASK-049` - Реализовать Admin paper recovery и correction forms
 
@@ -24,13 +23,9 @@ Done dependency ids referenced by active tasks:
 
 ## In Progress
 
-_No tasks._
-
-## Dependency Ready
-
 ### TASK-046 - Реализовать полноценный lord action UI
 
-- Status: `dependency-ready`
+- Status: `in_progress`
 - Priority: `P0`
 - Category: `frontend`
 - Stage: `STAGE-2B: Playable Role UI`
@@ -47,9 +42,9 @@ Scope:
 - Castle/territory home UI: full-screen painted background, top resource strip with total gold and +income/hour, left circular action dock with hover labels, bottom-left minimap, bottom-center hero army/garrison/accumulated-recruit frame, bottom-right act plaque plus MP arc and right-side owned territory bubbles
 - Selected territory state: background asset, local income, local garrison, accumulated recruit stock by unit card, local building tree, owner/contested locks and active hero-army location
 - Hero-not-here state: top army row is empty/locked when the active hero army is not in the selected territory; garrison and local recruit remain usable where allowed
-- Map/route UI for movement points, weighted route selection, active army location and contested claims
-- Illustrated lord venue map UI in fantasy strategy-map style: visible node/edge routes over venue_map_v1, route costs, lord/count hero-army movement graph, ownership, thematic fort, contested/garrison/raid overlays and printable fallback; lords do not use QR for movement
-- Venue map validation UI: venue_map_v1 nodes/edges, excluded old house/shed, owner/neutral/contested states, route costs and readable labels
+- Map/route UI for movement points, pan camera, territory click, cheapest route preview, pending horse move/arrival, active army location, enemy intel redaction and contested claims
+- Illustrated lord venue map UI in Olden Era-like fantasy strategy-map style: visible node/edge routes over venue_map_v1, route costs, one horse/hero-army marker per lord, `lord_map_layout` hit-zones, `lord_map_intel`, pending move read-only state, ownership, thematic fort, contested/garrison/raid overlays and printable fallback; lords do not use QR for movement
+- Venue map validation UI: venue_map_v1 nodes/edges, central active house with 4 raid-only residences, 19 capturable territories, excluded old house/shed, owner/neutral/contested states, route costs, enemy intel redaction and readable labels
 - Lord building tree screen opened from the left building icon: node graph/tree, prerequisite lines, clickable building cards, selected building detail panel, locked/unlocked/upgrade states, construction cost, required buildings and income/recruit/raid/order effects
 - Territory UI: every captured territory uses the same home interface with a different background, local income, garrison, recruit stock, building tree and fort/transfer metadata
 - Active army <-> territory fort transfer UI with validation messages, minimum-garrison rule, active battle/contested locks, active army capacity and fort capacity
@@ -63,9 +58,9 @@ Scope:
 - Four-lord browser smoke with simultaneous panels and restart persistence
 
 Acceptance:
-- A lord can complete login -> `/lords/home` -> switch territory -> recruit to garrison -> army/garrison transfer -> building tree -> raid/order -> map movement -> contested claim -> battle -> garrison flow from the browser panel
+- A lord can complete login -> `/lords/home` -> switch territory -> recruit to garrison -> army/garrison transfer -> building tree -> raid/order -> strategic map pan/click target -> route preview -> pending horse move/arrival -> contested claim -> battle -> garrison flow from the browser panel
 - `/lords/home` visually follows the accepted reference layout: minimap bottom-left, act plaque plus MP arc bottom-right, bottom-center army/garrison/recruit lanes and right-side territory bubbles
-- Lord map is visually and semantically valid: all playable nodes/edges, route costs, ownership, thematic forts, garrisons, contested locks and excluded areas match venue_map_v1
+- Lord map is visually and semantically valid: all playable nodes/edges, route costs, ownership, thematic forts, garrisons, enemy intel redaction, pending move/auto-arrival, contested locks and excluded areas match venue_map_v1 and accepted layout hit-zones
 - Lord building tree UI clearly shows available buildings, purchased buildings, prerequisites, upgrades, selected detail card and economy/recruit/raid effects in the approved Heroes-like original visual direction
 - Recruit cards show accumulated +X/hour and current stock, and recruit modal purchases to the selected territory garrison with cost and capacity validation
 - Lord battle board is visually distinct from personal PvP/Gwent while still readable as a table-like tactical surface
@@ -79,9 +74,9 @@ Test Steps:
 - Browser smoke: login with LORD-NORTH-R8K4 and invalid token; successful login lands on `/lords/home`, not on the strategic map
 - Run lord home visual audit: full-screen castle/territory background, top resource strip, left circular action dock, bottom-left minimap, bottom-center army/garrison/recruit lanes, bottom-right act/MP and right territory bubbles
 - Run selected territory audit: switch to another captured territory and verify background, income, garrison, recruit stock, building tree and hero-not-here top-lane lock
-- Run lord venue map audit from the panel: playable nodes/edges, excluded old house/shed, labels, route costs, owner/neutral/contested states, themed fort cards and garrison visibility; verify no QR anchors are used for lord movement
+- Run lord venue map audit from the panel: playable nodes/edges, central active house with 4 raid-only residences, 19 capturable territories, excluded old house/shed, labels, route costs, owner/neutral/contested states, enemy intel redaction, pending horse move/auto-arrival, themed fort cards and garrison visibility; verify no QR anchors are used for lord movement
 - Run lord building tree visual audit: building tree nodes/cards, prerequisite lines, detail card, locked/unlocked states, purchased state, effects and no copied third-party art
-- Run lord route/capture/fort garrison/army-garrison transfer/building/recruit/raid/order flow from panel controls
+- Run lord route/capture/fort garrison/army-garrison transfer/building/recruit/raid/order flow from panel controls, including full-graph route preview, pending move read-only state and reload arrival recovery
 - Run neutral lord battle with board actions and timeout/auto-resolve status visible
 - Open two lord panels for a lord-vs-lord battle and verify role-scoped visibility
 - Restart server and refresh panel state
@@ -91,12 +86,16 @@ Test Steps:
 Notes:
 
 Contract:
-Inputs: TASK-042 playable/authenticated lord runtime, TASK-067 visual/asset brief, lord panel shell, venue_map_v1/territory_forts seed and Stage 1 lord APIs.
-Outputs: Browser-playable lord panel for all release-critical lord actions and battles, with `/lords/home` as the first authenticated castle/selected-territory screen, validated illustrated lord map, thematic territory surfaces/forts, distinct lord battle board and building tree suitable for non-PvE gameplay testing.
-Implementation path: Extend FastAPI-served static HTML/CSS/JS unless architecture explicitly changes; use existing lord APIs rather than duplicating game logic in JS; render art as a data-bound layer over selected territory, venue_map_v1/territory_forts/building/unit IDs. Keep map and battlefield as separate screens opened from `/lords/home`.
-Interfaces: /api/lords/{lord_id}/state must expose selected territory, background asset, local income, total resources, act timer, MP, active hero-army location, army-lane lock reason, garrison slots, accumulated recruit stock rate/current_stock, building tree, owned territory bubbles and battle alerts. Mutations include move, garrisons/transfer, buildings, recruit, raids, orders, /api/lord-battles and role-token auth.
-Failure/review paths: Illegal or ambiguous actions show UI errors or route to master review; home/map/fort mismatch, unreadable critical state, unbound art hotspot, copied third-party asset or lord battle UI confused with personal Gwent blocks TASK-050; never fake success locally.
+Inputs: TASK-042 playable/authenticated lord runtime, TASK-067 visual/asset brief, lord panel shell, venue_map_v1/territory_forts/lord_map_layout/intel seed and Stage 1 lord APIs.
+Outputs: Browser-playable lord panel for all release-critical lord actions and battles, with `/lords/home` as the first authenticated castle/selected-territory screen, validated illustrated pan/full-graph/intel/route/horse lord map, thematic territory surfaces/forts, distinct lord battle board and building tree suitable for non-PvE gameplay testing.
+Implementation path: Extend FastAPI-served static HTML/CSS/JS unless architecture explicitly changes; use existing lord APIs rather than duplicating game logic in JS; render art as a data-bound layer over selected territory, venue_map_v1/territory_forts/building/unit IDs and use accepted layout hit-zones for map clicks. Keep map and battlefield as separate screens opened from `/lords/home`.
+Interfaces: /api/lords/{lord_id}/state must expose selected territory, background asset, local income, total resources, act timer, MP, active hero-army location, army-lane lock reason, garrison slots, accumulated recruit stock rate/current_stock, building tree, owned territory bubbles, battle alerts, lord_map_layout/intel and current pending_move when active. Mutations include move, garrisons/transfer, buildings, recruit, raids, orders, /api/lord-battles and role-token auth.
+Failure/review paths: Illegal or ambiguous actions show UI errors or route to master review; home/map/fort mismatch, unreadable critical state, unbound art hotspot, enemy detail leakage, lost pending move, copied third-party asset or lord battle UI confused with personal Gwent blocks TASK-050; never fake success locally.
 Required tests: Browser/panel contract tests, API regression tests, lord home visual audit, illustrated lord venue map audit, territory fort/transfer audit, building-tree visual audit, recruit-modal audit, lord battle board visual audit, four-panel smoke and restart persistence.
+Implemented scoped lord map hardening slice: pending movement, route guards, fort capacity, map background/pending UI; full TASK-046 remains open.
+
+
+## Dependency Ready
 
 ### TASK-047 - Реализовать mobile gameplay UI для ведьмаков и чародеек
 
@@ -110,29 +109,30 @@ Required tests: Browser/panel contract tests, API regression tests, lord home vi
 
 Goal:
 
-Довести Godot mobile shell до игрового приложения для QR/PvE, offline unlock, наград, инвентаря, заказов, торговли, репутации, зелий, магии, фаворитов и sync.
+Довести Godot mobile shell до общего игрового приложения для ведьмаков и чародеек V0: auto-connect, вход по коду, QR/PvE, offline unlock, награды, gear inventory, bag, Gwent deck, заказы, торговля, репутация, личные цели, Gwent entry и sync; чародейская магия/фавориты остаются future layer.
 
 Scope:
 - Character home: stats, level/XP, gold, descriptive Good/Evil reputation, known personal goals/goal_tracks/revealed final hooks and sync status
-- Connection/player-code flow with snapshot download, bundled fallback, saved server URL and device_id
+- Auto-connect/player-code flow with snapshot download, bundled fallback, saved/last-good server URL and device_id; manual server URL is hidden master/tech diagnostic, not normal player flow
 - Offline act unlock UI with master code entry and future-act blocked state
 - QR/manual ID UI with physical-presence confirmation, manual rate-limit, honesty review and QR mode instructions
 - PvE scene UI: hook, choices/checks, single_d20 roll log, modifiers, scene_hp, success/failure, cooldown and reward state
 - Pending reward approval UI: locked reward cannot be spent/traded/converted until server approval
-- Inventory/cards/items/artifacts view with visibility, rarity and locked/owned status
+- Split mobile asset sections: gear inventory for weapons/protection/equipment, bag for items/potions/artifacts/quest objects/locked rewards, and Gwent deck for cards/deck validity
 - Order board UI: public/addressed orders, accept, submit result, object conflict and escrow status
 - Trade transfer UI: request, accept/decline, pending lock and history in online zone
-- Sorceress UI: mana, spell casting, potion wholesale buy, potion transfer/sale/gift, favorite consent and alignment evidence
+- Sorceress V0 uses the same shared mobile flow as witchers with role skin/accent only; mana, spell casting, potion market, favorite consent, alignment evidence and locked magical intent are deferred future-layer UI
 - Event queue UI: pending/synced/sync_error/needs_master_review counts, retry, duplicate and readable failure states
 - Persistence across app restart and offline-first operation without losing queued events
 - Real-device mobile readiness: Android APK install/launch and iOS build/free provisioning install/launch, camera permission, successful physical QR camera scan, manual QR-ID fallback, local network access, snapshot download, restart persistence and sync retry
 
 Acceptance:
+- Normal player flow starts at code login after background auto-connect; players never manually enter the local server URL during gameplay
 - Witcher can log in, download/load snapshot, start QR/manual PvE, resolve single_d20 scene, see cooldown/reward result, restart offline and sync later without Swagger
-- Sorceress can use the same PvE flow plus mana/spells/potions/favorites from mobile UI
+- Sorceress can use the same shared mobile V0 flow as witcher, with distinct role skin/accent and no player-facing magic controls required for first acceptance
 - Future act content stays blocked until sync or valid master unlock code
 - Pending master approval, needs_master_review and sync_error remain visible and retryable without silent data loss
-- Inventory/order/trade UI respects locks and cannot spend or transfer unapproved/locked assets
+- Gear/bag/deck/order/trade UI respects locks and cannot equip, spend, deck-use, stake or transfer unapproved/locked assets
 - Witcher/sorceress location actions are driven by QR/manual physical-presence flows; an online map is not required for normal mobile acceptance
 - Godot desktop smoke passes before device smoke
 - Android APK installs and launches on a real Android device, can reach the local server, scan a physical QR through camera, use manual QR-ID fallback, download/load snapshot, preserve local state after restart and retry sync
@@ -140,15 +140,16 @@ Acceptance:
 - If Android or iOS device smoke cannot be completed, TASK-047 and TASK-050 remain blocked; this is no longer an acceptable Stage 2B launch-risk fallback
 
 Test Steps:
+- Godot/mobile UX smoke: launch app and verify the player-facing first screen is code login with connection/offline badge, not manual server URL entry
 - Godot desktop smoke: login WC-WOLF-6GF4, load snapshot, restart and verify persistence
 - Run QR-A1-K7Q2 manual PvE success, QR honesty negative and future-act blocked state from UI
 - Create offline pve_completed event, restart app, sync queue and verify accepted/pending/review states
 - Run QR/manual location smoke with physical-presence confirmation and verify the flow does not require an online map
 - Run order accept/submit and trade transfer accept/decline UI smoke in online zone
-- Run sorceress potion buy/transfer/use, spell cast and favorite consent UI smoke
+- Run sorceress shared mobile V0 smoke: auto-connect/login/snapshot, QR/manual PvE, gear/bag/deck, orders/trade/reputation, Gwent entry, restart/offline and sync; verify magic/favorite controls are not required in V0
 - Stop server and verify sync_error remains retryable
-- Build/install Android APK on a real Android phone and run launch -> local server connection -> snapshot -> restart persistence -> sync retry smoke
-- Build/install iOS app on a real iPhone via Xcode/free provisioning or chosen distribution path and run launch -> local server connection -> snapshot -> restart persistence -> sync retry smoke
+- Build/install Android APK on a real Android phone and run launch -> background auto-connect/local server reachable -> code login -> snapshot -> restart persistence -> sync retry smoke
+- Build/install iOS app on a real iPhone via Xcode/free provisioning or chosen distribution path and run launch -> background auto-connect/local server reachable -> code login -> snapshot -> restart persistence -> sync retry smoke
 - Verify camera permission, successful physical QR camera scan and manual QR-ID fallback behavior on both Android and iOS devices
 - uv run pytest tests/test_mobile_shell_contract.py tests/test_pve_runtime.py tests/test_sorceress_runtime.py -q
 - uv run python scripts/taskctl.py validate
@@ -156,12 +157,12 @@ Test Steps:
 Notes:
 
 Contract:
-Inputs: Stage 1 mobile shell, QR/PvE/event sync, reward approval, order/trade, reputation, sorceress runtime services and mobile export tooling.
-Outputs: Mobile gameplay UI for 5 witchers and 4 field-active sorceresses, proven on Godot desktop plus at least one real Android and one real iPhone before Stage 2B acceptance; online map viewing is not required for these roles.
-Implementation path: Keep Godot authoritative only for local/offline state and event logs; server remains authoritative for global state; QR/manual physical-presence confirmation is the location authority for witcher/sorceress actions.
-Interfaces: player_code/snapshot, QR/manual context, event_queue sync, reward approvals, trade/order/favorite/sorceress APIs, user:// persistence, Android APK export and iOS build/free provisioning path.
-Failure/review paths: Network failure preserves local events; rejected/review/locked states are shown and not deleted; missing Android/iOS smoke blocks TASK-047/TASK-050 rather than being deferred as launch risk; action without QR/manual physical-presence confirmation goes to review/blocked state.
-Required tests: Godot contract tests, runtime integration smoke, QR/manual location smoke, restart/offline persistence, Android device smoke and iOS device smoke.
+Inputs: Stage 1 mobile shell, QR/PvE/event sync, reward approval, order/trade, reputation, shared mobile UX flow in docs/ui/mobile-witcher-sorceress-shared-flow-v0.1.md and mobile export tooling.
+Outputs: Shared Mobile Adventurer V0 gameplay UI for 5 witchers and 4 field-active sorceresses, proven on Godot desktop plus at least one real Android and one real iPhone before Stage 2B acceptance; normal players start at code login after background auto-connect, online map viewing is not required for these roles, and sorceress-specific magic/favorite UI is deferred.
+Implementation path: Keep Godot authoritative only for local/offline state and event logs; server remains authoritative for global state; QR/manual physical-presence confirmation is the location authority for witcher/sorceress actions; use role skin/config rather than separate app flows for V0; split gear inventory, bag and Gwent deck instead of one generic inventory surface.
+Interfaces: background auto-connect, player_code/snapshot, QR/manual context, event_queue sync, reward approvals, gear/bag/deck, trade/order/player-state APIs, user:// persistence, Android APK export and iOS build/free provisioning path. Sorceress mana/spell/favorite endpoints remain future-layer UI dependencies, not TASK-047 V0 blockers.
+Failure/review paths: Network failure preserves local events; rejected/review/locked states are shown and not deleted; hidden diagnostic setup can repair server URL without exposing it as player gameplay; missing Android/iOS smoke blocks TASK-047/TASK-050 rather than being deferred as launch risk; action without QR/manual physical-presence confirmation goes to review/blocked state.
+Required tests: Godot contract tests, runtime integration smoke, QR/manual location smoke for witcher and sorceress skins, restart/offline persistence, Android device smoke and iOS device smoke.
 
 ### TASK-049 - Реализовать Admin paper recovery и correction forms
 
@@ -285,44 +286,44 @@ Required tests: Browser/mobile smoke, personal Gwent table visual audit, real-su
 - Stage: `STAGE-2B: Playable Role UI`
 - Stage gate: `False`
 - Dependencies:
-  - open: `TASK-046` (pending), `TASK-047` (pending), `TASK-048` (pending), `TASK-049` (pending)
+  - open: `TASK-046` (in_progress), `TASK-047` (pending), `TASK-048` (pending), `TASK-049` (pending)
   - done ids: `TASK-067`, `TASK-074`, `TASK-087`
 
 Goal:
 
-Перед Stage 2B gate прогнать задуманный gameplay без generated/full PvE content: телефоны iOS/Android, 4 лордские панели, personal Gwent, заказы/trade, магия/зелья/фавориты, Admin recovery и дефект-триаж.
+Перед Stage 2B gate прогнать задуманный gameplay без generated/full PvE content: телефоны iOS/Android, 4 лордские панели, personal Gwent, заказы/trade, общий mobile flow ведьмаков/чародеек, Admin recovery и дефект-триаж; магия/фавориты чародеек остаются future layer.
 
 Scope:
 - Real-device mobile readiness: Android APK and iOS build/free provisioning install, launch, local network, physical QR camera scan, manual QR-ID fallback, snapshot, restart persistence and sync retry
 - Evidence folder population under reports/stage2b/: device evidence, screenshot evidence, UI scripted-flow notes and defect triage
 - Four-lord browser readiness: 4 simultaneous `/lords/home` panels on local Wi-Fi or equivalent venue-like LAN, role-token isolation and scoped actions
-- Validated lord map readiness: illustrated venue_map_v1 labels/nodes/edges, excluded old house/shed, route costs, ownership, thematic forts, contested, garrison and raid states with no QR anchors for lord movement
+- Validated lord map readiness: illustrated venue_map_v1 labels/nodes/edges, central active house with 4 raid-only residences, 19 capturable territories, excluded old house/shed, route costs, enemy intel redaction, accepted layout hit-zones, pending move/auto-arrival, ownership, thematic forts, contested, garrison and raid states with no QR anchors for lord movement
 - Validated fort transfer readiness: active army <-> territory fort movement works from owned non-contested territory with capacity/minimum-garrison locks and readable UI
 - Visual hardening for reference surfaces: lord `/lords/home` castle/territory screen, bottom-left minimap, bottom-right act/MP, army/garrison/recruit lanes, building tree, thematic territory forts/backgrounds, lord battle board, personal Gwent table and lord venue map
-- Non-PvE scripted gameplay: orders, trade_transfers, inventory/card/asset locks, reputation visibility, personal PvP/Gwent, sorceress potions/spells/favorites/alignment and lord economy/route/battle/raid/order
+- Non-PvE scripted gameplay: orders, trade_transfers, gear/bag/deck/card/asset locks, reputation visibility, personal PvP/Gwent, shared witcher/sorceress mobile V0 flow and lord economy/route/battle/raid/order; sorceress magic/favorites are future-layer checks
 - Admin Studio support for the same run: acts/timers/review/correction/backup/NPC/final_summary and paper recovery drill
 - Outage/recovery drill: paper fallback is proven for at least one lord action or lord battle plus one PvP/trade/final evidence case
 - Defect triage: no unresolved P0/P1 and no P2 that blocks non-PvE player/lord gameplay; any P2/P3 has owner, severity and workaround
 
 Acceptance:
-- Android and iOS real-device smoke both pass; if either platform cannot install, launch, connect, snapshot, restart and retry sync, this task blocks TASK-050
+- Android and iOS real-device smoke both pass; if either platform cannot install, launch, background auto-connect/reach local server, code login, snapshot, restart and retry sync, this task blocks TASK-050
 - reports/stage2b/device-evidence.md, reports/stage2b/ui-flow-evidence.md, reports/stage2b/defects.md and reports/stage2b/screenshots/ are updated with the hardening run evidence
-- 4 lord panels can run simultaneously and complete `/lords/home` -> switch territory -> recruit to garrison -> army/garrison transfer -> building tree -> raid/order -> map route -> contested claim -> battle -> fort garrison without Swagger
-- Lord map is accepted as valid for gameplay testing: all relevant map states are visible, readable and consistent with venue_map_v1
+- 4 lord panels can run simultaneously and complete `/lords/home` -> switch territory -> recruit to garrison -> army/garrison transfer -> building tree -> raid/order -> strategic map pan/click target -> route preview -> pending horse move/arrival -> contested claim -> battle -> fort garrison without Swagger
+- Lord map is accepted as valid for gameplay testing: all relevant map states, enemy intel redaction, pending move/auto-arrival, battle banner and hit-zone bindings are visible, readable and consistent with venue_map_v1
 - Lord `/lords/home`, building tree, thematic territory forts/backgrounds, lord battle board, personal Gwent table and illustrated lord venue map pass screenshot/readability checks and use only original/local assets
 - Two-player personal PvP/Gwent runs end to end through two real mobile clients with stake lock/transfer, refusal/review edge case and idempotent finish
-- Witcher/sorceress non-PvE routes work through mobile UI: inventory, known goals/progress, order board, trade, reputation, potions, spells, favorites, sync/retry and locked/review states
+- Witcher/sorceress V0 routes work through mobile UI: gear inventory, bag, Gwent deck, known goals/progress, order board, trade, reputation, QR/PvE, Gwent entry, sync/retry and locked/review states; sorceress-specific magic/favorites are not required for V0 hardening
 - Admin Studio can support the non-PvE run without direct API/SQLite edits and can recover paper fallback without silent overwrite
 - No known unresolved P0/P1 or blocking P2 defect remains in non-PvE gameplay before TASK-050
 
 Test Steps:
-- Record device/build evidence for one Android phone and one iPhone: install path, launch, local server connection, snapshot, restart persistence, sync retry and QR/manual fallback
+- Record device/build evidence for one Android phone and one iPhone: install path, launch, background auto-connect/local server reachability, code login, snapshot, restart persistence, sync retry and QR/manual fallback
 - Record the hardening evidence in reports/stage2b/device-evidence.md, reports/stage2b/ui-flow-evidence.md, reports/stage2b/defects.md and reports/stage2b/screenshots/
-- Open 4 lord panels simultaneously and run `/lords/home`/territory switch/recruit/army-garrison transfer/building/raid/order/map route/capture/battle/fort garrison from UI controls
-- Run lord map audit from UI: venue_map_v1 nodes/edges, route costs, ownership, thematic forts, contested/garrison/raid states and excluded old house/shed; verify no QR anchors are part of lord movement
+- Open 4 lord panels simultaneously and run `/lords/home`/territory switch/recruit/army-garrison transfer/building/raid/order/strategic map route preview/pending horse move/capture/battle/fort garrison from UI controls
+- Run lord map audit from UI: venue_map_v1 nodes/edges, central active house with 4 raid-only residences, 19 capturable territories, route costs, ownership, enemy intel redaction, accepted layout hit-zones, pending move/auto-arrival, thematic forts, contested/garrison/raid states and excluded old house/shed; verify no QR anchors are part of lord movement
 - Run fort transfer smoke from UI: move an army unit card into a friendly territory fort, move it back to active army, then verify capacity/minimum-garrison/contested locks
 - Run visual reference screenshot pass on lord `/lords/home`, building tree, territory forts/backgrounds, lord battle board, personal Gwent table and lord map surfaces; check bottom-left minimap, bottom-right act/MP, readability, state labels and original asset policy
-- Run non-PvE mobile smoke: inventory/order/trade/reputation plus sorceress potion/spell/favorite/alignment evidence and sync/retry states
+- Run non-PvE mobile smoke: shared witcher/sorceress V0 gear/bag/deck/order/trade/reputation/QR/PvE/Gwent-entry plus sync/retry states; verify sorceress magic/favorite controls are deferred
 - Run personal PvP/Gwent from gameplay UI: challenge -> table/start -> deck/hand/rounds/pass -> finish/stake -> refusal/review
 - Run Admin support smoke: act/timer/review/correction/backup/NPC/final_summary plus paper_lord_action or paper_lord_battle and one PvP/trade/final recovery
 - Create defect list from the run and verify no unresolved P0/P1/blocking P2 remains
@@ -334,10 +335,10 @@ Notes:
 
 Contract:
 Inputs: TASK-046 lord UI, TASK-047 mobile gameplay UI, TASK-048 PvP/Gwent UI, TASK-067 visual/asset brief/prototype, TASK-049 Admin recovery UI, venue-like local network and at least one Android plus one iPhone.
-Outputs: Evidence under reports/stage2b/ that full non-PvE gameplay is testable as an application before generated PvE/content/balance stages, including visual/readability proof for `/lords/home`, building tree, forts/backgrounds, lord battle, personal Gwent and lord map surfaces.
+Outputs: Evidence under reports/stage2b/ that full non-PvE gameplay is testable as an application before generated PvE/content/balance stages, including visual/readability proof for `/lords/home`, building tree, forts/backgrounds, lord battle, personal Gwent and lord pan/full-graph/intel/route/horse map surfaces.
 Implementation path: Run a UI-first hardening script across mobile, lord panels and Admin Studio. Generated/full PvE content is out of scope, but seed QR/PvE smoke may be used only to prove mobile offline/sync/reward states. Store evidence permanently instead of relying on chat notes.
-Interfaces: Godot mobile, FastAPI/SQLite, static lord panels, Admin Studio, PvP/Gwent APIs, lord runtime APIs including `/lords/home`, selected territory, recruit stock, fort transfer, visual asset manifest, reports/stage2b/ evidence files and paper recovery services.
-Failure/review paths: Missing Android/iOS smoke, missing evidence files, broken lord home/map/fort transfer, copied third-party art, unreadable personal Gwent/lord home/lord map/lord battle/fort state, Gwent requiring Swagger, or any unresolved P0/P1/blocking P2 non-PvE defect blocks TASK-050. Paper fallback proves outage recovery only and cannot replace a missing normal UI.
+Interfaces: Godot mobile, FastAPI/SQLite, static lord panels, Admin Studio, PvP/Gwent APIs, lord runtime APIs including `/lords/home`, selected territory, recruit stock, fort transfer, lord_map_layout/intel/pending_move, visual asset manifest, reports/stage2b/ evidence files and paper recovery services.
+Failure/review paths: Missing Android/iOS smoke, missing evidence files, broken lord home/map/fort transfer, copied third-party art, unreadable personal Gwent/lord home/lord map/lord battle/fort state, broken intel redaction/pending move recovery, Gwent requiring Swagger, or any unresolved P0/P1/blocking P2 non-PvE defect blocks TASK-050. Paper fallback proves outage recovery only and cannot replace a missing normal UI.
 Required tests: Real-device smoke, visual screenshot pass, evidence file review, four-lord panel smoke, non-PvE scripted gameplay run, defect triage, pytest, TaskOS validate/doctor.
 
 ### TASK-050 - STAGE 2B GATE: playable role UI acceptance
@@ -348,7 +349,7 @@ Required tests: Real-device smoke, visual screenshot pass, evidence file review,
 - Stage: `STAGE-2B: Playable Role UI`
 - Stage gate: `True`
 - Dependencies:
-  - open: `TASK-046` (pending), `TASK-047` (pending), `TASK-048` (pending), `TASK-049` (pending), `TASK-058` (pending)
+  - open: `TASK-046` (in_progress), `TASK-047` (pending), `TASK-048` (pending), `TASK-049` (pending), `TASK-058` (pending)
   - done ids: `TASK-067`, `TASK-074`, `TASK-087`
 
 Goal:
@@ -359,14 +360,14 @@ Scope:
 - End-to-end UI smoke across Admin Studio, 4 lord panels and mobile gameplay UI
 - Review of Stage 2B blueprint/prototype/evidence artifacts: docs/ui/stage2b-*.md, prototype/Open Design artifact and reports/stage2b/
 - No-Swagger player/lord acceptance: normal gameplay uses app/panels only
-- Witcher UI flow: snapshot -> QR/manual PvE -> cooldown/reward approval -> sync -> inventory/order/trade visibility
-- Sorceress UI flow: PvE -> potion buy/transfer/use -> spell -> favorite consent -> locked magical intent evidence
-- Lord UI flow: `/lords/home` -> switch territory -> recruit to garrison -> army/garrison transfer -> building tree -> raid/order -> map route -> contested claim -> battle -> fort garrison
+- Witcher UI flow: app launch auto-connect -> code login -> snapshot -> QR/manual PvE -> cooldown/reward approval -> sync -> gear/bag/deck/order/trade visibility
+- Sorceress UI flow V0: app launch auto-connect -> code login -> same shared mobile route as witcher -> QR/PvE -> gear/bag/deck/orders/trade/reputation/sync -> Gwent entry; potion market/spells/favorites/locked intent are future-layer evidence
+- Lord UI flow: `/lords/home` -> switch territory -> recruit to garrison -> army/garrison transfer -> building tree -> raid/order -> strategic map pan/click visible target -> route preview -> pending horse move/arrival -> contested claim -> battle -> fort garrison
 - PvP/Gwent UI flow: challenge -> table/start -> hand/rounds/pass -> finish/stake -> refusal/review edge case
 - Visual acceptance flow: lord `/lords/home` castle/territory screen, bottom-left minimap, bottom-right act/MP, army/garrison/recruit lanes, building tree, thematic territory forts/backgrounds, illustrated lord venue map, lord battle board and personal Gwent table match TASK-067 reference grammar while remaining readable, distinct and IP-safe
 - Admin UI flow: act/timer/review/correction/backup/NPC/final summary plus paper recovery drill
-- Hard Android/iOS device gate: real-device install/launch/connect/physical-QR-scan/manual-fallback/snapshot/restart/sync evidence is required, not launch-risk fallback
-- Non-PvE gameplay readiness gate: lord map/economy/battle/raid/order, personal PvP/Gwent, trade/order/favorites/magic/reputation and Admin recovery/final_summary
+- Hard Android/iOS device gate: real-device install/launch/background-auto-connect/code-login/physical-QR-scan/manual-fallback/snapshot/restart/sync evidence is required, not launch-risk fallback
+- Non-PvE gameplay readiness gate: lord map/economy/battle/raid/order, personal PvP/Gwent, trade/order/reputation, shared mobile witcher/sorceress V0 and Admin recovery/final_summary
 - Restart/offline/retry smoke and browser/device evidence record
 - UI coverage checklist ready for Stage 3 generated quest tests, Stage 4 content smoke and Stage 5 rehearsal
 
@@ -375,9 +376,9 @@ Acceptance:
 - Stage 2B blueprint, API map, state matrix, visual acceptance prototype and evidence folder are complete enough that the user can visually accept the intended player/lord/master experience before Stage 3 begins
 - Players and lords can test core gameplay without Swagger, curl, raw API docs or SQLite edits
 - Android APK and iOS build both pass real-device smoke before acceptance; missing mobile platform proof blocks Stage 2B
-- 4 lord panels pass simultaneous smoke and `/lords/home` plus the lord map/fort transfer are visually/readably/semantically valid for gameplay testing
+- 4 lord panels pass simultaneous smoke and `/lords/home` plus the lord map/intel/pending-move/fort transfer are visually/readably/semantically valid for gameplay testing
 - Lord `/lords/home`, building tree, thematic territory forts/backgrounds, lord battle board, personal Gwent table and lord venue map pass screenshot/readability checks on target surfaces and use original/custom assets only
-- Personal PvP/Gwent on two real mobile clients, lord gameplay, trade/orders, sorceress magic/potions/favorites and Admin recovery all pass UI-first scripted smoke without generated/full PvE content
+- Personal PvP/Gwent on two real mobile clients, lord gameplay, trade/orders, shared witcher/sorceress mobile V0 and Admin recovery all pass UI-first scripted smoke without generated/full PvE content; sorceress magic/potions/favorites are future-layer checks
 - Master-only diagnostics remain available but are not counted as player/lord workflow acceptance
 - Visibility boundaries hold across mobile, lord panel and Admin Studio
 - Offline/retry/review/locked states are visible and recoverable
@@ -385,13 +386,13 @@ Acceptance:
 - No known unresolved P0/P1 or blocking P2 defect remains in non-PvE gameplay before Stage 3 begins; lower-severity issues have owner, severity and workaround
 
 Test Steps:
-- Run UI scripted flow: Admin import/snapshot/start act -> mobile QR/PvE -> sync/reward approval -> lord `/lords/home`/territory switch/recruit/army-garrison transfer/build/raid/order/map route/battle/fort garrison -> PvP/Gwent -> sorceress potion/spell/favorite -> paper recovery -> final_summary
+- Run UI scripted flow: Admin import/snapshot/start act -> shared mobile witcher/sorceress QR/PvE -> sync/reward approval -> lord `/lords/home`/territory switch/recruit/army-garrison transfer/build/raid/order/strategic map route preview/pending horse move/battle/fort garrison -> PvP/Gwent -> paper recovery -> final_summary
 - Review docs/ui/stage2b-screen-map.md, docs/ui/stage2b-flow-map.md, docs/ui/stage2b-api-map.md, docs/ui/stage2b-state-matrix.md, docs/ui/stage2b-visual-acceptance.md and reports/stage2b/ evidence before accepting the gate
 - Open 4 lord panels simultaneously and verify scoped state/actions
 - Run visual acceptance screenshots for lord `/lords/home`, building tree, thematic territory forts/backgrounds, lord battle board, personal Gwent table and illustrated lord venue map on target desktop/mobile surfaces
 - Run Android real-device smoke: install APK -> launch -> connect local server -> physical QR camera scan -> manual QR-ID fallback -> snapshot -> restart persistence -> sync retry
 - Run iOS real-device smoke: install build through chosen path -> launch -> connect local server -> physical QR camera scan -> manual QR-ID fallback -> snapshot -> restart persistence -> sync retry
-- Run dedicated non-PvE gameplay script: orders/trade/inventory/reputation -> sorceress potion/spell/favorite -> PvP/Gwent -> lord `/lords/home`/territory/economy/map/battle/raid/order -> Admin recovery/final_summary
+- Run dedicated non-PvE gameplay script: orders/trade/inventory/reputation -> shared witcher/sorceress mobile V0 -> PvP/Gwent -> lord `/lords/home`/territory/economy/map/battle/raid/order -> Admin recovery/final_summary
 - Verify no player/lord step in the acceptance script requires Swagger/API docs
 - Review TASK-058 defect list and verify no unresolved P0/P1/blocking P2 remains
 - Restart server and verify Admin/mobile/lord UI state survives
@@ -1047,7 +1048,7 @@ Scope:
 - PvP throttle report: pvp_tables, queued challenges, per-act mandatory match cap, normal/limited/paused modes and final lock behavior
 - 15-person full Gwent PvP volume report for 3 challenge tokens per act, including timeout/refusal/tie rates, stake transfer, table wait percentiles and over-25-minute rate
 - Trade_transfers conflict report: pending locks, double ownership prevention and order-object transfers
-- Lord weighted map movement, MP cap, route pressure, physical venue travel time, territory race and active army <-> fort transfer pressure
+- Lord full-graph map movement, MP cap/refill, route pressure, enemy intel redaction, pending arrival recovery, physical venue travel time, territory race and active army <-> fort transfer pressure
 - Lord order pressure with cap 2 public + 1 addressed and low witcher availability
 - Lord battle 5x6 unit balance, deployment hand, 60s timer/auto-resolve, hero HP formula, burned cards
 - Territory income, pending tick rewards, named building tree, Heroes-like `/lords/home`/building-tree branching depth and anti-snowball 30/50
@@ -1092,7 +1093,7 @@ Acceptance:
 - Rare/Legendary rewards have visibility, counterplay or cost and do not create a dominant strategy
 - Personal PvP soft cap keeps match pacing playable without automatic scene cutoff
 - Custom Gwent decks have readable row/special/leader distribution and no single card family creates a dominant or overlong match pattern
-- Lord venue map movement is playable without GPS/internet/QR: illustrated map, route costs, physical route assumptions and paper fallback all agree with runtime map data
+- Lord venue map movement is playable without GPS/internet/QR: illustrated map, accepted layout hit-zones, enemy intel redaction, pending move/arrival, route costs, physical route assumptions and paper fallback all agree with runtime map data
 
 Test Steps:
 - Run full Gwent/lord map/battle/raid/magic simulation fixtures
@@ -1123,7 +1124,7 @@ Notes:
 
 Contract:
 Inputs: Simulator, TASK-067 visual/asset brief, content pack, PvP/lord/magic/economy formulas and Stage 5 thresholds.
-Outputs: Combat/economy/magic balance reports and explicit go/no-go tuning decisions, including personal Gwent deck complexity, Heroes-like building tree playability, thematic fort transfer/capacity playability, distinct lord battle board readability and physical lord venue-map movement viability.
+Outputs: Combat/economy/magic balance reports and explicit go/no-go tuning decisions, including personal Gwent deck complexity, Heroes-like building tree playability, thematic fort transfer/capacity playability, distinct lord battle board readability and physical lord venue-map movement viability with full-graph/intel/pending arrival constraints.
 Implementation path: Reuse runtime formulas for Gwent, lord battles, fort transfers, raids, buildings, mana, potions, favorites and anti-snowball; treat visual tags as balance metadata only when they affect readability/choice speed.
 Interfaces: Reports: pvp_volume, table_wait_percentiles, over_25_min_matches, gwent_deck_complexity, trade_lock_conflicts, lord_economy, venue_map_playability, fort_transfer_pressure, building_tree_depth, unit_matchups, raid_value, magic_impact, rarity_exploits, visual_content_readability, final_timebox.
 Failure/review paths: If thresholds fail, record exact tuning knob and rerun; do not bury failures in narrative summary; if a visual treatment hides costs, locks, counters or route limits, tune UI/content before release.
@@ -1149,7 +1150,7 @@ Scope:
 - Physical act announcement rehearsal for Act 1/2/3/Final Act before unlock code reveal
 - QR honesty policy and single_d20/no-reroll check rehearsal
 - NPC-master split rehearsal: roleplay-first King/order/admin-review vs Wanderer/deals/field interventions with fallback overlap and buffer review
-- Scripted run across 3 story acts + final act, PvE cooldown, personal goals, sync, trade_transfers, order object conflict/interception, full Gwent PvP token/window, lord `/lords/home`/territory/recruit/garrison/building/map movement/capture/anti-snowball/raid/battle, potion economy, magic, locked magical intent, NPC, NPC-led final tournament/final_summary procedures
+- Scripted run across 3 story acts + final act, PvE cooldown, personal goals, sync, trade_transfers, order object conflict/interception, full Gwent PvP token/window, lord `/lords/home`/territory/recruit/garrison/building/strategic map movement/intel/pending arrival/capture/anti-snowball/raid/battle, potion economy, magic, locked magical intent, NPC, NPC-led final tournament/final_summary procedures
 - Order pressure, favorites impact, offline act unlock, reward approvals, full Gwent PvP volume/throttle, trade conflicts, locked magical intent and NPC-led final tournament/final_summary rehearsal
 - Final Act 7:30-9:30 timebox and master load plan rehearsal
 - Game-day ops checklist and player-facing handout rehearsal
@@ -1181,7 +1182,7 @@ Acceptance:
 Test Steps:
 - Run rehearsal on venue-like Wi-Fi
 - Check production profile during rehearsal: 4 lords, 4 hybrid sorceresses, 5 witchers, 2 NPC masters
-- Scripted run: registration/snapshot -> start Act 1 with physical announcement/buffer/Act 2 announcement/buffer/Act 3 announcement/final lock/final announcement -> offline act unlock code -> auto tick -> challenge tokens -> lord MP refill -> `/lords/home` -> switch territory -> accumulated recruit stock -> buy unit to garrison -> army/garrison transfer -> weighted route -> contested neutral capture -> neutral AI/master takeover battle -> fort garrison -> pending tick reward -> buy building with prerequisites -> anti-snowball 30/50 check -> raid debuff/loot -> QR/PvE single_d20/no-reroll + honesty policy -> failure cooldown 30 min -> pending reward approval -> personal_goals/goal_flags -> sync -> trade_transfers lock/accept -> digital order cap/race/object conflict -> full Gwent PvP token/30-minute PvP start window/PvP throttle/interception/timeout-refusal-tie/refusal-safety table -> lord battle 5x6 with 60s timer, auto-resolve and 6 unit-class fixture coverage -> paper_lord_action/paper_lord_battle recovery drill -> sorceress wholesale potion + spell + consent primary/secondary favorite -> locked magical intent -> artifact/plot key reveal -> roleplay-first King ruling/order/admin-review buffer -> Wanderer deal/field intervention -> NPC-led final tournament/final_summary evidence/export and Final Act load plan
+- Scripted run: registration/snapshot -> start Act 1 with physical announcement/buffer/Act 2 announcement/buffer/Act 3 announcement/final lock/final announcement -> offline act unlock code -> auto tick -> challenge tokens -> lord MP refill -> `/lords/home` -> switch territory -> accumulated recruit stock -> buy unit to garrison -> army/garrison transfer -> strategic map route preview -> pending horse arrival -> contested neutral capture -> neutral AI/master takeover battle -> fort garrison -> pending tick reward -> buy building with prerequisites -> anti-snowball 30/50 check -> raid debuff/loot -> QR/PvE single_d20/no-reroll + honesty policy -> failure cooldown 30 min -> pending reward approval -> personal_goals/goal_flags -> sync -> trade_transfers lock/accept -> digital order cap/race/object conflict -> full Gwent PvP token/30-minute PvP start window/PvP throttle/interception/timeout-refusal-tie/refusal-safety table -> lord battle 5x6 with 60s timer, auto-resolve and 6 unit-class fixture coverage -> paper_lord_action/paper_lord_battle recovery drill -> sorceress wholesale potion + spell + consent primary/secondary favorite -> locked magical intent -> artifact/plot key reveal -> roleplay-first King ruling/order/admin-review buffer -> Wanderer deal/field intervention -> NPC-led final tournament/final_summary evidence/export and Final Act load plan
 - Check fixed 10-hour pacing, 9 mobile role idle risk, order pressure, offline act unlock, reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact and NPC-master load
 - Backup/restore check
 - 4 lord panels simultaneous check

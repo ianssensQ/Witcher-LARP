@@ -47,6 +47,13 @@ runtime animation, OpenRouter as the default image-generation provider, and
 Figma MCP for design handoff/acceptance boards. Do not put technical labels,
 API notes or acceptance text into player-facing screens.
 
+When verifying Vite/React prototypes on Windows, `vite build` can fail inside
+the Codex filesystem sandbox with `Error: spawn EPERM` from esbuild while
+loading `vite.config.ts`. Treat this as a sandbox child-process restriction,
+not as an application or Vite config bug. Re-run the same build command with
+`sandbox_permissions: "require_escalated"` and a short justification; report
+both the sandbox failure and the escalated result.
+
 <!-- TASKOS:START -->
 ## Codex TaskOS Loop
 

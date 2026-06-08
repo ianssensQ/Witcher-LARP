@@ -2413,3 +2413,47 @@ Generated files refreshed:
 
 Next Dependency-Ready Pending Task:
 - TASK-046 - Реализовать полноценный lord action UI
+
+2026-06-06 21:44 +03:00 TASK-046 Claim
+-------------------------------------
+Task: TASK-046 - Реализовать полноценный lord action UI.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 37 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-06 22:16 +03:00 TASK-046 Released
+----------------------------------------
+Task: TASK-046 - Реализовать полноценный lord action UI.
+
+Released:
+- Implemented scoped lord map hardening slice: pending movement, route guards, fort capacity, map background/pending UI; full TASK-046 remains open.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md
+
+2026-06-06 22:40 +03:00 TASK-046 Claim
+-------------------------------------
+Task: TASK-046 - Реализовать полноценный lord action UI.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- worktree: 44 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md

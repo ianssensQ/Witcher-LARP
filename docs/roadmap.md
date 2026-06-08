@@ -50,7 +50,7 @@ Production profile для всех этапов: 15 человек всего, 1
 - physical act announcement seed: после запуска на сервере каждый акт явно объявляется голосом/криком на участке;
 - QR/manual ID seed: opaque non-guessable IDs, physical-presence-only правило и review path для suspected honesty violation;
 - single-d20 PvE checks: одна проверка = один app-generated d20, преимущества/помехи идут как логируемые modifiers, без ручного ввода и reroll;
-- venue map v1 seed: 4 резиденции в активном новом доме, excluded old house + adjacent shed, лордский weighted graph по крепостям, полям, деревням, городам ресурса/магии/науки, лесам, озерам, болоту и горам;
+- venue map v1 seed: 4 raid-only резиденции/замка лордов в центральном активном доме, no capturable central hub, optional technical route waypoints only where the strict adapted plot scheme needs them, excluded old house + adjacent shed, 19 capturable territories and lord weighted graph по крепостям, полям, деревням, городам ресурса/магии/науки, лесам, озерам, болоту и горам;
 - V0 balance defaults: XP thresholds, PvE DC by tier, reward budgets, lord economy defaults, lord HP formula, mana regen/costs;
 - rarity fields and caps in seed/runtime data: `Common/Uncommon/Rare/Legendary`, `power_budget`, `act_cap`, `visibility`, `counterplay`;
 - reward approval seed для cascade-prone offline rewards: `pending_master_approval`, `approved`, `corrected/rejected`;
@@ -99,7 +99,7 @@ Production profile для всех этапов: 15 человек всего, 1
 - unique/rare/order/final offline rewards уходят в pending master approval и не могут быть потрачены до подтверждения;
 - ведьмак/чародейка проходит QR/PvE на территории любого владельца;
 - лорд создает order, сервер держит escrow;
-- active army получает movement pool до cap, проходит weighted route и не копит MP выше cap;
+- active army получает movement pool до cap `6`, refill `+3/hour`, проходит weighted route по полному видимому графу участка и не копит MP выше cap;
 - первый arrival создает contested territory, факт захвата виден всем лордам;
 - нейтральная территория захватывается через 5x6 бой против server AI с возможностью master takeover;
 - победитель оставляет гарнизон, а income/influence tick и pending reward начисляются корректно;
@@ -235,7 +235,7 @@ Stage 2B starts with `TASK-045` only after the pre-stage remediation gate
   boundary и состояния offline/review/locked/error;
 - click-flow логика для всех ролей: "нажал -> клиент отправил/поставил в
   очередь -> backend/snapshot решил -> экран изменился";
-- `TASK-067` visual reference/asset brief: лордский `/lords/home` как полноэкранный замок/выбранная территория в логике референса Heroes-like, отдельное building-tree взаимодействие, thematic territory backgrounds/forts, нижняя левая мини-карта, нижняя центральная плашка армия/гарнизон/накопленный найм, нижняя правая плашка акта и MP, personal PvP/Gwent стол ведьмаков/чародеек в экранной грамматике Witcher 3 Gwent, визуально отдельный 5x6 lord battle board и карта участка как отдельная illustrated fantasy strategy map поверх лордского `venue_map_v1`; все production assets оригинальные/local/generated, без копирования официальных артов, логотипов и скриншотов;
+- `TASK-067` visual reference/asset brief: лордский `/lords/home` как полноэкранный замок/выбранная территория в логике референса Heroes-like, отдельное building-tree взаимодействие, thematic territory backgrounds/forts, нижняя левая мини-карта, нижняя центральная плашка армия/гарнизон/накопленный найм, нижняя правая плашка акта и MP, personal PvP/Gwent стол ведьмаков/чародеек в экранной грамматике Witcher 3 Gwent, визуально отдельный 5x6 lord battle board и карта участка как отдельная большая Olden Era-like illustrated fantasy strategy map поверх лордского `venue_map_v1` с pan camera, fully visible route graph, hidden enemy army/garrison details, tactical popups, route preview, horse marker animation and battle banner; все production assets оригинальные/local/generated, без копирования официальных артов, логотипов и скриншотов;
 - visual acceptance prototype до implementation UI-задач: `prototypes/stage2b/`
   или Open Design artifact плюс `docs/ui/stage2b-visual-acceptance.md`, чтобы
   пользователь мог визуально принять итоговую картинку экранов до реализации
@@ -244,13 +244,23 @@ Stage 2B starts with `TASK-045` only after the pre-stage remediation gate
   `visual_assets.csv` с source/owner/license_status/path/fallback/screenshot
   acceptance для замка/территорий `/lords/home`, фортов, карты, карт Gwent, юнитов и UI-ассетов;
 - no-Swagger acceptance rule: штатные player/lord действия принимаются только через app/panels, а Swagger/curl/manual API остаются developer diagnostics;
-- полноценный lord action UI: `/lords/home` как главный замок/выбранная территория с top resource strip, левым круговым action dock, мини-картой снизу слева, армией/гарнизоном/накопленным наймом снизу по центру, актом и MP снизу справа, переключением захваченных территорий справа, building tree для buildings, recruit modal, orders/escrow, raids; отдельная illustrated `venue_map_v1` открывается через кнопку карты и покрывает route/MP, contested claims, thematic forts, active army <-> fort transfer и переходы к 5x6 lord battle board;
-- mobile gameplay UI для ведьмаков и чародеек: персонаж, snapshot, QR/manual PvE на физических локациях, offline act unlock, single_d20, scene_hp, cooldown, reward approval, inventory, orders, trade, reputation, event_queue/sync; online-карта для этих ролей не является обязательной;
-- sorceress mobile UI: mana, spells, potion wholesale/transfer/use, favorite consent, alignment evidence and locked magical intent;
+- полноценный lord action UI: `/lords/home` как главный замок/выбранная территория с top resource strip, левым круговым action dock, мини-картой снизу слева, армией/гарнизоном/накопленным наймом снизу по центру, актом и MP снизу справа, переключением захваченных территорий справа, building tree для buildings, recruit modal, orders/escrow, raids; отдельная illustrated `venue_map_v1` открывается через кнопку карты и покрывает full route graph/MP, enemy intel redaction, pending move/auto-arrival, contested claims, thematic forts, active army <-> fort transfer и переходы к 5x6 lord battle board;
+- mobile gameplay UI для ведьмаков и чародеек V0: общий `Mobile Adventurer`
+  маршрут по `docs/ui/mobile-witcher-sorceress-shared-flow-v0.1.md` -
+  вход по коду после background auto-connect, персонаж, snapshot, QR/manual PvE
+  на физических локациях, offline act unlock, single_d20, scene_hp, cooldown,
+  reward approval, gear inventory, bag, Gwent deck, orders, trade, reputation,
+  event_queue/sync; online-карта для этих ролей не является обязательной;
+- sorceress mobile future layer: mana, spells, potion wholesale/transfer/use,
+  favorite consent, alignment evidence and locked magical intent после приемки
+  общего мобильного V0, а не blocker для первого mobile gameplay UI;
 - personal PvP/Gwent UI: challenge, pvp table/queue, deck/hand/mulligan, rows/pass/rounds, stake result, refusal/safety and review paths;
 - Admin paper recovery/correction forms for `paper_pve_result`, `paper_pvp_stake`, `paper_lord_action`, `paper_lord_battle`, `paper_order_resolution`, `paper_npc_deal` and `paper_final_evidence`;
 - hard Android/iOS device gate: APK/iOS build ставятся, запускаются, видят локальный сервер, сканируют физический QR камерой, имеют ручной QR-ID fallback, скачивают snapshot, переживают restart и retry sync на реальных телефонах;
-- non-PvE hardening (`TASK-058`): 4 лордские панели, валидная карта, personal Gwent, заказы/trade, магия/зелья/фавориты, Admin recovery/final_summary и дефект-триаж;
+- non-PvE hardening (`TASK-058`): 4 лордские панели, валидная карта, personal
+  Gwent, заказы/trade, общий witcher/sorceress mobile flow, Admin
+  recovery/final_summary и дефект-триаж; магия/зелья/фавориты проверяются позже
+  как future layer;
 - UI-first restart/offline/retry/review/locked-state smoke.
 
 Когда тестировать:
@@ -270,7 +280,8 @@ Stage 2B starts with `TASK-045` only after the pre-stage remediation gate
 
 Чем подтверждаем:
 
-- ведьмак проходит login/snapshot -> QR/manual PvE -> cooldown/reward approval -> restart/offline -> sync через мобильный UI;
+- ведьмак проходит app launch auto-connect -> login/snapshot -> QR/manual PvE
+  -> cooldown/reward approval -> restart/offline -> sync через мобильный UI;
 - `docs/ui/stage2b-screen-map.md`, `docs/ui/stage2b-flow-map.md`,
   `docs/ui/stage2b-api-map.md`, `docs/ui/stage2b-state-matrix.md`,
   `docs/ui/stage2b-visual-acceptance.md` и visual asset manifest заполнены до
@@ -283,10 +294,14 @@ Stage 2B starts with `TASK-045` only after the pre-stage remediation gate
   реализации, а `reports/stage2b/screenshots/` хранит принятые скриншоты;
 - `reports/stage2b/device-evidence.md`, `reports/stage2b/ui-flow-evidence.md`
   и `reports/stage2b/defects.md` заполняются во время `TASK-058`;
-- ведьмак проходит login/snapshot -> QR/manual PvE -> cooldown/reward approval -> restart/offline -> sync через мобильный UI;
-- чародейка проходит PvE плюс potion buy/transfer/use, spell, favorite consent and locked magical intent через мобильный UI;
+- ведьмак проходит app launch auto-connect -> login/snapshot -> QR/manual PvE
+  -> cooldown/reward approval -> restart/offline -> sync через мобильный UI;
+- чародейка проходит тот же mobile V0 flow, что и ведьмак: login/snapshot ->
+  QR/manual PvE -> cooldown/reward approval -> gear/bag/deck -> orders/trade
+  -> restart/offline -> sync; potion buy/transfer/use, spell, favorite consent
+  and locked magical intent остаются future-layer acceptance;
 - Android и iOS real-device smoke проходят до приемки, включая camera QR scan физического QR и ручной QR-ID fallback; отсутствие device smoke блокирует Stage 2B и не записывается как launch-risk fallback;
-- лорд проходит `/lords/home` -> switch territory -> recruit to garrison -> army/garrison transfer -> building tree -> raid -> order -> map route -> contested claim -> battle -> garrison через браузерную панель, а карта читаема и совпадает с `venue_map_v1`;
+- лорд проходит `/lords/home` -> switch territory -> recruit to garrison -> army/garrison transfer -> building tree -> raid -> order -> strategic map pan/click visible target -> route preview -> pending horse move/arrival -> contested claim -> battle -> garrison через браузерную панель, а карта читаема, совпадает с `venue_map_v1` и использует accepted layout/fog/hit-zone binding;
 - лордский `/lords/home` замок/территория, bottom-left minimap, bottom-right act/MP, army/garrison/recruit lanes, building tree, thematic territory forts/backgrounds, визуально отдельный lord battle board, personal Gwent table и illustrated lord venue map проходят screenshot/readability/IP-safe asset acceptance на целевых поверхностях;
 - два игрока проходят personal PvP/full Gwent через UI на двух реальных мобильных клиентах, включая stake, pass/rounds, refusal/review edge case and idempotent finish;
 - мастер вводит paper recovery/correction forms из Admin Studio, duplicate/conflict уходит в review без silent overwrite;

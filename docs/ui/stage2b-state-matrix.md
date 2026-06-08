@@ -21,49 +21,50 @@ Stage 2B. Состояния не должны быть спрятаны в Swag
 | `hidden data` | Данные существуют, но role не имеет права видеть | Показывать redacted/unknown/hidden label, не raw value | lord/player |
 | `final lock` | Финальный lock запрещает новые действия или меняет review route | Заблокировать новые PvP/orders/final intent where applicable, показать allowed recovery path | mobile, lord, Admin |
 | `paper outage only` | Нормальный UI/сеть недоступны | Включить инструкцию продолжения на бумаге; recovery только через Admin | lord, master |
+| `enemy_intel_redacted` | Точная чужая армия/гарнизон/эффект не раскрыты лорду | Разрешать движение по видимому графу, но показывать unknown/presence-only состояние без состава и скрытых чисел | lord map |
+| `pending_move` | Активная армия уже в server-authoritative движении по маршруту | Оставить карту доступной для просмотра, показать маршрут/arrival ETA, запретить новое движение и боевые действия этой армией | lord map |
+| `arrival_autocomplete` | Вкладка/сеть прервались, но сервер завершил pending move по сохраненному arrival time | При следующем state refresh показать итог arrival: новая позиция, списанный MP, claim/prebattle или обычное прибытие | lord map, Admin |
 
 ## Shared auth/sync state matrix
 
 | Screen | Success | Invalid input | Offline/error | Review/locked | Acceptance marker |
 | --- | --- | --- | --- | --- | --- |
-| `Shared1 Connection` | `/health` ok, route to login | malformed URL stays on screen | server unreachable, retry, keep last snapshot | none | wrong IP does not wipe local data |
-| `Shared2 Login` | valid code routes by role | invalid code/token message on same screen | auth unreachable keeps mobile offline data | forbidden scope shown without data leak | lord token cannot access other lord |
+| `Ops0 Connection Bootstrap` | `/health` ok, route to login | malformed setup URL stays in diagnostic | server unreachable, retry, keep last snapshot | none | wrong IP does not wipe local data; hidden from normal player flow |
+| `Shared2 Login` | valid code routes by role | invalid code/token message on same screen | auth unreachable keeps mobile offline data and shows compact offline/help badge | forbidden scope shown without data leak | player starts from code entry; lord token cannot access other lord |
 | `Shared3 Snapshot / Sync Queue` | snapshot saved or events synced | no player_code blocks sync | sync_error retryable | needs_master_review and locked reward counters visible | queued event survives restart |
 
-## Witcher mobile state matrix
+## Shared witcher/sorceress mobile state matrix
 
 | Screen | Success | Invalid input | Offline/error | Review/locked | Hidden/visibility |
 | --- | --- | --- | --- | --- | --- |
-| `W1 Home` | Character/resources/act visible | none | stale snapshot badge | final lock hint where relevant | exact reputation number hidden |
+| `W1 Home / Journal` | Character/resources/act/role skin visible for witcher or sorceress | none | stale snapshot badge | final lock hint where relevant | exact reputation number hidden |
 | `W2 QR / Manual ID` | valid QR opens presence screen | unknown code/manual rate limit stays here | can use snapshot offline | future act locked, cooldown | hidden future content not revealed |
 | `W3 Physical Presence` | confirmation starts scene | no QR context error | local context persists | honesty issue queues review | master review reason may be summarized |
 | `W4 PvE Scene` | one app d20 generated | second roll blocked | offline allowed | scene already rolled state | no editable d20 |
 | `W5 PvE Result` | success/failure shown | none | pending sync visible | locked reward, rejected, review, duplicate | master-only correction reason redacted if needed |
-| `W6 Inventory` | owned assets and use buttons visible | invalid use stays on screen | stale inventory marked | locked asset disables spend/trade/stake | lock internals hidden |
+| `W6A Gear Inventory` | owned weapons/protection/equipment and equip controls visible | invalid equip/use stays on screen | stale gear marked | locked gear disables equip/trade/stake | lock internals hidden |
+| `W6B Bag` | owned items/potions/artifacts/quest objects and use buttons visible | invalid use stays on screen | stale bag marked | locked asset disables spend/trade/stake | lock internals hidden |
+| `W6C Gwent Deck` | owned cards, selected leader/deck and validity visible | invalid deck action stays on screen | stale deck marked | locked card disables deck/PvP use | opponent hand/deck secrets hidden |
 | `W7 Orders` | accepted/submitted states visible | invalid object/order stays | online-only submit if server needed | object conflict/review | addressed orders scoped |
 | `W8 Trade` | accepted/declined/pending states | invalid recipient/asset/price stays | online-only; no offline trade | pending lock, contested_review | only participants see transfer |
 | `W9 Personal Goals` | known progress visible | none | stale snapshot | locked final hook label if revealed | hidden `goal_flags` absent |
 | `W10 Personal Gwent` | table/match/result visible | invalid stake/deck/action stays | online-only | queued, refusal, review, locked stake | opponent hidden hand rules respected |
+| `W11 Act Unlock` | valid master unlock opens act content already present in snapshot | invalid code stays on screen | can store local proof offline for later sync validation | rejected sync relocks future content | hidden future content stays redacted until unlock |
 
 ## Sorceress mobile state matrix
 
-| Screen | Success | Invalid input | Offline/error | Review/locked | Hidden/visibility |
-| --- | --- | --- | --- | --- | --- |
-| `Sorc1 Home` | mana/potions/favorites visible | none | stale state badge | final lock hint | exact hidden effects absent |
-| `Sorc2 Spell Catalog` | cast result/mana update | invalid target/insufficient mana | online action; stale catalog allowed read-only | needs_master_review for sensitive effect | effect visibility follows spell |
-| `Sorc3 Potion Market` | purchase updates inventory | insufficient gold/unavailable | online-only purchase | duplicate purchase result if idempotent | wholesale visible to sorceress |
-| `Sorc4 Potion Transfer` | pending/accepted transfer visible | invalid recipient/favorite target | online-only | pending lock/contested review | participant scoped |
-| `Sorc5 Favorites` | pending/accepted favorite | duplicate/cap/change-limit errors | online-only consent | pending consent | target sees request, not all sorceress data |
-| `Sorc6 Alignment Evidence` | evidence recorded | invalid evidence state | online-only | review route if sensitive | visibility field controls who sees it |
-| `Sorc7 Locked Magical Intent` | locked intent visible | invalid final target | online-only | after final lock can require review | master final summary sees full evidence |
+For V0, sorceress mobile state coverage is the shared `W1-W11` matrix above
+with a sorceress portrait/accent. `Sorc1-Sorc7` magic, potion market, favorites,
+alignment and locked intent states are future-layer acceptance, not blockers
+for the first shared mobile gameplay UI.
 
 ## Lord desktop state matrix
 
 | Screen | Success | Invalid input | Offline/error | Review/locked | Hidden/visibility |
 | --- | --- | --- | --- | --- | --- |
 | `L1 Castle / Territory Home` | scoped domain and selected territory visible | wrong token or unavailable territory blocked | refresh error keeps last visible state marked stale | active battle/raid/order alerts; selected territory can be contested | no other lord private state |
-| `L2 Illustrated Map` | nodes/edges/ownership/hero location visible | excluded node not selectable | browser/server error shows stale map | contested visible; no MP disables route submit | enemy garrisons hidden |
-| `L3 Move / Claim` | route applies, MP updates | invalid route/no MP stays | no move while server unreachable | battle required/contested | route costs visible |
+| `L2 Illustrated Map` | full nodes/edges/ownership/hero location visible; pan/minimap works | excluded node or foreign raid-only residence not selectable | browser/server error shows stale map; active pending_move stays read-only | contested visible; no MP disables route submit; pending_move disables new move/battle controls | enemy garrisons and exact army composition hidden by intel redaction |
+| `L3 Route Preview / Move / Claim` | route preview accepted, pending_move created, arrival result applies | invalid route/no MP/forbidden target stays | no new move while server unreachable; reload resumes pending or auto-completed arrival | battle required/contested/prebattle banner after neutral/enemy arrival | route costs visible for full graph; enemy/contested route stop is explicit |
 | `L4 Territory Detail` | local background, income, garrison, recruit and building state visible | unavailable/not-owned territory returns to last valid selection | stale territory marked | contested/battle lock; top active-army lane locked if hero is elsewhere | hidden enemy garrison redacted |
 | `L5 Army Transfer` | counts update | capacity/minimum/ownership/location errors | online-only | active battle lock; hero-not-here lock | only own units shown |
 | `L6 Building Tree` | purchased node/effects for selected location | missing prereq/insufficient gold | online-only buy | locked/unlocked/purchased | no hidden economy of others |

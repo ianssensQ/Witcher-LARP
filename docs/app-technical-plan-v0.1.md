@@ -31,10 +31,11 @@ Production profile текущей игры: 15 человек всего = 13 и
 - PvP refusal/safety table: активная сцена, safety stop, небезопасный путь, форс-мажор и перегруз столов переводят вызов в deferred/review, а не в автоматическое наказание;
 - PvP throttling: default 2 `pvp_tables`, queued challenges, max 2 started mandatory matches per player per act без master approval, режимы `normal/limited/paused` и запрет новых вызовов после final lock;
 - online-only `trade_transfers`: two confirmations, pending asset lock, atomic owner change, audit log;
-- venue map v1: 4 резиденции находятся в активном новом доме; старый дом и соседний сарай исключены из игры; лордский weighted graph использует беседки-крепости, поля, деревни-сараи, колодец-город ресурсодобычи, испанский уголок-город магии, двухэтажный сарай-город науки, леса, озера, болото и горы;
-- territory forts v1: каждая захватываемая территория имеет тематический форт с одной original/local/generated картинкой/карточкой, garrison capacity и transfer active army <-> fort, если активная армия находится на своей не-contested территории;
-- visual direction v1: `TASK-067` фиксирует IP-safe лордскую поверхность `/lords/home` как главный экран замка/выбранной территории, максимально близкий к принятому Heroes-like референсу: full-screen background, thin top resource strip, left circular action dock, bottom-left minimap, bottom-center active-army/garrison/recruit lanes, bottom-right act plaque and MP semicircle. Захваченные территории используют тот же UI с другим фоном, локальным доходом, гарнизоном, накопительным наймом и минимальным деревом построек; если герой-армия не в выбранной локации, верхняя линия армии пустая и locked. Отдельно остаются illustrated fantasy strategy map для лордского `venue_map_v1`, thematic territory forts/cards, Witcher 3 Gwent-like table grammar для личного PvP ведьмаков/чародеек и visually distinct 5x6 lord battle board; это layout/interaction references only, все production assets должны быть original/local/generated, без копирования официальных артов, логотипов, скриншотов или gallery images;
-- map tech rule: иллюстрированная карта участка является UI-слоем поверх `map_nodes`/`map_edges` и route costs для лордского графа перемещения героев/армий; лорды не используют QR, а QR/manual physical-presence confirmation относится к ведьмакам и чародейкам на локациях и не требует online-карты;
+- venue map v1: 4 резиденции/замка лордов находятся в центральном активном доме и являются raid-only зонами; центральный дом не является capturable territory, а optional route waypoints у дома/дорожек могут существовать только как технические узлы строгой схемы участка без владельца/гарнизона/дохода/боя; старый дом и соседний сарай исключены из игры; лордский weighted graph использует 19 capturable territories: беседки-крепости, поля, деревни-сараи, колодец-город ресурсодобычи, испанский уголок-город магии, двухэтажный сарай-город науки, леса, озера, болото и горы;
+- territory forts v1: каждая захватываемая территория имеет тематический форт с одной original/local/generated картинкой/карточкой, garrison capacity T1/T2/T3 = `2/3/4` и transfer active army <-> fort, если активная армия находится на своей не-contested территории;
+- visual direction v1: `TASK-067` фиксирует IP-safe лордскую поверхность `/lords/home` как главный экран замка/выбранной территории, максимально близкий к принятому Heroes-like референсу: full-screen background, thin top resource strip, left circular action dock, bottom-left minimap, bottom-center active-army/garrison/recruit lanes, bottom-right act plaque and MP semicircle. Захваченные территории используют тот же UI с другим фоном, локальным доходом, гарнизоном, накопительным наймом и минимальным деревом построек; если герой-армия не в выбранной локации, верхняя линия армии пустая и locked. Отдельно остается большая Olden Era-like illustrated fantasy strategy map для лордского `venue_map_v1`: панорамируемая painted fantasy-over-real карта по строгой адаптированной схеме участка, полностью видимый граф дорог/территорий, скрытые детали чужих армий/гарнизонов, bottom-left minimap, right hero/action rail, bottom army strip, tactical popups, click target -> shortest route preview -> confirm -> fast horse animation -> server-authoritative arrival. Также отдельно остаются thematic territory forts/cards, Witcher 3 Gwent-like table grammar для личного PvP ведьмаков/чародеек и visually distinct 5x6 lord battle board; это layout/interaction references only, все production assets должны быть original/local/generated, без копирования официальных артов, логотипов, скриншотов или gallery images;
+- map tech rule: иллюстрированная карта участка является UI-слоем поверх `map_nodes`/`map_edges`, `territories`, `territory_forts`, `movement_pools`, `pending_lord_moves`, `lord_map_intel` and route costs для лордского графа перемещения героев/армий; V1 MP defaults = cap `6`, refill `+3/hour`; лорды видят весь граф, но чужие army/garrison details редактируются по intel visibility; лорды не используют QR, GPS или интернет-зависимый tracking, а QR/manual physical-presence confirmation относится к ведьмакам и чародейкам на локациях и не требует online-карты;
+- lord map implementation order: подробный порядок внедрения seed topology -> layout manifest -> pending movement -> intel visibility -> browser map UI -> final art pass зафиксирован в `docs/lord-map-implementation-blueprint-v0.1.md`;
 - deterministic lord battle 5x6: `attack`, `defense`, `hp`, `initiative`, `move_range`, `attack_range`, `tier`, `unit_class`, damage `max(1, attack - defense + modifiers)`, 60s turn timer, auto-resolve;
 - lord battle appendix: V1 фиксирует `unit_power`, `deployed_army_power`, `domain_army_power`, partial stack wounds, deployment caps, line of sight, hero targeting, neutral AI priority and auto-resolve score;
 - lord defaults: старт `80g`, base income `25g/hour`, territory income T1/T2/T3 = `8/14/22g`, building cost T1/T2/T3/T4 = `40/75/120/180g`, lord HP `clamp(30 + floor(deployed_army_power / 10), 35, 70)`, anti-snowball `>=130%/-30%` и `>=170%/-50%`;
@@ -89,6 +90,8 @@ Production profile текущей игры: 15 человек всего = 13 и
 
 Клиент отвечает за:
 
+- background auto-connect к встроенному/saved/last-good локальному серверу без
+  ручного ввода адреса игроком в нормальном flow;
 - ввод `player_code`, скачивание snapshot и отображение персонажа;
 - локальное сохранение состояния в `user://`;
 - отображение известных personal_goals, goal_tracks, описательной репутации и скрытых от игрока final hooks только после раскрытия;
@@ -97,12 +100,27 @@ Production profile текущей игры: 15 человек всего = 13 и
 - ввод мастерского act unlock code/QR для открытия следующего акта вне Wi-Fi;
 - PvE-бои с QR modes `unique_object`, `repeatable_scene`, `always_available_scene`;
 - отображение locked/pending статуса для наград, которым нужен master approval;
+- раздельные разделы мобильного имущества: инвентарь/экипировка
+  (оружие, защита, активное снаряжение), сумка (предметы, зелья, артефакты,
+  квестовые объекты, locked rewards) и колода Гвинта;
 - фиксацию full Gwent PvP-вызовов и проведение матча в online-зоне;
 - trade transfer UI: создать, подтвердить, отклонить, увидеть pending lock;
-- favorite consent UI для чародеек и фаворитов;
+- общий V0 mobile flow для ведьмаков и чародеек без обязательных отдельных
+  magic/favorite screens; favorite consent UI включается позже вместе с
+  чародейским future layer;
 - локальную очередь событий `event_queue`;
 - синхронизацию с сервером, когда телефон снова оказался в домашнем Wi-Fi;
 - понятный статус: `offline`, `pending sync`, `synced`, `sync error`.
+
+Stage 2B mobile simplification: первая production-ориентированная реализация
+Godot UI для ведьмаков и чародеек использует общий экранный маршрут
+  `docs/ui/mobile-witcher-sorceress-shared-flow-v0.1.md`. Чародейки в этом V0
+отличаются ролью, портретом и визуальным акцентом, но не имеют player-facing
+заклинаний, отдельного рынка зелий, фаворитов, alignment evidence или locked
+magical intent controls. Эти механики остаются в runtime/content canon и
+возвращаются как future UI layer после приемки общего мобильного flow.
+Первый осознанный экран игрока в этом маршруте - вход по коду; экран ручного
+URL/IP подключения является скрытой мастерской/технической диагностикой.
 
 ### Локальный сервер
 
@@ -460,7 +478,7 @@ Sideloadly или аналогичные инструменты можно де�
 Дата последней локальной проверки: 2026-05-30. Локальная backend-часть
 готова для smoke-проверок. Для Stage 1 реальные телефоны, Mac/Xcode и Wi-Fi
 площадки могли оставаться launch-risk, но Stage 2B закрывает этот разрыв:
-Android/iOS install-launch-connect-snapshot-restart-sync должен быть доказан
+Android/iOS install-launch-auto-connect-code-login-snapshot-restart-sync должен быть доказан
 в `TASK-047`/`TASK-058`/`TASK-050`.
 
 Зафиксированный локальный контур:
@@ -518,15 +536,20 @@ Fallbacks:
 - 4 ноутбука лордов открывают веб-панель сервера;
 - iPhone и Android видят сервер в домашнем Wi-Fi;
 - Wi-Fi не изолирует клиентов друг от друга;
-- сервер доступен по IP и по QR-коду подключения;
+- сервер доступен по IP и по QR-коду подключения для мастерской/технической
+  настройки клиентов;
 - сеть выдерживает одновременную синхронизацию нескольких телефонов.
 
-Если нет доступа к настройкам роутера, в клиенте должен быть экран подключения:
+Если нет доступа к настройкам роутера, в клиенте должен быть скрытый
+мастерский/технический экран подключения, а не первый player-facing экран:
 
 - сканировать QR с адресом сервера;
 - вручную ввести IP;
 - показать статус соединения;
 - повторить попытку синхронизации.
+
+Обычный игрок при запуске видит вход по коду и короткий статус связи/offline
+snapshot; адрес сервера руками не вводит.
 
 ## Реализационный фокус
 
@@ -609,7 +632,7 @@ Core Game Engine должен закрыть:
 - reputation/NPC runtime: King/Wanderer events, deals, hidden prices, severity P0/P1/P2/P3;
 - NPC-led final tournament/final summary: evidence, missing locks, pending disputes, locked magical intent, personal hooks and export, without automatic winner calculation.
 
-Stage 2-5 remain important, but they build on this core: Admin Studio, pre-2B audit remediation (`TASK-087`), Playable Role UI (`TASK-050`), PvE generator, full content pack and balance/rehearsal. They should not reintroduce alternative MVP stages or move core runtime rules into "later balance". Playable Role UI must be accepted before generated PvE/content/balance gates are treated as app-level tests. Stage 2B acceptance is now the hard real-device/non-PvE gameplay gate: Android/iOS install-launch-connect-snapshot-restart-sync, 4 lord panels, valid lord map, personal Gwent, orders/trade, sorceress gameplay and Admin recovery must pass before Stage 3 starts.
+Stage 2-5 remain important, but they build on this core: Admin Studio, pre-2B audit remediation (`TASK-087`), Playable Role UI (`TASK-050`), PvE generator, full content pack and balance/rehearsal. They should not reintroduce alternative MVP stages or move core runtime rules into "later balance". Playable Role UI must be accepted before generated PvE/content/balance gates are treated as app-level tests. Stage 2B acceptance is now the hard real-device/non-PvE gameplay gate: Android/iOS install-launch-auto-connect-code-login-snapshot-restart-sync, 4 lord panels, valid lord map, personal Gwent, orders/trade, sorceress gameplay and Admin recovery must pass before Stage 3 starts.
 
 ## Тестирование и репетиция
 
@@ -617,7 +640,10 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, pre-2B au
 
 - Android APK устанавливается и запускается.
 - iOS-сборка ставится через Mac/Xcode/free provisioning.
-- Android и iOS видят локальный сервер, сканируют физический QR камерой, имеют ручной QR-ID fallback, скачивают snapshot, переживают restart и выполняют sync retry; отсутствие такой проверки блокирует Stage 2B.
+- Android и iOS auto-connect/reach локальный сервер, начинают normal flow с
+  входа по коду, сканируют физический QR камерой, имеют ручной QR-ID fallback,
+  скачивают snapshot, переживают restart и выполняют sync retry; отсутствие
+  такой проверки блокирует Stage 2B.
 - Приложение запускается после перезагрузки телефона.
 - Камера читает QR.
 - Есть ручной ввод QR-ID.
@@ -638,8 +664,14 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, pre-2B au
   coding is treated as accepted.
 - Мастер может вручную исправить спорное событие.
 - Бой PvE, личный PvP на двух реальных мобильных клиентах и бой лордов проходят от начала до конца.
-- После `TASK-050` PvE smoke, personal PvP/Gwent, лордские действия, магия/зелья/фавориты и paper recovery проходят через реальные UI-поверхности, а не через Swagger/manual API.
-- Перед `TASK-050` проходит отдельный non-PvE hardening script: orders/trade/inventory/reputation, sorceress potion/spell/favorite/alignment, PvP/Gwent, lord map/fort transfer/economy/battle/raid/order, Admin recovery/final_summary и дефект-триаж.
+- После `TASK-050` PvE smoke, personal PvP/Gwent, лордские действия, общий
+  witcher/sorceress mobile V0 и paper recovery проходят через реальные
+  UI-поверхности, а не через Swagger/manual API; магия/зелья/фавориты
+  чародеек остаются future-layer UI.
+- Перед `TASK-050` проходит отдельный non-PvE hardening script:
+  orders/trade/inventory/reputation, shared witcher/sorceress mobile V0,
+  PvP/Gwent, lord map/fort transfer/economy/battle/raid/order, Admin
+  recovery/final_summary и дефект-триаж.
 - `TASK-058` writes persistent evidence to `reports/stage2b/`: device evidence,
   UI-flow evidence, screenshot evidence and defect triage with owner/workaround.
 - Перед Stage 3 нет известных P0/P1 и блокирующих P2 дефектов в non-PvE gameplay; P2/P3 имеют owner, severity и workaround.
@@ -692,8 +724,9 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, pre-2B au
 Снижение риска:
 
 - проверить сеть до игры;
-- подключаться по IP/QR;
-- иметь возможность быстро сменить адрес сервера в клиентах;
+- мастер/техник настраивает подключение по IP/QR в скрытом diagnostic flow;
+- иметь возможность быстро сменить адрес сервера в клиентах без участия
+  игроков;
 - при критической проблеме вернуться к отдельной точке доступа как аварийному решению.
 
 ### Объем боев
