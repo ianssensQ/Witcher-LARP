@@ -12,6 +12,11 @@ mobile/builds/*.log
 reports/map-debug-crops/*
 !reports/map-debug-crops/lord-map-technical-overlay-v1.png
 !reports/map-debug-crops/lord-map-sparse-graph-v0.3-planar-no-castle-cut-overlay.png
+backend/witcher_larp/web/lord/assets/lord_map_generated_*.png
+backend/witcher_larp/web/lord/assets/lord_map_generated_*.json
+backend/witcher_larp/web/lord/assets/lord_map_playable_v1_holes*.png
+backend/witcher_larp/web/lord/assets/lord_map_playable_v1_holes.json
+backend/witcher_larp/web/lord/assets/generated/lord-map-v2.png
 .taskos.lock
 .codex-taskos-upstream/
 .test-data/

@@ -1,0 +1,1109 @@
+{
+  "layout_id": "venue_map_v3_playable_holes",
+  "version": 8,
+  "mode": "sparse_graph_v0_3_planar_no_castle_cut",
+  "art_asset": "assets/lord_map_playable_v1_display.webp",
+  "future_art_asset": "assets/lord_map_playable_v1_display.webp",
+  "canvas": {
+    "width": 9516,
+    "height": 5952
+  },
+  "viewport": {
+    "default_x": 0.5,
+    "default_y": 0.54,
+    "mobile_zoom": 0.48,
+    "desktop_zoom": 0.58,
+    "min_zoom": 0.36,
+    "max_zoom": 1.0
+  },
+  "visibility": {
+    "graph_visible": true,
+    "territory_owner_visible": true,
+    "svg_edges_visible": false,
+    "svg_node_markers_visible": false,
+    "central_house_overlay_visible": false,
+    "socket_rims_visible": true,
+    "enemy_army_policy": "hidden_until_intel",
+    "enemy_garrison_policy": "details_hidden_until_intel"
+  },
+  "central_house": {
+    "id": "central_active_house",
+    "x": 3852,
+    "y": 2100,
+    "w": 1860,
+    "h": 1380,
+    "ui_target": false,
+    "note": "Lord residences are rooms inside this house; the house is not capturable."
+  },
+  "nodes": {
+    "node_res_north": {
+      "x": 4239,
+      "y": 2446,
+      "label_anchor": {
+        "x": 4239,
+        "y": 2290
+      },
+      "marker_anchor": {
+        "x": 4239,
+        "y": 2422
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 4239,
+        "cy": 2446,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "residence",
+      "ownership_socket": {
+        "cx": 4239,
+        "cy": 2446,
+        "r": 102
+      }
+    },
+    "node_res_river": {
+      "x": 4867,
+      "y": 2330,
+      "label_anchor": {
+        "x": 4867,
+        "y": 2174
+      },
+      "marker_anchor": {
+        "x": 4867,
+        "y": 2306
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 4867,
+        "cy": 2330,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "residence",
+      "ownership_socket": {
+        "cx": 4867,
+        "cy": 2330,
+        "r": 102
+      }
+    },
+    "node_res_forest": {
+      "x": 4267,
+      "y": 2866,
+      "label_anchor": {
+        "x": 4267,
+        "y": 3118
+      },
+      "marker_anchor": {
+        "x": 4267,
+        "y": 2842
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 4267,
+        "cy": 2866,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "residence",
+      "ownership_socket": {
+        "cx": 4267,
+        "cy": 2866,
+        "r": 102
+      }
+    },
+    "node_res_hill": {
+      "x": 5329,
+      "y": 2908,
+      "label_anchor": {
+        "x": 5329,
+        "y": 3160
+      },
+      "marker_anchor": {
+        "x": 5329,
+        "y": 2884
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 5329,
+        "cy": 2908,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "residence",
+      "ownership_socket": {
+        "cx": 5329,
+        "cy": 2908,
+        "r": 102
+      }
+    },
+    "node_fort_east": {
+      "x": 4560,
+      "y": 1269,
+      "label_anchor": {
+        "x": 4560,
+        "y": 1053
+      },
+      "marker_anchor": {
+        "x": 4560,
+        "y": 1245
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 4560,
+        "cy": 1269,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 4560,
+        "cy": 1269,
+        "r": 102
+      }
+    },
+    "node_fort_west": {
+      "x": 1981,
+      "y": 2595,
+      "label_anchor": {
+        "x": 1981,
+        "y": 2379
+      },
+      "marker_anchor": {
+        "x": 1981,
+        "y": 2571
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 1981,
+        "cy": 2595,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 1981,
+        "cy": 2595,
+        "r": 102
+      }
+    },
+    "node_fort_southwest": {
+      "x": 3524,
+      "y": 3732,
+      "label_anchor": {
+        "x": 3524,
+        "y": 3516
+      },
+      "marker_anchor": {
+        "x": 3524,
+        "y": 3708
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 3524,
+        "cy": 3732,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 3524,
+        "cy": 3732,
+        "r": 102
+      }
+    },
+    "node_field_oats": {
+      "x": 2861,
+      "y": 1621,
+      "label_anchor": {
+        "x": 2861,
+        "y": 1405
+      },
+      "marker_anchor": {
+        "x": 2861,
+        "y": 1597
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 2861,
+        "cy": 1621,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 2861,
+        "cy": 1621,
+        "r": 102
+      }
+    },
+    "node_field_west_large": {
+      "x": 1118,
+      "y": 1408,
+      "label_anchor": {
+        "x": 1118,
+        "y": 1192
+      },
+      "marker_anchor": {
+        "x": 1118,
+        "y": 1384
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 1118,
+        "cy": 1408,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 1118,
+        "cy": 1408,
+        "r": 102
+      }
+    },
+    "node_field_east_large": {
+      "x": 6978,
+      "y": 3591,
+      "label_anchor": {
+        "x": 6978,
+        "y": 3339
+      },
+      "marker_anchor": {
+        "x": 6978,
+        "y": 3567
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 6978,
+        "cy": 3591,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 6978,
+        "cy": 3591,
+        "r": 102
+      }
+    },
+    "node_village_barn": {
+      "x": 4918,
+      "y": 3889,
+      "label_anchor": {
+        "x": 4918,
+        "y": 3673
+      },
+      "marker_anchor": {
+        "x": 4918,
+        "y": 3865
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 4918,
+        "cy": 3889,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 4918,
+        "cy": 3889,
+        "r": 102
+      }
+    },
+    "node_village_east_shed": {
+      "x": 7100,
+      "y": 2700,
+      "label_anchor": {
+        "x": 7100,
+        "y": 2484
+      },
+      "marker_anchor": {
+        "x": 7100,
+        "y": 2676
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 7100,
+        "cy": 2700,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 7100,
+        "cy": 2700,
+        "r": 102
+      }
+    },
+    "node_well_city": {
+      "x": 6752,
+      "y": 1687,
+      "label_anchor": {
+        "x": 6752,
+        "y": 1471
+      },
+      "marker_anchor": {
+        "x": 6752,
+        "y": 1663
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 6752,
+        "cy": 1687,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 6752,
+        "cy": 1687,
+        "r": 102
+      }
+    },
+    "node_spanish_magic": {
+      "x": 4895,
+      "y": 5623,
+      "label_anchor": {
+        "x": 4895,
+        "y": 5359
+      },
+      "marker_anchor": {
+        "x": 4895,
+        "y": 5599
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 4895,
+        "cy": 5623,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 4895,
+        "cy": 5623,
+        "r": 102
+      }
+    },
+    "node_science_barn": {
+      "x": 5790,
+      "y": 5131,
+      "label_anchor": {
+        "x": 5790,
+        "y": 4867
+      },
+      "marker_anchor": {
+        "x": 5790,
+        "y": 5107
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 5790,
+        "cy": 5131,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 5790,
+        "cy": 5131,
+        "r": 102
+      }
+    },
+    "node_forest_dark": {
+      "x": 1319,
+      "y": 4952,
+      "label_anchor": {
+        "x": 1319,
+        "y": 5216
+      },
+      "marker_anchor": {
+        "x": 1319,
+        "y": 4928
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 1319,
+        "cy": 4952,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 1319,
+        "cy": 4952,
+        "r": 102
+      }
+    },
+    "node_forest_south_garden": {
+      "x": 8933,
+      "y": 5060,
+      "label_anchor": {
+        "x": 8753,
+        "y": 4796
+      },
+      "marker_anchor": {
+        "x": 8933,
+        "y": 5036
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 8933,
+        "cy": 5060,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 8933,
+        "cy": 5060,
+        "r": 102
+      }
+    },
+    "node_lake_mist": {
+      "x": 7708,
+      "y": 2398,
+      "label_anchor": {
+        "x": 7708,
+        "y": 2182
+      },
+      "marker_anchor": {
+        "x": 7708,
+        "y": 2374
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 7708,
+        "cy": 2398,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 7708,
+        "cy": 2398,
+        "r": 102
+      }
+    },
+    "node_lake_south_pond": {
+      "x": 8286,
+      "y": 5631,
+      "label_anchor": {
+        "x": 8286,
+        "y": 5367
+      },
+      "marker_anchor": {
+        "x": 8286,
+        "y": 5607
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 8286,
+        "cy": 5631,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 8286,
+        "cy": 5631,
+        "r": 102
+      }
+    },
+    "node_swamp_black": {
+      "x": 1613,
+      "y": 4177,
+      "label_anchor": {
+        "x": 1613,
+        "y": 3925
+      },
+      "marker_anchor": {
+        "x": 1613,
+        "y": 4153
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 1613,
+        "cy": 4177,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 1613,
+        "cy": 4177,
+        "r": 102
+      }
+    },
+    "node_mountain_north_alpine": {
+      "x": 5880,
+      "y": 1320,
+      "label_anchor": {
+        "x": 5880,
+        "y": 1104
+      },
+      "marker_anchor": {
+        "x": 5880,
+        "y": 1296
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 5880,
+        "cy": 1320,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 5880,
+        "cy": 1320,
+        "r": 102
+      }
+    },
+    "node_mountain_gray": {
+      "x": 5900,
+      "y": 3320,
+      "label_anchor": {
+        "x": 5900,
+        "y": 3104
+      },
+      "marker_anchor": {
+        "x": 5900,
+        "y": 3296
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 5900,
+        "cy": 3320,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 5900,
+        "cy": 3320,
+        "r": 102
+      }
+    },
+    "node_mountain_west_alpine": {
+      "x": 4235,
+      "y": 5091,
+      "label_anchor": {
+        "x": 4235,
+        "y": 4875
+      },
+      "marker_anchor": {
+        "x": 4235,
+        "y": 5067
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 4235,
+        "cy": 5091,
+        "r": 144
+      },
+      "ui_target": true,
+      "layer": "territory",
+      "ownership_socket": {
+        "cx": 4235,
+        "cy": 5091,
+        "r": 102
+      }
+    },
+    "node_old_house": {
+      "x": 1272,
+      "y": 1170,
+      "label_anchor": {
+        "x": 1272,
+        "y": 942
+      },
+      "marker_anchor": {
+        "x": 1272,
+        "y": 1146
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 1272,
+        "cy": 1170,
+        "r": 120
+      },
+      "ui_target": false,
+      "layer": "excluded"
+    },
+    "node_adjacent_shed": {
+      "x": 5550,
+      "y": 2700,
+      "label_anchor": {
+        "x": 5790,
+        "y": 2880
+      },
+      "marker_anchor": {
+        "x": 5550,
+        "y": 2676
+      },
+      "hit_zone": {
+        "type": "circle",
+        "cx": 5550,
+        "cy": 2700,
+        "r": 120
+      },
+      "ui_target": false,
+      "layer": "excluded"
+    }
+  },
+  "edges": {
+    "edge_north_field": {
+      "points": [
+        [
+          4239,
+          2446
+        ],
+        [
+          3632,
+          1896
+        ],
+        [
+          2861,
+          1621
+        ]
+      ]
+    },
+    "edge_north_fort_east": {
+      "points": [
+        [
+          4239,
+          2446
+        ],
+        [
+          4400,
+          1900
+        ],
+        [
+          4560,
+          1269
+        ]
+      ]
+    },
+    "edge_fort_east_mountain_north": {
+      "points": [
+        [
+          4560,
+          1269
+        ],
+        [
+          5215,
+          1426
+        ],
+        [
+          5880,
+          1320
+        ]
+      ]
+    },
+    "edge_fort_west_field_north": {
+      "points": [
+        [
+          1981,
+          2595
+        ],
+        [
+          2324,
+          2020
+        ],
+        [
+          2861,
+          1621
+        ]
+      ]
+    },
+    "edge_fort_west_field_west": {
+      "points": [
+        [
+          1981,
+          2595
+        ],
+        [
+          1668,
+          1915
+        ],
+        [
+          1118,
+          1408
+        ]
+      ]
+    },
+    "edge_fort_west_fort_east": {
+      "points": [
+        [
+          1981,
+          2595
+        ],
+        [
+          1700,
+          900
+        ],
+        [
+          3500,
+          350
+        ],
+        [
+          4500,
+          850
+        ],
+        [
+          4560,
+          1269
+        ]
+      ]
+    },
+    "edge_field_west_forest_dark": {
+      "points": [
+        [
+          1118,
+          1408
+        ],
+        [
+          899,
+          3198
+        ],
+        [
+          1319,
+          4952
+        ]
+      ]
+    },
+    "edge_swamp_forest_west": {
+      "points": [
+        [
+          1613,
+          4177
+        ],
+        [
+          1544,
+          4594
+        ],
+        [
+          1319,
+          4952
+        ]
+      ]
+    },
+    "edge_swamp_fort_southwest": {
+      "points": [
+        [
+          1613,
+          4177
+        ],
+        [
+          2613,
+          4146
+        ],
+        [
+          3524,
+          3732
+        ]
+      ]
+    },
+    "edge_forest_fort_southwest": {
+      "points": [
+        [
+          4267,
+          2866
+        ],
+        [
+          3982,
+          3373
+        ],
+        [
+          3524,
+          3732
+        ]
+      ]
+    },
+    "edge_fort_southwest_mountain_west": {
+      "points": [
+        [
+          3524,
+          3732
+        ],
+        [
+          3744,
+          4483
+        ],
+        [
+          4235,
+          5091
+        ]
+      ]
+    },
+    "edge_forest_village": {
+      "points": [
+        [
+          4267,
+          2866
+        ],
+        [
+          4695,
+          3312
+        ],
+        [
+          4918,
+          3889
+        ]
+      ]
+    },
+    "edge_village_magic": {
+      "points": [
+        [
+          4918,
+          3889
+        ],
+        [
+          4733,
+          4754
+        ],
+        [
+          4895,
+          5623
+        ]
+      ]
+    },
+    "edge_village_mountain_gray": {
+      "points": [
+        [
+          4918,
+          3889
+        ],
+        [
+          5400,
+          3850
+        ],
+        [
+          5900,
+          3320
+        ]
+      ]
+    },
+    "edge_magic_science": {
+      "points": [
+        [
+          4895,
+          5623
+        ],
+        [
+          5392,
+          5466
+        ],
+        [
+          5790,
+          5131
+        ]
+      ]
+    },
+    "edge_science_forest_south": {
+      "points": [
+        [
+          5790,
+          5131
+        ],
+        [
+          7354,
+          4781
+        ],
+        [
+          8933,
+          5060
+        ]
+      ]
+    },
+    "edge_forest_south_lake_south": {
+      "points": [
+        [
+          8933,
+          5060
+        ],
+        [
+          8552,
+          5281
+        ],
+        [
+          8286,
+          5631
+        ]
+      ]
+    },
+    "edge_field_east_science": {
+      "points": [
+        [
+          6978,
+          3591
+        ],
+        [
+          6750,
+          4300
+        ],
+        [
+          6200,
+          4900
+        ],
+        [
+          5790,
+          5131
+        ]
+      ]
+    },
+    "edge_hill_field_east": {
+      "points": [
+        [
+          5329,
+          2908
+        ],
+        [
+          6200,
+          2600
+        ],
+        [
+          7200,
+          3000
+        ],
+        [
+          6978,
+          3591
+        ]
+      ]
+    },
+    "edge_hill_mountain": {
+      "points": [
+        [
+          5329,
+          2908
+        ],
+        [
+          5600,
+          3100
+        ],
+        [
+          5900,
+          3320
+        ]
+      ]
+    },
+    "edge_village_east_well": {
+      "points": [
+        [
+          7100,
+          2700
+        ],
+        [
+          7050,
+          2200
+        ],
+        [
+          6900,
+          1900
+        ],
+        [
+          6752,
+          1687
+        ]
+      ]
+    },
+    "edge_village_east_lake": {
+      "points": [
+        [
+          7100,
+          2700
+        ],
+        [
+          7350,
+          2600
+        ],
+        [
+          7708,
+          2398
+        ]
+      ]
+    },
+    "edge_lake_field_east": {
+      "points": [
+        [
+          7708,
+          2398
+        ],
+        [
+          7600,
+          3100
+        ],
+        [
+          7250,
+          3400
+        ],
+        [
+          6978,
+          3591
+        ]
+      ]
+    },
+    "edge_river_well": {
+      "points": [
+        [
+          4867,
+          2330
+        ],
+        [
+          5600,
+          1850
+        ],
+        [
+          6400,
+          1650
+        ],
+        [
+          6752,
+          1687
+        ]
+      ]
+    },
+    "edge_river_village_east": {
+      "points": [
+        [
+          4867,
+          2330
+        ],
+        [
+          5600,
+          2500
+        ],
+        [
+          6900,
+          2500
+        ],
+        [
+          7100,
+          2700
+        ]
+      ]
+    },
+    "edge_fort_east_well": {
+      "points": [
+        [
+          4560,
+          1269
+        ],
+        [
+          5200,
+          1100
+        ],
+        [
+          6500,
+          1300
+        ],
+        [
+          6752,
+          1687
+        ]
+      ]
+    }
+  }
+}

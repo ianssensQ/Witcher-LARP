@@ -1,23 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Lord Panel</title>
+    <title>Панель графа</title>
     <link rel="stylesheet" href="/static/lord/lord.css">
   </head>
   <body data-app="lord-panel">
-    <main class="shell">
-      <section class="login" id="login-panel">
-        <div class="brand">
-          <span class="mark" aria-hidden="true">LP</span>
-          <div>
-            <h1>Lord Panel</h1>
-            <p>Local command surface</p>
+    <main class="lord-app">
+      <section class="login-screen" id="login-panel">
+        <div class="login-background" aria-hidden="true"></div>
+        <form id="token-form" class="login-plaque">
+          <div class="login-brand">
+            <span class="login-mark" aria-hidden="true">WL</span>
+            <div>
+              <h1>Панель графа</h1>
+              <p>Вход по игровому токену</p>
+            </div>
           </div>
-        </div>
-        <form id="token-form" class="token-form">
-          <label for="role-token">Role token</label>
+          <label for="role-token">Код графа</label>
           <div class="token-row">
             <input
               id="role-token"
@@ -26,179 +27,291 @@
               placeholder="LORD-NORTH-R8K4"
               required
             >
-            <button type="submit">Enter</button>
+            <button type="submit">Войти</button>
           </div>
+          <p class="status-line" id="login-status" role="status"></p>
         </form>
-        <p class="status-line" id="login-status" role="status"></p>
       </section>
 
-      <section class="dashboard" id="dashboard" hidden>
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">Runtime</p>
-            <h2 id="lord-name">Lord</h2>
+      <section class="lord-home" id="dashboard" hidden>
+        <div class="home-background" id="home-background" aria-hidden="true"></div>
+        <div class="home-vignette" aria-hidden="true"></div>
+        <img
+          class="home-hud-overlay"
+          src="/static/lord/assets/generated/lords-home/ui/lord-home-hud-overlay-v1.png"
+          alt=""
+          draggable="false"
+        >
+
+        <header class="home-top-strip">
+          <div class="home-title">
+            <span id="domain-name">-</span>
+            <h1 id="lord-name">Граф</h1>
           </div>
-          <div class="top-actions">
-            <button type="button" id="refresh-button" title="Refresh state">Refresh</button>
-            <button type="button" id="logout-button" title="Clear role token">Logout</button>
+          <div class="resource-strip" aria-label="Ресурсы домена">
+            <span><b id="gold-value">-</b><small>золото</small></span>
+            <span><b id="income-value">-</b><small>доход/час</small></span>
+            <span><b id="mp-value">-</b><small>ход</small></span>
+            <span><b id="orders-value">-</b><small>заказы</small></span>
+            <span><b id="battle-count">-</b><small>бои</small></span>
+          </div>
+          <div class="home-top-actions">
+            <button type="button" id="refresh-button" title="Обновить состояние">Обновить</button>
+            <button type="button" id="logout-button" title="Выйти">Выйти</button>
           </div>
         </header>
 
-        <section class="summary-grid" aria-label="State summary">
-          <article class="metric">
-            <span>Domain</span>
-            <strong id="domain-name">-</strong>
-          </article>
-          <article class="metric">
-            <span>Gold</span>
-            <strong id="gold-value">-</strong>
-          </article>
-          <article class="metric">
-            <span>Influence</span>
-            <strong id="influence-value">-</strong>
-          </article>
-          <article class="metric">
-            <span>MP</span>
-            <strong id="mp-value">-</strong>
-          </article>
-          <article class="metric">
-            <span>Orders</span>
-            <strong id="orders-value">-</strong>
-          </article>
+        <nav class="home-action-dock" aria-label="Действия графа">
+          <button type="button" data-surface-button="buildings" aria-label="Постройки">
+            <img src="/static/lord/assets/generated/lords-home/actions/action-buildings-v1.png" alt="">
+            <span>Постройки</span>
+          </button>
+          <button type="button" data-surface-button="map" aria-label="Карта">
+            <img src="/static/lord/assets/generated/lords-home/actions/action-map-v1.png" alt="">
+            <span>Карта</span>
+          </button>
+          <button type="button" data-surface-button="orders" aria-label="Заказы">
+            <img src="/static/lord/assets/generated/lords-home/actions/action-orders-v1.png" alt="">
+            <span>Заказы</span>
+          </button>
+          <button type="button" data-surface-button="raids" aria-label="Рейды">
+            <img src="/static/lord/assets/generated/lords-home/actions/action-raids-v1.png" alt="">
+            <span>Рейды</span>
+          </button>
+          <button type="button" data-surface-button="battle" aria-label="Бой">
+            <img src="/static/lord/assets/generated/lords-home/actions/action-battle-v1.png" alt="">
+            <span>Бой</span>
+          </button>
+          <button type="button" data-surface-button="dev" aria-label="Служебные действия">
+            <img src="/static/lord/assets/generated/lords-home/actions/action-territory-v1.png" alt="">
+            <span>Служебное</span>
+          </button>
+        </nav>
+
+        <button class="home-minimap" type="button" data-surface-button="map" aria-label="Открыть карту">
+          <img src="/static/lord/assets/generated/lords-home/minimap-v1.png" alt="" draggable="false">
+          <span></span>
+        </button>
+
+        <aside class="territory-bubbles" id="territory-bubbles" aria-label="Захваченные территории"></aside>
+
+        <section class="home-act-widget" aria-label="Акт и очки передвижения">
+          <div class="mp-orbit" id="mp-orbit"></div>
+          <b id="act-label">Акт</b>
+          <span id="act-timer">-</span>
         </section>
 
-        <div class="content-grid">
-          <section class="panel">
-            <div class="panel-heading">
-              <h3>Territories</h3>
-              <span id="territory-count">0</span>
+        <section class="home-bottom-panel" aria-label="Армия, гарнизон и найм">
+          <div class="selected-territory-header">
+            <div>
+              <h2 id="selected-territory-name">Владение</h2>
+              <p id="selected-territory-meta">Загрузка состояния</p>
             </div>
-            <div class="territory-list" id="territory-list"></div>
+            <span id="territory-count">0</span>
+          </div>
+
+          <div class="unit-lane active-army" id="active-army-lane">
+            <span>Армия</span>
+            <div class="unit-slots" id="active-army-slots"></div>
+          </div>
+          <p class="lane-lock" id="army-lock" hidden></p>
+
+          <div class="unit-lane garrison">
+            <span>Гарнизон</span>
+            <div class="unit-slots" id="garrison-slots"></div>
+          </div>
+
+          <div class="recruit-strip" id="home-recruit-stock" aria-label="Накопленный найм"></div>
+        </section>
+
+        <p class="home-status" id="action-status" role="status">Готово</p>
+
+        <section class="surface-drawer" id="surface-drawer" hidden>
+          <header class="surface-heading">
+            <div>
+              <span id="surface-kicker">Поверхность</span>
+              <h2 id="surface-title">Карта</h2>
+            </div>
+            <button type="button" id="surface-close">Закрыть</button>
+          </header>
+
+          <section class="surface-panel" data-surface="map">
+            <div class="panel-heading map-heading">
+              <div>
+                <h3>Карта земель</h3>
+                <span id="map-status">Нет состояния</span>
+              </div>
+              <div class="map-actions">
+                <button type="button" id="map-reset-button">Центр</button>
+                <button type="button" id="map-move-button" disabled>Идти</button>
+              </div>
+            </div>
+            <div class="map-viewport" id="lord-map-viewport">
+              <svg
+                id="lord-map"
+                class="lord-map"
+                role="img"
+                aria-label="Стратегическая карта графа"
+                preserveAspectRatio="xMidYMid meet"
+              ></svg>
+              <button
+                type="button"
+                class="map-minimap-shell"
+                id="map-minimap-shell"
+                aria-label="Перецентрировать мини-карту"
+              >
+                <svg
+                  id="lord-map-minimap"
+                  class="map-minimap"
+                  aria-hidden="true"
+                  preserveAspectRatio="xMidYMid meet"
+                ></svg>
+              </button>
+            </div>
+            <article class="map-selection-card" id="map-selection-card" hidden>
+              <div>
+                <h4 id="map-selection-title">Цель не выбрана</h4>
+                <p id="map-selection-meta">Выберите территорию на карте</p>
+              </div>
+              <p id="map-selection-detail">-</p>
+              <div class="map-selection-actions">
+                <button type="button" id="map-battle-button" hidden>Открыть бой</button>
+                <button type="button" id="map-garrison-button" hidden>Гарнизон</button>
+              </div>
+            </article>
+            <p class="route-preview" id="move-route-preview">-</p>
           </section>
 
-          <section class="panel battle-panel">
+          <section class="surface-panel" data-surface="buildings" hidden>
             <div class="panel-heading">
-              <h3>Capture & Battles</h3>
-              <span id="battle-count">0 battles</span>
+              <h3>Дерево построек</h3>
+              <span id="building-count">0</span>
+            </div>
+            <div class="building-list" id="building-list"></div>
+          </section>
+
+          <section class="surface-panel" data-surface="orders" hidden>
+            <div class="panel-heading">
+              <h3>Доска заказов</h3>
+              <span id="active-orders">0 активных</span>
+            </div>
+            <div class="order-list" id="order-list"></div>
+          </section>
+
+          <section class="surface-panel" data-surface="raids" hidden>
+            <div class="panel-heading">
+              <h3>Рейды</h3>
+              <span id="raid-count">0 активных</span>
+            </div>
+            <div class="compact-list" id="raid-list"></div>
+          </section>
+
+          <section class="surface-panel battle-panel" data-surface="battle" hidden>
+            <div class="panel-heading">
+              <h3>Захваты и бои</h3>
+              <span id="battle-panel-count">0 боев</span>
             </div>
             <div class="capture-list" id="capture-list"></div>
             <div class="battle-list" id="battle-list"></div>
             <div class="battle-board-shell" id="battle-board-shell" hidden>
               <div class="battle-toolbar">
                 <div>
-                  <h4 id="battle-title">Battle</h4>
+                  <h4 id="battle-title">Бой</h4>
                   <p id="battle-turn">-</p>
                 </div>
                 <div class="battle-actions">
-                  <button type="button" data-battle-command="move">Move</button>
-                  <button type="button" data-battle-command="attack">Attack</button>
-                  <button type="button" data-battle-command="defend">Defend</button>
-                  <button type="button" data-battle-command="surrender">Surrender</button>
-                  <button type="button" data-battle-command="auto_resolve">Auto</button>
+                  <button type="button" data-battle-command="move">Ход</button>
+                  <button type="button" data-battle-command="attack">Атака</button>
+                  <button type="button" data-battle-command="defend">Защита</button>
+                  <button type="button" data-battle-command="surrender">Сдаться</button>
+                  <button type="button" data-battle-command="auto_resolve">Авто</button>
                 </div>
               </div>
-              <div class="battle-board" id="battle-board" aria-label="Lord battle board"></div>
-              <p class="battle-status" id="battle-status" role="status">Select a battle</p>
+              <div class="battle-board" id="battle-board" aria-label="Доска боя графов"></div>
+              <p class="battle-status" id="battle-status" role="status">Выберите бой</p>
             </div>
           </section>
 
-          <section class="panel">
+          <section class="surface-panel" data-surface="dev" hidden>
             <div class="panel-heading">
-              <h3>Orders</h3>
-              <span id="active-orders">0 active</span>
-            </div>
-            <div class="order-list" id="order-list"></div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-heading">
-              <h3>Recruit</h3>
-              <span id="recruit-count">0 offers</span>
-            </div>
-            <div class="compact-list" id="recruit-list"></div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-heading">
-              <h3>Actions</h3>
-              <span id="action-status">ready</span>
+              <h3>Служебные действия</h3>
+              <span>реальные mutations</span>
             </div>
             <div class="action-forms">
               <form class="action-card" data-action-form="move">
-                <h4>Move</h4>
-                <label for="move-target">Target node</label>
+                <h4>Передвижение</h4>
+                <label for="move-target">Цель</label>
                 <select id="move-target" name="to_node_id" required></select>
-                <p class="route-preview" id="move-route-preview">-</p>
-                <button type="submit">Move</button>
+                <button type="submit">Идти</button>
               </form>
 
               <form class="action-card" data-action-form="garrison">
-                <h4>Garrison</h4>
-                <label for="garrison-operation">Operation</label>
+                <h4>Гарнизон</h4>
+                <label for="garrison-operation">Операция</label>
                 <select id="garrison-operation" name="operation">
-                  <option value="active_to_fort">Active army to fort</option>
-                  <option value="fort_to_active">Fort to active army</option>
-                  <option value="reserve_to_active">Reserve to active army</option>
+                  <option value="active_to_fort">Армия в форт</option>
+                  <option value="fort_to_active">Форт в армию</option>
+                  <option value="reserve_to_active">Резерв в армию</option>
                 </select>
-                <label for="garrison-territory">Territory</label>
+                <label for="garrison-territory">Территория</label>
                 <select id="garrison-territory" name="territory_id" required></select>
-                <label for="garrison-card">Unit</label>
+                <label for="garrison-card">Отряд</label>
                 <select id="garrison-card" name="card_id" required></select>
-                <label for="garrison-count">Count</label>
+                <label for="garrison-count">Количество</label>
                 <input id="garrison-count" name="count" type="number" min="1" value="1" required>
-                <button type="submit">Apply</button>
+                <button type="submit">Применить</button>
               </form>
 
               <form class="action-card" data-action-form="building">
-                <h4>Building</h4>
-                <label for="building-id">Building</label>
+                <h4>Постройка</h4>
+                <label for="building-id">Здание</label>
                 <select id="building-id" name="building_id" required></select>
-                <button type="submit">Buy</button>
+                <button type="submit">Купить</button>
               </form>
 
               <form class="action-card" data-action-form="recruit">
-                <h4>Recruit</h4>
-                <label for="recruit-offer">Offer</label>
+                <h4>Найм</h4>
+                <label for="recruit-offer">Предложение</label>
                 <select id="recruit-offer" name="offer_id"></select>
                 <div class="button-row">
-                  <button type="submit" data-recruit-action="refresh">Refresh</button>
-                  <button type="submit" data-recruit-action="hold">Hold</button>
-                  <button type="submit" data-recruit-action="purchase">Buy</button>
+                  <button type="submit" data-recruit-action="refresh">Обновить</button>
+                  <button type="submit" data-recruit-action="hold">Удержать</button>
+                  <button type="submit" data-recruit-action="purchase">Купить</button>
                 </div>
               </form>
 
               <form class="action-card" data-action-form="raid">
-                <h4>Raid</h4>
-                <label for="raid-target">Target</label>
+                <h4>Рейд</h4>
+                <label for="raid-target">Цель</label>
                 <select id="raid-target" name="target_territory_id" required></select>
-                <button type="submit">Start raid</button>
+                <button type="submit">Начать рейд</button>
               </form>
 
               <form class="action-card" data-action-form="order">
-                <h4>Order</h4>
-                <label for="order-object">Object</label>
+                <h4>Заказ</h4>
+                <label for="order-object">Объект</label>
                 <input id="order-object" name="object_id" required>
-                <label for="order-target">Target player</label>
+                <label for="order-target">Адресат</label>
                 <input id="order-target" name="target_player_id">
-                <label for="order-visibility">Visibility</label>
+                <label for="order-visibility">Видимость</label>
                 <select id="order-visibility" name="visibility">
-                  <option value="public">Public</option>
-                  <option value="addressed">Addressed</option>
+                  <option value="public">Публичный</option>
+                  <option value="addressed">Адресный</option>
                 </select>
-                <label for="order-reward">Escrow reward</label>
+                <label for="order-reward">Награда escrow</label>
                 <input id="order-reward" name="escrow_reward_id">
-                <button type="submit">Create</button>
+                <button type="submit">Создать</button>
               </form>
 
               <form class="action-card" data-action-form="battle-create">
-                <h4>Battle</h4>
-                <label for="battle-territory">Territory</label>
+                <h4>Бой</h4>
+                <label for="battle-territory">Территория</label>
                 <select id="battle-territory" name="territory_id" required></select>
-                <button type="submit">Create battle</button>
+                <button type="submit">Создать бой</button>
               </form>
             </div>
           </section>
-        </div>
+        </section>
       </section>
     </main>
 
