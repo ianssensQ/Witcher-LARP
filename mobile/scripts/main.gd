@@ -4,10 +4,13 @@ const API_AUTH_PATH := "/api/auth/player-code"
 const API_SNAPSHOT_PATH := "/api/content/snapshot"
 const API_HEALTH_PATH := "/health"
 const API_EVENTS_SYNC_PATH := "/api/events/sync"
+const WITCHER_JOURNAL_SCENE := preload("res://scenes/witcher_journal.tscn")
 
 var _http: HTTPRequest
 var _pending_request := ""
 var _pending_player_code := ""
+var _shell_root: Control
+var _journal_view: Control
 var _status_label: Label
 var _device_label: Label
 var _snapshot_label: Label
@@ -43,6 +46,7 @@ func _build_ui() -> void:
 	margin.add_theme_constant_override("margin_top", 18)
 	margin.add_theme_constant_override("margin_bottom", 18)
 	add_child(margin)
+	_shell_root = margin
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -173,12 +177,13 @@ func _refresh_from_state() -> void:
 
 	var player := AppState.current_player()
 	if player.is_empty():
+		_set_journal_surface(false)
 		_character_label.text = "No character loaded. Enter a player_code or load bundled snapshot."
 		_qr_result_label.text = AppState.qr_context_summary()
 		_event_queue_label.text = AppState.event_queue_summary()
 		return
 
-	var stats := player.get("stats", {})
+	var stats: Variant = player.get("stats", {})
 	var reputation_text := AppState.player_reputation_display(player)
 	_character_label.text = "%s\nRole: %s\nLevel %s, XP %s, Gold %s\nReputation: %s\nStats: %s\nLogin: %s" % [
 		str(player.get("display_name", "Unknown")),
@@ -192,11 +197,28 @@ func _refresh_from_state() -> void:
 	]
 	_qr_result_label.text = AppState.qr_context_summary()
 	_event_queue_label.text = AppState.event_queue_summary()
+	_set_journal_surface(true)
 
 
 func _set_status(message: String, is_error: bool = false) -> void:
 	_status_label.text = message
 	_status_label.add_theme_color_override("font_color", Color("#ffb3a7") if is_error else Color("#f4f0df"))
+
+
+func _set_journal_surface(should_show: bool) -> void:
+	if _shell_root:
+		_shell_root.visible = not should_show
+
+	if should_show:
+		if not _journal_view:
+			_journal_view = WITCHER_JOURNAL_SCENE.instantiate()
+			_journal_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+			add_child(_journal_view)
+		_journal_view.visible = true
+		if _journal_view.has_method("refresh_from_state"):
+			_journal_view.call("refresh_from_state")
+	elif _journal_view:
+		_journal_view.visible = false
 
 
 func _on_save_connection_pressed() -> void:

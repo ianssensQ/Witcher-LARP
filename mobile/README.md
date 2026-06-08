@@ -27,8 +27,9 @@ Godot 4 mobile shell for `TASK-007`. The project lives entirely under
   Sync sends the batch to `POST /api/events/sync` and keeps rejected/review
   records on device.
 
-The first screen accepts a raw server URL such as `http://192.168.1.9:8000` or
-a future QR payload in the form:
+Current TASK-007 dev shell exposes a diagnostic connection setup that accepts a
+raw server URL such as `http://192.168.1.9:8000` or a future QR payload in the
+form:
 
 ```text
 witcher-larp://connect?server=http%3A%2F%2F192.168.1.9%3A8000
@@ -38,12 +39,18 @@ Invalid server responses keep existing local data. Unreachable auth or snapshot
 endpoints do not create a playable login from the bundled artifact; use the last
 saved server-scoped snapshot or reconnect to the local FastAPI server.
 
+Production UX for `TASK-047` hides this setup behind master/tech diagnostics.
+Normal players should see the code-login screen first; the app attempts
+background auto-connect through a built-in game-day URL, saved setup URL or last
+successful server URL.
+
 ## Desktop smoke
 
 1. Install Godot 4.x.
 2. Open `mobile/project.godot`.
 3. Run the main scene.
-4. Save the LAN server URL, enter `WC-WOLF-6GF4` and press `Login + Snapshot`.
+4. For the current dev shell, save the LAN server URL if it is not already
+   configured; then enter `WC-WOLF-6GF4` and press `Login + Snapshot`.
 5. Quit and run again; the character and `snapshot_version` from the
    server-scoped `user://snapshot.json` should remain available without
    network.
@@ -106,8 +113,9 @@ Smoke:
 
 1. Export the preset.
 2. Install with `adb install -r builds/android/witcher_larp_mobile_debug.apk`.
-3. Launch, save the LAN server URL, check `/health`, log in with a seed
-   `player_code`, download or load fallback snapshot, restart the app.
+3. Launch, use the diagnostic setup only if the LAN server URL is not already
+   configured, check `/health`, log in with a seed `player_code`, download or
+   load fallback snapshot, restart the app.
 
 If export/install cannot be completed, mark launch-risk owner as the tech
 operator/master and fall back to Android-only, browser/manual QR flow or paper

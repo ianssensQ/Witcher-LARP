@@ -323,7 +323,7 @@ func confirm_qr_physical_presence() -> Dictionary:
 		save_session()
 		return {}
 
-	var context := last_qr_event_context.duplicate(true)
+	var context: Dictionary = last_qr_event_context.duplicate(true)
 	if str(context.get("qr_id", "")).is_empty():
 		context["local_status"] = "unknown_qr"
 		context["review_reason"] = "unknown_qr"
@@ -350,7 +350,7 @@ func flag_qr_honesty_violation(reason: String = "honesty_violation_suspected") -
 		save_session()
 		return {}
 
-	var context := last_qr_event_context.duplicate(true)
+	var context: Dictionary = last_qr_event_context.duplicate(true)
 	context["event_type"] = "qr_attempt"
 	context["local_status"] = "needs_master_review"
 	context["review_reason"] = reason
@@ -366,7 +366,7 @@ func enqueue_pve_result(result: String) -> Dictionary:
 		save_session()
 		return {}
 
-	var context := last_qr_event_context.duplicate(true)
+	var context: Dictionary = last_qr_event_context.duplicate(true)
 	if str(context.get("event_type", "")) != "qr_scene_started":
 		session["last_error"] = "Confirm physical presence before recording a PvE result."
 		save_session()
@@ -478,7 +478,7 @@ func _qr_context_queue_key(context: Dictionary) -> String:
 
 
 func _qr_sync_payload(context: Dictionary) -> Dictionary:
-	var payload := context.duplicate(true)
+	var payload: Dictionary = context.duplicate(true)
 	payload["qr_context_id"] = str(context.get("event_id", ""))
 	payload["snapshot_version"] = str(snapshot.get("snapshot_version", ""))
 	payload["client_recorded_at"] = Time.get_datetime_string_from_system(true)
@@ -793,8 +793,8 @@ func _build_qr_event_context(
 	reason: String,
 	physical_presence_confirmed: bool
 ) -> Dictionary:
-	var qr := lookup.get("qr", {})
-	var scenario := lookup.get("scenario", {})
+	var qr: Dictionary = lookup.get("qr", {})
+	var scenario: Dictionary = lookup.get("scenario", {})
 	var now := Time.get_datetime_string_from_system(true)
 	return {
 		"event_id": _new_event_id("qr"),
@@ -834,9 +834,10 @@ func _save_qr_runtime_context(context: Dictionary) -> void:
 
 
 func _ensure_app_generated_pve_roll(context: Dictionary) -> Array:
-	var existing = context.get("pve_roll_log", [])
+	var existing: Variant = context.get("pve_roll_log", [])
 	if typeof(existing) == TYPE_ARRAY and not existing.is_empty() and typeof(existing[0]) == TYPE_DICTIONARY:
-		return existing.duplicate(true)
+		var existing_rolls: Array = existing
+		return existing_rolls.duplicate(true)
 
 	var scenario := _find_by_id(snapshot.get("pve_scenarios", []), "scenario_id", str(context.get("scenario_id", "")))
 	if scenario.is_empty():
@@ -926,13 +927,13 @@ func _build_pve_result_payload(context: Dictionary, result: String, roll_log: Ar
 	var scene_hp := _to_int(mob.get("scene_hp", 0))
 	if scene_hp <= 0:
 		scene_hp = _default_scene_hp(tier)
-	var base_damage := max(1, _to_int(combat_rule.get("base_damage", 1)))
-	var margin := max(0, total - dc)
-	var damage := scene_hp if result == "success" else base_damage + int(floor(float(margin) / 5.0))
-	var scene_hp_remaining := 0 if result == "success" else max(0, scene_hp - damage)
-	var player_scene_hp := max(7, 6 + _to_int(current_player().get("level", 1)))
-	var scene_damage := _to_int(mob.get("scene_damage", 0))
-	var player_scene_hp_remaining := max(0, player_scene_hp - scene_damage) if ["failure", "timeout"].has(result) else player_scene_hp
+	var base_damage: int = int(max(1, _to_int(combat_rule.get("base_damage", 1))))
+	var margin: int = int(max(0, total - dc))
+	var damage: int = scene_hp if result == "success" else base_damage + int(floor(float(margin) / 5.0))
+	var scene_hp_remaining: int = 0 if result == "success" else int(max(0, scene_hp - damage))
+	var player_scene_hp: int = int(max(7, 6 + _to_int(current_player().get("level", 1))))
+	var scene_damage: int = _to_int(mob.get("scene_damage", 0))
+	var player_scene_hp_remaining: int = int(max(0, player_scene_hp - scene_damage)) if ["failure", "timeout"].has(result) else player_scene_hp
 	var cooldown_until := ""
 	if ["failure", "timeout"].has(result):
 		cooldown_until = _cooldown_until_string(PVE_FAILURE_COOLDOWN_SECONDS)
@@ -1017,7 +1018,8 @@ func _build_pve_result_payload(context: Dictionary, result: String, roll_log: Ar
 func _coerce_roll_entry(roll_log: Array, stat_name: String, stat_value: int, dc: int) -> Dictionary:
 	var completed_at := Time.get_datetime_string_from_system(true)
 	if not roll_log.is_empty() and typeof(roll_log[0]) == TYPE_DICTIONARY:
-		var entry := roll_log[0].duplicate(true)
+		var source_entry: Dictionary = roll_log[0]
+		var entry: Dictionary = source_entry.duplicate(true)
 		if not entry.has("roll"):
 			entry["roll"] = entry.get("roll_value", entry.get("value", 1))
 		if not entry.has("roll_value"):
