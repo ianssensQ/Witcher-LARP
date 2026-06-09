@@ -459,7 +459,7 @@ class PveRuntimeTests(unittest.TestCase):
         self.assertEqual(forged_response.results[0].status, "needs_master_review")
         self.assertEqual(review["reason"], "pve result does not match single_d20 replay")
 
-    def test_unique_pve_object_is_consumed_once_even_when_reward_needs_master_approval(self) -> None:
+    def test_unique_pve_object_is_consumed_once_with_auto_reward(self) -> None:
         settings = self._settings("pve_unique_consumed")
         self._import_valid_seed(settings)
 
@@ -507,7 +507,7 @@ class PveRuntimeTests(unittest.TestCase):
                 (second_event_id,),
             ).fetchone()
 
-        self.assertEqual(first_response.results[0].status, "pending_master_approval")
+        self.assertEqual(first_response.results[0].status, "accepted")
         self.assertEqual(consumed["player_id"], "p_witcher_1")
         self.assertEqual(consumed["scenario_id"], "scn_a1_006")
         self.assertEqual(second_response.results[0].status, "needs_master_review")
@@ -801,10 +801,44 @@ class PveRuntimeTests(unittest.TestCase):
             ).fetchone()
 
         self.assertEqual([result.status for result in response.results], ["accepted"] * 3)
-        self.assertEqual(state["xp"], 12)
+        self.assertEqual(state["xp"], 2)
         self.assertEqual(state["level"], 2)
         self.assertEqual(state["gold"], 50)
         self.assertEqual(json.loads(state["stats_json"])["Сила"], 4)
+
+    def test_auto_reward_spends_xp_for_level_ups(self) -> None:
+        settings = self._settings("pve_reward_spend_xp")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            connection.execute(
+                "UPDATE rewards SET xp = 50, gold = 30 WHERE reward_id = 'reward_pve_t1'"
+            )
+            payload = resolve_pve_scene(
+                connection,
+                player_id="p_witcher_1",
+                qr_id="qr_a1_001",
+                roll=8,
+                now=datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
+            )
+            response, _ = self._sync_pve_payload(
+                connection,
+                actor_id="p_witcher_1",
+                payload=payload,
+                sequence=1,
+            )
+            state = connection.execute(
+                """
+                SELECT xp, level, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+
+        self.assertEqual(response.results[0].status, "accepted")
+        self.assertEqual(state["xp"], 15)
+        self.assertEqual(state["level"], 3)
+        self.assertEqual(state["gold"], 50)
 
     def test_missing_client_reward_id_uses_scenario_bound_auto_reward(self) -> None:
         settings = self._settings("pve_scenario_auto_reward")
@@ -846,7 +880,7 @@ class PveRuntimeTests(unittest.TestCase):
         self.assertEqual(state["xp"], 4)
         self.assertEqual(state["gold"], 30)
 
-    def test_scenario_bound_pending_reward_creates_approval_lock_once(self) -> None:
+    def test_scenario_bound_pending_reward_auto_applies_without_approval_lock(self) -> None:
         settings = self._settings("pve_scenario_pending_reward")
         self._import_valid_seed(settings)
 
@@ -890,6 +924,13 @@ class PveRuntimeTests(unittest.TestCase):
                   AND qr_id = 'qr_a1_006'
                 """
             ).fetchone()
+            state = connection.execute(
+                """
+                SELECT xp, level, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
             approval_count = connection.execute(
                 """
                 SELECT COUNT(*)
@@ -907,14 +948,28 @@ class PveRuntimeTests(unittest.TestCase):
                   AND status = 'active'
                 """
             ).fetchone()[0]
+            ownership_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM asset_ownership
+                WHERE owner_player_id = 'p_witcher_1'
+                  AND asset_type = 'item'
+                  AND asset_id = 'item_order_seal'
+                  AND status = 'active'
+                """
+            ).fetchone()[0]
 
-        self.assertEqual(first_response.results[0].status, "pending_master_approval")
-        self.assertEqual(duplicate_response.results[0].status, "pending_master_approval")
-        self.assertEqual(duplicate_response.results[0].reason, "reward requires master approval")
+        self.assertEqual(first_response.results[0].status, "accepted")
+        self.assertEqual(duplicate_response.results[0].status, "duplicate")
+        self.assertEqual(duplicate_response.results[0].reason, "event_id already processed")
         self.assertEqual(attempt["reward_id"], "reward_order_success")
-        self.assertEqual(attempt["reward_status"], "pending_master_approval")
-        self.assertEqual(approval_count, 1)
-        self.assertEqual(lock_count, 1)
+        self.assertEqual(attempt["reward_status"], "auto")
+        self.assertEqual(state["xp"], 6)
+        self.assertEqual(state["level"], 1)
+        self.assertEqual(state["gold"], 35)
+        self.assertEqual(approval_count, 0)
+        self.assertEqual(lock_count, 0)
+        self.assertEqual(ownership_count, 1)
 
     def _settings(self, name: str) -> Settings:
         return Settings(database_path=TEST_TMP_ROOT / f"{name}_{uuid4().hex}.db")

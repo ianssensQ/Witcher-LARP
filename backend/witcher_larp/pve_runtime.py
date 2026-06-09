@@ -13,6 +13,7 @@ from uuid import uuid4
 from .asset_service import grant_asset_ownership, reward_asset_entries
 from .runtime_schema import ensure_runtime_schema, log_event
 from .stats import CANONICAL_STAT_SET, CANONICAL_STATS, DEFAULT_STAT_ID
+from .xp_service import spend_xp_for_levels
 
 
 PVE_RESULTS = {"success", "partial_success", "failure", "timeout"}
@@ -203,13 +204,7 @@ def resolve_pve_scene(
     reward = card["reward"] if isinstance(card["reward"], dict) else {}
     reward_id = str(reward.get("reward_id", card["scenario"].get("reward_id", "")))
     reward_approval_policy = str(reward.get("approval_policy", "auto"))
-    reward_status = (
-        "pending_master_approval"
-        if result == "success" and reward_approval_policy == "pending_master_approval"
-        else "auto"
-        if result == "success" and reward_id
-        else "none"
-    )
+    reward_status = "auto" if result == "success" and reward_id else "none"
 
     payload = {
         "scenario_id": card["scenario"]["scenario_id"],
@@ -738,9 +733,7 @@ def _reward_status_for_payload(
 ) -> str:
     if result != "success" or not reward_id:
         return "none"
-    reward = card.get("reward")
-    approval_policy = str(reward.get("approval_policy", "auto")) if isinstance(reward, dict) else "auto"
-    return "pending_master_approval" if approval_policy == "pending_master_approval" else "auto"
+    return "auto"
 
 
 def _apply_auto_reward(
@@ -762,9 +755,11 @@ def _apply_auto_reward(
     gold_before = _to_int(player.get("gold"))
     xp_gain = _to_int(reward["xp"])
     gold_gain = _to_int(reward["gold"])
-    xp_after = xp_before + xp_gain
-    level_after = _level_for_xp(connection, xp_after)
-    level_after = max(level_before, level_after)
+    xp_after, level_after = spend_xp_for_levels(
+        connection,
+        level_before=level_before,
+        xp_available=xp_before + xp_gain,
+    )
     stats = _player_stats(player)
     stat_gains: list[dict[str, Any]] = []
     max_stat = _max_stat(connection)
@@ -863,26 +858,6 @@ def _runtime_player(connection: sqlite3.Connection, player_id: str) -> dict[str,
         "gold": _to_int(player["gold"]),
         "stats_json": player["stats_json"],
     }
-
-
-def _level_for_xp(connection: sqlite3.Connection, xp: int) -> int:
-    thresholds = [0, 10, 25, 45, 70, 100, 135, 175, 220, 270]
-    if _table_exists(connection, "xp_rules"):
-        row = connection.execute(
-            """
-            SELECT level_thresholds
-            FROM xp_rules
-            ORDER BY _row_number
-            LIMIT 1
-            """
-        ).fetchone()
-        if row is not None and row["level_thresholds"]:
-            thresholds = [_to_int(part) for part in str(row["level_thresholds"]).split(";") if part]
-    level = 1
-    for index, threshold in enumerate(thresholds, start=1):
-        if xp >= threshold:
-            level = index
-    return level
 
 
 def _max_stat(connection: sqlite3.Connection) -> int:

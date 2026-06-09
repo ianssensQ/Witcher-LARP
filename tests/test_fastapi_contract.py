@@ -112,6 +112,48 @@ class FastApiContractTests(unittest.TestCase):
             snapshot_dir=None,
         )
         self.assertEqual(report.status, "success")
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                INSERT INTO player_runtime_state (
+                    player_id, role_type, level, xp, gold, stats_json,
+                    mana, max_mana, challenge_tokens, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?)
+                """,
+                (
+                    "p_witcher_1",
+                    "witcher",
+                    4,
+                    24,
+                    35,
+                    '{"body": 2}',
+                    "2026-06-08T00:00:00Z",
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO order_runtime_state (
+                    order_id, lord_id, target_player_id, object_id, visibility,
+                    status, escrow_reward_id, accepted_by_player_id,
+                    submitted_by_player_id, result_event_id, reason,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)
+                """,
+                (
+                    "order_north_public_1",
+                    "p_lord_1",
+                    "p_witcher_1",
+                    "qr_a1_006",
+                    "public",
+                    "accepted",
+                    "reward_order_success",
+                    "p_witcher_1",
+                    "2026-06-08T00:00:00Z",
+                    "2026-06-08T00:00:00Z",
+                ),
+            )
         client = TestClient(create_app(settings))
 
         response = client.get("/api/content/snapshot", params={"player_code": "WC-WOLF-6GF4"})
@@ -121,6 +163,9 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["snapshot_version"], report.snapshot_version)
         self.assertEqual(payload["visibility"]["scope"], "player")
         self.assertEqual(payload["player"]["player_id"], "p_witcher_1")
+        self.assertEqual(payload["player"]["level"], 4)
+        self.assertEqual(payload["player"]["xp"], 24)
+        self.assertEqual(payload["player"]["gold"], 35)
         self.assertEqual(payload["act_unlock_state"]["policy"], "server_sync_or_revealed_master_code")
         self.assertTrue(payload["act_unlock_codes"])
         self.assertTrue(all(row["code"] is None for row in payload["act_unlock_codes"]))
@@ -134,6 +179,28 @@ class FastApiContractTests(unittest.TestCase):
             hashlib.sha256("UNLOCK-A2-7GQ4".encode("utf-8")).hexdigest(),
             response.text,
         )
+        goals = payload["goals"]
+        self.assertEqual(
+            ["goal_witcher_1"],
+            [row["goal_id"] for row in goals["personal_goals"]],
+        )
+        self.assertEqual(
+            ["track_witcher_1"],
+            [row["track_id"] for row in goals["goal_tracks"]],
+        )
+        orders = payload["orders"]
+        self.assertEqual(["order_north_public_1"], [row["order_id"] for row in orders])
+        self.assertEqual("p_witcher_1", orders[0]["target_player_id"])
+        self.assertEqual("accepted", orders[0]["status"])
+        self.assertEqual("p_witcher_1", orders[0]["accepted_by_player_id"])
+        self.assertEqual("Severnaya Zastava", orders[0]["object_label"])
+        self.assertEqual("reward_order_success", orders[0]["escrow_reward_id"])
+        self.assertTrue(
+            any(row["reward_id"] == "reward_order_success" for row in payload["rewards"])
+        )
+        self.assertNotIn("order_north_public_2", response.text)
+        self.assertNotIn("order_north_addressed_1", response.text)
+        self.assertNotIn("order_river_review", response.text)
 
     def test_content_snapshot_rejects_missing_or_invalid_player_code(self) -> None:
         settings = self._settings("snapshot_auth")
@@ -828,7 +895,7 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(metadata["auth_boundary"], "master_only_event")
         self.assertTrue(metadata["audit_review"])
 
-    def test_event_sync_creates_pending_reward_approval(self) -> None:
+    def test_event_sync_auto_applies_pve_reward_without_master_approval(self) -> None:
         settings = self._settings("event_pending_reward")
         self._import_valid_seed(settings)
         client = TestClient(create_app(settings))
@@ -863,18 +930,18 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         result = payload["results"][0]
-        self.assertEqual(result["status"], "pending_master_approval")
-        self.assertEqual(result["reason"], "reward requires master approval")
+        self.assertEqual(result["status"], "accepted")
+        self.assertIsNone(result["reason"])
 
         with connect(settings) as connection:
-            approval = connection.execute(
+            approval_count = connection.execute(
                 """
-                SELECT reward_id, player_id, status
+                SELECT COUNT(*)
                 FROM reward_approvals
                 WHERE source_event_id = ?
                 """,
                 (result["server_event_id"],),
-            ).fetchone()
+            ).fetchone()[0]
             stored_event = connection.execute(
                 """
                 SELECT payload_json, metadata_json, status
@@ -883,11 +950,40 @@ class FastApiContractTests(unittest.TestCase):
                 """,
                 (event_id,),
             ).fetchone()
+            attempt = connection.execute(
+                """
+                SELECT reward_id, reward_status
+                FROM pve_attempts
+                WHERE server_event_id = ?
+                """,
+                (result["server_event_id"],),
+            ).fetchone()
+            player_state = connection.execute(
+                """
+                SELECT xp, level, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+            artifact_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM asset_ownership
+                WHERE owner_player_id = 'p_witcher_1'
+                  AND asset_type = 'artifact'
+                  AND asset_id = 'artifact_mirror_shard'
+                  AND status = 'active'
+                """
+            ).fetchone()[0]
 
-        self.assertEqual(approval["reward_id"], "reward_artifact_pending")
-        self.assertEqual(approval["player_id"], "p_witcher_1")
-        self.assertEqual(approval["status"], "pending_master_approval")
-        self.assertEqual(stored_event["status"], "pending_master_approval")
+        self.assertEqual(approval_count, 0)
+        self.assertEqual(attempt["reward_id"], "reward_artifact_pending")
+        self.assertEqual(attempt["reward_status"], "auto")
+        self.assertEqual(player_state["xp"], 0)
+        self.assertEqual(player_state["level"], 2)
+        self.assertEqual(player_state["gold"], 20)
+        self.assertEqual(artifact_count, 1)
+        self.assertEqual(stored_event["status"], "accepted")
         self.assertIn("reward_artifact_pending", stored_event["payload_json"])
         self.assertIn("reward_approval_policy", stored_event["metadata_json"])
 

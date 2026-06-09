@@ -14,6 +14,7 @@ from .asset_service import grant_asset_ownership, lock_reward_assets, release_lo
 from .asset_service import reward_asset_entries, reward_numeric_payload
 from .runtime_schema import log_event
 from .stats import CANONICAL_STATS, DEFAULT_STAT_ID
+from .xp_service import spend_xp_for_levels
 
 
 APPROVAL_ACTIONS = {"approve", "correct", "reject"}
@@ -238,8 +239,11 @@ def _apply_reward_payload(
     xp_before = _to_int(player.get("xp"))
     level_before = _to_int(player.get("level"))
     gold_before = _to_int(player.get("gold"))
-    xp_after = xp_before + numeric["xp"]
-    level_after = max(level_before, _level_for_xp(connection, xp_after))
+    xp_after, level_after = spend_xp_for_levels(
+        connection,
+        level_before=level_before,
+        xp_available=xp_before + numeric["xp"],
+    )
     stats = _player_stats(player)
     stat_gains: list[dict[str, Any]] = []
     for _ in range(max(0, level_after - level_before)):
@@ -429,26 +433,6 @@ def _runtime_player(connection: sqlite3.Connection, player_id: str) -> dict[str,
 
 def _status_for_action(action: str) -> str:
     return {"approve": "approved", "correct": "corrected", "reject": "rejected"}[action]
-
-
-def _level_for_xp(connection: sqlite3.Connection, xp: int) -> int:
-    thresholds = [0, 10, 25, 45, 70, 100, 135, 175, 220, 270]
-    if _table_exists(connection, "xp_rules"):
-        row = connection.execute(
-            """
-            SELECT level_thresholds
-            FROM xp_rules
-            ORDER BY _row_number
-            LIMIT 1
-            """
-        ).fetchone()
-        if row is not None and row["level_thresholds"]:
-            thresholds = [_to_int(part) for part in str(row["level_thresholds"]).split(";") if part]
-    level = 1
-    for index, threshold in enumerate(thresholds, start=1):
-        if xp >= threshold:
-            level = index
-    return level
 
 
 def _max_stat(connection: sqlite3.Connection) -> int:

@@ -20,6 +20,7 @@ SNAPSHOT_TABLES = (
     "players",
     "player_codes",
     "role_tokens",
+    "orders",
     "qr_objects",
     "pve_scenarios",
     "pve_combat_rules",
@@ -53,6 +54,22 @@ SECRET_SNAPSHOT_KEYS = {"player_codes", "role_tokens"}
 PRIVATE_PLAYER_KEYS = {"player_code_id", "reputation"}
 PLAYER_SAFE_QR_MODES = {"repeatable_scene", "always_available_scene"}
 PLAYER_PUBLIC_ARTIFACT_VISIBILITIES = {"public", "player_visible", "always_visible"}
+PLAYER_VISIBLE_ORDER_STATUSES = {
+    "published",
+    "addressed_pending",
+    "accepted",
+    "in_progress",
+    "claimed_at_prop",
+    "submitted_pending_sync",
+    "pending_master_approval",
+    "failed_retryable",
+    "contested_review",
+    "completed",
+}
+PLAYER_PUBLIC_ORDER_STATUSES = {
+    "published",
+    "addressed_pending",
+}
 
 
 def build_snapshot_from_pack(pack: SeedPack) -> tuple[str, str, dict[str, object]]:
@@ -77,6 +94,7 @@ def build_snapshot_from_database(
     if version_row is None:
         return None
     tables = {name: fetch_table(connection, name) for name in SNAPSHOT_TABLES}
+    tables["players"] = _merge_runtime_player_rows(connection, tables["players"])
     player_scope = None
     if player_code:
         player_scope = _player_scope_from_code(
@@ -87,6 +105,7 @@ def build_snapshot_from_database(
         if player_scope is None:
             return None
 
+    tables["orders"] = _fetch_order_snapshot_rows(connection, tables["orders"])
     act_unlocks = _act_unlock_snapshot_rows(
         tables["act_unlock_codes"],
         _fetch_act_history(connection),
@@ -166,6 +185,7 @@ def _scope_snapshot_to_player_id(
     scoped["player"] = public_player
     scoped["players"] = [public_player]
     scoped["goals"] = _scope_goals(snapshot.get("goals"), player_id)
+    scoped["orders"] = _scope_orders(snapshot.get("orders"), player_id)
     _redact_player_content(scoped)
     scoped["visibility"] = {
         "scope": "player",
@@ -223,6 +243,12 @@ def _payload_from_tables(
         "acts": tables["acts"],
         "act_unlock_codes": safe_act_unlocks,
         "act_unlock_state": _act_unlock_state(tables["acts"], safe_act_unlocks),
+        "orders": _order_snapshot_rows(
+            tables["orders"],
+            qr_objects=tables["qr_objects"],
+            map_nodes=tables["map_nodes"],
+            territories=tables["territories"],
+        ),
         "qr_objects": tables["qr_objects"],
         "pve_scenarios": tables["pve_scenarios"],
         "mobs": tables["mobs"],
@@ -463,6 +489,11 @@ def _redact_player_content(payload: dict[str, object]) -> None:
         for row in scenarios
         if str(row.get("reward_id", ""))
     }
+    reward_ids.update(
+        str(row.get("escrow_reward_id", ""))
+        for row in _dict_rows(payload.get("orders"))
+        if str(row.get("escrow_reward_id", ""))
+    )
     mob_ids = {
         str(row.get("combat_profile_id", ""))
         for row in scenarios
@@ -567,6 +598,7 @@ def _mobile_export_payload(snapshot: dict[str, object]) -> dict[str, object]:
         goals["goal_tracks"] = []
         goals["goal_flags"] = []
         goals["final_hooks"] = []
+    payload["orders"] = []
     payload["visibility"] = {
         **(visibility if isinstance(visibility, dict) else {}),
         "scope": "mobile_public_artifact",
@@ -645,3 +677,125 @@ def _scope_goals(goals: object, player_id: str) -> dict[str, list[dict[str, str]
         "goal_flags": public_flags,
         "final_hooks": final_hooks,
     }
+
+
+def _fetch_order_snapshot_rows(
+    connection: sqlite3.Connection,
+    fallback_rows: list[dict[str, str]],
+) -> list[dict[str, object]]:
+    if not _table_exists(connection, "order_runtime_state"):
+        return list(fallback_rows)
+    rows = connection.execute(
+        """
+        SELECT order_id, lord_id, target_player_id, object_id, visibility, status,
+               escrow_reward_id, accepted_by_player_id, submitted_by_player_id,
+               result_event_id, reason, created_at, updated_at
+        FROM order_runtime_state
+        ORDER BY created_at, order_id
+        """
+    ).fetchall()
+    if not rows:
+        return list(fallback_rows)
+    return [{key: row[key] for key in row.keys()} for row in rows]
+
+
+def _merge_runtime_player_rows(
+    connection: sqlite3.Connection,
+    players: list[dict[str, str]],
+) -> list[dict[str, object]]:
+    if not _table_exists(connection, "player_runtime_state"):
+        return list(players)
+    rows = connection.execute(
+        """
+        SELECT player_id, level, xp, gold, stats_json, mana, max_mana,
+               challenge_tokens, updated_at
+        FROM player_runtime_state
+        """
+    ).fetchall()
+    runtime_by_player_id = {
+        str(row["player_id"]): {key: row[key] for key in row.keys() if key != "player_id"}
+        for row in rows
+    }
+    result: list[dict[str, object]] = []
+    for player in players:
+        payload = dict(player)
+        runtime = runtime_by_player_id.get(str(player.get("player_id", "")))
+        if runtime is not None:
+            payload.update(runtime)
+        result.append(payload)
+    return result
+
+
+def _order_snapshot_rows(
+    rows: object,
+    *,
+    qr_objects: object,
+    map_nodes: object,
+    territories: object,
+) -> list[dict[str, object]]:
+    qr_by_id = {str(row.get("qr_id", "")): row for row in _dict_rows(qr_objects)}
+    map_node_by_id = {str(row.get("node_id", "")): row for row in _dict_rows(map_nodes)}
+    territory_by_id = {
+        str(row.get("territory_id", "")): row for row in _dict_rows(territories)
+    }
+    result: list[dict[str, object]] = []
+    for row in _dict_rows(rows):
+        order = dict(row)
+        object_id = str(order.get("object_id") or "")
+        object_label, object_type = _order_object_metadata(
+            object_id,
+            qr_by_id=qr_by_id,
+            map_node_by_id=map_node_by_id,
+            territory_by_id=territory_by_id,
+        )
+        order["object_label"] = object_label
+        order["object_type"] = object_type
+        result.append(order)
+    return result
+
+
+def _order_object_metadata(
+    object_id: str,
+    *,
+    qr_by_id: dict[str, dict[str, object]],
+    map_node_by_id: dict[str, dict[str, object]],
+    territory_by_id: dict[str, dict[str, object]],
+) -> tuple[str, str]:
+    territory = territory_by_id.get(object_id)
+    if territory is not None:
+        return str(territory.get("name", object_id)), "territory"
+
+    qr_object = qr_by_id.get(object_id)
+    if qr_object is not None:
+        node_id = str(qr_object.get("location_node_id", ""))
+        node = map_node_by_id.get(node_id)
+        if node is not None:
+            return str(node.get("name", object_id)), "qr_object"
+        return object_id, "qr_object"
+
+    return object_id, "unknown"
+
+
+def _scope_orders(orders: object, player_id: str) -> list[dict[str, object]]:
+    scoped: list[dict[str, object]] = []
+    for row in _dict_rows(orders):
+        status = str(row.get("status") or "").strip().lower()
+        if status and status not in PLAYER_VISIBLE_ORDER_STATUSES:
+            continue
+        target_player_id = str(row.get("target_player_id") or "")
+        accepted_by_player_id = str(row.get("accepted_by_player_id") or "")
+        submitted_by_player_id = str(row.get("submitted_by_player_id") or "")
+        visibility = str(row.get("visibility") or "").strip().lower()
+        belongs_to_player = player_id in {
+            target_player_id,
+            accepted_by_player_id,
+            submitted_by_player_id,
+        }
+        is_open_public_order = (
+            visibility == "public"
+            and not target_player_id
+            and status in PLAYER_PUBLIC_ORDER_STATUSES
+        )
+        if belongs_to_player or is_open_public_order:
+            scoped.append(dict(row))
+    return scoped
