@@ -391,6 +391,13 @@ func enqueue_pve_result(result: String) -> Dictionary:
 	var payload := _build_pve_result_payload(context, normalized_result, roll_log)
 	var event := enqueue_event("pve_completed", payload)
 	if not event.is_empty():
+		var local_reward := _apply_local_pve_reward(payload, str(event.get("event_id", "")))
+		if not local_reward.is_empty():
+			event["local_reward_update"] = local_reward
+			event["payload"]["local_reward_applied"] = true
+			event["payload"]["local_reward_status"] = "pending_sync"
+			event["payload"]["local_reward_update"] = local_reward
+			_replace_event(event)
 		context["pve_result_event_id"] = str(event.get("event_id", ""))
 		context["pve_result_queued_at"] = str(event.get("created_at", ""))
 		_save_qr_runtime_context(context)
@@ -942,7 +949,7 @@ func _build_pve_result_payload(context: Dictionary, result: String, roll_log: Ar
 	var reward_approval_policy := str(reward.get("approval_policy", "auto"))
 	var reward_status := "none"
 	if result == "success" and not reward_id.is_empty():
-		reward_status = "pending_master_approval" if reward_approval_policy == "pending_master_approval" else "auto"
+		reward_status = "auto"
 	var replay_roll := {
 		"roll_id": str(roll_entry.get("roll_id", "")),
 		"check_id": str(roll_entry.get("check_id", context.get("event_id", ""))),
@@ -1048,6 +1055,171 @@ func _coerce_roll_entry(roll_log: Array, stat_name: String, stat_value: int, dc:
 		"modifiers": [],
 		"rolled_at": completed_at
 	}
+
+
+func _apply_local_pve_reward(payload: Dictionary, event_id: String) -> Dictionary:
+	var result := str(payload.get("result", payload.get("outcome", "")))
+	if result != "success":
+		return {}
+	var reward_id := str(payload.get("reward_id", ""))
+	if reward_id.is_empty():
+		return {}
+	var reward := _find_by_id(snapshot.get("rewards", []), "reward_id", reward_id)
+	if reward.is_empty():
+		return {}
+	var player_id := str(session.get("player_id", ""))
+	if player_id.is_empty():
+		return {}
+	var player_index := _find_snapshot_player_index(player_id)
+	if player_index < 0:
+		return {}
+
+	var applied_event_ids: Variant = snapshot.get("local_reward_event_ids", [])
+	if typeof(applied_event_ids) != TYPE_ARRAY:
+		applied_event_ids = []
+	if applied_event_ids.has(event_id):
+		return {}
+
+	var players: Array = snapshot.get("players", [])
+	var player: Dictionary = players[player_index].duplicate(true)
+	var xp_before := _to_int(player.get("xp", 0))
+	var gold_before := _to_int(player.get("gold", 0))
+	var level_before := _to_int(player.get("level", 1))
+	var xp_gain := _to_int(reward.get("xp", 0))
+	var gold_gain := _to_int(reward.get("gold", 0))
+	var level_result := _spend_xp_for_levels(level_before, xp_before + xp_gain)
+	var xp_after := _to_int(level_result.get("xp", xp_before + xp_gain))
+	var gold_after := gold_before + gold_gain
+	var level_after := _to_int(level_result.get("level", level_before))
+	var stats := _player_stats(player).duplicate(true)
+	var stat_gains := _apply_local_level_stat_gains(
+		stats,
+		max(0, level_after - level_before),
+		str(payload.get("stat", ""))
+	)
+
+	player["xp"] = xp_after
+	player["gold"] = gold_after
+	player["level"] = level_after
+	if not stats.is_empty():
+		player["stats"] = stats
+		player["stats_json"] = JSON.stringify(stats)
+	player["local_reward_status"] = "pending_sync"
+	player["local_reward_event_id"] = event_id
+	player["local_reward_id"] = reward_id
+	player["local_reward_applied_at"] = Time.get_datetime_string_from_system(true)
+
+	players[player_index] = player
+	snapshot["players"] = players
+	var current_player_payload = snapshot.get("player", {})
+	if typeof(current_player_payload) == TYPE_DICTIONARY and str(current_player_payload.get("player_id", "")) == player_id:
+		snapshot["player"] = player.duplicate(true)
+	applied_event_ids.append(event_id)
+	snapshot["local_reward_event_ids"] = applied_event_ids
+	save_snapshot()
+
+	return {
+		"status": "applied_locally",
+		"sync_status": "pending_sync",
+		"reward_id": reward_id,
+		"event_id": event_id,
+		"xp_gain": xp_gain,
+		"gold_gain": gold_gain,
+		"xp_before": xp_before,
+		"xp_after": xp_after,
+		"gold_before": gold_before,
+		"gold_after": gold_after,
+		"level_before": level_before,
+		"level_after": level_after,
+		"stat_gains": stat_gains
+	}
+
+
+func _find_snapshot_player_index(player_id: String) -> int:
+	var players: Variant = snapshot.get("players", [])
+	if typeof(players) != TYPE_ARRAY:
+		return -1
+	for index in range(players.size()):
+		var player = players[index]
+		if typeof(player) == TYPE_DICTIONARY and str(player.get("player_id", "")) == player_id:
+			return index
+	return -1
+
+
+func _spend_xp_for_levels(level_before: int, xp_available: int) -> Dictionary:
+	var costs := _level_costs_from_rules()
+	var level: int = int(max(level_before, 1))
+	var remaining_xp: int = int(max(xp_available, 0))
+	while true:
+		var next_cost := _next_level_cost(costs, level)
+		if next_cost <= 0 or remaining_xp < next_cost:
+			break
+		remaining_xp -= next_cost
+		level += 1
+	return {
+		"xp": remaining_xp,
+		"level": level
+	}
+
+
+func _level_costs_from_rules() -> Array:
+	var costs := [0, 10, 25, 45, 70, 100, 135, 175, 220, 270]
+	var rules = snapshot.get("checks", {}).get("xp_rules", []) if typeof(snapshot.get("checks", {})) == TYPE_DICTIONARY else []
+	if typeof(rules) == TYPE_ARRAY and not rules.is_empty() and typeof(rules[0]) == TYPE_DICTIONARY:
+		var raw_thresholds := str(rules[0].get("level_thresholds", ""))
+		var parsed_costs := []
+		for part in raw_thresholds.split(";"):
+			var trimmed := part.strip_edges()
+			if not trimmed.is_empty():
+				parsed_costs.append(_to_int(trimmed))
+		if not parsed_costs.is_empty():
+			costs = parsed_costs
+	return costs
+
+
+func _next_level_cost(costs: Array, current_level: int) -> int:
+	var index := current_level - 1
+	if not costs.is_empty() and _to_int(costs[0]) == 0:
+		index = current_level
+	if index < 0 or index >= costs.size():
+		return 0
+	return _to_int(costs[index])
+
+
+func _apply_local_level_stat_gains(stats: Dictionary, level_count: int, preferred_stat: String) -> Array:
+	var gains := []
+	var max_stat := _max_local_stat()
+	for _index in range(level_count):
+		var stat_name := _stat_to_raise(stats, preferred_stat)
+		if stat_name.is_empty():
+			break
+		var before := _to_int(stats.get(stat_name, 0))
+		var after: int = int(min(max_stat, before + 1))
+		stats[stat_name] = after
+		gains.append({"stat": stat_name, "before": before, "after": after})
+	return gains
+
+
+func _stat_to_raise(stats: Dictionary, preferred_stat: String) -> String:
+	if not preferred_stat.is_empty() and stats.has(preferred_stat):
+		return preferred_stat
+	var best_stat := ""
+	var best_value := 100000
+	for key in stats.keys():
+		var value := _to_int(stats.get(key, 0))
+		if best_stat.is_empty() or value < best_value:
+			best_stat = str(key)
+			best_value = value
+	return best_stat
+
+
+func _max_local_stat() -> int:
+	var rules = snapshot.get("checks", {}).get("xp_rules", []) if typeof(snapshot.get("checks", {})) == TYPE_DICTIONARY else []
+	if typeof(rules) == TYPE_ARRAY and not rules.is_empty() and typeof(rules[0]) == TYPE_DICTIONARY:
+		var max_stat := _to_int(rules[0].get("max_stat", 7))
+		if max_stat > 0:
+			return max_stat
+	return 7
 
 
 func _calculate_pve_outcome(total: int, dc: int) -> String:
@@ -1179,6 +1351,15 @@ func _find_event_index(event_id: String) -> int:
 		if typeof(event) == TYPE_DICTIONARY and str(event.get("event_id", "")) == event_id:
 			return index
 	return -1
+
+
+func _replace_event(event: Dictionary) -> void:
+	var index := _find_event_index(str(event.get("event_id", "")))
+	if index < 0:
+		return
+	event_queue[index] = event
+	save_event_queue()
+	_update_sync_status_counts(true)
 
 
 func _event_by_id(event_id: String) -> Dictionary:

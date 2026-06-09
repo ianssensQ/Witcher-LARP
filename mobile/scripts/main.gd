@@ -4,25 +4,18 @@ const API_AUTH_PATH := "/api/auth/player-code"
 const API_SNAPSHOT_PATH := "/api/content/snapshot"
 const API_HEALTH_PATH := "/health"
 const API_EVENTS_SYNC_PATH := "/api/events/sync"
+const PLAYER_LOGIN_SCENE := preload("res://scenes/player_login.tscn")
 const WITCHER_JOURNAL_SCENE := preload("res://scenes/witcher_journal.tscn")
 
 var _http: HTTPRequest
 var _pending_request := ""
 var _pending_player_code := ""
-var _shell_root: Control
+var _login_view: Control
 var _journal_view: Control
-var _status_label: Label
-var _device_label: Label
-var _snapshot_label: Label
-var _character_label: Label
-var _server_url_input: LineEdit
-var _connection_text_input: LineEdit
-var _player_code_input: LineEdit
-var _unlock_code_input: LineEdit
-var _qr_input: LineEdit
-var _qr_result_label: Label
-var _event_queue_label: Label
 var _pending_sync_event_ids := []
+var _status_message := ""
+var _status_is_error := false
+var _request_busy := false
 
 
 func _ready() -> void:
@@ -34,187 +27,67 @@ func _ready() -> void:
 
 
 func _build_ui() -> void:
-	var background := ColorRect.new()
-	background.color = Color("#101820")
-	background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(background)
+	_login_view = PLAYER_LOGIN_SCENE.instantiate()
+	_login_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_login_view)
 
-	var margin := MarginContainer.new()
-	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 18)
-	margin.add_theme_constant_override("margin_right", 18)
-	margin.add_theme_constant_override("margin_top", 18)
-	margin.add_theme_constant_override("margin_bottom", 18)
-	add_child(margin)
-	_shell_root = margin
-
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	margin.add_child(scroll)
-
-	var content := VBoxContainer.new()
-	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", 14)
-	scroll.add_child(content)
-
-	content.add_child(_new_label("Witcher LARP", 28, Color("#f4f0df")))
-	content.add_child(_new_label("Offline-first player shell", 16, Color("#d0b56f")))
-
-	_status_label = _new_label("", 15, Color("#f4f0df"))
-	content.add_child(_status_label)
-
-	content.add_child(_section_title("Connection"))
-	_server_url_input = _new_line_edit("http://192.168.1.9:8000")
-	content.add_child(_server_url_input)
-
-	var connection_buttons := HBoxContainer.new()
-	connection_buttons.add_theme_constant_override("separation", 8)
-	connection_buttons.add_child(_new_button("Save URL", _on_save_connection_pressed))
-	connection_buttons.add_child(_new_button("Health", _on_health_pressed))
-	content.add_child(connection_buttons)
-
-	_connection_text_input = _new_line_edit("Connection URL or witcher-larp:// QR text")
-	content.add_child(_connection_text_input)
-	content.add_child(_new_button("Use Connection Text", _on_use_connection_text_pressed))
-
-	_device_label = _new_label("", 13, Color("#aab4be"))
-	content.add_child(_device_label)
-
-	content.add_child(_section_title("Player Code"))
-	_player_code_input = _new_line_edit("WC-WOLF-6GF4")
-	_player_code_input.secret = false
-	content.add_child(_player_code_input)
-
-	var login_buttons := HBoxContainer.new()
-	login_buttons.add_theme_constant_override("separation", 8)
-	login_buttons.add_child(_new_button("Login + Snapshot", _on_login_pressed))
-	login_buttons.add_child(_new_button("Bundled Snapshot", _on_bundled_snapshot_pressed))
-	content.add_child(login_buttons)
-
-	content.add_child(_section_title("Snapshot"))
-	_snapshot_label = _new_label("", 15, Color("#d8dee4"))
-	content.add_child(_snapshot_label)
-	content.add_child(_new_button("Refresh Snapshot", _on_refresh_snapshot_pressed))
-
-	content.add_child(_section_title("Character"))
-	_character_label = _new_label("", 15, Color("#f4f0df"))
-	content.add_child(_character_label)
-
-	content.add_child(_section_title("Act Unlock"))
-	_unlock_code_input = _new_line_edit("Act unlock code")
-	content.add_child(_unlock_code_input)
-	content.add_child(_new_button("Unlock Act Offline", _on_unlock_act_pressed))
-
-	content.add_child(_section_title("QR / Manual ID"))
-	_qr_input = _new_line_edit("QR-A1-K7Q2 or witcher-larp://qr?code=QR-A1-K7Q2")
-	content.add_child(_qr_input)
-
-	var qr_buttons := HBoxContainer.new()
-	qr_buttons.add_theme_constant_override("separation", 8)
-	qr_buttons.add_child(_new_button("QR Scan Text", _on_qr_scan_text_pressed))
-	qr_buttons.add_child(_new_button("Manual ID", _on_manual_qr_pressed))
-	content.add_child(qr_buttons)
-
-	var qr_confirmation_buttons := HBoxContainer.new()
-	qr_confirmation_buttons.add_theme_constant_override("separation", 8)
-	qr_confirmation_buttons.add_child(_new_button("Confirm Physical Presence", _on_confirm_qr_presence_pressed))
-	qr_confirmation_buttons.add_child(_new_button("Flag Review", _on_qr_honesty_review_pressed))
-	content.add_child(qr_confirmation_buttons)
-
-	_qr_result_label = _new_label("", 14, Color("#d8dee4"))
-	content.add_child(_qr_result_label)
-
-	content.add_child(_section_title("Event Queue"))
-	var event_buttons := HBoxContainer.new()
-	event_buttons.add_theme_constant_override("separation", 8)
-	event_buttons.add_child(_new_button("Roll PvE d20", _on_pve_check_pressed))
-	event_buttons.add_child(_new_button("PvE Timeout", _on_pve_timeout_pressed))
-	content.add_child(event_buttons)
-	content.add_child(_new_button("Sync Queue", _on_sync_queue_pressed))
-	_event_queue_label = _new_label("", 14, Color("#d8dee4"))
-	content.add_child(_event_queue_label)
-
-	content.add_child(_new_button("Clear Login", _on_clear_login_pressed))
-
-
-func _new_label(text: String, font_size: int, color: Color) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", color)
-	return label
-
-
-func _section_title(text: String) -> Label:
-	return _new_label(text, 20, Color("#d0b56f"))
-
-
-func _new_line_edit(placeholder: String) -> LineEdit:
-	var input := LineEdit.new()
-	input.placeholder_text = placeholder
-	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	return input
-
-
-func _new_button(text: String, callback: Callable) -> Button:
-	var button := Button.new()
-	button.text = text
-	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.pressed.connect(callback)
-	return button
+	if _login_view.has_signal("login_requested"):
+		_login_view.connect("login_requested", Callable(self, "_on_login_pressed"))
+	if _login_view.has_signal("offline_login_requested"):
+		_login_view.connect("offline_login_requested", Callable(self, "_on_bundled_snapshot_pressed"))
+	if _login_view.has_signal("diagnostics_submitted"):
+		_login_view.connect("diagnostics_submitted", Callable(self, "_on_diagnostics_submitted"))
+	if _login_view.has_signal("health_requested"):
+		_login_view.connect("health_requested", Callable(self, "_on_health_pressed"))
+	if _login_view.has_signal("clear_login_requested"):
+		_login_view.connect("clear_login_requested", Callable(self, "_on_clear_login_pressed"))
 
 
 func _refresh_from_state() -> void:
-	_server_url_input.text = str(AppState.settings.get("server_url", AppState.DEFAULT_SERVER_URL))
-	_device_label.text = "Device: %s" % str(AppState.settings.get("device_id", ""))
-
-	var snapshot_version := str(AppState.snapshot.get("snapshot_version", "none"))
-	var source := AppState.snapshot_source
-	var generated := str(AppState.snapshot.get("generated_at", "unknown"))
-	_snapshot_label.text = "Version: %s\nSource: %s\nGenerated: %s" % [snapshot_version, source, generated]
-
 	var player := AppState.current_player()
+	if not player.is_empty() and not _current_role_is_mobile():
+		AppState.clear_session()
+		player = {}
+		_set_status("Этот сохраненный вход не подходит для мобильного журнала.", true)
+
 	if player.is_empty():
+		_set_login_surface(true)
 		_set_journal_surface(false)
-		_character_label.text = "No character loaded. Enter a player_code or load bundled snapshot."
-		_qr_result_label.text = AppState.qr_context_summary()
-		_event_queue_label.text = AppState.event_queue_summary()
+		_refresh_login_view()
 		return
 
-	var stats: Variant = player.get("stats", {})
-	var reputation_text := AppState.player_reputation_display(player)
-	_character_label.text = "%s\nRole: %s\nLevel %s, XP %s, Gold %s\nReputation: %s\nStats: %s\nLogin: %s" % [
-		str(player.get("display_name", "Unknown")),
-		str(player.get("role_type", "unknown")),
-		str(player.get("level", 1)),
-		str(player.get("xp", 0)),
-		str(player.get("gold", 0)),
-		reputation_text,
-		JSON.stringify(stats),
-		str(AppState.session.get("login_status", "signed_out"))
-	]
-	_qr_result_label.text = AppState.qr_context_summary()
-	_event_queue_label.text = AppState.event_queue_summary()
+	_set_login_surface(false)
 	_set_journal_surface(true)
+	_refresh_login_view()
 
 
 func _set_status(message: String, is_error: bool = false) -> void:
-	_status_label.text = message
-	_status_label.add_theme_color_override("font_color", Color("#ffb3a7") if is_error else Color("#f4f0df"))
+	_status_message = message
+	_status_is_error = is_error
+	_refresh_login_view()
+
+
+func _refresh_login_view() -> void:
+	if _login_view and _login_view.has_method("refresh_from_state"):
+		_login_view.call("refresh_from_state", _status_message, _status_is_error, _request_busy)
+
+
+func _set_login_surface(should_show: bool) -> void:
+	if _login_view:
+		_login_view.visible = should_show
+		if should_show:
+			_login_view.move_to_front()
+			_refresh_login_view()
 
 
 func _set_journal_surface(should_show: bool) -> void:
-	if _shell_root:
-		_shell_root.visible = not should_show
-
 	if should_show:
 		if not _journal_view:
 			_journal_view = WITCHER_JOURNAL_SCENE.instantiate()
 			_journal_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 			add_child(_journal_view)
 		_journal_view.visible = true
+		_journal_view.move_to_front()
 		if _journal_view.has_method("refresh_from_state"):
 			_journal_view.call("refresh_from_state")
 	elif _journal_view:
@@ -222,29 +95,49 @@ func _set_journal_surface(should_show: bool) -> void:
 
 
 func _on_save_connection_pressed() -> void:
-	AppState.set_server_url(_server_url_input.text)
+	var server_url := str(AppState.settings.get("server_url", AppState.DEFAULT_SERVER_URL))
+	if _login_view and _login_view.has_method("server_url"):
+		server_url = str(_login_view.call("server_url"))
+	AppState.set_server_url(server_url)
 	_refresh_from_state()
-	_set_status("Server URL saved.")
+	_set_status("Адрес сервера сохранен.")
 
 
 func _on_use_connection_text_pressed() -> void:
-	var url := AppState.connection_text_to_server_url(_connection_text_input.text)
+	var connection_text := ""
+	if _login_view and _login_view.has_method("connection_text"):
+		connection_text = str(_login_view.call("connection_text"))
+	var url := AppState.connection_text_to_server_url(connection_text)
 	AppState.set_server_url(url)
 	_refresh_from_state()
-	_set_status("Connection text applied.")
+	_set_status("QR/строка подключения применена.")
+
+
+func _on_diagnostics_submitted(server_url: String, connection_text: String) -> void:
+	if connection_text.strip_edges().is_empty():
+		AppState.set_server_url(server_url)
+	else:
+		AppState.set_server_url(AppState.connection_text_to_server_url(connection_text))
+	_refresh_from_state()
+	_set_status("Параметры связи сохранены.")
 
 
 func _on_health_pressed() -> void:
 	_start_request("health", API_HEALTH_PATH, HTTPClient.METHOD_GET, {})
 
 
-func _on_login_pressed() -> void:
-	var player_code := _player_code_input.text.strip_edges()
+func _on_login_pressed(requested_code: String = "") -> void:
+	var player_code := requested_code.strip_edges()
+	if player_code.is_empty() and _login_view and _login_view.has_method("player_code"):
+		player_code = str(_login_view.call("player_code")).strip_edges()
 	if player_code.is_empty():
-		_set_status("Enter a player_code.", true)
+		_set_status("Введите код игрока.", true)
 		return
 
-	AppState.set_server_url(_server_url_input.text)
+	var server_url := str(AppState.settings.get("server_url", AppState.DEFAULT_SERVER_URL))
+	if _login_view and _login_view.has_method("server_url"):
+		server_url = str(_login_view.call("server_url"))
+	AppState.set_server_url(server_url)
 	_pending_player_code = player_code.to_upper()
 	_start_request(
 		"auth",
@@ -257,22 +150,29 @@ func _on_login_pressed() -> void:
 	)
 
 
-func _on_bundled_snapshot_pressed() -> void:
-	var player_code := _player_code_input.text.strip_edges()
+func _on_bundled_snapshot_pressed(requested_code: String = "") -> void:
+	var player_code := requested_code.strip_edges()
+	if player_code.is_empty() and _login_view and _login_view.has_method("player_code"):
+		player_code = str(_login_view.call("player_code")).strip_edges()
 	if player_code.is_empty():
-		_set_status("Enter a bundled seed player_code first.", true)
+		_set_status("Введите код игрока для локального снимка.", true)
 		return
 	if AppState.bind_bundled_player_code(player_code):
+		if not _current_role_is_mobile():
+			AppState.clear_session()
+			_refresh_from_state()
+			_set_status("Этот код не для мобильного журнала ведьмака или чародейки.", true)
+			return
 		_refresh_from_state()
-		_set_status("Bundled snapshot loaded and persisted.")
+		_set_status("Локальный снимок загружен.")
 	else:
 		_refresh_from_state()
-		_set_status(str(AppState.session.get("last_error", "Unknown player code.")), true)
+		_set_status(str(AppState.session.get("last_error", "Неизвестный код игрока.")), true)
 
 
 func _on_refresh_snapshot_pressed() -> void:
 	if str(AppState.session.get("player_id", "")).is_empty():
-		_set_status("Login with a player_code before refreshing snapshot.", true)
+		_set_status("Сначала войдите по коду игрока.", true)
 		return
 	_start_request("snapshot", _snapshot_request_path(), HTTPClient.METHOD_GET, {})
 
@@ -280,11 +180,12 @@ func _on_refresh_snapshot_pressed() -> void:
 func _on_clear_login_pressed() -> void:
 	AppState.clear_session()
 	_refresh_from_state()
-	_set_status("Login cleared. Snapshot remains on device for offline review.")
+	_set_status("Вход сброшен. Локальный снимок остался на устройстве.")
 
 
 func _on_unlock_act_pressed() -> void:
-	var event := AppState.offline_unlock_act(_unlock_code_input.text)
+	var unlock_code := ""
+	var event := AppState.offline_unlock_act(unlock_code)
 	_refresh_from_state()
 	if event.is_empty():
 		_set_status(str(AppState.session.get("last_error", "Act unlock failed.")), true)
@@ -338,7 +239,10 @@ func _on_sync_queue_pressed() -> void:
 		_set_status("No offline or retryable events to sync.")
 		return
 
-	AppState.set_server_url(_server_url_input.text)
+	var server_url := str(AppState.settings.get("server_url", AppState.DEFAULT_SERVER_URL))
+	if _login_view and _login_view.has_method("server_url"):
+		server_url = str(_login_view.call("server_url"))
+	AppState.set_server_url(server_url)
 	var prepared := AppState.prepare_sync_request()
 	_pending_sync_event_ids = prepared.get("event_ids", [])
 	var request_body = prepared.get("request", {})
@@ -352,7 +256,8 @@ func _on_sync_queue_pressed() -> void:
 
 
 func _prepare_qr(source: String) -> void:
-	var context := AppState.prepare_qr_attempt(_qr_input.text, source)
+	var qr_text := ""
+	var context := AppState.prepare_qr_attempt(qr_text, source)
 	_refresh_from_state()
 	var status := str(context.get("local_status", ""))
 	if status == "awaiting_physical_presence":
@@ -371,10 +276,11 @@ func _prepare_qr(source: String) -> void:
 
 func _start_request(label: String, path: String, method: int, body: Dictionary) -> void:
 	if _http.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
-		_set_status("Request already in progress.", true)
+		_set_status("Запрос уже выполняется.", true)
 		return
 
 	_pending_request = label
+	_request_busy = true
 	var url := "%s%s" % [AppState.settings.get("server_url", AppState.DEFAULT_SERVER_URL), path]
 	var headers := ["Accept: application/json", "Content-Type: application/json"]
 	if label == "event_sync":
@@ -386,30 +292,45 @@ func _start_request(label: String, path: String, method: int, body: Dictionary) 
 	if err != OK:
 		_handle_request_start_error(label)
 	else:
-		_set_status("Requesting %s..." % label)
+		_set_status(_request_status_text(label))
 
 
 func _handle_request_start_error(label: String) -> void:
+	_request_busy = false
 	if label == "auth":
-		_try_bundled_login("Network request could not start.")
+		_try_bundled_login("Сеть недоступна.")
 	elif label == "event_sync":
 		AppState.mark_sync_batch_error(_pending_sync_event_ids, "Network request could not start.")
 		_refresh_from_state()
-		_set_status("Event sync could not start. Queue was kept for retry.", true)
+		_set_status("Синхронизация не началась. Очередь сохранена для повтора.", true)
 	else:
-		_set_status("Network request could not start. Existing offline state was kept.", true)
+		_set_status("Сеть недоступна. Локальное состояние сохранено.", true)
 	_pending_request = ""
+
+
+func _request_status_text(label: String) -> String:
+	if label == "auth":
+		return "Проверяем код игрока..."
+	if label == "snapshot":
+		return "Загружаем журнал..."
+	if label == "health":
+		return "Проверяем связь..."
+	if label == "event_sync":
+		return "Отправляем офлайн-очередь..."
+	return "Выполняется запрос..."
 
 
 func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	var label := _pending_request
 	_pending_request = ""
+	_request_busy = false
+	_refresh_login_view()
 
 	if label == "health":
 		if result == OK and response_code >= 200 and response_code < 300:
-			_set_status("Server health OK.")
+			_set_status("Сервер игры доступен.")
 		else:
-			_set_status("Server health unavailable. Offline state is still usable.", true)
+			_set_status("Сервер недоступен. Офлайн-состояние можно использовать.", true)
 		return
 
 	if label == "auth":
@@ -433,28 +354,37 @@ func _handle_auth_response(result: int, response_code: int, body: PackedByteArra
 	if response_code >= 200 and response_code < 300 and not payload.is_empty():
 		var player_id := _player_id_from_auth_payload(payload)
 		if player_id.is_empty():
-			_try_bundled_login("Auth response did not include player_id; bundled artifact is non-playable.")
+			_try_bundled_login("Ответ входа не содержит игрока.")
+			return
+		if not _auth_payload_is_mobile_role(payload):
+			_refresh_from_state()
+			_set_status("Этот код не для мобильного журнала ведьмака или чародейки.", true)
 			return
 		AppState.bind_player(_pending_player_code, player_id, "online")
 		_start_request("snapshot", _snapshot_request_path(), HTTPClient.METHOD_GET, {})
 		return
 
-	_set_status("Invalid player_code or rejected device. Existing data was kept.", true)
+	_set_status("Неверный код игрока или устройство отклонено.", true)
 
 
 func _handle_snapshot_response(result: int, response_code: int, body: PackedByteArray) -> void:
 	var payload := _parse_json_body(body)
 	if result == OK and response_code >= 200 and response_code < 300 and not payload.is_empty():
 		AppState.set_snapshot(payload, "server")
+		if not _current_role_is_mobile():
+			AppState.clear_session()
+			_refresh_from_state()
+			_set_status("Загруженный игрок не является ведьмаком или чародейкой.", true)
+			return
 		_refresh_from_state()
-		_set_status("Snapshot downloaded and saved to user://.")
+		_set_status("Журнал загружен и сохранен.")
 		return
 
 	if AppState.snapshot.is_empty():
-		_try_bundled_login("Snapshot API unavailable; bundled artifact is non-playable.")
+		_try_bundled_login("Снимок недоступен.")
 	else:
 		_refresh_from_state()
-		_set_status("Snapshot API unavailable. Last local snapshot was kept.", true)
+		_set_status("Снимок недоступен. Последний локальный снимок сохранен.", true)
 
 
 func _handle_event_sync_response(result: int, response_code: int, body: PackedByteArray) -> void:
@@ -470,20 +400,27 @@ func _handle_event_sync_response(result: int, response_code: int, body: PackedBy
 	_refresh_from_state()
 	if str(AppState.sync_status.get("status", "")) == "sync_error":
 		_set_status("Event sync returned an error. Retry when the server is reachable.", true)
+		_pending_sync_event_ids = []
 	elif str(AppState.sync_status.get("status", "")) == "needs_master_review":
-		_set_status("Event synced; at least one result needs master review.", true)
+		_pending_sync_event_ids = []
+		_start_request("snapshot", _snapshot_request_path(), HTTPClient.METHOD_GET, {})
 	else:
-		_set_status("Event queue synced.")
-	_pending_sync_event_ids = []
+		_pending_sync_event_ids = []
+		_start_request("snapshot", _snapshot_request_path(), HTTPClient.METHOD_GET, {})
 
 
 func _try_bundled_login(prefix: String) -> void:
 	if AppState.bind_bundled_player_code(_pending_player_code):
+		if not _current_role_is_mobile():
+			AppState.clear_session()
+			_refresh_from_state()
+			_set_status("%s Этот код не для мобильного журнала ведьмака или чародейки." % prefix, true)
+			return
 		_refresh_from_state()
-		_set_status("%s Bundled snapshot loaded." % prefix)
+		_set_status("%s Локальный снимок загружен." % prefix)
 	else:
 		_refresh_from_state()
-		_set_status("%s Existing local data was kept; reconnect for playable login." % prefix, true)
+		_set_status("%s Локальные данные сохранены; подключитесь к серверу для входа." % prefix, true)
 
 
 func _parse_json_body(body: PackedByteArray) -> Dictionary:
@@ -498,6 +435,24 @@ func _player_id_from_auth_payload(payload: Dictionary) -> String:
 	if payload.has("player") and typeof(payload["player"]) == TYPE_DICTIONARY:
 		return str(payload["player"].get("player_id", ""))
 	return ""
+
+
+func _auth_payload_is_mobile_role(payload: Dictionary) -> bool:
+	var role_type := str(payload.get("role_type", "")).strip_edges().to_lower()
+	if role_type.is_empty() and payload.has("player") and typeof(payload["player"]) == TYPE_DICTIONARY:
+		role_type = str(payload["player"].get("role_type", "")).strip_edges().to_lower()
+	return _is_mobile_role(role_type)
+
+
+func _current_role_is_mobile() -> bool:
+	var player := AppState.current_player()
+	if player.is_empty():
+		return false
+	return _is_mobile_role(str(player.get("role_type", "")).strip_edges().to_lower())
+
+
+func _is_mobile_role(role_type: String) -> bool:
+	return role_type == "witcher" or role_type == "sorceress"
 
 
 func _snapshot_request_path() -> String:
@@ -539,7 +494,14 @@ func _pve_event_status_message(label: String, event: Dictionary) -> String:
 		for modifier in modifiers:
 			if typeof(modifier) == TYPE_DICTIONARY:
 				modifier_total += int(modifier.get("value", 0))
-	return "%s queued as client event #%s: d20 %s + %s %s + modifiers %d = %s (%s)." % [
+	var reward_note := ""
+	var local_reward = event.get("local_reward_update", {})
+	if typeof(local_reward) == TYPE_DICTIONARY and not local_reward.is_empty():
+		reward_note = " Reward applied offline: +%s XP, +%s gold; sync pending." % [
+			str(local_reward.get("xp_gain", 0)),
+			str(local_reward.get("gold_gain", 0))
+		]
+	return "%s queued as client event #%s: d20 %s + %s %s + modifiers %d = %s (%s).%s" % [
 		label,
 		str(event.get("client_sequence", "")),
 		str(payload.get("roll", roll_entry.get("roll", ""))),
@@ -547,5 +509,6 @@ func _pve_event_status_message(label: String, event: Dictionary) -> String:
 		str(payload.get("stat_value", roll_entry.get("stat_value", ""))),
 		modifier_total,
 		str(payload.get("total", roll_entry.get("total", ""))),
-		str(payload.get("outcome", payload.get("result", "")))
+		str(payload.get("outcome", payload.get("result", ""))),
+		reward_note
 	]

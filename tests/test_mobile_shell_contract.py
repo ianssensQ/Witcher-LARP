@@ -39,7 +39,7 @@ class MobileShellContractTests(unittest.TestCase):
 
         self.assertIn('run/main_scene="res://scenes/main.tscn"', project)
         self.assertIn('AppState="*res://scripts/app_state.gd"', project)
-        self.assertIn('config/features=PackedStringArray("4.x", "Mobile")', project)
+        self.assertIn('config/features=PackedStringArray("4.6", "Mobile")', project)
 
     def test_mobile_scripts_declare_offline_storage_files_for_godot_smoke(self) -> None:
         app_state = (MOBILE_ROOT / "scripts" / "app_state.gd").read_text(
@@ -57,6 +57,28 @@ class MobileShellContractTests(unittest.TestCase):
             "user://sync_status.json",
         ):
             self.assertIn(path, app_state)
+
+    def test_mobile_player_facing_start_is_code_login_scene(self) -> None:
+        main = (MOBILE_ROOT / "scripts" / "main.gd").read_text(encoding="utf-8")
+        login_scene = (MOBILE_ROOT / "scenes" / "player_login.tscn").read_text(
+            encoding="utf-8"
+        )
+        login_script = (MOBILE_ROOT / "scripts" / "player_login_view.gd").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('preload("res://scenes/player_login.tscn")', main)
+        self.assertIn("login_requested", login_script)
+        self.assertIn("offline_login_requested", login_script)
+        self.assertIn("Код игрока", login_scene)
+        self.assertIn("PlayerCodeInput", login_scene)
+        self.assertIn("LoginButton", login_scene)
+        self.assertIn("DiagnosticsPanel", login_scene)
+        self.assertIn("visible = false", login_scene)
+        self.assertIn('role_type == "witcher"', main)
+        self.assertIn('role_type == "sorceress"', main)
+        self.assertNotIn("Offline-first player shell", main + login_scene)
+        self.assertNotIn("Login + Snapshot", main + login_scene)
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_mobile_login_snapshot_and_sync_queue_use_runtime_contracts(self) -> None:
@@ -335,10 +357,9 @@ class MobileShellContractTests(unittest.TestCase):
         main = (MOBILE_ROOT / "scripts" / "main.gd").read_text(encoding="utf-8")
 
         for contract_token in (
-            "QR / Manual ID",
-            "QR Scan Text",
-            "Manual ID",
-            "Confirm Physical Presence",
+            "_on_qr_scan_text_pressed",
+            "_on_manual_qr_pressed",
+            "_on_confirm_qr_presence_pressed",
             "qr_scene_started",
             "qr_attempt",
             "qr_mode",
@@ -349,8 +370,7 @@ class MobileShellContractTests(unittest.TestCase):
             "blocked_future_act",
             "cooldown_active",
             "success_take_physical_qr_failure_leave_it",
-            "Act Unlock",
-            "Unlock Act Offline",
+            "_on_unlock_act_pressed",
             "offline_unlock_act",
             "act_unlocked_offline",
             "master_unlock_code",
@@ -392,9 +412,9 @@ class MobileShellContractTests(unittest.TestCase):
             "prepare_sync_request",
             "apply_sync_response",
             "mark_sync_batch_error",
-            "Event Queue",
-            "Roll PvE d20",
-            "Sync Queue",
+            "_on_sync_queue_pressed",
+            "_on_pve_check_pressed",
+            "_record_pve_check",
             "_event_belongs_to_current_player",
             "wrong_actor_queue",
             "another player/session",
@@ -415,14 +435,30 @@ class MobileShellContractTests(unittest.TestCase):
         app_state = (MOBILE_ROOT / "scripts" / "app_state.gd").read_text(
             encoding="utf-8"
         )
-        main = (MOBILE_ROOT / "scripts" / "main.gd").read_text(encoding="utf-8")
+        journal = (MOBILE_ROOT / "scripts" / "witcher_journal_view.gd").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("func player_reputation_display(player: Dictionary)", app_state)
         self.assertIn("reputation_state", app_state)
-        self.assertIn("AppState.player_reputation_display(player)", main)
-        self.assertIn("Reputation: %s", main)
-        self.assertNotIn("Reputation: %d", main)
-        self.assertNotIn('player.get("reputation"', main)
+        self.assertIn("AppState.player_reputation_display(player)", journal)
+        self.assertIn("Репутация: %s", journal)
+        self.assertNotIn("Reputation: %d", journal)
+        self.assertNotIn('player.get("reputation"', journal)
+
+    def test_mobile_journal_xp_bar_uses_current_level_progress(self) -> None:
+        journal = (MOBILE_ROOT / "scripts" / "witcher_journal_view.gd").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("func _xp_window_for_player(", journal)
+        self.assertIn("func _xp_required_for_next_level(", journal)
+        self.assertIn("func _xp_costs_from_rules() -> Array:", journal)
+        self.assertIn('"progress": int(max(0, xp_current))', journal)
+        self.assertIn('"required": next_level_cost', journal)
+        self.assertIn("_set_xp_bar(xp_progress, xp_required)", journal)
+        self.assertIn("if xp_current > 0:", journal)
+        self.assertNotIn("_set_xp_bar(xp_current, xp_target)", journal)
 
     def test_mobile_scripts_queue_qr_presence_and_review_contexts(self) -> None:
         app_state = (MOBILE_ROOT / "scripts" / "app_state.gd").read_text(
@@ -551,7 +587,8 @@ class MobileShellContractTests(unittest.TestCase):
         main = (MOBILE_ROOT / "scripts" / "main.gd").read_text(encoding="utf-8")
         combined = app_state + main
 
-        self.assertIn('event_buttons.add_child(_new_button("Roll PvE d20"', main)
+        self.assertIn("func _on_pve_check_pressed() -> void:", main)
+        self.assertIn("func _record_pve_check() -> void:", main)
         self.assertNotIn("_pve_roll_input", main)
         self.assertNotIn("d20 roll 1-20", main)
         self.assertNotIn("_build_roll_log_from_input", main)
