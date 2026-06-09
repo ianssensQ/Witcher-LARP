@@ -93,7 +93,7 @@ CANONICAL_LORD_BATTLE_RULES = {
     "grid_width": "5",
     "grid_height": "6",
     "turn_timer_seconds": "60",
-    "damage_formula": "max(1 attack-defense+modifiers)",
+    "damage_formula": "count_alive*max(1 attack-defense+modifiers)",
     "initiative_tiebreaker": "initiative_desc_tier_desc_seed",
     "timeout_policy": "auto_defend_then_skip",
     "auto_resolve_policy": "repeated_timeout_master_takeover_or_auto_resolve",
@@ -915,10 +915,10 @@ def _validate_territory_forts(tables: dict[str, CsvTable]) -> list[ImportErrorDe
         record.values["territory_id"]: record
         for record in tables["territories.csv"].rows
     }
-    capturable_territory_ids = {
+    fort_required_territory_ids = {
         territory_id
         for territory_id, record in territory_rows.items()
-        if record.values["bonus_type"] != "residence"
+        if record.values["bonus_type"] != "route_waypoint"
     }
 
     forts_by_territory: dict[str, list[CsvRecord]] = defaultdict(list)
@@ -938,11 +938,9 @@ def _validate_territory_forts(tables: dict[str, CsvTable]) -> list[ImportErrorDe
             )
             continue
         territory = territory_rows.get(territory_id)
-        if territory is None or territory.values["bonus_type"] == "residence":
+        if territory is None:
             continue
-        tier = _to_int(territory.values["tier"], default=0)
-        expected_capacity = {1: 2, 2: 3, 3: 4}.get(tier)
-        if expected_capacity is not None and capacity != expected_capacity:
+        if capacity < 5 or capacity > 8:
             errors.append(
                 ImportErrorDetail(
                     code="invalid_garrison_capacity",
@@ -950,13 +948,13 @@ def _validate_territory_forts(tables: dict[str, CsvTable]) -> list[ImportErrorDe
                     row=record.row_number,
                     record_id=record.values["fort_id"],
                     message=(
-                        "Territory fort garrison_capacity must match V1 tier "
-                        f"default {expected_capacity} for territory tier {tier}."
+                        "Territory fort garrison_capacity must be a V1 stack-slot "
+                        "capacity between 5 and 8."
                     ),
                 )
             )
 
-    for territory_id in sorted(capturable_territory_ids):
+    for territory_id in sorted(fort_required_territory_ids):
         fort_rows = forts_by_territory.get(territory_id, [])
         if not fort_rows:
             errors.append(
@@ -964,7 +962,7 @@ def _validate_territory_forts(tables: dict[str, CsvTable]) -> list[ImportErrorDe
                     code="missing_territory_fort",
                     file="territory_forts.csv",
                     record_id=territory_id,
-                    message=f"Capturable territory {territory_id} must have one territory fort.",
+                    message=f"Playable territory {territory_id} must have one territory fort.",
                 )
             )
         elif len(fort_rows) > 1:
@@ -973,7 +971,7 @@ def _validate_territory_forts(tables: dict[str, CsvTable]) -> list[ImportErrorDe
                     code="duplicate_territory_fort",
                     file="territory_forts.csv",
                     record_id=territory_id,
-                    message=f"Capturable territory {territory_id} has multiple territory forts.",
+                    message=f"Playable territory {territory_id} has multiple territory forts.",
                 )
             )
 
@@ -1275,6 +1273,10 @@ def _validate_buildings_and_units(
 ) -> list[ImportErrorDetail]:
     errors: list[ImportErrorDetail] = []
     graph: dict[str, list[str]] = {}
+    unit_source_by_card = {
+        record.values["card_id"]: record.values["source_id"]
+        for record in tables["army_unit_cards.csv"].rows
+    }
     for record in tables["buildings.csv"].rows:
         building_id = record.values["building_id"]
         graph[building_id] = split_ids(record.values["prerequisite_ids"])
@@ -1308,6 +1310,21 @@ def _validate_buildings_and_units(
                     message="Building gold_cost must be positive.",
                 )
             )
+        for card_id in split_ids(record.values["recruit_unlock_ids"]):
+            source_id = unit_source_by_card.get(card_id)
+            if source_id and source_id != building_id:
+                errors.append(
+                    ImportErrorDetail(
+                        code="building_recruit_source_mismatch",
+                        file="buildings.csv",
+                        row=record.row_number,
+                        record_id=building_id,
+                        message=(
+                            f"Building {building_id} cannot unlock {card_id}; "
+                            f"army unit source_id is {source_id}."
+                        ),
+                    )
+                )
 
     errors.extend(_cycle_errors(graph, "buildings.csv", "building_cycle"))
 

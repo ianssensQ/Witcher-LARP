@@ -277,6 +277,8 @@ class BuildingPurchasePayload(BaseModel):
 class RecruitPayload(BaseModel):
     action: str
     offer_id: str | None = None
+    quantity: int = 1
+    territory_id: str | None = None
     source: str = "lord_panel"
 
 
@@ -770,6 +772,8 @@ def create_app(settings: Settings | None = None):
                     lord_id,
                     action=payload.action,
                     offer_id=payload.offer_id,
+                    quantity=payload.quantity,
+                    territory_id=payload.territory_id,
                     source=payload.source,
                 )
             except LordRuntimeError as exc:

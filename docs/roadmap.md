@@ -60,7 +60,7 @@ Production profile для всех этапов: 15 человек всего, 1
 - online-only trade_transfers: two confirmations, pending asset lock, atomic owner change and audit log;
 - свободный ведьмачий/чародейский PvE в любых зонах независимо от владельца территории;
 - 3 сюжетных акта + финальный акт, auto timers, backup hooks;
-- лордская weighted map, movement pool, territories, тематические форты с active army <-> fort transfer, гарнизоны, накопительный найм по территориям, default building tree, 6 классов army unit cards, raid engine, заказы, escrow, anti-snowball 30/50 и deterministic battle engine 5x6 с 60s turn timer/auto-resolve, V1 power formulas, stack wounds, deployment caps, line of sight and hero targeting;
+- лордская weighted map, movement pool, territories, тематические форты с active army <-> fort transfer, гарнизоны со slot capacity пачек, накопительный найм по территориям, русский default building tree, 6 классов army unit cards, raid engine, заказы, escrow, anti-snowball 30/50 и deterministic battle engine 5x6 с 60s turn timer/auto-resolve, простой stack damage `count_alive * max(1, attack - defense + modifiers)`, V1 power formulas, stack wounds, deployment caps, line of sight and hero targeting;
 - full Gwent personal PvP, 3 challenge tokens per act, накопление токенов, max 1 active challenge, timeout/refusal/tie review и 30-minute PvP window на явку/старт в назначенной online-зоне;
 - PvP throttling: default 2 `pvp_tables`, queued challenges, max 2 started mandatory matches per player per act без master approval, режимы `normal/limited/paused`, final lock behavior;
 - PvP refusal/safety table: active scene/deferred, unsafe route/force majeure, safety stop, valid-ignore review and overload throttle behavior;

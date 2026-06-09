@@ -833,6 +833,12 @@ p {
   stroke-width: 6;
 }
 
+.map-zone.route-stop {
+  fill: rgba(122, 220, 150, 0.08);
+  stroke: rgba(122, 220, 150, 0.95);
+  stroke-width: 7;
+}
+
 .map-zone.domain-north,
 .minimap-dot.domain-north {
   fill: rgba(201, 75, 67, 0.12);
@@ -879,10 +885,16 @@ p {
   stroke-width: 26;
 }
 
+.lord-map[data-map-mode="generated_holes"] .map-zone.route-stop {
+  fill: rgba(122, 220, 150, 0.06);
+  stroke: rgba(122, 220, 150, 0.95);
+  stroke-width: 30;
+}
+
 .lord-map[data-map-mode="generated_holes"] .map-route {
-  stroke-width: 72;
+  stroke-width: 52;
   stroke-dasharray: 150 72;
-  filter: drop-shadow(0 0 22px rgba(214, 163, 75, 0.48));
+  filter: drop-shadow(0 0 18px rgba(214, 163, 75, 0.42));
 }
 
 .lord-map[data-map-mode="generated_holes"] .map-label {
@@ -922,6 +934,11 @@ p {
 .map-node-dot {
   stroke-width: 6;
   pointer-events: none;
+}
+
+.map-node-dot.route-stop {
+  fill: #22351f;
+  stroke: rgba(122, 220, 150, 0.95);
 }
 
 .minimap-dot {

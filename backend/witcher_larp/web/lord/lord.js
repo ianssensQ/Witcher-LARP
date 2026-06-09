@@ -1104,10 +1104,18 @@ function updateMoveRoutePreview(requestedTargetNodeId = undefined) {
     ? requestedTargetNodeId
     : selectedMapNodeId;
   const preview = matchingRoutePreview(targetNodeId);
-  const route = previewRoute(preview) || buildRoute(currentState, targetNodeId);
+  const route = previewRoute(preview);
   els.moveRoutePreview.textContent = route
     ? `${route.nodes.join(" -> ")} (${route.cost} MP)`
     : "Нет маршрута";
+  if (route) {
+    els.moveRoutePreview.textContent = routeSummaryText(
+      currentState,
+      preview,
+      route,
+      targetNodeId,
+    );
+  }
   selectedMapNodeId = targetNodeId;
   if ([...els.moveTarget.options].some((option) => option.value === targetNodeId)) {
     els.moveTarget.value = targetNodeId;
@@ -1136,6 +1144,29 @@ function previewRoute(preview) {
     nodes: preview.route,
     cost: Number(preview.mp_cost || 0),
   };
+}
+
+function previewStopNodeId(preview) {
+  if (!preview) return null;
+  if (preview.to_node_id) return preview.to_node_id;
+  const route = preview.route || [];
+  return route.length ? route[route.length - 1] : null;
+}
+
+function nodeDisplayName(state, nodeId) {
+  if (!nodeId) return "";
+  const territory = territoriesByNodeId(state).get(nodeId);
+  const seedNode = seedNodesById(state).get(nodeId);
+  return territory?.name || seedNode?.name || nodeId;
+}
+
+function routeSummaryText(state, preview, route, requestedTargetNodeId) {
+  const stopNodeId = previewStopNodeId(preview);
+  const requestedNodeId = preview?.requested_to_node_id || requestedTargetNodeId;
+  const stopSuffix = stopNodeId && requestedNodeId && stopNodeId !== requestedNodeId
+    ? `, доступная цель: ${nodeDisplayName(state, stopNodeId)}`
+    : "";
+  return `${route.nodes.join(" -> ")} (${route.cost} MP${stopSuffix})`;
 }
 
 async function requestRoutePreview(targetNodeId) {
@@ -1212,6 +1243,10 @@ function renderLordMap(state) {
     svg.append(renderCentralHouse(layout.central_house));
   }
 
+  const selectedPreview = matchingRoutePreview(selectedMapNodeId);
+  const route = previewRoute(selectedPreview);
+  const routeStopNodeId = previewStopNodeId(selectedPreview);
+
   if (layout.visibility?.svg_edges_visible !== false) {
     const edgeLayer = svgNode("g", { class: "map-edge-layer" });
     for (const edge of state.map_edges || []) {
@@ -1238,6 +1273,9 @@ function renderLordMap(state) {
     if (!shape) continue;
     shape.classList.add("map-zone", mapNodeClass(state, seedNode, territory, node));
     if (nodeId === selectedMapNodeId) shape.classList.add("selected");
+    if (nodeId === routeStopNodeId && nodeId !== selectedMapNodeId) {
+      shape.classList.add("route-stop");
+    }
     shape.dataset.nodeId = nodeId;
     shape.append(svgNode("title", {}, mapNodeTitle(seedNode, territory)));
     if (node.ui_target) {
@@ -1247,7 +1285,6 @@ function renderLordMap(state) {
   }
   svg.append(zoneLayer);
 
-  const route = previewRoute(matchingRoutePreview(selectedMapNodeId)) || buildRoute(state, selectedMapNodeId);
   const routePoints = route ? routePointsForRoute(state, layout, route.nodes) : [];
   if (routePoints.length >= 2) {
     svg.append(svgNode("path", {
@@ -1263,14 +1300,18 @@ function renderLordMap(state) {
     const seedNode = seedNodeById.get(nodeId) || {};
     const territory = territoryByNode.get(nodeId);
     const nodeClass = mapNodeClass(state, seedNode, territory, node);
+    const dotClasses = ["map-node-dot", nodeClass];
+    if (nodeId === routeStopNodeId && nodeId !== selectedMapNodeId) {
+      dotClasses.push("route-stop");
+    }
     nodeLayer.append(svgNode("circle", {
-      class: `map-node-dot ${nodeClass}`,
+      class: dotClasses.join(" "),
       cx: node.x,
       cy: node.y,
       r: node.ui_target ? 20 : 12,
     }));
     const label = labelForMapNode(seedNode, territory);
-    if (label && (nodeId === selectedMapNodeId || nodeId === activeNodeId)) {
+    if (label && (nodeId === selectedMapNodeId || nodeId === activeNodeId || nodeId === routeStopNodeId)) {
       labelLayer.append(svgNode(
         "text",
         {
@@ -1389,11 +1430,31 @@ function armyMarkerAnchor(state, layout) {
     const points = routePointsForRoute(state, layout, pending.route || []);
     if (points.length >= 2) return pointAlongPolyline(points, pendingProgress(pending));
     const target = layout.nodes?.[pending.to_node_id];
-    if (target) return target.marker_anchor || target;
+    if (target) return nodeArmyAnchor(target, layout);
   }
   const nodeId = state?.movement?.current_node_id;
   const node = nodeId ? layout.nodes?.[nodeId] : null;
-  return node ? node.marker_anchor || node : null;
+  return node ? nodeArmyAnchor(node, layout) : null;
+}
+
+function nodeArmyAnchor(node, layout) {
+  const anchor = node.marker_anchor || node;
+  const socket = node.ownership_socket;
+  if (!socket) return anchor;
+  const canvasWidth = Number(layout?.canvas?.width || 0);
+  const canvasHeight = Number(layout?.canvas?.height || 0);
+  const clearOffset = Math.max(180, Number(socket.r || 0) + 150);
+  const horizontal = canvasWidth && socket.cx > canvasWidth * 0.72 ? -1 : 1;
+  const vertical = canvasHeight && socket.cy < canvasHeight * 0.24 ? 1 : -1;
+  const distance = Math.hypot(
+    Number(anchor.x ?? socket.cx) - Number(socket.cx),
+    Number(anchor.y ?? socket.cy) - Number(socket.cy),
+  );
+  if (distance >= clearOffset * 0.8) return anchor;
+  return {
+    x: Number(socket.cx) + clearOffset * horizontal,
+    y: Number(socket.cy) + clearOffset * 0.65 * vertical,
+  };
 }
 
 function pendingProgress(pending) {
@@ -1489,7 +1550,11 @@ function updateMapStatus(state, route) {
     els.mapMoveButton.disabled = true;
     return;
   }
-  setMapStatus(`${label} - ${route.cost} MP`);
+  const routeStopNodeId = previewStopNodeId(preview);
+  const stopLabel = routeStopNodeId && routeStopNodeId !== nodeId
+    ? ` -> ${nodeDisplayName(state, routeStopNodeId)}`
+    : "";
+  setMapStatus(`${label}${stopLabel} - ${route.cost} MP`);
   els.mapMoveButton.disabled = !preview.can_move;
 }
 
@@ -1515,6 +1580,10 @@ function renderMapSelection(state, preview, route) {
   const routeText = route
     ? `Маршрут: ${route.nodes.join(" -> ")} (${route.cost} MP)`
     : "Маршрут не выбран";
+  const routeStopNodeId = previewStopNodeId(preview);
+  const routeStopText = routeStopNodeId && routeStopNodeId !== nodeId
+    ? `Доступная цель: ${nodeDisplayName(state, routeStopNodeId)}.`
+    : null;
   const outcome = preview?.outcome?.kind === "will_create_claim"
     ? "После прибытия появится претензия и бой."
     : preview?.outcome?.kind === "existing_claim"
@@ -1524,6 +1593,7 @@ function renderMapSelection(state, preview, route) {
         : "";
   els.mapSelectionDetail.textContent = [
     routeText,
+    routeStopText,
     !preview && route ? "Проверяю маршрут на сервере." : null,
     preview?.reason,
     outcome,

@@ -16,6 +16,7 @@ from .content_schema import split_ids
 from .runtime_schema import ensure_runtime_schema, log_event
 from .stats import CANONICAL_STATS, DEFAULT_STAT_ID
 from .timer_service import ensure_runtime_content_state
+from .xp_service import spend_xp_for_levels
 
 
 ACTIVE_ORDER_STATUSES = {
@@ -78,6 +79,32 @@ BLOCKING_ROUTE_STATUSES = {
     "awaiting_garrison",
 }
 LORD_MOVE_SECONDS_PER_EDGE = 1
+DEFAULT_ACTIVE_ARMY_STACK_CAPACITY = 5
+
+BUILDING_RECRUIT_INITIAL_STOCK_BY_CLASS = {
+    "infantry": 24,
+    "guard": 14,
+    "ranged": 14,
+    "cavalry": 5,
+    "heavy_siege": 2,
+    "specialist": 3,
+}
+BUILDING_RECRUIT_GROWTH_PER_HOUR_BY_CLASS = {
+    "infantry": 24,
+    "guard": 12,
+    "ranged": 12,
+    "cavalry": 4,
+    "heavy_siege": 2,
+    "specialist": 3,
+}
+BUILDING_RECRUIT_STOCK_CAP_BY_CLASS = {
+    "infantry": 240,
+    "guard": 140,
+    "ranged": 140,
+    "cavalry": 50,
+    "heavy_siege": 24,
+    "specialist": 36,
+}
 
 
 class LordRuntimeError(ValueError):
@@ -272,6 +299,7 @@ def ensure_lord_runtime_state(connection: sqlite3.Connection) -> None:
                 )
 
     _initialize_domain_locations(connection, now)
+    _ensure_minimum_active_army_stack_capacity(connection, now)
     reconcile_raid_effects(connection)
 
 
@@ -485,7 +513,7 @@ def preview_lord_route(
     reason = None
     if stopped:
         reason_code = "route_stopped_at_front"
-        reason = "Route stops at the first foreign or contested territory."
+        reason = "Route stops at the first neutral, foreign, or contested territory."
     if not affordable:
         reason_code = "insufficient_mp"
         reason = f"Route costs {cost} MP, but domain has {current_mp}."
@@ -564,10 +592,10 @@ def transfer_garrison(
 
     if operation == "fort_to_active":
         _assert_local_owned_transfer_territory(connection, domain_id, territory)
-        active_count = _active_army_count(connection, domain_id)
         capacity = _to_int(domain["active_army_capacity"])
-        if active_count + count > capacity:
-            raise LordRuntimeError("army_capacity_exceeded", "Active army capacity exceeded.")
+        _assert_active_army_stack_capacity_available(
+            connection, domain_id, card_id, capacity
+        )
         _consume_garrison(connection, domain_id, territory_id, card_id, count, now)
         _upsert_active_army(
             connection,
@@ -604,7 +632,7 @@ def transfer_garrison(
             "Contested territory cannot be changed by garrison transfer until its claim is resolved.",
         )
 
-    _assert_fort_capacity_available(connection, territory_id, count)
+    _assert_fort_capacity_available(connection, territory_id, card_id)
     _consume_active_army_at_territory(connection, domain_id, territory_id, card_id, count, now)
     _upsert_garrison(connection, territory_id, domain_id, card_id, count, now)
 
@@ -699,6 +727,7 @@ def buy_building(
     )
 
     unlocked = []
+    spawned_reserves = []
     for card_id in split_ids(str(building["recruit_unlock_ids"])):
         offer = _ensure_recruit_offer(
             connection,
@@ -708,6 +737,15 @@ def buy_building(
             now=now,
         )
         unlocked.append(offer)
+        reserve = _ensure_building_recruit_reserve(
+            connection,
+            str(domain["domain_id"]),
+            building_id,
+            card_id,
+            now,
+        )
+        if reserve is not None:
+            spawned_reserves.append(reserve)
 
     result = {
         "status": "purchased",
@@ -717,6 +755,7 @@ def buy_building(
         "capacity_delta": capacity_delta,
         "raid_token_delta": raid_delta,
         "unlocked_recruit_offers": unlocked,
+        "spawned_reserves": spawned_reserves,
     }
     log_event(connection, "lord_building_purchased", result, source=source)
     return result
@@ -728,20 +767,30 @@ def recruit_action(
     *,
     action: str,
     offer_id: str | None = None,
+    quantity: int = 1,
+    territory_id: str | None = None,
     source: str = "lord_panel",
 ) -> dict[str, Any]:
     ensure_lord_runtime_state(connection)
+    if quantity <= 0:
+        raise LordRuntimeError("invalid_count", "Recruit quantity must be positive.")
     domain = _domain_for_lord(connection, lord_id)
     domain_id = str(domain["domain_id"])
     now = _iso()
 
     if action == "refresh":
-        offers = [_ensure_recruit_offer(connection, domain_id, card_id, source=source, now=now) for card_id in _unlocked_recruit_cards(connection, domain_id)]
+        spawned_reserves = _ensure_recruit_reserves_for_owned_buildings(
+            connection, domain_id, now
+        )
+        unlocked_cards = _unlocked_recruit_cards(connection, domain_id)
+        _retire_locked_recruit_offers(connection, domain_id, unlocked_cards, now)
+        offers = [_ensure_recruit_offer(connection, domain_id, card_id, source=source, now=now) for card_id in unlocked_cards]
         return {
             "status": "refreshed",
             "domain_id": domain_id,
             "offers": offers,
             "unit_classes": sorted({offer["unit_class"] for offer in offers}),
+            "spawned_reserves": spawned_reserves,
         }
 
     if not offer_id:
@@ -768,13 +817,34 @@ def recruit_action(
             raise LordRuntimeError("offer_not_available", "Offer cannot be purchased.")
         if offer["status"] == "held" and offer["held_by_domain_id"] not in {None, domain_id}:
             raise LordRuntimeError("offer_held", "Offer is held by another domain.")
-        cost = _to_int(offer["cost"])
+        cost_per_unit = _to_int(offer["cost"])
+        cost = cost_per_unit * quantity
         domain = _domain_by_id(connection, domain_id)
         if _to_int(domain["gold"]) < cost:
             raise LordRuntimeError(
                 "insufficient_gold",
                 f"Recruit offer costs {cost} gold, but domain has {domain['gold']}.",
             )
+        territory = _territory_state(connection, territory_id) if territory_id else None
+        if territory is not None:
+            territory_owner = _optional(territory["owner_domain_id"])
+            if territory_owner != domain_id:
+                raise LordRuntimeError(
+                    "territory_not_owned",
+                    "Recruiting to a garrison requires a controlled territory.",
+                )
+            if (
+                str(territory["status"]) in LOCKED_GARRISON_TRANSFER_STATUSES
+                or _optional(territory["contested_by_domain_id"]) is not None
+            ):
+                raise LordRuntimeError(
+                    "territory_contested",
+                    "Contested territory cannot receive recruited units.",
+                )
+            _assert_fort_capacity_available(
+                connection, territory_id, str(offer["card_id"])
+            )
+            _consume_reserve(connection, domain_id, str(offer["card_id"]), quantity)
         connection.execute(
             """
             UPDATE domain_runtime_state
@@ -783,6 +853,42 @@ def recruit_action(
             """,
             (cost, now, domain_id),
         )
+        if territory is not None:
+            connection.execute(
+                """
+                UPDATE recruit_offer_runtime
+                SET held_by_domain_id = ?, updated_at = ?
+                WHERE offer_id = ?
+                """,
+                (domain_id, now, offer_id),
+            )
+            _upsert_garrison(
+                connection,
+                territory_id,
+                domain_id,
+                str(offer["card_id"]),
+                quantity,
+                now,
+            )
+            result = {
+                "status": "hired",
+                "domain_id": domain_id,
+                "offer_id": offer_id,
+                "territory_id": territory_id,
+                "card_id": offer["card_id"],
+                "count": quantity,
+                "cost_per_unit": cost_per_unit,
+                "gold_spent": cost,
+                "garrison": {
+                    "territory_id": territory_id,
+                    "domain_id": domain_id,
+                    "card_id": offer["card_id"],
+                    "count": quantity,
+                    "status": "active",
+                },
+            }
+            log_event(connection, "lord_recruit_hired", result, source=source)
+            return result
         connection.execute(
             """
             UPDATE recruit_offer_runtime
@@ -791,12 +897,16 @@ def recruit_action(
             """,
             (domain_id, now, offer_id),
         )
-        reserve = _upsert_reserve(connection, domain_id, str(offer["card_id"]), 1, now)
+        reserve = _upsert_reserve(
+            connection, domain_id, str(offer["card_id"]), quantity, now
+        )
         result = {
             "status": "purchased",
             "domain_id": domain_id,
             "offer_id": offer_id,
             "card_id": offer["card_id"],
+            "count": quantity,
+            "cost_per_unit": cost_per_unit,
             "gold_spent": cost,
             "reserve": reserve,
         }
@@ -1442,10 +1552,10 @@ def _transfer_reserve_to_active(
             "not_at_residence",
             "Reserve can transfer to active army only through the residence territory.",
         )
-    current_active = _active_army_count(connection, domain_id)
     capacity = _to_int(domain["active_army_capacity"])
-    if current_active + count > capacity:
-        raise LordRuntimeError("army_capacity_exceeded", "Active army capacity exceeded.")
+    _assert_active_army_stack_capacity_available(
+        connection, domain_id, card_id, capacity
+    )
     _consume_reserve(connection, domain_id, card_id, count)
     now = _iso()
     army_id = _stable_id("army", domain_id, card_id)
@@ -1943,7 +2053,7 @@ def _node_blocks_route(
     territory_id = _optional(node["territory_id"])
     if territory_id is None:
         return False
-    if _optional(node["owner_domain_id"]) not in {None, domain_id}:
+    if _optional(node["owner_domain_id"]) != domain_id:
         return True
     if _optional(node["contested_by_domain_id"]) is not None:
         return True
@@ -2483,8 +2593,11 @@ def _apply_order_reward(
     gold_before = _to_int(player.get("gold"))
     xp_gain = _to_int(ledger["reserved_xp"])
     gold_gain = _to_int(ledger["reserved_gold"])
-    xp_after = xp_before + xp_gain
-    level_after = max(level_before, _level_for_xp(connection, xp_after))
+    xp_after, level_after = spend_xp_for_levels(
+        connection,
+        level_before=level_before,
+        xp_available=xp_before + xp_gain,
+    )
     stats = _player_stats(player)
     stat_gains: list[dict[str, Any]] = []
     max_stat = _max_stat(connection)
@@ -2577,6 +2690,130 @@ def _normalize_visibility(value: str) -> str:
     return visibility
 
 
+def _ensure_recruit_reserves_for_owned_buildings(
+    connection: sqlite3.Connection, domain_id: str, now: str
+) -> list[dict[str, Any]]:
+    spawned: list[dict[str, Any]] = []
+    for row in connection.execute(
+        """
+        SELECT db.building_id, b.recruit_unlock_ids
+        FROM domain_buildings db
+        JOIN buildings b ON b.building_id = db.building_id
+        WHERE db.domain_id = ?
+        ORDER BY db.purchased_at, db.building_id
+        """,
+        (domain_id,),
+    ).fetchall():
+        building_id = str(row["building_id"])
+        for card_id in split_ids(str(row["recruit_unlock_ids"])):
+            reserve = _ensure_building_recruit_reserve(
+                connection, domain_id, building_id, card_id, now
+            )
+            if reserve is not None:
+                spawned.append(reserve)
+    return spawned
+
+
+def _ensure_building_recruit_reserve(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    building_id: str,
+    card_id: str,
+    now: str,
+) -> dict[str, Any] | None:
+    card = _unit_card(connection, card_id)
+    if _optional(card["source_id"]) != building_id:
+        return None
+    existing_reserve = connection.execute(
+        """
+        SELECT *
+        FROM army_reserve_runtime
+        WHERE domain_id = ? AND card_id = ?
+        LIMIT 1
+        """,
+        (domain_id, card_id),
+    ).fetchone()
+    if existing_reserve is not None:
+        return _grow_building_recruit_reserve(connection, existing_reserve, card, now)
+
+    reserve_id = _stable_id("reserve", domain_id, card_id, "building", building_id)
+    count = _building_recruit_reserve_count(card)
+    cursor = connection.execute(
+        """
+        INSERT INTO army_reserve_runtime (
+            reserve_id, domain_id, card_id, count, status, updated_at
+        )
+        VALUES (?, ?, ?, ?, 'available', ?)
+        ON CONFLICT(reserve_id) DO NOTHING
+        """,
+        (reserve_id, domain_id, card_id, count, now),
+    )
+    if cursor.rowcount < 1:
+        return None
+    return dict(
+        connection.execute(
+            "SELECT * FROM army_reserve_runtime WHERE reserve_id = ?",
+            (reserve_id,),
+        ).fetchone()
+    )
+
+
+def _building_recruit_reserve_count(card: sqlite3.Row) -> int:
+    unit_class = str(card["unit_class"])
+    return BUILDING_RECRUIT_INITIAL_STOCK_BY_CLASS.get(unit_class, 1)
+
+
+def recruit_growth_per_hour_for_unit_class(unit_class: str) -> int:
+    return BUILDING_RECRUIT_GROWTH_PER_HOUR_BY_CLASS.get(unit_class, 0)
+
+
+def _grow_building_recruit_reserve(
+    connection: sqlite3.Connection,
+    reserve: sqlite3.Row,
+    card: sqlite3.Row,
+    now: str,
+) -> dict[str, Any] | None:
+    unit_class = str(card["unit_class"])
+    rate = BUILDING_RECRUIT_GROWTH_PER_HOUR_BY_CLASS.get(unit_class, 0)
+    if rate <= 0:
+        return None
+    try:
+        last_updated = _parse_iso(str(reserve["updated_at"]))
+        current_time = _parse_iso(now)
+    except ValueError:
+        last_updated = current_time = datetime.now(UTC)
+    elapsed_hours = int((current_time - last_updated).total_seconds() // 3600)
+    if elapsed_hours <= 0:
+        return None
+    current_count = _to_int(reserve["count"])
+    cap = BUILDING_RECRUIT_STOCK_CAP_BY_CLASS.get(unit_class, current_count + rate)
+    next_count = min(cap, current_count + rate * elapsed_hours)
+    if next_count <= current_count:
+        connection.execute(
+            """
+            UPDATE army_reserve_runtime
+            SET updated_at = ?
+            WHERE reserve_id = ?
+            """,
+            (now, reserve["reserve_id"]),
+        )
+        return None
+    connection.execute(
+        """
+        UPDATE army_reserve_runtime
+        SET count = ?, updated_at = ?
+        WHERE reserve_id = ?
+        """,
+        (next_count, now, reserve["reserve_id"]),
+    )
+    return dict(
+        connection.execute(
+            "SELECT * FROM army_reserve_runtime WHERE reserve_id = ?",
+            (reserve["reserve_id"],),
+        ).fetchone()
+    )
+
+
 def _ensure_recruit_offer(
     connection: sqlite3.Connection,
     domain_id: str,
@@ -2636,6 +2873,26 @@ def _ensure_recruit_offer(
     return payload
 
 
+def _retire_locked_recruit_offers(
+    connection: sqlite3.Connection, domain_id: str, unlocked_cards: list[str], now: str
+) -> None:
+    placeholders = ", ".join("?" for _ in unlocked_cards)
+    exclusion = f"AND card_id NOT IN ({placeholders})" if unlocked_cards else ""
+    connection.execute(
+        f"""
+        UPDATE recruit_offer_runtime
+        SET status = 'locked_requires_building',
+            held_by_domain_id = NULL,
+            updated_at = ?
+        WHERE domain_id = ?
+          AND source != 'seed'
+          AND status IN ('available', 'held')
+          {exclusion}
+        """,
+        (now, domain_id, *unlocked_cards),
+    )
+
+
 def _unlocked_recruit_cards(connection: sqlite3.Connection, domain_id: str) -> list[str]:
     cards: set[str] = set()
     for row in connection.execute(
@@ -2652,7 +2909,9 @@ def _unlocked_recruit_cards(connection: sqlite3.Connection, domain_id: str) -> l
         """
         SELECT card_id
         FROM recruit_offer_runtime
-        WHERE domain_id = ? AND source = 'seed'
+        WHERE domain_id = ?
+          AND source = 'seed'
+          AND status != 'locked_requires_building'
         """,
         (domain_id,),
     ).fetchall():
@@ -2708,26 +2967,43 @@ def _upsert_reserve(
 def _consume_reserve(
     connection: sqlite3.Connection, domain_id: str, card_id: str, count: int
 ) -> None:
-    row = connection.execute(
+    rows = connection.execute(
         """
         SELECT reserve_id, count
         FROM army_reserve_runtime
         WHERE domain_id = ? AND card_id = ? AND status = 'available'
+          AND count > 0
         ORDER BY reserve_id
-        LIMIT 1
         """,
         (domain_id, card_id),
-    ).fetchone()
-    if row is None or _to_int(row["count"]) < count:
+    ).fetchall()
+    if sum(_to_int(row["count"]) for row in rows) < count:
         raise LordRuntimeError("insufficient_reserve", "Not enough reserve units.")
-    connection.execute(
-        """
-        UPDATE army_reserve_runtime
-        SET count = count - ?, updated_at = ?
-        WHERE reserve_id = ?
-        """,
-        (count, _iso(), row["reserve_id"]),
-    )
+
+    remaining_to_consume = count
+    now = _iso()
+    for row in rows:
+        if remaining_to_consume <= 0:
+            break
+        row_count = _to_int(row["count"])
+        consumed = min(row_count, remaining_to_consume)
+        remaining = row_count - consumed
+        connection.execute(
+            """
+            UPDATE army_reserve_runtime
+            SET count = ?,
+                status = ?,
+                updated_at = ?
+            WHERE reserve_id = ?
+            """,
+            (
+                remaining,
+                "available" if remaining > 0 else "empty",
+                now,
+                row["reserve_id"],
+            ),
+        )
+        remaining_to_consume -= consumed
 
 
 def _consume_active_army_at_territory(
@@ -2772,7 +3048,7 @@ def _consume_active_army_at_territory(
 
 
 def _assert_fort_capacity_available(
-    connection: sqlite3.Connection, territory_id: str, incoming_count: int
+    connection: sqlite3.Connection, territory_id: str, card_id: str
 ) -> None:
     if not _table_exists(connection, "territory_forts"):
         return
@@ -2787,19 +3063,33 @@ def _assert_fort_capacity_available(
     ).fetchone()
     if fort is None:
         return
+    existing_stack = connection.execute(
+        """
+        SELECT 1
+        FROM garrison_runtime_state
+        WHERE territory_id = ?
+          AND card_id = ?
+          AND status = 'active'
+          AND count > 0
+        LIMIT 1
+        """,
+        (territory_id, card_id),
+    ).fetchone()
+    if existing_stack is not None:
+        return
     current = connection.execute(
         """
-        SELECT COALESCE(SUM(count), 0) AS count
+        SELECT COUNT(*) AS count
         FROM garrison_runtime_state
         WHERE territory_id = ? AND status = 'active' AND count > 0
         """,
         (territory_id,),
     ).fetchone()["count"]
     capacity = _to_int(fort["garrison_capacity"])
-    if _to_int(current) + incoming_count > capacity:
+    if _to_int(current) + 1 > capacity:
         raise LordRuntimeError(
             "fort_capacity_exceeded",
-            f"Fort garrison capacity is {capacity}.",
+            f"Fort garrison stack capacity is {capacity}.",
         )
 
 
@@ -2895,12 +3185,59 @@ def _active_army_count(connection: sqlite3.Connection, domain_id: str) -> int:
     return int(
         connection.execute(
             """
-            SELECT COALESCE(SUM(count), 0)
+            SELECT COUNT(*)
             FROM active_army_runtime
-            WHERE domain_id = ? AND status = 'active'
+            WHERE domain_id = ? AND status = 'active' AND count > 0
             """,
             (domain_id,),
         ).fetchone()[0]
+    )
+
+
+def _assert_active_army_stack_capacity_available(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    card_id: str,
+    capacity: int,
+) -> None:
+    existing_stack = connection.execute(
+        """
+        SELECT 1
+        FROM active_army_runtime
+        WHERE domain_id = ?
+          AND card_id = ?
+          AND status = 'active'
+          AND count > 0
+        LIMIT 1
+        """,
+        (domain_id, card_id),
+    ).fetchone()
+    if existing_stack is not None:
+        return
+    if _active_army_count(connection, domain_id) + 1 > capacity:
+        raise LordRuntimeError(
+            "army_capacity_exceeded",
+            f"Active army stack capacity is {capacity}.",
+        )
+
+
+def _ensure_minimum_active_army_stack_capacity(
+    connection: sqlite3.Connection, now: str
+) -> None:
+    if not _table_exists(connection, "domain_runtime_state"):
+        return
+    connection.execute(
+        """
+        UPDATE domain_runtime_state
+        SET active_army_capacity = ?,
+            updated_at = ?
+        WHERE active_army_capacity < ?
+        """,
+        (
+            DEFAULT_ACTIVE_ARMY_STACK_CAPACITY,
+            now,
+            DEFAULT_ACTIVE_ARMY_STACK_CAPACITY,
+        ),
     )
 
 
@@ -3125,26 +3462,6 @@ def _runtime_player(
         "gold": _to_int(player["gold"]),
         "stats_json": player["stats_json"],
     }
-
-
-def _level_for_xp(connection: sqlite3.Connection, xp: int) -> int:
-    thresholds = [0, 10, 25, 45, 70, 100, 135, 175, 220, 270]
-    if _table_exists(connection, "xp_rules"):
-        row = connection.execute(
-            """
-            SELECT level_thresholds
-            FROM xp_rules
-            ORDER BY _row_number
-            LIMIT 1
-            """
-        ).fetchone()
-        if row is not None and row["level_thresholds"]:
-            thresholds = [_to_int(part) for part in str(row["level_thresholds"]).split(";") if part]
-    level = 1
-    for index, threshold in enumerate(thresholds, start=1):
-        if xp >= threshold:
-            level = index
-    return level
 
 
 def _max_stat(connection: sqlite3.Connection) -> int:

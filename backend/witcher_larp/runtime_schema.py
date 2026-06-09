@@ -720,7 +720,7 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
         "domain_runtime_state",
         {
             "current_node_id": "TEXT",
-            "active_army_capacity": "INTEGER NOT NULL DEFAULT 4",
+            "active_army_capacity": "INTEGER NOT NULL DEFAULT 5",
             "raid_tokens": "INTEGER NOT NULL DEFAULT 1",
             "influence": "INTEGER NOT NULL DEFAULT 0",
         },

@@ -11,6 +11,7 @@ from backend.witcher_larp.config import PROJECT_ROOT, Settings
 from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
 from backend.witcher_larp.lord_runtime import anti_snowball_cut_for_domain
+from backend.witcher_larp.lord_runtime import ensure_lord_runtime_state
 from backend.witcher_larp.lord_runtime import reconcile_pending_lord_moves
 from backend.witcher_larp.pve_runtime import resolve_pve_scene
 from backend.witcher_larp.timer_service import apply_due_timers
@@ -342,6 +343,20 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         )
         self.assertEqual(active["status"], "active_army_updated")
 
+        # Route guard tests cover neutral-front stopping; this broad stage gate
+        # keeps its downstream battle/timer flow by pre-owning the corridor.
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_north',
+                    status = 'controlled',
+                    contested_by_domain_id = NULL
+                WHERE territory_id IN ('territory_fort_east', 'territory_well_city')
+                """
+            )
+
         moved = self._post_ok(
             client,
             "/api/lords/p_lord_1/move",
@@ -566,15 +581,15 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             )
             self.assertEqual(bought["status"], "purchased")
 
-        barracks = self._post_ok(
+        archery = self._post_ok(
             client,
             "/api/lords/p_lord_1/buildings",
             headers=self._headers("north"),
-            json={"building_id": "b_barracks"},
+            json={"building_id": "b_archery_range"},
         )
         self.assertIn(
             "unit_ranged_t1",
-            {offer["card_id"] for offer in barracks["unlocked_recruit_offers"]},
+            {offer["card_id"] for offer in archery["unlocked_recruit_offers"]},
         )
         refresh = self._post_ok(
             client,

@@ -32,11 +32,11 @@ Production profile текущей игры: 15 человек всего = 13 и
 - PvP throttling: default 2 `pvp_tables`, queued challenges, max 2 started mandatory matches per player per act без master approval, режимы `normal/limited/paused` и запрет новых вызовов после final lock;
 - online-only `trade_transfers`: two confirmations, pending asset lock, atomic owner change, audit log;
 - venue map v1: 4 резиденции/замка лордов находятся в центральном активном доме и являются raid-only зонами; центральный дом не является capturable territory, а optional route waypoints у дома/дорожек могут существовать только как технические узлы строгой схемы участка без владельца/гарнизона/дохода/боя; старый дом и соседний сарай исключены из игры; лордский weighted graph использует 19 capturable territories: беседки-крепости, поля, деревни-сараи, колодец-город ресурсодобычи, испанский уголок-город магии, двухэтажный сарай-город науки, леса, озера, болото и горы;
-- territory forts v1: каждая захватываемая территория имеет тематический форт с одной original/local/generated картинкой/карточкой, garrison capacity T1/T2/T3 = `2/3/4` и transfer active army <-> fort, если активная армия находится на своей не-contested территории;
+- territory forts v1: каждая игровая территория, включая резиденцию, имеет тематический форт с одной original/local/generated картинкой/карточкой; `garrison_capacity` считает слоты пачек, а не количество солдат внутри стека, V1 default диапазон = `5..8`; transfer active army <-> fort разрешен, если активная армия находится на своей не-contested территории;
 - visual direction v1: `TASK-067` фиксирует IP-safe лордскую поверхность `/lords/home` как главный экран замка/выбранной территории, максимально близкий к принятому Heroes-like референсу: full-screen background, thin top resource strip, left circular action dock, bottom-left minimap, bottom-center active-army/garrison/recruit lanes, bottom-right act plaque and MP semicircle. Захваченные территории используют тот же UI с другим фоном, локальным доходом, гарнизоном, накопительным наймом и минимальным деревом построек; если герой-армия не в выбранной локации, верхняя линия армии пустая и locked. Отдельно остается большая Olden Era-like illustrated fantasy strategy map для лордского `venue_map_v1`: панорамируемая painted fantasy-over-real карта по строгой адаптированной схеме участка, полностью видимый граф дорог/территорий, скрытые детали чужих армий/гарнизонов, bottom-left minimap, right hero/action rail, bottom army strip, tactical popups, click target -> shortest route preview -> confirm -> fast horse animation -> server-authoritative arrival. Также отдельно остаются thematic territory forts/cards, Witcher 3 Gwent-like table grammar для личного PvP ведьмаков/чародеек и visually distinct 5x6 lord battle board; это layout/interaction references only, все production assets должны быть original/local/generated, без копирования официальных артов, логотипов, скриншотов или gallery images;
 - map tech rule: иллюстрированная карта участка является UI-слоем поверх `map_nodes`/`map_edges`, `territories`, `territory_forts`, `movement_pools`, `pending_lord_moves`, `lord_map_intel` and route costs для лордского графа перемещения героев/армий; V1 MP defaults = cap `6`, refill `+3/hour`; лорды видят весь граф, но чужие army/garrison details редактируются по intel visibility; лорды не используют QR, GPS или интернет-зависимый tracking, а QR/manual physical-presence confirmation относится к ведьмакам и чародейкам на локациях и не требует online-карты;
 - lord map implementation order: подробный порядок внедрения seed topology -> layout manifest -> pending movement -> intel visibility -> browser map UI -> final art pass зафиксирован в `docs/lord-map-implementation-blueprint-v0.1.md`;
-- deterministic lord battle 5x6: `attack`, `defense`, `hp`, `initiative`, `move_range`, `attack_range`, `tier`, `unit_class`, damage `max(1, attack - defense + modifiers)`, 60s turn timer, auto-resolve;
+- deterministic lord battle 5x6: `attack`, `defense`, `hp`, `initiative`, `move_range`, `attack_range`, `tier`, `unit_class`, damage `count_alive * max(1, attack - defense + modifiers)`, 60s turn timer, auto-resolve;
 - lord battle appendix: V1 фиксирует `unit_power`, `deployed_army_power`, `domain_army_power`, partial stack wounds, deployment caps, line of sight, hero targeting, neutral AI priority and auto-resolve score;
 - lord defaults: старт `80g`, base income `25g/hour`, territory income T1/T2/T3 = `8/14/22g`, building cost T1/T2/T3/T4 = `40/75/120/180g`, lord HP `clamp(30 + floor(deployed_army_power / 10), 35, 70)`, anti-snowball `>=130%/-30%` и `>=170%/-50%`;
 - favorites lifecycle: consent, max 1 primary + 1 secondary per sorceress, max 2 sorceresses per favored player, change 1 per act, no passive runtime bonus by default;
@@ -334,7 +334,7 @@ PvE combat v1 не использует постоянное здоровье п
 - базовые параметры отряда: `attack`, `defense`, `hp`, `initiative`, `move_range`, `attack_range`, `tier`, `unit_class`;
 - инициативу с tiebreaker `initiative desc`, `tier desc`, deterministic battle seed;
 - атаку;
-- damage `max(1, attack - defense + modifiers)`;
+- damage `count_alive * max(1, attack - defense + modifiers)`;
 - ортогональное движение, attack_range и line of sight;
 - 60s turn timer, timeout auto-defend/skip и repeated-timeout auto-resolve;
 - уничтожение карт;
@@ -362,7 +362,7 @@ PvE combat v1 не использует постоянное здоровье п
 - `gwent_cards.csv`, `gwent_decks.csv`, `gwent_matches.csv` - full Gwent карты, колоды, матчевые fixtures.
 - `pvp_tables.csv`, `pvp_throttle_rules.csv` - столы, очереди, throttle modes and final lock behavior.
 - `army_unit_cards.csv` - карты-отряды лордов с параметрами 5x6.
-- `territories.csv`, `territory_forts.csv`, `map_nodes.csv`, `map_edges.csv`, `movement_rules.csv` - территории, тематические форты/гарнизонные capacity, граф, доходы, защита, владелец.
+- `territories.csv`, `territory_forts.csv`, `map_nodes.csv`, `map_edges.csv`, `movement_rules.csv` - территории, тематические форты/гарнизонные stack-slot capacity, граф, доходы, защита, владелец.
 - `orders.csv` - шаблоны заказов, escrow, order caps и object conflict.
 - `trade_transfers.csv` - online-only transfer rules, pending locks and audit.
 - `favorite_rules.csv` - consent, caps, change limits and final trace.

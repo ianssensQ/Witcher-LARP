@@ -662,10 +662,11 @@ class SeedContractTests(unittest.TestCase):
         ]
         self.assertEqual(len(capturable), 19)
         capturable_ids = {row["territory_id"] for row in capturable}
+        playable_ids = {row["territory_id"] for row in self.rows["territories.csv"]}
         fort_territory_ids = {
             row["territory_id"] for row in self.rows["territory_forts.csv"]
         }
-        self.assertEqual(fort_territory_ids, capturable_ids)
+        self.assertEqual(fort_territory_ids, playable_ids)
         self.assertEqual(
             Counter(row["node_type"] for row in self.rows["map_nodes.csv"])["mountain"],
             3,
@@ -677,17 +678,14 @@ class SeedContractTests(unittest.TestCase):
                 "territory_mountain_west_alpine",
             }.issubset(capturable_ids)
         )
-        expected_capacity_by_tier = {1: 2, 2: 3, 3: 4}
         forts_by_territory = {
             fort["territory_id"]: fort for fort in self.rows["territory_forts.csv"]
         }
-        for territory in capturable:
-            tier = int(territory["tier"])
+        for territory in self.rows["territories.csv"]:
             fort = forts_by_territory[territory["territory_id"]]
-            self.assertEqual(
-                int(fort["garrison_capacity"]),
-                expected_capacity_by_tier[tier],
-            )
+            capacity = int(fort["garrison_capacity"])
+            self.assertGreaterEqual(capacity, 5)
+            self.assertLessEqual(capacity, 8)
 
         self.assertEqual(len(self.rows["movement_pools.csv"]), 4)
         self.assertTrue(self.rows["pending_tick_rewards.csv"])
@@ -702,27 +700,27 @@ class SeedContractTests(unittest.TestCase):
 
     def test_buildings_units_and_card_conversion(self) -> None:
         required_buildings = {
-            "Training Yard",
-            "Barracks",
-            "Archery Range",
-            "Stables",
-            "Siege Yard",
-            "War Academy",
-            "Market",
-            "Tax Office",
-            "Storehouse",
-            "Bank",
-            "Treasury Hall",
-            "Notice Board",
-            "Envoy Hall",
-            "Map Room",
-            "Raid Office",
-            "War Council",
-            "Mage Study",
-            "Alchemy Lab",
-            "Scrying Room",
-            "Wards",
-            "Ritual Chamber",
+            "Учебный двор",
+            "Казармы",
+            "Стрельбище",
+            "Конюшни",
+            "Осадный двор",
+            "Военная академия",
+            "Рынок",
+            "Налоговая палата",
+            "Склад",
+            "Банк",
+            "Казначейский зал",
+            "Доска объявлений",
+            "Посольский зал",
+            "Картографическая",
+            "Рейдовая ставка",
+            "Военный совет",
+            "Кабинет мага",
+            "Алхимическая лаборатория",
+            "Комната видений",
+            "Обереги",
+            "Ритуальная палата",
         }
         self.assertEqual({row["name"] for row in self.rows["buildings.csv"]}, required_buildings)
 
@@ -731,12 +729,31 @@ class SeedContractTests(unittest.TestCase):
             for row in self.rows["buildings.csv"]
         }
         self.assert_no_cycles(graph)
+        self.assertEqual(
+            {
+                row["building_id"]: int(row["gold_cost"])
+                for row in self.rows["buildings.csv"]
+            },
+            {
+                row["building_id"]: {1: 40, 2: 75, 3: 120, 4: 180}[int(row["tier"])]
+                for row in self.rows["buildings.csv"]
+            },
+        )
 
         unit_classes = {row["unit_class"] for row in self.rows["army_unit_cards.csv"]}
         self.assertEqual(
             unit_classes,
             {"infantry", "guard", "ranged", "cavalry", "heavy_siege", "specialist"},
         )
+        unit_source_by_card = {
+            row["card_id"]: row["source_id"] for row in self.rows["army_unit_cards.csv"]
+        }
+        recruit_sources = {
+            card_id: row["building_id"]
+            for row in self.rows["buildings.csv"]
+            for card_id in split_ids(row["recruit_unlock_ids"])
+        }
+        self.assertEqual(recruit_sources, unit_source_by_card)
 
         unit_ids = self.ids("army_unit_cards.csv", "card_id")
         for card in self.rows["cards.csv"]:

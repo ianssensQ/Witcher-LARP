@@ -14,6 +14,7 @@ from .lord_runtime import ACTIVE_ORDER_STATUSES
 from .lord_runtime import active_pending_lord_move, build_lord_map_intel
 from .lord_runtime import anti_snowball_cut_for_domain, build_diplomacy_signals
 from .lord_runtime import ensure_lord_runtime_state, reconcile_pending_lord_moves
+from .lord_runtime import recruit_growth_per_hour_for_unit_class
 from .lord_runtime import visible_garrisons_for
 from .lord_battle_service import list_lord_battles
 from .repository import fetch_table, latest_snapshot_version
@@ -174,7 +175,7 @@ def build_lord_state(
         for order in _runtime_rows(connection, "order_runtime_state", "order_id")
         if order.get("lord_id") == lord_id
     ]
-    recruit_market = [
+    recruit_market_rows = [
         offer
         for offer in _runtime_rows(connection, "recruit_offer_runtime", "offer_id")
         if offer.get("domain_id") == domain_id
@@ -184,6 +185,9 @@ def build_lord_state(
         for reserve in _runtime_rows(connection, "army_reserve_runtime", "reserve_id")
         if reserve.get("domain_id") == domain_id
     ]
+    recruit_market = _recruit_market_payload(
+        connection, recruit_market_rows, army_reserve
+    )
     active_army = [
         army
         for army in _runtime_rows(connection, "active_army_runtime", "army_id")
@@ -326,6 +330,59 @@ def _building_catalog_payload(
         }
         for row in rows
     ]
+
+
+def _recruit_market_payload(
+    connection: sqlite3.Connection,
+    offers: list[dict[str, str]],
+    army_reserve: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    unit_cards = {row["card_id"]: row for row in _table(connection, "army_unit_cards")}
+    stock_by_card: dict[str, int] = {}
+    for reserve in army_reserve:
+        if reserve.get("status") not in {"available", "active"}:
+            continue
+        card_id = str(reserve.get("card_id") or "")
+        stock_by_card[card_id] = stock_by_card.get(card_id, 0) + _int_value(
+            reserve.get("count")
+        )
+
+    payload: list[dict[str, Any]] = []
+    for offer in offers:
+        card_id = str(offer.get("card_id") or "")
+        card = unit_cards.get(card_id)
+        unit_payload = None
+        if card is not None:
+            unit_payload = {
+                "card_id": card_id,
+                "unit_class": card.get("unit_class", ""),
+                "tier": _int_value(card.get("tier")),
+                "attack": _int_value(card.get("attack")),
+                "defense": _int_value(card.get("defense")),
+                "hp": _int_value(card.get("hp")),
+                "initiative": _int_value(card.get("initiative")),
+                "move_range": _int_value(card.get("move_range")),
+                "attack_range": _int_value(card.get("attack_range")),
+                "cost": _int_value(card.get("cost")),
+                "source_id": card.get("source_id", ""),
+            }
+        stock = stock_by_card.get(card_id, 0)
+        rate_per_hour = (
+            recruit_growth_per_hour_for_unit_class(str(card.get("unit_class", "")))
+            if card is not None
+            else 0
+        )
+        payload.append(
+            {
+                **offer,
+                "cost": _int_value(offer.get("cost")),
+                "current_stock": stock,
+                "stock": stock,
+                "rate_per_hour": rate_per_hour,
+                "unit": unit_payload,
+            }
+        )
+    return payload
 
 
 def _territory_fort_payload(
@@ -525,6 +582,12 @@ def _optional(value: object) -> str | None:
         return None
     text = str(value)
     return text or None
+
+
+def _int_value(value: object) -> int:
+    if value in {None, ""}:
+        return 0
+    return int(value)
 
 
 def _coalesce(*values: object) -> str | None:

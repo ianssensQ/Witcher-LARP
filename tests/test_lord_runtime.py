@@ -215,9 +215,10 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(training.status_code, 200)
         self.assertEqual(training.json()["gold_spent"], 40)
         self.assertIn(
-            "unit_guard_t1",
+            "unit_infantry_t1",
             {offer["card_id"] for offer in training.json()["unlocked_recruit_offers"]},
         )
+        self.assertEqual(training.json()["spawned_reserves"], [])
 
         market = client.post(
             "/api/lords/p_lord_1/buildings",
@@ -237,6 +238,13 @@ class LordRuntimeTests(unittest.TestCase):
             json={"building_id": "b_barracks"},
         )
         self.assertEqual(barracks.status_code, 200)
+        self.assertEqual(
+            {"unit_guard_t1": 14},
+            {
+                reserve["card_id"]: reserve["count"]
+                for reserve in barracks.json()["spawned_reserves"]
+            },
+        )
         blocked_siege = client.post(
             "/api/lords/p_lord_1/buildings",
             headers=self._headers("north"),
@@ -251,6 +259,21 @@ class LordRuntimeTests(unittest.TestCase):
             json={"building_id": "b_archery_range"},
         )
         self.assertEqual(archery.status_code, 200)
+        self.assertEqual(
+            {"unit_ranged_t1": 14},
+            {
+                reserve["card_id"]: reserve["count"]
+                for reserve in archery.json()["spawned_reserves"]
+            },
+        )
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                DELETE FROM army_reserve_runtime
+                WHERE domain_id = 'domain_north'
+                  AND card_id = 'unit_ranged_t1'
+                """
+            )
         siege = client.post(
             "/api/lords/p_lord_1/buildings",
             headers=self._headers("north"),
@@ -268,6 +291,14 @@ class LordRuntimeTests(unittest.TestCase):
             json={"action": "refresh"},
         )
         self.assertEqual(refresh.status_code, 200)
+        self.assertIn(
+            "unit_ranged_t1",
+            {reserve["card_id"] for reserve in refresh.json()["spawned_reserves"]},
+        )
+        self.assertNotIn(
+            "unit_specialist_t3",
+            {offer["card_id"] for offer in refresh.json()["offers"]},
+        )
         heavy_offer = next(
             offer
             for offer in refresh.json()["offers"]
@@ -358,13 +389,98 @@ class LordRuntimeTests(unittest.TestCase):
         with connect(settings) as connection:
             reserve_count = connection.execute(
                 """
-                SELECT count
+                SELECT COALESCE(SUM(count), 0) AS count
                 FROM army_reserve_runtime
                 WHERE domain_id = 'domain_north'
                   AND card_id = 'unit_heavy_siege_t3'
                 """
             ).fetchone()["count"]
-        self.assertEqual(reserve_count, 1)
+        self.assertEqual(reserve_count, 3)
+
+    def test_recruit_purchase_quantity_to_owned_garrison(self) -> None:
+        settings = self._settings("lord_recruit_garrison")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+
+        refresh = client.post(
+            "/api/lords/p_lord_1/recruit",
+            headers=self._headers("north"),
+            json={"action": "refresh"},
+        )
+        self.assertEqual(refresh.status_code, 200)
+        infantry_offer = next(
+            offer
+            for offer in refresh.json()["offers"]
+            if offer["card_id"] == "unit_infantry_t1"
+        )
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE army_reserve_runtime
+                SET count = 3
+                WHERE domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO army_reserve_runtime (
+                    reserve_id, domain_id, card_id, count, status, updated_at
+                )
+                VALUES (
+                    'reserve_north_infantry_extra',
+                    'domain_north',
+                    'unit_infantry_t1',
+                    21,
+                    'available',
+                    '2026-01-01T00:00:00+00:00'
+                )
+                """
+            )
+
+        hired = client.post(
+            "/api/lords/p_lord_1/recruit",
+            headers=self._headers("north"),
+            json={
+                "action": "purchase",
+                "offer_id": infantry_offer["offer_id"],
+                "quantity": 20,
+                "territory_id": "territory_res_north",
+            },
+        )
+
+        self.assertEqual(hired.status_code, 200, hired.text)
+        payload = hired.json()
+        self.assertEqual(payload["status"], "hired")
+        self.assertEqual(payload["count"], 20)
+        self.assertEqual(payload["gold_spent"], 20)
+        self.assertEqual(payload["garrison"]["territory_id"], "territory_res_north")
+
+        with connect(settings) as connection:
+            gold = connection.execute(
+                "SELECT gold FROM domain_runtime_state WHERE domain_id = 'domain_north'"
+            ).fetchone()["gold"]
+            reserve_count = connection.execute(
+                """
+                SELECT COALESCE(SUM(count), 0) AS count
+                FROM army_reserve_runtime
+                WHERE domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                  AND status = 'available'
+                """
+            ).fetchone()["count"]
+            garrison_count = connection.execute(
+                """
+                SELECT count
+                FROM garrison_runtime_state
+                WHERE territory_id = 'territory_res_north'
+                  AND domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                """
+            ).fetchone()["count"]
+        self.assertEqual(gold, 60)
+        self.assertEqual(reserve_count, 4)
+        self.assertEqual(garrison_count, 20)
 
     def test_movement_without_active_army_cannot_create_contested_claim(self) -> None:
         settings = self._settings("lord_move_requires_active")
@@ -473,6 +589,18 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(preview_payload["route"], ["node_res_north", "node_fort_east"])
         self.assertEqual(preview_payload["mp_cost"], 2)
         self.assertEqual(preview_payload["outcome"]["kind"], "will_create_claim")
+        automatic_preview = client.post(
+            "/api/lords/p_lord_1/route-preview",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_mountain_north_alpine"},
+        )
+        self.assertEqual(automatic_preview.status_code, 200, automatic_preview.text)
+        automatic_payload = automatic_preview.json()
+        self.assertEqual(automatic_payload["status"], "stopped")
+        self.assertEqual(automatic_payload["reason_code"], "route_stopped_at_front")
+        self.assertEqual(automatic_payload["requested_to_node_id"], "node_mountain_north_alpine")
+        self.assertEqual(automatic_payload["to_node_id"], "node_fort_east")
+        self.assertEqual(automatic_payload["route"], ["node_res_north", "node_fort_east"])
         with connect(settings) as connection:
             self.assertEqual(
                 connection.execute(
@@ -574,7 +702,7 @@ class LordRuntimeTests(unittest.TestCase):
                   AND domain_id = 'domain_north'
                 """
             ).fetchone()[0]
-        self.assertEqual(reserve_count, 3)
+        self.assertEqual(reserve_count, 24)
         self.assertEqual(remote_garrison, 0)
 
         active = client.post(
@@ -1039,6 +1167,17 @@ class LordRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(active.status_code, 200, active.text)
+        preview = client.post(
+            "/api/lords/p_lord_1/route-preview",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_well_city"},
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual(preview.json()["status"], "stopped")
+        self.assertEqual(preview.json()["reason_code"], "route_stopped_at_front")
+        self.assertEqual(preview.json()["requested_to_node_id"], "node_well_city")
+        self.assertEqual(preview.json()["to_node_id"], "node_fort_east")
+        self.assertEqual(preview.json()["route"], ["node_res_north", "node_fort_east"])
         moved = client.post(
             "/api/lords/p_lord_1/move",
             headers=self._headers("north"),
@@ -1052,27 +1191,32 @@ class LordRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(moved.status_code, 200, moved.text)
-        self.assertEqual(moved.json()["mp_spent"], 4)
-        self.assertEqual(moved.json()["current_mp"], 2)
+        self.assertEqual(moved.json()["requested_to_node_id"], "node_well_city")
+        self.assertEqual(moved.json()["to_node_id"], "node_fort_east")
+        self.assertEqual(moved.json()["mp_spent"], 2)
+        self.assertEqual(moved.json()["current_mp"], 4)
         self.assertEqual(
             moved.json()["route"],
-            ["node_res_north", "node_fort_east", "node_well_city"],
+            ["node_res_north", "node_fort_east"],
         )
         self._complete_pending_moves(settings)
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET current_mp = 1
+                WHERE domain_id = 'domain_north'
+                """
+            )
 
         too_expensive = client.post(
             "/api/lords/p_lord_1/move",
             headers=self._headers("north"),
             json={
-                "to_node_id": "node_lake_south_pond",
+                "to_node_id": "node_well_city",
                 "route_node_ids": [
+                    "node_fort_east",
                     "node_well_city",
-                    "node_village_east_shed",
-                    "node_lake_mist",
-                    "node_field_east_large",
-                    "node_science_barn",
-                    "node_forest_south_garden",
-                    "node_lake_south_pond",
                 ],
             },
         )

@@ -1,6 +1,6 @@
 offer_id,domain_id,card_id,cost,status,refresh_rule
-offer_north_infantry,domain_north,unit_infantry_t1,10,available,act_refresh
-offer_river_guard,domain_river,unit_guard_t1,10,available,act_refresh
-offer_forest_ranged,domain_forest,unit_ranged_t1,12,available,act_refresh
-offer_hill_cavalry,domain_hill,unit_cavalry_t2,18,held,act_refresh
-offer_neutral_specialist,domain_north,unit_specialist_t3,24,locked_requires_building,act_refresh
+offer_north_infantry,domain_north,unit_infantry_t1,1,available,act_refresh
+offer_river_guard,domain_river,unit_guard_t1,2,available,act_refresh
+offer_forest_ranged,domain_forest,unit_ranged_t1,2,available,act_refresh
+offer_hill_cavalry,domain_hill,unit_cavalry_t2,5,held,act_refresh
+offer_neutral_specialist,domain_north,unit_specialist_t3,6,locked_requires_building,act_refresh

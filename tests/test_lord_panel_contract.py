@@ -41,6 +41,8 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertIn("route-preview", script.text)
         self.assertIn("buildRoute", script.text)
         self.assertIn("requestRoutePreview", script.text)
+        self.assertIn("previewStopNodeId", script.text)
+        self.assertIn("route-stop", script.text)
         self.assertIn("renderMapSelection", script.text)
         self.assertIn("renderMapBackground", script.text)
         self.assertIn("renderMapOwnershipSockets", script.text)
@@ -73,6 +75,7 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertIn("generated_holes", styles.text)
         self.assertIn(".map-road-bed", styles.text)
         self.assertIn(".map-zone", styles.text)
+        self.assertIn(".map-zone.route-stop", styles.text)
         self.assertIn(".map-army-marker", styles.text)
         self.assertIn(".map-minimap-shell", styles.text)
         self.assertIn(".minimap-viewport", styles.text)
@@ -524,6 +527,15 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["active_orders"], 3)
         self.assertTrue(payload["territories"])
         self.assertTrue(payload["recruit_market"])
+        infantry_offer = next(
+            offer
+            for offer in payload["recruit_market"]
+            if offer["card_id"] == "unit_infantry_t1"
+        )
+        self.assertEqual(infantry_offer["current_stock"], 24)
+        self.assertEqual(infantry_offer["rate_per_hour"], 24)
+        self.assertEqual(infantry_offer["unit"]["attack_range"], 1)
+        self.assertEqual(infantry_offer["unit"]["initiative"], 3)
         signals = {item["domain_id"]: item for item in payload["diplomacy_signals"]}
         self.assertEqual(signals["domain_north"]["active_orders"], 3)
         self.assertEqual(signals["domain_north"]["active_order_visibility"], "own_exact")

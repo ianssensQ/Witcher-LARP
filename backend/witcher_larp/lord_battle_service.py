@@ -637,7 +637,7 @@ def _attack_stack(
         payload={
             "stack_id": stack["stack_id"],
             "target_stack_id": target["stack_id"],
-            "damage_formula": "max(1, attack - defense + modifiers)",
+            "damage_formula": "count_alive * max(1, attack - defense + modifiers)",
             "damage": damage,
             "casualties": casualty,
             "retaliation": retaliation,
@@ -1423,7 +1423,11 @@ def _initiative_order(board: dict[str, Any], seed: str, round_number: int) -> li
 
 def _damage(attacker: dict[str, Any], defender: dict[str, Any]) -> int:
     modifiers = -1 if bool(defender.get("defended")) else 0
-    return max(1, int(attacker["attack"]) - int(defender["defense"]) + modifiers)
+    per_unit_damage = max(
+        1,
+        int(attacker["attack"]) - int(defender["defense"]) + modifiers,
+    )
+    return max(1, int(attacker["count_alive"]) * per_unit_damage)
 
 
 def _apply_damage_to_stack(stack: dict[str, Any], damage: int) -> dict[str, int]:
@@ -1507,7 +1511,7 @@ def _battle_rule(connection: sqlite3.Connection) -> dict[str, Any]:
         "grid_width": BOARD_WIDTH,
         "grid_height": BOARD_HEIGHT,
         "turn_timer_seconds": 60,
-        "damage_formula": "max(1 attack-defense+modifiers)",
+        "damage_formula": "count_alive*max(1 attack-defense+modifiers)",
         "initiative_tiebreaker": "initiative_desc_tier_desc_seed",
         "timeout_policy": "auto_defend_then_skip",
         "auto_resolve_policy": "repeated_timeout_master_takeover_or_auto_resolve",
