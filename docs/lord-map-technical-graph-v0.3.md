@@ -34,6 +34,51 @@ reports/map-debug-crops/lord-map-sparse-graph-v0.3-planar-no-castle-cut-overlay.
 Геометрический аудит layout-полилиний: `0` пересечений, `0` нерезидентских дорог
 пересекают прямоугольник центрального замка.
 
+## Player-facing asset pipeline v6
+
+Текущий gameplay/layout-канон не меняется: `lord_map_layout.json` остается
+`version: 8`, `mode: sparse_graph_v0_3_planar_no_castle_cut`, а source of truth
+для связей остается `data/seed/map_edges.csv`.
+
+Для новой player-facing карты принят более жесткий pipeline:
+
+- OpenRouter/AI генерирует только roadless fantasy-base: центральный замок,
+  4 стартовые резиденции и 19 визуальных территорий без дорог, тропинок,
+  пунктиров, shortcut-линий и технических подписей.
+- `scripts/build_lord_map_strict_v4_baked_roads.py` запекает видимые дороги
+  поверх roadless-base строго из `map_edges.csv` и `STRICT_V4_EDGE_DISPLAY_PATHS`.
+- Дороги являются частью итогового PNG/WebP, а не runtime/debug overlay.
+- Четыре стартовые резиденции внутри центрального замка ставятся симметричным
+  castle-square: верх-лево, верх-право, низ-лево, низ-право. Резидентские
+  стартовые ребра рисуются от самих кругов; клиппинг центрального замка
+  применяется только к нерезидентским транзитным дорогам.
+- Сравнительный dotted-вариант допустим только как отдельный review asset,
+  не как player-facing runtime-карта.
+- Аудит обязан проходить перед использованием ассета: 26 ожидаемых ребер,
+  26 нарисованных ребер, `0` missing/extra edges, `0` пересечений,
+  `0` видимых нерезидентских дорожных сегментов внутри прямоугольника
+  центрального замка.
+
+Текущий v6-pass сохраняет v5 castle-square для стартовых резиденций и правит
+две визуальные игровые точки: `node_mountain_gray` опущен ниже к дороге от
+`node_village_barn`, а `node_fort_west` перенесен выше-правее к северным
+пашням. Дорога `node_village_barn -> node_mountain_gray` должна читаться
+непрерывной от круга до круга.
+
+Текущие v6-артефакты:
+
+```text
+backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v6_roadless_base.webp
+backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v6_baked_roads.webp
+backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v6_baked_roads_dotted.webp
+backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v6_territory_sockets_owner_preview.webp
+backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v6_manifest.json
+reports/map-debug-crops/lord_map_ai_strict_v6-road-debug.webp
+reports/map-debug-crops/lord_map_ai_strict_v6-road-audit.json
+```
+
+v4/v5-артефакты сохранены как предыдущие comparison passes.
+
 ## Visual layout pass
 
 После проверки sparse-графа два узла были перенесены из старых PNG-дырок в

@@ -1,0 +1,147 @@
+{
+  "asset": "lord_map_ai_strict_v6_territory_sockets_holes.png",
+  "source_asset": "lord_map_ai_strict_v6_baked_roads.png",
+  "layout_version": 8,
+  "layout_mode": "sparse_graph_v0_3_planar_no_castle_cut",
+  "placement": "strict_v6_west_fort_gray_watch_baked_roads",
+  "holes": [
+    {
+      "node_id": "node_res_north",
+      "cx": 3780,
+      "cy": 2220,
+      "radius": 80
+    },
+    {
+      "node_id": "node_res_river",
+      "cx": 5160,
+      "cy": 2220,
+      "radius": 80
+    },
+    {
+      "node_id": "node_res_forest",
+      "cx": 3780,
+      "cy": 2910,
+      "radius": 80
+    },
+    {
+      "node_id": "node_res_hill",
+      "cx": 5160,
+      "cy": 2910,
+      "radius": 80
+    },
+    {
+      "node_id": "node_fort_east",
+      "cx": 4770,
+      "cy": 900,
+      "radius": 80
+    },
+    {
+      "node_id": "node_fort_west",
+      "cx": 2625,
+      "cy": 990,
+      "radius": 80
+    },
+    {
+      "node_id": "node_fort_southwest",
+      "cx": 1950,
+      "cy": 4380,
+      "radius": 80
+    },
+    {
+      "node_id": "node_field_oats",
+      "cx": 3045,
+      "cy": 1500,
+      "radius": 80
+    },
+    {
+      "node_id": "node_field_west_large",
+      "cx": 1410,
+      "cy": 1740,
+      "radius": 80
+    },
+    {
+      "node_id": "node_field_east_large",
+      "cx": 7890,
+      "cy": 3780,
+      "radius": 80
+    },
+    {
+      "node_id": "node_village_barn",
+      "cx": 4650,
+      "cy": 3870,
+      "radius": 80
+    },
+    {
+      "node_id": "node_village_east_shed",
+      "cx": 7185,
+      "cy": 2550,
+      "radius": 80
+    },
+    {
+      "node_id": "node_well_city",
+      "cx": 6765,
+      "cy": 1665,
+      "radius": 80
+    },
+    {
+      "node_id": "node_spanish_magic",
+      "cx": 4230,
+      "cy": 5145,
+      "radius": 80
+    },
+    {
+      "node_id": "node_science_barn",
+      "cx": 5925,
+      "cy": 4605,
+      "radius": 80
+    },
+    {
+      "node_id": "node_forest_dark",
+      "cx": 1875,
+      "cy": 2955,
+      "radius": 80
+    },
+    {
+      "node_id": "node_forest_south_garden",
+      "cx": 6855,
+      "cy": 4665,
+      "radius": 80
+    },
+    {
+      "node_id": "node_lake_mist",
+      "cx": 7680,
+      "cy": 2415,
+      "radius": 80
+    },
+    {
+      "node_id": "node_lake_south_pond",
+      "cx": 8100,
+      "cy": 5025,
+      "radius": 80
+    },
+    {
+      "node_id": "node_swamp_black",
+      "cx": 1740,
+      "cy": 3570,
+      "radius": 80
+    },
+    {
+      "node_id": "node_mountain_north_alpine",
+      "cx": 6435,
+      "cy": 1095,
+      "radius": 80
+    },
+    {
+      "node_id": "node_mountain_gray",
+      "cx": 6165,
+      "cy": 3645,
+      "radius": 80
+    },
+    {
+      "node_id": "node_mountain_west_alpine",
+      "cx": 3120,
+      "cy": 4875,
+      "radius": 80
+    }
+  ]
+}

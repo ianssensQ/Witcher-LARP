@@ -13,6 +13,19 @@ player-facing PNG и старого technical graph: `docs/lord-map-technical-au
 `lord_map_layout.json` на v0.3 topology, затем перегенерировать PNG под этот
 граф.
 
+Текущий строгий visual-sync pipeline для сравнения и дальнейшего runtime-внедрения:
+AI/OpenRouter генерирует только roadless-base без дорог, а
+`scripts/build_lord_map_strict_v4_baked_roads.py` запекает дороги в PNG/WebP
+строго из `data/seed/map_edges.csv`. Поэтому player-facing картинка не должна
+содержать AI-дороги, лишние тропы, технические подписи или runtime-пунктир.
+В v6 четыре стартовые резиденции сохраняют castle-square, резидентские
+стартовые дороги рисуются от самих кругов, `node_mountain_gray` опущен ниже,
+`node_fort_west` перенесен выше-правее, а дорога
+`node_village_barn -> node_mountain_gray` читается непрерывной. Контрольный
+аудит v6: `reports/map-debug-crops/lord_map_ai_strict_v6-road-audit.json`
+должен иметь 26/26 edges, `0` missing/extra edges, `0` пересечений и `0`
+видимых нерезидентских дорожных сегментов внутри центрального замка.
+
 ## Цель карты
 
 Карта лорда - это не GPS/QR-трекинг и не отдельная мини-игра. Это экран управления одной активной лошадью/герой-армией лорда поверх иллюстрированной карты площадки:
@@ -60,7 +73,7 @@ player-facing PNG и старого technical graph: `docs/lord-map-technical-au
 - bidirectional defaults = `true`;
 - excluded nodes не получают edges;
 - центральный дом не является capturable territory; optional route waypoint у дома не имеет владельца, гарнизона, дохода, боя и отдельного UI-таргета;
-- route validator не должен проводить лошадь сквозь чужую или contested территорию без остановки.
+- route validator не должен проводить лошадь сквозь нейтральную, чужую или contested территорию без остановки.
 
 `territory_forts.csv` нужен как отдельный seed-слой для UI и геймплея гарнизонов:
 

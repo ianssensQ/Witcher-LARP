@@ -9,11 +9,17 @@ dist/
 .codegraph/
 mobile/.godot/
 mobile/builds/*.log
+mobile/builds/*.png
+mobile/builds/*.png.import
+builds/*.pid
 reports/map-debug-crops/*
 !reports/map-debug-crops/lord-map-technical-overlay-v1.png
 !reports/map-debug-crops/lord-map-sparse-graph-v0.3-planar-no-castle-cut-overlay.png
 backend/witcher_larp/web/lord/assets/lord_map_generated_*.png
 backend/witcher_larp/web/lord/assets/lord_map_generated_*.json
+backend/witcher_larp/web/lord/assets/*.openrouter-response.json
+backend/witcher_larp/web/lord/assets/lord_map_ai_strict_*.png
+backend/witcher_larp/web/lord/assets/lord_map_ai_sync_*.png
 backend/witcher_larp/web/lord/assets/lord_map_playable_v1_holes*.png
 backend/witcher_larp/web/lord/assets/lord_map_playable_v1_holes.json
 backend/witcher_larp/web/lord/assets/generated/lord-map-v2.png
@@ -25,6 +31,7 @@ prototypes/stage2b-v2/src/assets/generated/lords-home/buildings/raw/
 prototypes/stage2b-v2/src/assets/generated/lords-home/lord-home-asset-board-v1.png
 prototypes/stage2b-v2/src/assets/generated/lords-home/ui/*
 !prototypes/stage2b-v2/src/assets/generated/lords-home/ui/lord-home-hud-overlay-v6.png
+!prototypes/stage2b-v2/src/assets/generated/lords-home/ui/recruit-modal-orbit-only-v1.png
 !prototypes/stage2b-v2/src/assets/generated/lords-home/ui/mp-widget-fill-field-1-v5.png
 !prototypes/stage2b-v2/src/assets/generated/lords-home/ui/mp-widget-fill-field-2-v5.png
 !prototypes/stage2b-v2/src/assets/generated/lords-home/ui/mp-widget-fill-field-3-v5.png

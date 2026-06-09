@@ -1,0 +1,30 @@
+{
+  "prefix": "lord_map_ai_strict_v5",
+  "layout_version": 8,
+  "layout_mode": "sparse_graph_v0_3_planar_no_castle_cut",
+  "source_raw": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_openrouter_raw.png",
+  "prompt": "reports/map-debug-crops/lord_map_ai_strict_v5-openrouter-prompt.md",
+  "skeleton_guide": "reports/map-debug-crops/lord_map_ai_strict_v5-skeleton-guide.png",
+  "annotated_guide": "reports/map-debug-crops/lord_map_ai_strict_v5-annotated-guide.png",
+  "baked_road_contract": {
+    "road_source": "data/seed/map_edges.csv",
+    "road_paths_source": "STRICT_V5_EDGE_DISPLAY_PATHS",
+    "ai_road_policy": "AI road drawing is forbidden; all visible roads are postprocessed from the graph.",
+    "audit": "reports/map-debug-crops/lord_map_ai_strict_v5-road-audit.json"
+  },
+  "outputs": {
+    "base_png": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_roadless_base.png",
+    "base_webp": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_roadless_base.webp",
+    "baked_roads_png": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_baked_roads.png",
+    "baked_roads_webp": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_baked_roads.webp",
+    "dotted_png": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_baked_roads_dotted.png",
+    "dotted_webp": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_baked_roads_dotted.webp",
+    "holes_png": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_territory_sockets_holes.png",
+    "neutral_preview_png": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_territory_sockets_neutral_preview.png",
+    "owner_preview_png": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_territory_sockets_owner_preview.png",
+    "owner_preview_webp": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_territory_sockets_owner_preview.webp",
+    "holes_json": "backend/witcher_larp/web/lord/assets/lord_map_ai_strict_v5_territory_sockets_holes.json",
+    "road_debug_webp": "reports/map-debug-crops/lord_map_ai_strict_v5-road-debug.webp",
+    "road_audit_json": "reports/map-debug-crops/lord_map_ai_strict_v5-road-audit.json"
+  }
+}

@@ -1,9 +1,58 @@
 {
-  "generated_at": "2026-06-08T12:52:54.491Z",
+  "generated_at": "2026-06-08T16:15:28.170Z",
   "provider": "openrouter",
   "model": "openai/gpt-5.4-image-2",
   "key_color": "#00ff00",
   "assets": [
+    {
+      "id": "b_training_yard",
+      "name": "Training Yard",
+      "file": "building-training-yard-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_barracks",
+      "name": "Barracks",
+      "file": "building-barracks-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_archery_range",
+      "name": "Archery Range",
+      "file": "building-archery-range-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_stables",
+      "name": "Stables",
+      "file": "building-stables-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_siege_yard",
+      "name": "Siege Yard",
+      "file": "building-siege-yard-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_war_academy",
+      "name": "War Academy",
+      "file": "building-war-academy-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_market",
+      "name": "Market",
+      "file": "building-market-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
     {
       "id": "b_tax_office",
       "name": "Tax Office",
@@ -22,6 +71,83 @@
       "id": "b_bank",
       "name": "Bank",
       "file": "building-bank-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_treasury_hall",
+      "name": "Treasury Hall",
+      "file": "building-treasury-hall-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_notice_board",
+      "name": "Notice Board",
+      "file": "building-notice-board-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_envoy_hall",
+      "name": "Envoy Hall",
+      "file": "building-envoy-hall-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_map_room",
+      "name": "Map Room",
+      "file": "building-map-room-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_raid_office",
+      "name": "Raid Office",
+      "file": "building-raid-office-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_war_council",
+      "name": "War Council",
+      "file": "building-war-council-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_mage_study",
+      "name": "Mage Study",
+      "file": "building-mage-study-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_alchemy_lab",
+      "name": "Alchemy Lab",
+      "file": "building-alchemy-lab-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_scrying_room",
+      "name": "Scrying Room",
+      "file": "building-scrying-room-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_wards",
+      "name": "Wards",
+      "file": "building-wards-v1.png",
+      "provider": "openrouter",
+      "model": "openai/gpt-5.4-image-2"
+    },
+    {
+      "id": "b_ritual_chamber",
+      "name": "Ritual Chamber",
+      "file": "building-ritual-chamber-v1.png",
       "provider": "openrouter",
       "model": "openai/gpt-5.4-image-2"
     }
