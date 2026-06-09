@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent, MouseEvent } from "react";
+import type { FormEvent, MouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { AnimatePresence, motion, useAnimationControls, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
@@ -72,7 +72,8 @@ import lordHomeActionOrdersIcon from "./assets/generated/lords-home/actions/acti
 import lordHomeActionRaidsIcon from "./assets/generated/lords-home/actions/action-raids-v1.png";
 import lordHomeHudOverlay from "./assets/generated/lords-home/ui/lord-home-hud-overlay-v6.png";
 import lordHomeMinimap from "./assets/generated/lords-home/minimap-v1.png";
-import lordMapStrictV6OwnerPreview from "./assets/generated/lords-map/lord-map-ai-strict-v6-owner-preview.webp";
+import lordMapStrictV6BakedRoads from "./assets/generated/lords-map/lord-map-ai-strict-v6-baked-roads.webp";
+import lordMapStrictV6RoadlessBase from "./assets/generated/lords-map/lord-map-ai-strict-v6-roadless-base.webp";
 import lordHomeMpFillField1 from "./assets/generated/lords-home/ui/mp-widget-fill-field-1-v5.png";
 import lordHomeMpFillField2 from "./assets/generated/lords-home/ui/mp-widget-fill-field-2-v5.png";
 import lordHomeMpFillField3 from "./assets/generated/lords-home/ui/mp-widget-fill-field-3-v5.png";
@@ -235,10 +236,12 @@ const lordHomeActions = [
 
 type LordHomeUnitId = "infantry" | "guard" | "ranged" | "cavalry" | "heavy-siege" | "specialist";
 type LordHomeTerritoryId = "castle" | "north-fort" | "river-gate" | "mist-lake";
-type LordHomeStack = { unitId: LordHomeUnitId; count: number };
+type LordHomeStack = { stackId?: string; unitId: LordHomeUnitId; count: number };
 type LordHomeDragPayload = { lane: "army" | "garrison"; index: number } | null;
-type LordHomeTransferDraft = { lane: "army" | "garrison"; index: number } | null;
+type LordHomeTransferDraft = { lane: "army" | "garrison"; index: number; mode: "transfer" | "split" } | null;
 type LordHomeBackendStack = {
+  army_id?: string;
+  garrison_id?: string;
   card_id?: string;
   count?: number;
   status?: string;
@@ -247,7 +250,52 @@ type LordHomeBackendStack = {
 type LordHomeBackendTerritory = {
   territory_id?: string;
   node_id?: string;
+  status?: string;
+  income_per_hour?: number;
+  fort?: {
+    garrison_capacity?: number;
+    garrison_slots_used?: number;
+    garrison_slots_free?: number;
+  } | null;
   garrisons?: LordHomeBackendStack[] | "" | null;
+};
+type LordHomeBackendTimerSummary = {
+  server_time?: string;
+  status?: string;
+  current_act_id?: string | null;
+  active_started_at?: string | null;
+  applied_tick_count?: number;
+  last_tick?: {
+    timer_id?: string;
+    act_id?: string;
+    effect_type?: string;
+    due_at?: string;
+    applied_at?: string;
+  } | null;
+  next_tick?: {
+    timer_id?: string;
+    act_id?: string;
+    effect_type?: string;
+    due_at?: string;
+    seconds_until?: number;
+    minutes_until?: number;
+  } | null;
+};
+type LordHomeTerritoryRuntime = {
+  incomePerHour: number;
+  heroHere: boolean;
+  status: string;
+  garrisonCapacity: number;
+  garrisonSlotsUsed: number;
+};
+type LordHomeDomainStats = {
+  incomePerHour: number;
+  rawIncomePerHour: number;
+  territoryIncomePerHour: number;
+  currentMp: number;
+  mpCap: number;
+  activeArmyCapacity: number;
+  activeArmySlotsUsed: number;
 };
 type LordHomeUnitCard = {
   name: string;
@@ -486,7 +534,27 @@ type LordHomeRecruitOffer = {
 };
 
 type LordHomeBackendState = {
-  domain?: { gold?: number; starting_gold?: number };
+  domain?: {
+    domain_id?: string;
+    gold?: number;
+    starting_gold?: number;
+    base_income?: number;
+    income_per_hour?: number;
+    raw_income_per_hour?: number;
+    territory_income_per_hour?: number;
+    current_mp?: number;
+    mp_cap?: number;
+    current_node_id?: string;
+    active_army_capacity?: number;
+    active_army_slots_used?: number;
+    active_army_slots_free?: number;
+  };
+  movement?: {
+    current_node_id?: string;
+    current_mp?: number;
+    mp_cap?: number;
+  };
+  timer_summary?: LordHomeBackendTimerSummary;
   building_catalog?: Array<{ building_id?: string; status?: string }>;
   owned_buildings?: Array<{ building_id?: string; status?: string }>;
   territories?: LordHomeBackendTerritory[];
@@ -529,6 +597,62 @@ type LordHomeRecruitActionResponse = {
 
 const lordHomeDefaultLordId = "p_lord_1";
 const lordHomeDefaultRoleToken = "LORD-NORTH-R8K4";
+
+type LordMapBackendMovement = {
+  domain_id?: string;
+  current_node_id?: string;
+  current_mp?: number;
+  mp_cap?: number;
+};
+
+type LordMapBackendPendingMove = {
+  move_id?: string;
+  status?: string;
+  domain_id?: string;
+  lord_id?: string;
+  from_node_id?: string;
+  to_node_id?: string;
+  requested_to_node_id?: string;
+  route?: string[];
+  route_node_ids?: string[];
+  mp_cost?: number;
+  mp_spent?: number;
+  current_mp?: number;
+  started_at?: string;
+  arrival_at?: string;
+};
+
+type LordMapBackendRoutePreview = {
+  status?: "ready" | "stopped" | "blocked";
+  can_move?: boolean;
+  from_node_id?: string;
+  to_node_id?: string;
+  requested_to_node_id?: string;
+  route?: string[];
+  mp_cost?: number;
+  mp_available?: number;
+  arrival_at?: string;
+  reason?: string;
+  reason_code?: string;
+};
+
+type LordMapBackendMoveResponse = {
+  status?: string;
+  to_node_id?: string;
+  requested_to_node_id?: string;
+  route?: string[];
+  mp_spent?: number;
+  current_mp?: number;
+  pending_move?: LordMapBackendPendingMove;
+};
+
+type LordMapBackendState = LordHomeBackendState & {
+  lord?: { domain_id?: string };
+  domain?: LordHomeBackendState["domain"] & LordMapBackendMovement;
+  movement?: LordMapBackendMovement;
+  pending_move?: LordMapBackendPendingMove | null;
+};
+
 const lordHomeSeedRecruitOffers: Record<string, LordHomeRecruitOffer> = {
   unit_infantry_t1: {
     offerId: "offer_north_infantry",
@@ -543,6 +667,22 @@ const lordHomeSeedRecruitOffers: Record<string, LordHomeRecruitOffer> = {
 const clampRecruitQty = (value: number, max: number) => {
   if (max < 1) return 0;
   return Math.max(1, Math.min(max, Math.round(value)));
+};
+
+const mergeLordHomeStackList = (stacks: LordHomeStack[], sourceIndex: number, targetIndex: number) => {
+  const sourceStack = stacks[sourceIndex];
+  const targetStack = stacks[targetIndex];
+  if (!sourceStack || !targetStack || sourceIndex === targetIndex || sourceStack.unitId !== targetStack.unitId) {
+    return stacks;
+  }
+
+  const nextStacks = stacks.map((stack) => ({ ...stack }));
+  nextStacks[targetIndex] = {
+    ...targetStack,
+    count: targetStack.count + sourceStack.count
+  };
+  nextStacks.splice(sourceIndex, 1);
+  return nextStacks;
 };
 
 const lordHomeRecruitStatusRank = (status: string) => {
@@ -979,9 +1119,26 @@ const lordHomeApiErrorLabelByCode: Record<string, string> = {
   fort_capacity_exceeded: "В гарнизоне не хватает места",
   army_capacity_exceeded: "В армии не хватает места",
   insufficient_garrison: "В гарнизоне нет такой пачки",
+  stack_cannot_split: "Эту пачку нельзя разделить",
+  invalid_split_count: "Нужно оставить бойцов в обеих пачках",
+  merge_same_stack: "Выберите другую пачку",
+  merge_unit_mismatch: "Складывать можно только одинаковые пачки",
+  missing_stack_id: "Пачка не выбрана",
+  active_stack_not_found: "Пачка армии не найдена",
+  garrison_stack_not_found: "Пачка гарнизона не найдена",
   missing_active_army: "Нужна армия героя на этой территории",
   army_not_at_territory: "Армия героя в другой локации",
-  pending_move_active: "Армия в пути"
+  pending_move_active: "Армия в пути",
+  already_at_target: "Армия уже здесь",
+  forbidden_residence_target: "В чужую резиденцию ход закрыт",
+  insufficient_mp: "Недостаточно MP",
+  invalid_route: "Маршрут недоступен",
+  map_node_not_found: "Цель пути сейчас недоступна",
+  missing_route: "Цель похода не выбрана",
+  no_route: "Нет открытой дороги",
+  route_cost_mismatch: "Стоимость пути изменилась",
+  route_stopped_at_front: "Поход остановится на первом рубеже",
+  territory_node_not_found: "У этой земли нет точки на карте"
 };
 
 const getLordHomeApiErrorMessage = (payload: unknown, fallback: string) => {
@@ -1010,25 +1167,22 @@ const getLordHomeApiErrorMessage = (payload: unknown, fallback: string) => {
 };
 
 const getLordHomeStacksFromBackend = (rows: LordHomeBackendStack[] | "" | null | undefined): LordHomeStack[] => {
-  const countsByUnit: Partial<Record<LordHomeUnitId, number>> = {};
-
-  for (const row of Array.isArray(rows) ? rows : []) {
+  return (Array.isArray(rows) ? rows : []).flatMap((row) => {
     if (row.hidden || (row.status && row.status !== "active")) {
-      continue;
+      return [];
     }
 
     const unitId = row.card_id ? lordHomeUnitIdByBackendCardId[row.card_id] : undefined;
     const count = Number(row.count ?? 0);
     if (!unitId || !Number.isFinite(count) || count <= 0) {
-      continue;
+      return [];
     }
 
-    countsByUnit[unitId] = (countsByUnit[unitId] ?? 0) + count;
-  }
-
-  return lordHomeUnitOrder.flatMap((unitId) => {
-    const count = countsByUnit[unitId] ?? 0;
-    return count > 0 ? [{ unitId, count }] : [];
+    return [{
+      stackId: row.army_id ?? row.garrison_id,
+      unitId,
+      count
+    }];
   });
 };
 
@@ -1063,6 +1217,43 @@ const getLordBuildingState = (building: LordBuildingNode, builtBuildingIds: Set<
 
   return building.prerequisiteIds.every((id) => builtBuildingIds.has(id)) ? "available" : "locked";
 };
+
+const lordHomeInitialDomainStats: LordHomeDomainStats = {
+  incomePerHour: 25,
+  rawIncomePerHour: 25,
+  territoryIncomePerHour: 0,
+  currentMp: 6,
+  mpCap: 6,
+  activeArmyCapacity: 5,
+  activeArmySlotsUsed: lordHomeInitialArmy.length
+};
+
+const lordHomeActLabelById: Record<string, string> = {
+  act1: "Акт I",
+  act2: "Акт II",
+  act3: "Акт III",
+  final_act: "Финал",
+  final_lock: "Финал"
+};
+
+const getLordHomeActLabel = (timerSummary: LordHomeBackendTimerSummary | null) => {
+  const actId = timerSummary?.current_act_id ?? "";
+  return lordHomeActLabelById[actId] ?? (actId ? actId : "Ожидание");
+};
+
+const getLordHomeTimerShortLabel = (timerSummary: LordHomeBackendTimerSummary | null) => {
+  const nextTick = timerSummary?.next_tick;
+  if (!nextTick) {
+    return timerSummary?.status === "active" ? "тик завершен" : "нет акта";
+  }
+
+  const secondsUntil = Number(nextTick.seconds_until ?? 0);
+  const minutesUntil = Math.max(0, Math.ceil(secondsUntil / 60));
+  return `${minutesUntil} мин.`;
+};
+
+const clampLordHomeMetric = (value: number, fallback: number) =>
+  Number.isFinite(value) ? Math.max(0, Math.round(value)) : fallback;
 
 const lordBuildingLinkSlot = {
   halfX: 2.8,
@@ -1120,6 +1311,14 @@ type LordMapMovementDraft = {
   startedAt: number;
   durationMs: number;
 };
+type LordMapLayerId = "roads" | "territories" | "costs";
+type LordMapLayerState = Record<LordMapLayerId, boolean>;
+
+const lordMapLayerButtons = [
+  { id: "roads", label: "Дороги", icon: Route },
+  { id: "territories", label: "Террит.", icon: Map },
+  { id: "costs", label: "MP", icon: Layers }
+] as const satisfies ReadonlyArray<{ id: LordMapLayerId; label: string; icon: typeof Route }>;
 
 const lordMapSockets = [
   { id: "node_fort_east", name: "Северная застава", x: 50.13, y: 15.12, tone: "neutral", owner: "нейтрально", route: "2 MP до центра" },
@@ -1155,6 +1354,9 @@ const lordMapSockets = [
   route: string;
 }>;
 type LordMapSocket = (typeof lordMapSockets)[number];
+type LordMapRoadPoint = readonly [number, number];
+
+const lordMapRoadViewBox = { width: 3172, height: 1984 } as const;
 
 const lordMapLordMeta: Record<LordMapLordId, { name: string; armyName: string; homeSocketId: string; tone: LordMapSocketTone }> = {
   north: { name: "Север", armyName: "Северное войско", homeSocketId: "node_res_north", tone: "domain-north" },
@@ -1164,47 +1366,65 @@ const lordMapLordMeta: Record<LordMapLordId, { name: string; armyName: string; h
 };
 
 const lordMapTravelEdges = [
-  { from: "node_res_north", to: "node_field_oats", cost: 1 },
-  { from: "node_res_north", to: "node_fort_east", cost: 2 },
-  { from: "node_fort_east", to: "node_mountain_north_alpine", cost: 2 },
-  { from: "node_fort_west", to: "node_field_oats", cost: 1 },
-  { from: "node_fort_west", to: "node_field_west_large", cost: 1 },
-  { from: "node_fort_west", to: "node_fort_east", cost: 2 },
-  { from: "node_field_west_large", to: "node_forest_dark", cost: 2 },
-  { from: "node_swamp_black", to: "node_forest_dark", cost: 2 },
-  { from: "node_swamp_black", to: "node_fort_southwest", cost: 2 },
-  { from: "node_res_forest", to: "node_fort_southwest", cost: 1 },
-  { from: "node_fort_southwest", to: "node_mountain_west_alpine", cost: 2 },
-  { from: "node_res_forest", to: "node_village_barn", cost: 1 },
-  { from: "node_village_barn", to: "node_spanish_magic", cost: 2 },
-  { from: "node_village_barn", to: "node_mountain_gray", cost: 2 },
-  { from: "node_spanish_magic", to: "node_science_barn", cost: 2 },
-  { from: "node_science_barn", to: "node_forest_south_garden", cost: 2 },
-  { from: "node_forest_south_garden", to: "node_lake_south_pond", cost: 1 },
-  { from: "node_field_east_large", to: "node_science_barn", cost: 2 },
-  { from: "node_res_hill", to: "node_field_east_large", cost: 1 },
-  { from: "node_res_hill", to: "node_mountain_gray", cost: 2 },
-  { from: "node_village_east_shed", to: "node_well_city", cost: 1 },
-  { from: "node_village_east_shed", to: "node_lake_mist", cost: 1 },
-  { from: "node_lake_mist", to: "node_field_east_large", cost: 1 },
-  { from: "node_res_river", to: "node_well_city", cost: 1 },
-  { from: "node_res_river", to: "node_village_east_shed", cost: 1 },
-  { from: "node_fort_east", to: "node_well_city", cost: 2 },
-] as const;
+  { id: "edge_north_field", from: "node_res_north", to: "node_field_oats", cost: 1, points: [[1260, 740], [1205, 650], [1125, 570], [1015, 500]] },
+  { id: "edge_north_fort_east", from: "node_res_north", to: "node_fort_east", cost: 2, points: [[1260, 740], [1320, 600], [1450, 450], [1590, 300]] },
+  { id: "edge_fort_east_mountain_north", from: "node_fort_east", to: "node_mountain_north_alpine", cost: 2, points: [[1590, 300], [1790, 315], [1990, 320], [2145, 365]] },
+  { id: "edge_mountain_north_lake", from: "node_mountain_north_alpine", to: "node_lake_mist", cost: 2, points: [[2145, 365], [2325, 460], [2505, 625], [2560, 805]] },
+  { id: "edge_fort_west_field_north", from: "node_fort_west", to: "node_field_oats", cost: 1, points: [[875, 330], [925, 405], [1015, 500]] },
+  { id: "edge_fort_west_field_west", from: "node_fort_west", to: "node_field_west_large", cost: 1, points: [[875, 330], [720, 395], [560, 500], [470, 580]] },
+  { id: "edge_fort_west_fort_east", from: "node_fort_west", to: "node_fort_east", cost: 2, points: [[875, 330], [1080, 285], [1330, 265], [1590, 300]] },
+  { id: "edge_field_west_forest_dark", from: "node_field_west_large", to: "node_forest_dark", cost: 2, points: [[470, 580], [515, 760], [625, 985]] },
+  { id: "edge_forest_dark_field_oats", from: "node_forest_dark", to: "node_field_oats", cost: 2, points: [[625, 985], [735, 815], [860, 650], [1015, 500]] },
+  { id: "edge_swamp_forest_west", from: "node_swamp_black", to: "node_forest_dark", cost: 2, points: [[580, 1190], [595, 1085], [625, 985]] },
+  { id: "edge_swamp_fort_southwest", from: "node_swamp_black", to: "node_fort_southwest", cost: 2, points: [[580, 1190], [605, 1325], [650, 1460]] },
+  { id: "edge_forest_fort_southwest", from: "node_res_forest", to: "node_fort_southwest", cost: 1, points: [[1260, 970], [1075, 1115], [880, 1265], [705, 1385], [650, 1460]] },
+  { id: "edge_fort_southwest_mountain_west", from: "node_fort_southwest", to: "node_mountain_west_alpine", cost: 2, points: [[650, 1460], [800, 1560], [1040, 1625]] },
+  { id: "edge_mountain_west_magic", from: "node_mountain_west_alpine", to: "node_spanish_magic", cost: 1, points: [[1040, 1625], [1210, 1690], [1410, 1715]] },
+  { id: "edge_forest_village", from: "node_res_forest", to: "node_village_barn", cost: 1, points: [[1260, 970], [1385, 1125], [1550, 1290]] },
+  { id: "edge_village_magic", from: "node_village_barn", to: "node_spanish_magic", cost: 2, points: [[1550, 1290], [1500, 1490], [1410, 1715]] },
+  { id: "edge_village_mountain_gray", from: "node_village_barn", to: "node_mountain_gray", cost: 2, points: [[1550, 1290], [1735, 1265], [1905, 1235], [2055, 1215]] },
+  { id: "edge_magic_science", from: "node_spanish_magic", to: "node_science_barn", cost: 2, points: [[1410, 1715], [1620, 1645], [1975, 1535]] },
+  { id: "edge_science_forest_south", from: "node_science_barn", to: "node_forest_south_garden", cost: 2, points: [[1975, 1535], [2110, 1545], [2285, 1555]] },
+  { id: "edge_forest_south_lake_south", from: "node_forest_south_garden", to: "node_lake_south_pond", cost: 1, points: [[2285, 1555], [2510, 1590], [2700, 1675]] },
+  { id: "edge_field_east_science", from: "node_field_east_large", to: "node_science_barn", cost: 2, points: [[2630, 1260], [2440, 1370], [2210, 1480], [1975, 1535]] },
+  { id: "edge_hill_field_east", from: "node_res_hill", to: "node_field_east_large", cost: 1, points: [[1720, 970], [1960, 1030], [2300, 1120], [2630, 1260]] },
+  { id: "edge_hill_mountain", from: "node_res_hill", to: "node_mountain_gray", cost: 2, points: [[1720, 970], [1845, 1090], [2055, 1215]] },
+  { id: "edge_village_east_well", from: "node_village_east_shed", to: "node_well_city", cost: 1, points: [[2395, 850], [2330, 715], [2255, 555]] },
+  { id: "edge_village_east_lake", from: "node_village_east_shed", to: "node_lake_mist", cost: 1, points: [[2395, 850], [2485, 835], [2560, 805]] },
+  { id: "edge_lake_field_east", from: "node_lake_mist", to: "node_field_east_large", cost: 1, points: [[2560, 805], [2570, 1010], [2630, 1260]] },
+  { id: "edge_river_well", from: "node_res_river", to: "node_well_city", cost: 1, points: [[1720, 740], [1900, 690], [2105, 620], [2255, 555]] },
+  { id: "edge_river_village_east", from: "node_res_river", to: "node_village_east_shed", cost: 1, points: [[1720, 740], [1910, 770], [2160, 815], [2395, 850]] },
+  { id: "edge_fort_east_well", from: "node_fort_east", to: "node_well_city", cost: 2, points: [[1590, 300], [1800, 350], [2055, 450], [2255, 555]] },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  from: string;
+  to: string;
+  cost: number;
+  points: readonly LordMapRoadPoint[];
+}>;
 
 const lordMapMovementPoints = 6;
 
 const getLordMapSocketById = (socketId: string) =>
   lordMapSockets.find((socket) => socket.id === socketId) ?? lordMapSockets[0];
 
+const getLordMapLordIdFromValue = (value: string | null | undefined): LordMapLordId | null => {
+  if (value === "north" || value === "domain_north") return "north";
+  if (value === "river" || value === "domain_river") return "river";
+  if (value === "forest" || value === "domain_forest") return "forest";
+  if (value === "hill" || value === "domain_hill") return "hill";
+  return null;
+};
+
 const getLordMapCurrentLordId = (): LordMapLordId => {
-  const lordParam = new URLSearchParams(window.location.search).get("lord");
+  const routeParams = new URLSearchParams(window.location.search);
 
-  if (lordParam === "north" || lordParam === "river" || lordParam === "forest" || lordParam === "hill") {
-    return lordParam;
-  }
-
-  return "forest";
+  return (
+    getLordMapLordIdFromValue(routeParams.get("map_lord")) ??
+    getLordMapLordIdFromValue(routeParams.get("domain")) ??
+    getLordMapLordIdFromValue(routeParams.get("lord")) ??
+    "north"
+  );
 };
 
 const getLordMapInitialSelectedSocketId = (fallbackSocketId: string) => {
@@ -1217,6 +1437,52 @@ const getLordMapInitialSelectedSocketId = (fallbackSocketId: string) => {
   return fallbackSocketId;
 };
 
+const getLordMapKnownRouteIds = (routeIds: string[] | undefined) =>
+  (Array.isArray(routeIds) ? routeIds : []).filter((socketId) =>
+    lordMapSockets.some((socket) => socket.id === socketId)
+  );
+
+const getLordMapPendingRouteIds = (pendingMove: LordMapBackendPendingMove | null | undefined) =>
+  getLordMapKnownRouteIds(pendingMove?.route_node_ids ?? pendingMove?.route);
+
+const formatLordMapArrivalTime = (value: string | undefined) => {
+  if (!value) {
+    return "";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+};
+
+const formatLordMapRemainingSeconds = (seconds: number) =>
+  seconds <= 0 ? "сейчас" : `${seconds} сек.`;
+
+const getLordMapMoveTiming = (
+  pendingMove: LordMapBackendPendingMove | null | undefined,
+  nowMs: number
+) => {
+  const startedAt = new Date(pendingMove?.started_at ?? "").getTime();
+  const arrivalAt = new Date(pendingMove?.arrival_at ?? "").getTime();
+
+  if (!Number.isFinite(startedAt) || !Number.isFinite(arrivalAt) || arrivalAt <= startedAt) {
+    return {
+      progress: 0.35,
+      remainingSeconds: 0,
+      isArrivalDue: false
+    };
+  }
+
+  return {
+    progress: Math.min(Math.max((nowMs - startedAt) / (arrivalAt - startedAt), 0), 1),
+    remainingSeconds: Math.max(0, Math.ceil((arrivalAt - nowMs) / 1000)),
+    isArrivalDue: nowMs >= arrivalAt
+  };
+};
+
 const getLordMapDirectCost = (fromId: string, toId: string) => {
   const edge = lordMapTravelEdges.find(
     (travelEdge) =>
@@ -1226,6 +1492,75 @@ const getLordMapDirectCost = (fromId: string, toId: string) => {
 
   return edge?.cost ?? null;
 };
+
+const getLordMapTravelEdge = (fromId: string, toId: string) =>
+  lordMapTravelEdges.find(
+    (travelEdge) =>
+      (travelEdge.from === fromId && travelEdge.to === toId) ||
+      (travelEdge.from === toId && travelEdge.to === fromId)
+  );
+
+const getLordMapEdgePoints = (fromId: string, toId: string) => {
+  const edge = getLordMapTravelEdge(fromId, toId);
+
+  if (!edge) {
+    return [];
+  }
+
+  return edge.from === fromId ? edge.points : [...edge.points].reverse();
+};
+
+const formatLordMapSvgPoints = (points: readonly LordMapRoadPoint[]) =>
+  points.map(([x, y]) => `${x},${y}`).join(" ");
+
+const getLordMapPolylineMidpoint = (points: readonly LordMapRoadPoint[]) => {
+  if (points.length === 0) {
+    return { x: 0, y: 0 };
+  }
+
+  if (points.length === 1) {
+    const [x, y] = points[0];
+    return { x, y };
+  }
+
+  const segments = points.slice(1).map((point, index) => {
+    const previous = points[index];
+    const length = Math.hypot(point[0] - previous[0], point[1] - previous[1]);
+    return { from: previous, to: point, length };
+  });
+  const totalLength = segments.reduce((total, segment) => total + segment.length, 0);
+  let remaining = totalLength / 2;
+
+  for (const segment of segments) {
+    if (remaining <= segment.length) {
+      const ratio = segment.length === 0 ? 0 : remaining / segment.length;
+      return {
+        x: segment.from[0] + (segment.to[0] - segment.from[0]) * ratio,
+        y: segment.from[1] + (segment.to[1] - segment.from[1]) * ratio
+      };
+    }
+
+    remaining -= segment.length;
+  }
+
+  const [x, y] = points[points.length - 1];
+  return { x, y };
+};
+
+const getLordMapPointStyle = (point: { x: number; y: number }) => ({
+  left: `${(point.x / lordMapRoadViewBox.width) * 100}%`,
+  top: `${(point.y / lordMapRoadViewBox.height) * 100}%`
+});
+
+const getLordMapRouteSegments = (pathIds: string[]) =>
+  pathIds.slice(1).map((socketId, index) => {
+    const fromId = pathIds[index];
+    const points = getLordMapEdgePoints(fromId, socketId);
+    return {
+      id: `${fromId}-${socketId}`,
+      points
+    };
+  }).filter((segment) => segment.points.length > 1);
 
 const isLordMapResidenceSocket = (socket: LordMapSocket) => socket.id.startsWith("node_res_");
 
@@ -1320,6 +1655,7 @@ const getLordMapTravelPath = (startSocketId: string, targetSocketId: string, pre
 type LordMapRoutePreview = {
   requestedSocketId: string;
   targetSocketId: string;
+  contactSocketId: string | null;
   pathIds: string[];
   cost: number;
   status: LordMapRoutePreviewStatus;
@@ -1333,10 +1669,14 @@ const getLordMapPathCost = (pathIds: string[]) =>
     return totalCost + (getLordMapDirectCost(previousSocketId, socketId) ?? 0);
   }, 0);
 
+const getLordMapFirstContactSocketId = (pathIds: string[], currentLord: LordMapRouteLord) =>
+  pathIds.slice(1).find((socketId) => isLordMapRouteStopSocket(getLordMapSocketById(socketId), currentLord)) ?? null;
+
 const getLordMapRoutePreview = (
   startSocketId: string,
   requestedSocketId: string,
-  currentLord: LordMapRouteLord
+  currentLord: LordMapRouteLord,
+  movementPoints = lordMapMovementPoints
 ): LordMapRoutePreview => {
   const requestedSocket = getLordMapSocketById(requestedSocketId);
 
@@ -1344,6 +1684,7 @@ const getLordMapRoutePreview = (
     return {
       requestedSocketId,
       targetSocketId: requestedSocketId,
+      contactSocketId: null,
       pathIds: [startSocketId],
       cost: 0,
       status: "idle",
@@ -1356,6 +1697,7 @@ const getLordMapRoutePreview = (
     return {
       requestedSocketId,
       targetSocketId: requestedSocketId,
+      contactSocketId: null,
       pathIds: [],
       cost: Number.POSITIVE_INFINITY,
       status: "blocked",
@@ -1371,6 +1713,7 @@ const getLordMapRoutePreview = (
     return {
       requestedSocketId,
       targetSocketId: requestedSocketId,
+      contactSocketId: null,
       pathIds: [],
       cost: Number.POSITIVE_INFINITY,
       status: "blocked",
@@ -1379,36 +1722,22 @@ const getLordMapRoutePreview = (
     };
   }
 
-  let targetPathIds = fullPathIds;
-  let status: LordMapRoutePreviewStatus = "ready";
-
-  for (let index = 1; index < fullPathIds.length; index += 1) {
-    const socket = getLordMapSocketById(fullPathIds[index]);
-
-    if (isLordMapRouteStopSocket(socket, currentLord)) {
-      targetPathIds = fullPathIds.slice(0, index + 1);
-      status = socket.id === requestedSocketId ? "ready" : "stopped";
-      break;
-    }
-  }
-
-  const targetSocketId = targetPathIds[targetPathIds.length - 1];
-  const targetSocket = getLordMapSocketById(targetSocketId);
-  const cost = getLordMapPathCost(targetPathIds);
-  const canMove = targetPathIds.length > 1 && cost <= lordMapMovementPoints;
+  const targetSocketId = requestedSocketId;
+  const cost = getLordMapPathCost(fullPathIds);
+  const contactSocketId = getLordMapFirstContactSocketId(fullPathIds, currentLord);
+  const canMove = fullPathIds.length > 1 && cost <= movementPoints;
   const reason =
-    cost > lordMapMovementPoints
-      ? `Не хватает MP: нужно ${cost}, доступно ${lordMapMovementPoints}.`
-      : status === "stopped"
-        ? `Доступная цель: ${targetSocket.name}. Дальше нужен захват.`
-        : "Маршрут открыт.";
+    cost > movementPoints
+      ? `Не хватает MP: нужно ${cost}, доступно ${movementPoints}.`
+      : "Маршрут открыт.";
 
   return {
     requestedSocketId,
     targetSocketId,
-    pathIds: targetPathIds,
+    contactSocketId,
+    pathIds: fullPathIds,
     cost,
-    status,
+    status: "ready",
     canMove,
     reason
   };
@@ -1655,24 +1984,181 @@ function App() {
 }
 
 function LordMapScreen() {
-  const currentLordId = getLordMapCurrentLordId();
+  const mapRouteParams = new URLSearchParams(window.location.search);
+  const apiBaseUrl = (mapRouteParams.get("api") || import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+  const backendLordId =
+    mapRouteParams.get("lord_id") ||
+    mapRouteParams.get("lordId") ||
+    localStorage.getItem("witcher_larp_lord_id") ||
+    lordHomeDefaultLordId;
+  const backendRoleToken =
+    mapRouteParams.get("token") ||
+    localStorage.getItem("witcher_larp_role_token") ||
+    lordHomeDefaultRoleToken;
+  const [currentLordId, setCurrentLordId] = useState<LordMapLordId>(() => getLordMapCurrentLordId());
   const currentLord = lordMapLordMeta[currentLordId];
   const initialSelectedSocketId = getLordMapInitialSelectedSocketId(currentLord.homeSocketId);
   const [armySocketId, setArmySocketId] = useState(currentLord.homeSocketId);
+  const [routeStartSocketId, setRouteStartSocketId] = useState(currentLord.homeSocketId);
   const [selectedSocketId, setSelectedSocketId] = useState(initialSelectedSocketId);
   const [hoveredSocketId, setHoveredSocketId] = useState<string | null>(null);
   const [movementDraft, setMovementDraft] = useState<LordMapMovementDraft | null>(null);
   const [armyTravelProgress, setArmyTravelProgress] = useState(0);
+  const [backendState, setBackendState] = useState<LordMapBackendState | null>(null);
+  const [mapApiState, setMapApiState] = useState<"unknown" | "online" | "offline">("unknown");
+  const [serverRoutePreview, setServerRoutePreview] = useState<LordMapBackendRoutePreview | null>(null);
+  const [routePreviewState, setRoutePreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [mapActionStatus, setMapActionStatus] = useState("");
+  const [isMoveSubmitting, setIsMoveSubmitting] = useState(false);
+  const [pendingRenderNowMs, setPendingRenderNowMs] = useState(() => Date.now());
+  const [mapLayers, setMapLayers] = useState<LordMapLayerState>({
+    roads: true,
+    territories: true,
+    costs: true
+  });
+  const routePreviewSerialRef = useRef(0);
+  const lastPendingMoveRef = useRef<LordMapBackendPendingMove | null>(null);
   const prefersReducedMotion = useReducedMotion();
-  const isMarching = movementDraft !== null;
+  const backendPendingMove = backendState?.pending_move?.status === "pending" ? backendState.pending_move : null;
+  const pendingPathIds = getLordMapPendingRouteIds(backendPendingMove);
+  const isBackendPendingMove = Boolean(backendPendingMove);
+  const isMarching = movementDraft !== null || isBackendPendingMove || isMoveSubmitting;
+  const backendMovement = backendState?.movement ?? backendState?.domain ?? null;
+  const backendCurrentMp = Number(backendMovement?.current_mp);
+  const mapMovementPoints = Number.isFinite(backendCurrentMp) ? Math.max(0, backendCurrentMp) : lordMapMovementPoints;
+  const backendMpCap = Number(backendMovement?.mp_cap);
+  const mapMovementCap = Number.isFinite(backendMpCap) ? Math.max(mapMovementPoints, backendMpCap) : lordMapMovementPoints;
+
+  const fetchLordMapState = useCallback(async (options?: { silent?: boolean }) => {
+    try {
+      const headers: Record<string, string> = { Accept: "application/json" };
+      if (backendRoleToken) {
+        headers["X-Role-Token"] = backendRoleToken;
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/lords/${backendLordId}/state`, { headers });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(getLordHomeApiErrorMessage(payload, "Приказная не отвечает"));
+      }
+
+      const nextState = payload as LordMapBackendState;
+      setBackendState(nextState);
+      setMapApiState("online");
+      if (!options?.silent) {
+        setMapActionStatus("");
+      }
+
+      const nextLordId = getLordMapLordIdFromValue(
+        nextState.domain?.domain_id ?? nextState.lord?.domain_id ?? nextState.movement?.domain_id
+      );
+      if (nextLordId) {
+        setCurrentLordId(nextLordId);
+      }
+
+      const currentNodeId = nextState.movement?.current_node_id ?? nextState.domain?.current_node_id;
+      if (currentNodeId && lordMapSockets.some((socket) => socket.id === currentNodeId)) {
+        setArmySocketId(currentNodeId);
+        setRouteStartSocketId(currentNodeId);
+      }
+
+      const pendingMove = nextState.pending_move?.status === "pending" ? nextState.pending_move : null;
+      const pendingTargetId = pendingMove?.requested_to_node_id ?? pendingMove?.to_node_id;
+      if (pendingTargetId && lordMapSockets.some((socket) => socket.id === pendingTargetId)) {
+        setSelectedSocketId(pendingTargetId);
+      }
+    } catch (error) {
+      setBackendState(null);
+      setMapApiState("offline");
+      setServerRoutePreview(null);
+      setRoutePreviewState("idle");
+      if (!options?.silent) {
+        setMapActionStatus(error instanceof Error ? error.message : "Приказная не отвечает");
+      }
+    }
+  }, [apiBaseUrl, backendLordId, backendRoleToken]);
 
   useEffect(() => {
+    localStorage.setItem("witcher_larp_lord_id", backendLordId);
+    localStorage.setItem("witcher_larp_role_token", backendRoleToken);
+  }, [backendLordId, backendRoleToken]);
+
+  useEffect(() => {
+    void fetchLordMapState({ silent: true });
+  }, [fetchLordMapState]);
+
+  useEffect(() => {
+    if (!backendPendingMove) {
+      return undefined;
+    }
+
+    setPendingRenderNowMs(Date.now());
+    const intervalMs = prefersReducedMotion ? 1000 : 180;
+    const intervalId = window.setInterval(() => {
+      setPendingRenderNowMs(Date.now());
+    }, intervalMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [backendPendingMove?.arrival_at, backendPendingMove?.move_id, backendPendingMove?.started_at, prefersReducedMotion]);
+
+  useEffect(() => {
+    if (mapApiState !== "online" || !backendPendingMove) {
+      return undefined;
+    }
+
+    const pollIntervalId = window.setInterval(() => {
+      void fetchLordMapState({ silent: true });
+    }, 700);
+    const timing = getLordMapMoveTiming(backendPendingMove, Date.now());
+    const arrivalDelayMs = Math.max(160, timing.remainingSeconds * 1000 + 180);
+    const arrivalTimeoutId = window.setTimeout(() => {
+      void fetchLordMapState({ silent: true });
+    }, arrivalDelayMs);
+
+    return () => {
+      window.clearInterval(pollIntervalId);
+      window.clearTimeout(arrivalTimeoutId);
+    };
+  }, [
+    backendPendingMove?.arrival_at,
+    backendPendingMove?.move_id,
+    backendPendingMove?.started_at,
+    fetchLordMapState,
+    mapApiState
+  ]);
+
+  useEffect(() => {
+    if (backendPendingMove) {
+      lastPendingMoveRef.current = backendPendingMove;
+      return;
+    }
+
+    if (!backendState || !lastPendingMoveRef.current) {
+      return;
+    }
+
+    const arrivedMove = lastPendingMoveRef.current;
+    lastPendingMoveRef.current = null;
+    const arrivedSocketId = backendState.movement?.current_node_id ?? backendState.domain?.current_node_id ?? arrivedMove.to_node_id;
+    if (arrivedSocketId && lordMapSockets.some((socket) => socket.id === arrivedSocketId)) {
+      setMapActionStatus(`Армия прибыла: ${getLordMapSocketById(arrivedSocketId).name}.`);
+    }
+  }, [backendPendingMove, backendState]);
+
+  useEffect(() => {
+    if (backendState) {
+      return;
+    }
+
     setArmySocketId(currentLord.homeSocketId);
+    setRouteStartSocketId(currentLord.homeSocketId);
     setSelectedSocketId(getLordMapInitialSelectedSocketId(currentLord.homeSocketId));
     setHoveredSocketId(null);
     setMovementDraft(null);
     setArmyTravelProgress(0);
-  }, [currentLord.homeSocketId]);
+  }, [backendState, currentLord.homeSocketId]);
 
   useEffect(() => {
     if (!movementDraft) {
@@ -1681,6 +2167,7 @@ function LordMapScreen() {
 
     if (prefersReducedMotion) {
       setArmySocketId(movementDraft.targetSocketId);
+      setRouteStartSocketId(movementDraft.targetSocketId);
       setSelectedSocketId(movementDraft.targetSocketId);
       setMovementDraft(null);
       setArmyTravelProgress(0);
@@ -1695,6 +2182,7 @@ function LordMapScreen() {
 
       if (nextProgress >= 1) {
         setArmySocketId(movementDraft.targetSocketId);
+        setRouteStartSocketId(movementDraft.targetSocketId);
         setSelectedSocketId(movementDraft.targetSocketId);
         setMovementDraft(null);
         setArmyTravelProgress(0);
@@ -1712,64 +2200,357 @@ function LordMapScreen() {
   }, [movementDraft, prefersReducedMotion]);
 
   const selectedSocket = getLordMapSocketById(selectedSocketId);
-  const displaySocketId = movementDraft?.targetSocketId ?? hoveredSocketId ?? selectedSocketId;
+  const pendingDisplaySocketId = backendPendingMove?.requested_to_node_id ?? backendPendingMove?.to_node_id;
+  const displaySocketId = movementDraft?.targetSocketId ?? pendingDisplaySocketId ?? hoveredSocketId ?? selectedSocketId;
   const displaySocket = getLordMapSocketById(displaySocketId);
   const armySocket = getLordMapSocketById(armySocketId);
-  const displayRoutePreview = getLordMapRoutePreview(armySocketId, displaySocket.id, currentLord);
+  const routeStartSocket = getLordMapSocketById(routeStartSocketId);
+  const displayRoutePreview = getLordMapRoutePreview(routeStartSocketId, displaySocket.id, currentLord, mapMovementPoints);
   const previewTargetSocket = getLordMapSocketById(displayRoutePreview.targetSocketId);
+  const serverPreviewForDisplay =
+    serverRoutePreview &&
+    serverRoutePreview.requested_to_node_id === displayRoutePreview.requestedSocketId &&
+    (!serverRoutePreview.from_node_id || serverRoutePreview.from_node_id === armySocketId)
+      ? serverRoutePreview
+      : null;
+  const serverRouteIds = getLordMapKnownRouteIds(serverPreviewForDisplay?.route);
+  const serverMoveCost = Number(serverPreviewForDisplay?.mp_cost);
+  const dispatchCost = serverPreviewForDisplay && Number.isFinite(serverMoveCost) ? serverMoveCost : displayRoutePreview.cost;
+  const dispatchAvailableMp = Number(serverPreviewForDisplay?.mp_available ?? mapMovementPoints);
+  const serverStopSocket =
+    serverPreviewForDisplay?.to_node_id &&
+    serverPreviewForDisplay.to_node_id !== displayRoutePreview.requestedSocketId &&
+    lordMapSockets.some((socket) => socket.id === serverPreviewForDisplay.to_node_id)
+      ? getLordMapSocketById(serverPreviewForDisplay.to_node_id)
+      : null;
+  const pendingStopSocket =
+    backendPendingMove?.to_node_id && lordMapSockets.some((socket) => socket.id === backendPendingMove.to_node_id)
+      ? getLordMapSocketById(backendPendingMove.to_node_id)
+      : null;
+  const routeStopSocketId = pendingStopSocket?.id ?? serverStopSocket?.id ?? displayRoutePreview.contactSocketId;
+  const contactSocket = routeStopSocketId ? getLordMapSocketById(routeStopSocketId) : null;
+  const activeRoutePathIds = movementDraft?.pathIds ?? (pendingPathIds.length > 1 ? pendingPathIds : serverRouteIds);
   const displayPathIds = movementDraft?.pathIds ?? displayRoutePreview.pathIds;
+  const displayRouteSegments = getLordMapRouteSegments(displayPathIds);
+  const activeRouteSegments = getLordMapRouteSegments(activeRoutePathIds);
+  const hasSeparateActiveRoute =
+    activeRoutePathIds.length > 1 &&
+    displayPathIds.length > 1 &&
+    activeRoutePathIds.join("|") !== displayPathIds.join("|");
+  const routePlanSegments = hasSeparateActiveRoute ? displayRouteSegments : [];
+  const routeCurrentSegments = hasSeparateActiveRoute ? activeRouteSegments : displayRouteSegments;
+  const displayRouteEdgeIds = new Set(
+    displayPathIds.slice(1).map((socketId, index) => getLordMapTravelEdge(displayPathIds[index], socketId)?.id).filter(Boolean)
+  );
+  const activeRouteEdgeIds = new Set(
+    activeRoutePathIds.slice(1).map((socketId, index) => getLordMapTravelEdge(activeRoutePathIds[index], socketId)?.id).filter(Boolean)
+  );
   const displayPathLabel = displayPathIds.map((socketId) => getLordMapSocketById(socketId).name).join(" - ");
-  const hasDisplayRoute = displayPathIds.length > 1 && Number.isFinite(displayRoutePreview.cost);
+  const displayPathCost = displayPathIds.length > 1 ? getLordMapPathCost(displayPathIds) : displayRoutePreview.cost;
+  const hasDisplayRoute = displayPathIds.length > 1 && Number.isFinite(displayPathCost);
+  const pendingMoveTiming = getLordMapMoveTiming(backendPendingMove, pendingRenderNowMs);
+  const pendingTravelProgress = pendingMoveTiming.progress;
   const armyMarkerPoint = movementDraft
     ? getLordMapPointAlongPath(movementDraft.pathIds, armyTravelProgress)
+    : isBackendPendingMove && pendingPathIds.length > 1
+      ? getLordMapPointAlongPath(pendingPathIds, pendingTravelProgress)
     : { x: armySocket.x, y: armySocket.y };
-  const movingTargetSocket = movementDraft ? getLordMapSocketById(movementDraft.targetSocketId) : null;
+  const movingTargetSocket = movementDraft
+    ? getLordMapSocketById(movementDraft.targetSocketId)
+    : isBackendPendingMove
+      ? getLordMapSocketById(backendPendingMove?.to_node_id ?? backendPendingMove?.requested_to_node_id ?? armySocketId)
+      : null;
+  const armyMarkerTargetSocketId =
+    movementDraft?.targetSocketId ?? backendPendingMove?.requested_to_node_id ?? backendPendingMove?.to_node_id ?? armySocketId;
+  const isPlanningFromArmy = routeStartSocketId === armySocketId;
+  const canDispatchRoute =
+    !isMoveSubmitting &&
+    !isBackendPendingMove &&
+    routePreviewState !== "loading" &&
+    displayRoutePreview.status !== "idle" &&
+    displayRoutePreview.status !== "blocked" &&
+    isPlanningFromArmy &&
+    (serverPreviewForDisplay ? Boolean(serverPreviewForDisplay.can_move) : displayRoutePreview.canMove);
+  const displayRouteKey = displayRoutePreview.pathIds.join("|");
+
+  useEffect(() => {
+    if (
+      mapApiState !== "online" ||
+      !isPlanningFromArmy ||
+      movementDraft ||
+      isBackendPendingMove ||
+      displayRoutePreview.status === "idle" ||
+      displayRoutePreview.status === "blocked" ||
+      displayRoutePreview.pathIds.length < 2
+    ) {
+      setServerRoutePreview(null);
+      setRoutePreviewState("idle");
+      return undefined;
+    }
+
+    const serial = routePreviewSerialRef.current + 1;
+    routePreviewSerialRef.current = serial;
+    const controller = new AbortController();
+    setRoutePreviewState("loading");
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    };
+    if (backendRoleToken) {
+      headers["X-Role-Token"] = backendRoleToken;
+    }
+
+    void fetch(`${apiBaseUrl}/api/lords/${backendLordId}/route-preview`, {
+      method: "POST",
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        to_node_id: displayRoutePreview.requestedSocketId,
+        route_node_ids: displayRoutePreview.pathIds,
+        source: "stage2b_map"
+      })
+    })
+      .then(async (response) => {
+        const payload: unknown = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(getLordHomeApiErrorMessage(payload, "Маршрут недоступен"));
+        }
+        if (routePreviewSerialRef.current !== serial) {
+          return;
+        }
+        setServerRoutePreview(payload as LordMapBackendRoutePreview);
+        setRoutePreviewState("ready");
+      })
+      .catch((error) => {
+        if (controller.signal.aborted || routePreviewSerialRef.current !== serial) {
+          return;
+        }
+        setServerRoutePreview({
+          status: "blocked",
+          can_move: false,
+          requested_to_node_id: displayRoutePreview.requestedSocketId,
+          route: [],
+          mp_cost: 0,
+          mp_available: mapMovementPoints,
+          reason: error instanceof Error ? error.message : "Маршрут недоступен"
+        });
+        setRoutePreviewState("error");
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    apiBaseUrl,
+    backendLordId,
+    backendRoleToken,
+    displayRouteKey,
+    displayRoutePreview.requestedSocketId,
+    displayRoutePreview.status,
+    isBackendPendingMove,
+    isPlanningFromArmy,
+    mapApiState,
+    mapMovementPoints,
+    movementDraft
+  ]);
+
+  const pendingArrivalLabel = formatLordMapArrivalTime(backendPendingMove?.arrival_at);
+  const pendingTargetSocket = pendingStopSocket ?? movingTargetSocket;
+  const pendingRequestedSocket =
+    backendPendingMove?.requested_to_node_id && backendPendingMove.requested_to_node_id !== backendPendingMove.to_node_id
+      ? getLordMapSocketById(backendPendingMove.requested_to_node_id)
+      : null;
+  const pendingRemainingLabel = formatLordMapRemainingSeconds(pendingMoveTiming.remainingSeconds);
+  const activeRouteLabel =
+    activeRoutePathIds.length > 1
+      ? activeRoutePathIds.map((socketId) => getLordMapSocketById(socketId).name).join(" - ")
+      : "";
   const displayRouteText = movementDraft
     ? `Армия идет к ${movingTargetSocket?.name ?? previewTargetSocket.name}.`
+    : isBackendPendingMove
+      ? `Армия идет к ${pendingTargetSocket?.name ?? previewTargetSocket.name}${pendingRequestedSocket ? `, плановая цель: ${pendingRequestedSocket.name}` : ""}. Осталось: ${pendingRemainingLabel}${pendingArrivalLabel ? `, прибытие ${pendingArrivalLabel}` : ""}.`
     : displayRoutePreview.status === "idle"
-    ? `${currentLord.armyName}: ${lordMapMovementPoints} MP.`
-    : !displayRoutePreview.canMove
+    ? `Старт маршрута: ${routeStartSocket.name}. ${currentLord.armyName}: ${mapMovementPoints}/${mapMovementCap} MP.`
+    : displayRoutePreview.status === "blocked"
       ? displayRoutePreview.reason
-      : displayRoutePreview.status === "stopped"
-        ? `${displayRoutePreview.reason} Стоимость ${displayRoutePreview.cost} MP.`
-        : `Поход: ${displayRoutePreview.cost} MP. Останется ${lordMapMovementPoints - displayRoutePreview.cost} MP.`;
-  const selectionOwnerLabel = movementDraft
+      : !isPlanningFromArmy
+        ? `Расчет: ${displayRoutePreview.cost} MP от ${routeStartSocket.name} до ${previewTargetSocket.name}. Армия сейчас в ${armySocket.name}.`
+        : routePreviewState === "loading"
+          ? `Путь до ${previewTargetSocket.name}: ${displayRoutePreview.cost} MP. Проверяем первый рубеж.`
+          : serverStopSocket
+            ? `Путь до ${previewTargetSocket.name}: ${displayRoutePreview.cost} MP. Сейчас можно идти до ${serverStopSocket.name}: ${dispatchCost} MP.`
+            : !(serverPreviewForDisplay ? serverPreviewForDisplay.can_move : displayRoutePreview.canMove)
+              ? serverPreviewForDisplay?.reason ?? displayRoutePreview.reason
+              : `Поход до ${previewTargetSocket.name}: ${displayRoutePreview.cost} MP. Останется ${Math.max(0, dispatchAvailableMp - dispatchCost)} MP.`;
+  const selectionOwnerLabel = movementDraft || isBackendPendingMove
     ? "в пути"
     : displaySocket.id === armySocketId
       ? currentLord.armyName
-      : displayRoutePreview.status === "stopped"
-        ? `доступно: ${previewTargetSocket.owner}`
+      : displaySocket.id === routeStartSocketId
+        ? "старт маршрута"
         : displaySocket.owner;
-  const routeActionLabel = movementDraft
+  const routeActionLabel = movementDraft || isBackendPendingMove
     ? "В пути"
-    : displayRoutePreview.status === "stopped"
-      ? `Идти к ${previewTargetSocket.name}`
-      : "Отправить армию";
+    : isMoveSubmitting
+      ? "Приказ..."
+    : !isPlanningFromArmy
+      ? "Старт не у армии"
+      : displayRoutePreview.status === "idle"
+        ? "Армия здесь"
+        : routePreviewState === "loading"
+          ? "Проверяю путь"
+          : serverPreviewForDisplay && !serverPreviewForDisplay.can_move
+            ? "Недоступно"
+          : serverStopSocket
+            ? "Идти к рубежу"
+        : "Отправить армию";
+  const contactNoteText =
+    contactSocket && contactSocket.id !== displayRoutePreview.requestedSocketId
+      ? `Первый рубеж: ${contactSocket.name}`
+      : null;
+  const activeRouteNoteText =
+    activeRouteLabel && (isBackendPendingMove || hasSeparateActiveRoute)
+      ? `Текущий ход: ${activeRouteLabel}`
+      : null;
   const activeBattle = true;
 
-  const sendArmyToPreviewTarget = () => {
-    if (!displayRoutePreview.canMove || movementDraft) {
-      return;
-    }
+  const toggleMapLayer = (layerId: LordMapLayerId) => {
+    setMapLayers((currentLayers) => ({
+      ...currentLayers,
+      [layerId]: !currentLayers[layerId]
+    }));
+  };
 
-    setSelectedSocketId(displayRoutePreview.targetSocketId);
+  const runLocalMovement = (pathIds: string[], targetSocketId: string, cost: number) => {
+    setSelectedSocketId(targetSocketId);
     setHoveredSocketId(null);
 
-    const durationMs = prefersReducedMotion ? 0 : Math.max(900, displayRoutePreview.cost * 420);
+    const durationMs = prefersReducedMotion ? 0 : Math.max(900, cost * 420);
 
     if (durationMs === 0) {
-      setArmySocketId(displayRoutePreview.targetSocketId);
+      setArmySocketId(targetSocketId);
+      setRouteStartSocketId(targetSocketId);
       setArmyTravelProgress(0);
       return;
     }
 
     setArmyTravelProgress(0);
     setMovementDraft({
-      pathIds: displayRoutePreview.pathIds,
-      targetSocketId: displayRoutePreview.targetSocketId,
+      pathIds,
+      targetSocketId,
       startedAt: window.performance.now(),
       durationMs
     });
+  };
+
+  const sendArmyToPreviewTarget = async () => {
+    if (!canDispatchRoute || movementDraft || isBackendPendingMove) {
+      return;
+    }
+
+    if (mapApiState !== "online" || !serverPreviewForDisplay) {
+      runLocalMovement(displayRoutePreview.pathIds, displayRoutePreview.targetSocketId, displayRoutePreview.cost);
+      return;
+    }
+
+    const routeIds = serverRouteIds.length > 1 ? serverRouteIds : displayRoutePreview.pathIds;
+    const moveTargetId = serverPreviewForDisplay.to_node_id ?? routeIds[routeIds.length - 1] ?? displayRoutePreview.targetSocketId;
+    const expectedCost = Number.isFinite(serverMoveCost) ? serverMoveCost : getLordMapPathCost(routeIds);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    };
+    if (backendRoleToken) {
+      headers["X-Role-Token"] = backendRoleToken;
+    }
+
+    setIsMoveSubmitting(true);
+    setMapActionStatus("Отправляю приказ.");
+    setSelectedSocketId(displayRoutePreview.requestedSocketId);
+    setHoveredSocketId(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/lords/${backendLordId}/move`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          to_node_id: displayRoutePreview.requestedSocketId,
+          route_node_ids: routeIds,
+          expected_cost: expectedCost,
+          source: "stage2b_map"
+        })
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(getLordHomeApiErrorMessage(payload, "Поход не принят"));
+      }
+
+      const result = payload as LordMapBackendMoveResponse;
+      const acceptedTargetId = result.to_node_id ?? moveTargetId;
+      const requestedTargetId = result.requested_to_node_id ?? displayRoutePreview.requestedSocketId;
+      const acceptedTargetSocket = getLordMapSocketById(acceptedTargetId);
+      const pendingMove: LordMapBackendPendingMove = result.pending_move ?? {
+        status: "pending",
+        from_node_id: armySocketId,
+        to_node_id: acceptedTargetId,
+        requested_to_node_id: requestedTargetId,
+        route: result.route ?? routeIds,
+        mp_spent: result.mp_spent,
+        current_mp: result.current_mp
+      };
+      setMapActionStatus(
+        acceptedTargetId !== requestedTargetId
+          ? `Приказ принят: первый рубеж ${acceptedTargetSocket.name}.`
+          : "Приказ принят."
+      );
+      setBackendState((currentState) => {
+        const nextCurrentMp = result.current_mp ?? pendingMove.current_mp;
+
+        if (!currentState) {
+          return {
+            pending_move: pendingMove,
+            movement: {
+              current_node_id: pendingMove.from_node_id ?? armySocketId,
+              current_mp: nextCurrentMp
+            }
+          };
+        }
+
+        return {
+          ...currentState,
+          pending_move: pendingMove,
+          movement: currentState.movement
+            ? {
+                ...currentState.movement,
+                current_node_id: pendingMove.from_node_id ?? currentState.movement.current_node_id,
+                current_mp: nextCurrentMp ?? currentState.movement.current_mp
+              }
+            : currentState.movement,
+          domain: currentState.domain
+            ? {
+                ...currentState.domain,
+                current_node_id: pendingMove.from_node_id ?? currentState.domain.current_node_id,
+                current_mp: nextCurrentMp ?? currentState.domain.current_mp
+              }
+            : currentState.domain
+        };
+      });
+      setServerRoutePreview(null);
+      setRoutePreviewState("idle");
+      setPendingRenderNowMs(Date.now());
+      if (pendingMove.from_node_id && lordMapSockets.some((socket) => socket.id === pendingMove.from_node_id)) {
+        setArmySocketId(pendingMove.from_node_id);
+        setRouteStartSocketId(pendingMove.from_node_id);
+      }
+      window.setTimeout(() => {
+        void fetchLordMapState({ silent: true });
+      }, 280);
+    } catch (error) {
+      setMapActionStatus(error instanceof Error ? error.message : "Поход не принят");
+    } finally {
+      setIsMoveSubmitting(false);
+    }
   };
 
   return (
@@ -1805,33 +2586,60 @@ function LordMapScreen() {
 
         <section className="lord-map-board" aria-label="Карта земель">
           <motion.div
-            className="lord-map-artboard"
+            className={`lord-map-artboard${mapLayers.territories ? " show-territories" : " hide-territories"}${mapLayers.roads ? " show-roads" : " hide-roads"}`}
             initial={prefersReducedMotion ? false : { opacity: 0.82, scale: 1.012 }}
             animate={prefersReducedMotion ? undefined : { opacity: 1, scale: 1 }}
             transition={prefersReducedMotion ? undefined : { duration: 0.28, ease: "easeOut" }}
           >
-            <img className="lord-map-playable-image" src={lordMapStrictV6OwnerPreview} alt="" draggable={false} />
+            <img className="lord-map-playable-image is-base-map" src={lordMapStrictV6RoadlessBase} alt="" draggable={false} />
+            <img
+              className={`lord-map-playable-image is-road-map${mapLayers.roads ? " is-visible" : ""}`}
+              src={lordMapStrictV6BakedRoads}
+              alt=""
+              draggable={false}
+            />
+            {(routePlanSegments.length > 0 || routeCurrentSegments.length > 0) && (
+              <svg
+                className="lord-map-route-layer"
+                viewBox={`0 0 ${lordMapRoadViewBox.width} ${lordMapRoadViewBox.height}`}
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                {routePlanSegments.map((segment) => (
+                  <g key={`plan-${segment.id}`}>
+                    <polyline className="lord-map-route-plan-shadow" points={formatLordMapSvgPoints(segment.points)} />
+                    <polyline className="lord-map-route-plan" points={formatLordMapSvgPoints(segment.points)} />
+                  </g>
+                ))}
+                {routeCurrentSegments.map((segment) => (
+                  <g key={segment.id}>
+                    <polyline className="lord-map-route-highlight-shadow" points={formatLordMapSvgPoints(segment.points)} />
+                    <polyline className="lord-map-route-highlight" points={formatLordMapSvgPoints(segment.points)} />
+                  </g>
+                ))}
+              </svg>
+            )}
             <div className="lord-map-owner-layer">
               {lordMapSockets.map((socket) => {
-                const directTravelCost = getLordMapDirectCost(armySocketId, socket.id);
-                const isArmySocket = socket.id === armySocketId && !movementDraft;
+                const directTravelCost = getLordMapDirectCost(routeStartSocketId, socket.id);
+                const isArmySocket = socket.id === armySocketId && !movementDraft && !isBackendPendingMove;
+                const isRouteStart = socket.id === routeStartSocketId && !isArmySocket;
                 const isRouteStep = displayPathIds.includes(socket.id);
-                const isRouteStop = displayRoutePreview.targetSocketId === socket.id && hasDisplayRoute;
+                const isRouteStop = routeStopSocketId === socket.id && hasDisplayRoute;
                 const isPreviewTarget = displaySocket.id === socket.id && !isArmySocket;
-                const isRequestedTarget =
-                  displayRoutePreview.requestedSocketId === socket.id && displayRoutePreview.targetSocketId !== socket.id;
+                const isRequestedTarget = displayRoutePreview.requestedSocketId === socket.id && routeStopSocketId !== null && routeStopSocketId !== socket.id;
                 const isDirectRoute = directTravelCost !== null && !isArmySocket && !isLordMapForeignResidence(socket, currentLord);
                 const isBlockedTarget = isPreviewTarget && displayRoutePreview.status === "blocked";
                 const isOutOfRange =
                   isPreviewTarget &&
                   displayRoutePreview.pathIds.length > 1 &&
                   Number.isFinite(displayRoutePreview.cost) &&
-                  displayRoutePreview.cost > lordMapMovementPoints;
+                  displayRoutePreview.cost > mapMovementPoints;
 
                 return (
                   <button
                     key={socket.id}
-                    className={`lord-map-owner-socket ${socket.tone}${selectedSocket.id === socket.id ? " is-selected" : ""}${isArmySocket ? " is-army-node" : ""}${isRouteStep ? " is-route-step" : ""}${isRouteStop ? " is-route-stop" : ""}${isDirectRoute ? " is-direct-route" : ""}${isPreviewTarget ? " is-preview-target" : ""}${isRequestedTarget ? " is-requested-target" : ""}${isBlockedTarget ? " is-blocked-target" : ""}${isOutOfRange ? " is-out-of-range" : ""}`}
+                    className={`lord-map-owner-socket ${socket.tone}${selectedSocket.id === socket.id ? " is-selected" : ""}${isArmySocket ? " is-army-node" : ""}${isRouteStart ? " is-route-start" : ""}${isRouteStep ? " is-route-step" : ""}${isRouteStop ? " is-route-stop" : ""}${isDirectRoute ? " is-direct-route" : ""}${isPreviewTarget ? " is-preview-target" : ""}${isRequestedTarget ? " is-requested-target" : ""}${isBlockedTarget ? " is-blocked-target" : ""}${isOutOfRange ? " is-out-of-range" : ""}`}
                     type="button"
                     style={{ left: `${socket.x}%`, top: `${socket.y}%` }}
                     onClick={() => {
@@ -1858,36 +2666,38 @@ function LordMapScreen() {
               })}
             </div>
             <div className="lord-map-cost-layer" aria-hidden="true">
-              {lordMapSockets.map((socket) => {
-                const directTravelCost = getLordMapDirectCost(armySocketId, socket.id);
-                const isArmySocket = socket.id === armySocketId;
-                const routeCost =
-                  displayRoutePreview.targetSocketId === socket.id && hasDisplayRoute ? displayRoutePreview.cost : null;
-                const visibleCost = directTravelCost ?? routeCost;
-
-                if (isArmySocket || visibleCost === null) {
-                  return null;
-                }
+              {mapLayers.costs && lordMapTravelEdges.map((travelEdge) => {
+                const labelPoint = getLordMapPolylineMidpoint(travelEdge.points);
+                const isRouteCost = displayRouteEdgeIds.has(travelEdge.id);
+                const isActiveRouteCost = activeRouteEdgeIds.has(travelEdge.id);
 
                 return (
                   <span
-                    key={socket.id}
-                    className={`lord-map-travel-cost${directTravelCost === null ? " is-total-cost" : ""}${visibleCost > lordMapMovementPoints ? " is-out-of-range" : ""}`}
-                    style={{ left: `${socket.x}%`, top: `${socket.y}%` }}
+                    key={travelEdge.id}
+                    className={`lord-map-travel-cost${isRouteCost ? " is-route-cost" : ""}${isActiveRouteCost ? " is-active-route-cost" : ""}${travelEdge.cost > mapMovementPoints ? " is-out-of-range" : ""}`}
+                    style={getLordMapPointStyle(labelPoint)}
                   >
-                    {visibleCost} MP
+                    {travelEdge.cost} MP
                   </span>
                 );
               })}
+              {mapLayers.costs && hasDisplayRoute && (
+                <span
+                  className={`lord-map-travel-cost is-total-cost${displayRoutePreview.cost > mapMovementPoints ? " is-out-of-range" : ""}`}
+                  style={{ left: `${previewTargetSocket.x}%`, top: `${previewTargetSocket.y}%` }}
+                >
+                  итого {displayRoutePreview.cost} MP
+                </span>
+              )}
             </div>
             <button
-              className={`lord-map-army-marker ${currentLord.tone}${movementDraft ? " is-moving" : ""}`}
+              className={`lord-map-army-marker ${currentLord.tone}${movementDraft || isBackendPendingMove || isMoveSubmitting ? " is-moving" : ""}`}
               type="button"
               style={{ left: `${armyMarkerPoint.x}%`, top: `${armyMarkerPoint.y}%` }}
-              onClick={() => setSelectedSocketId(movementDraft?.targetSocketId ?? armySocketId)}
-              onFocus={() => setHoveredSocketId(movementDraft?.targetSocketId ?? armySocketId)}
+              onClick={() => setSelectedSocketId(armyMarkerTargetSocketId)}
+              onFocus={() => setHoveredSocketId(armyMarkerTargetSocketId)}
               onBlur={() => setHoveredSocketId(null)}
-              onMouseEnter={() => setHoveredSocketId(movementDraft?.targetSocketId ?? armySocketId)}
+              onMouseEnter={() => setHoveredSocketId(armyMarkerTargetSocketId)}
               onMouseLeave={() => setHoveredSocketId(null)}
               aria-label={`${currentLord.armyName}, ${(movingTargetSocket ?? armySocket).name}`}
             >
@@ -1896,17 +2706,64 @@ function LordMapScreen() {
                 <span className="lord-map-army-flag" />
                 <span className="lord-map-army-pole" />
               </span>
-              <span className="lord-map-army-caption">{movementDraft ? "Идет" : "Армия"}</span>
+              <span className="lord-map-army-caption">{movementDraft || isBackendPendingMove || isMoveSubmitting ? "Идет" : "Армия"}</span>
             </button>
           </motion.div>
         </section>
 
-        <aside className={`lord-map-selection ${previewTargetSocket.tone}${movementDraft ? " is-moving" : ""}`} aria-live="polite">
+        <aside className={`lord-map-selection ${previewTargetSocket.tone}${movementDraft || isBackendPendingMove ? " is-moving" : ""}`} aria-live="polite">
           <span>{selectionOwnerLabel}</span>
           <h1>{displaySocket.name}</h1>
+          <div className="lord-map-route-picker" aria-label="План похода">
+            <label>
+              <span>Старт</span>
+              <select
+                value={routeStartSocketId}
+                onChange={(event) => setRouteStartSocketId(event.target.value)}
+                disabled={isMarching}
+              >
+                {lordMapSockets.map((socket) => (
+                  <option key={socket.id} value={socket.id}>
+                    {socket.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="lord-map-route-reset"
+              type="button"
+              disabled={isMarching || routeStartSocketId === armySocketId}
+              onClick={() => setRouteStartSocketId(armySocketId)}
+            >
+              От армии
+            </button>
+            <label>
+              <span>Цель</span>
+              <select
+                value={displaySocket.id}
+                onChange={(event) => {
+                  setSelectedSocketId(event.target.value);
+                  setHoveredSocketId(null);
+                }}
+                disabled={isMarching}
+              >
+                {lordMapSockets.map((socket) => (
+                  <option key={socket.id} value={socket.id}>
+                    {socket.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <p>{displayRouteText}</p>
-          {displayRoutePreview.status === "stopped" && (
-            <small className="lord-map-route-stop-note">Цель хода: {previewTargetSocket.name}</small>
+          {contactNoteText && (
+            <small className="lord-map-route-stop-note">{contactNoteText}</small>
+          )}
+          {activeRouteNoteText && (
+            <small className="lord-map-route-current-note">{activeRouteNoteText}</small>
+          )}
+          {mapActionStatus && (
+            <small className="lord-map-route-stop-note">{mapActionStatus}</small>
           )}
           {displayPathIds.length > 1 && (
             <small className="lord-map-route-chain">{displayPathLabel}</small>
@@ -1914,11 +2771,34 @@ function LordMapScreen() {
           <button
             className="lord-map-route-action"
             type="button"
-            disabled={!displayRoutePreview.canMove || isMarching}
-            onClick={sendArmyToPreviewTarget}
+            disabled={!canDispatchRoute || isMarching}
+            onClick={() => {
+              void sendArmyToPreviewTarget();
+            }}
           >
             {routeActionLabel}
           </button>
+        </aside>
+        <aside className="lord-map-layer-panel" aria-label="Слои карты">
+          <span><Layers size={14} /> Слои</span>
+          <div className="lord-map-layer-toggles">
+            {lordMapLayerButtons.map((layer) => {
+              const LayerIcon = layer.icon;
+
+              return (
+                <button
+                  key={layer.id}
+                  className={`lord-map-layer-toggle${mapLayers[layer.id] ? " is-active" : ""}`}
+                  type="button"
+                  aria-pressed={mapLayers[layer.id]}
+                  onClick={() => toggleMapLayer(layer.id)}
+                >
+                  <LayerIcon size={14} />
+                  <b>{layer.label}</b>
+                </button>
+              );
+            })}
+          </div>
         </aside>
       </div>
     </main>
@@ -1944,6 +2824,9 @@ function LordHomeScreen() {
   const [selectedTerritoryId, setSelectedTerritoryId] = useState<LordHomeTerritoryId>("castle");
   const [army, setArmy] = useState<LordHomeStack[]>(lordHomeInitialArmy);
   const [garrisons, setGarrisons] = useState<Record<LordHomeTerritoryId, LordHomeStack[]>>(lordHomeInitialGarrisons);
+  const [territoryRuntime, setTerritoryRuntime] = useState<Partial<Record<LordHomeTerritoryId, LordHomeTerritoryRuntime>>>({});
+  const [domainStats, setDomainStats] = useState<LordHomeDomainStats>(lordHomeInitialDomainStats);
+  const [timerSummary, setTimerSummary] = useState<LordHomeBackendTimerSummary | null>(null);
   const [recruitStock, setRecruitStock] = useState(lordHomeInitialRecruitStock);
   const [recruitOffersByCard, setRecruitOffersByCard] = useState<Record<string, LordHomeRecruitOffer>>(lordHomeSeedRecruitOffers);
   const [recruitUnitId, setRecruitUnitId] = useState<LordHomeUnitId | null>(null);
@@ -1953,6 +2836,14 @@ function LordHomeScreen() {
   const [isRecruitHiring, setIsRecruitHiring] = useState(false);
   const [isRecruitSliderDragging, setIsRecruitSliderDragging] = useState(false);
   const [dragPayload, setDragPayload] = useState<LordHomeDragPayload>(null);
+  const dragPayloadRef = useRef<LordHomeDragPayload>(null);
+  const suppressNextStackClickUntilRef = useRef(0);
+  const pointerDragRef = useRef<{
+    payload: Exclude<LordHomeDragPayload, null>;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
   const [transferDraft, setTransferDraft] = useState<LordHomeTransferDraft>(null);
   const [transferQty, setTransferQty] = useState(1);
   const [transferStatus, setTransferStatus] = useState("");
@@ -1965,14 +2856,24 @@ function LordHomeScreen() {
   const [openPanel, setOpenPanel] = useState<LordHomePanel | null>(initialOpenPanel);
   const prefersReducedMotion = useReducedMotion();
   const selectedTerritory = lordHomeTerritories.find((territory) => territory.id === selectedTerritoryId) ?? lordHomeTerritories[0];
+  const selectedTerritoryRuntime = territoryRuntime[selectedTerritory.id];
+  const selectedHeroHere = selectedTerritoryRuntime?.heroHere ?? selectedTerritory.heroHere;
   const selectedGarrison = garrisons[selectedTerritory.id] ?? [];
+  const selectedIncomePerHour = selectedTerritoryRuntime?.incomePerHour ?? selectedTerritory.income;
+  const selectedGarrisonCapacity = selectedTerritoryRuntime?.garrisonCapacity ?? 8;
+  const selectedGarrisonSlotsUsed = selectedTerritoryRuntime?.garrisonSlotsUsed ?? selectedGarrison.length;
   const transferStack = transferDraft
     ? transferDraft.lane === "army"
       ? army[transferDraft.index]
       : selectedGarrison[transferDraft.index]
     : null;
   const transferUnit = transferStack ? lordHomeUnitCatalog[transferStack.unitId] : null;
-  const maxTransferQty = transferStack?.count ?? 0;
+  const isSplitDraft = transferDraft?.mode === "split";
+  const maxTransferQty = transferStack
+    ? isSplitDraft
+      ? Math.max(0, transferStack.count - 1)
+      : transferStack.count
+    : 0;
   const transferSliderPercent = maxTransferQty > 1
     ? ((transferQty - 1) / (maxTransferQty - 1)) * 100
     : maxTransferQty > 0 ? 100 : 0;
@@ -1980,7 +2881,7 @@ function LordHomeScreen() {
     transferDraft &&
       transferStack &&
       transferUnit &&
-      selectedTerritory.heroHere &&
+      (isSplitDraft || selectedHeroHere) &&
       transferQty >= 1 &&
       transferQty <= maxTransferQty &&
       !isTransferSubmitting
@@ -2004,13 +2905,48 @@ function LordHomeScreen() {
       !isRecruitHiring
   );
   const activeBattle = true;
-  const currentMovementPoints = 6;
+  const currentMovementPoints = Math.min(
+    lordHomeMovementFillFields.length,
+    clampLordHomeMetric(domainStats.currentMp, lordHomeInitialDomainStats.currentMp)
+  );
+  const movementPointCap = Math.min(
+    lordHomeMaxMovementPoints,
+    lordHomeMovementFillFields.length,
+    Math.max(1, clampLordHomeMetric(domainStats.mpCap, lordHomeInitialDomainStats.mpCap))
+  );
+  const actLabel = getLordHomeActLabel(timerSummary);
+  const actTimerLabel = getLordHomeTimerShortLabel(timerSummary);
+  const recruitUnitIds = lordHomeUnitOrder.filter((unitId) => {
+    const offer = recruitOffersByCard[lordHomeUnitCatalog[unitId].backendCardId];
+    return Boolean(offer && isLordHomeRecruitOfferUsable(offer.status));
+  });
+  const displayedRecruitUnitIds = Array.from({ length: 6 }, (_, index) => recruitUnitIds[index] ?? null);
 
   const applyBackendState = useCallback((state: LordHomeBackendState) => {
     const nextGold = Number(state.domain?.gold ?? state.domain?.starting_gold);
     if (Number.isFinite(nextGold)) {
       setLordGold(nextGold);
     }
+    setTimerSummary(state.timer_summary ?? null);
+    setDomainStats((current) => {
+      const nextIncome = Number(state.domain?.income_per_hour);
+      const nextRawIncome = Number(state.domain?.raw_income_per_hour);
+      const nextTerritoryIncome = Number(state.domain?.territory_income_per_hour);
+      const nextCurrentMp = Number(state.movement?.current_mp ?? state.domain?.current_mp);
+      const nextMpCap = Number(state.movement?.mp_cap ?? state.domain?.mp_cap);
+      const nextArmyCapacity = Number(state.domain?.active_army_capacity);
+      const nextArmySlotsUsed = Number(state.domain?.active_army_slots_used);
+
+      return {
+        incomePerHour: clampLordHomeMetric(nextIncome, current.incomePerHour),
+        rawIncomePerHour: clampLordHomeMetric(nextRawIncome, current.rawIncomePerHour),
+        territoryIncomePerHour: clampLordHomeMetric(nextTerritoryIncome, current.territoryIncomePerHour),
+        currentMp: clampLordHomeMetric(nextCurrentMp, current.currentMp),
+        mpCap: clampLordHomeMetric(nextMpCap, current.mpCap),
+        activeArmyCapacity: clampLordHomeMetric(nextArmyCapacity, current.activeArmyCapacity),
+        activeArmySlotsUsed: clampLordHomeMetric(nextArmySlotsUsed, current.activeArmySlotsUsed)
+      };
+    });
 
     const nextBuiltBuildingIds = getLordHomeBuiltBuildingIdsFromBackendState(state);
     if (nextBuiltBuildingIds) {
@@ -2027,25 +2963,40 @@ function LordHomeScreen() {
       ...(state.other_territories ?? [])
     ];
     if (backendTerritories.length > 0) {
-      setGarrisons(() => {
-        const nextGarrisons = lordHomeTerritories.reduce(
-          (accumulator, territory) => ({ ...accumulator, [territory.id]: [] }),
-          {} as Record<LordHomeTerritoryId, LordHomeStack[]>
-        );
+      const activeNodeId = state.movement?.current_node_id ?? state.domain?.current_node_id;
+      const nextGarrisons = lordHomeTerritories.reduce(
+        (accumulator, territory) => ({ ...accumulator, [territory.id]: [] }),
+        {} as Record<LordHomeTerritoryId, LordHomeStack[]>
+      );
+      const nextTerritoryRuntime: Partial<Record<LordHomeTerritoryId, LordHomeTerritoryRuntime>> = {};
 
-        for (const territory of backendTerritories) {
-          const localTerritoryId = territory.territory_id
-            ? lordHomeTerritoryIdByBackendId[territory.territory_id]
-            : undefined;
-          if (!localTerritoryId) {
-            continue;
-          }
-
-          nextGarrisons[localTerritoryId] = getLordHomeStacksFromBackend(territory.garrisons);
+      for (const territory of backendTerritories) {
+        const localTerritoryId = territory.territory_id
+          ? lordHomeTerritoryIdByBackendId[territory.territory_id]
+          : undefined;
+        if (!localTerritoryId) {
+          continue;
         }
 
-        return nextGarrisons;
-      });
+        const localTerritory = lordHomeTerritories.find((item) => item.id === localTerritoryId);
+        const stacks = getLordHomeStacksFromBackend(territory.garrisons);
+        const incomePerHour = Number(territory.income_per_hour);
+        const garrisonCapacity = Number(territory.fort?.garrison_capacity);
+        const garrisonSlotsUsed = Number(territory.fort?.garrison_slots_used);
+        const hasActiveNodeId = typeof activeNodeId === "string" && activeNodeId.length > 0;
+
+        nextGarrisons[localTerritoryId] = stacks;
+        nextTerritoryRuntime[localTerritoryId] = {
+          incomePerHour: clampLordHomeMetric(incomePerHour, localTerritory?.income ?? 0),
+          heroHere: hasActiveNodeId ? activeNodeId === territory.node_id : Boolean(localTerritory?.heroHere),
+          status: territory.status ?? "controlled",
+          garrisonCapacity: clampLordHomeMetric(garrisonCapacity, Math.max(8, stacks.length)),
+          garrisonSlotsUsed: clampLordHomeMetric(garrisonSlotsUsed, stacks.length)
+        };
+      }
+
+      setGarrisons(nextGarrisons);
+      setTerritoryRuntime(nextTerritoryRuntime);
     }
 
     const nextOffers: Record<string, LordHomeRecruitOffer> = {};
@@ -2239,26 +3190,307 @@ function LordHomeScreen() {
     if (!stack) {
       return;
     }
-    if (!selectedTerritory.heroHere) {
+    if (!selectedHeroHere) {
       setTransferStatus("Герой в другой локации");
       return;
     }
 
     setRecruitUnitId(null);
-    setTransferDraft({ lane, index });
+    setTransferDraft({ lane, index, mode: "transfer" });
     setTransferQty(clampRecruitQty(1, stack.count));
     setTransferStatus("");
   };
 
-  const handleStackDrop = (toLane: "army" | "garrison") => {
-    if (!dragPayload) {
+  const setCurrentDragPayload = (payload: LordHomeDragPayload) => {
+    dragPayloadRef.current = payload;
+    setDragPayload(payload);
+  };
+
+  const startPointerStackDrag = (
+    payload: Exclude<LordHomeDragPayload, null>,
+    point: { x: number; y: number }
+  ) => {
+    pointerDragRef.current = {
+      payload,
+      startX: point.x,
+      startY: point.y,
+      moved: false
+    };
+    setCurrentDragPayload(payload);
+  };
+
+  const updatePointerStackDrag = (point: { x: number; y: number }) => {
+    const pointerDrag = pointerDragRef.current;
+    if (!pointerDrag || pointerDrag.moved) {
       return;
     }
 
-    if (dragPayload.lane !== toLane) {
-      openStackTransfer(dragPayload.lane, dragPayload.index);
+    pointerDrag.moved = Math.hypot(point.x - pointerDrag.startX, point.y - pointerDrag.startY) > 10;
+  };
+
+  const getPointerStackDropTarget = (
+    point: { x: number; y: number }
+  ): { lane: "army" | "garrison"; index?: number } | null => {
+    const pointElement = document.elementFromPoint(point.x, point.y);
+    const laneElement = pointElement?.closest<HTMLElement>(".lord-home-lane");
+    const toLane = laneElement?.dataset.lane === "army" || laneElement?.dataset.lane === "garrison"
+      ? laneElement.dataset.lane
+      : undefined;
+    if (!laneElement || !toLane || (toLane === "army" && !selectedHeroHere)) {
+      return null;
     }
-    setDragPayload(null);
+
+    const directSlot = pointElement?.closest<HTMLButtonElement>(".lord-home-unit-slot");
+    if (
+      directSlot &&
+      laneElement.contains(directSlot) &&
+      directSlot.classList.contains("is-filled") &&
+      !directSlot.disabled
+    ) {
+      const index = Number(directSlot.dataset.slotIndex);
+      return Number.isFinite(index) ? { lane: toLane, index } : { lane: toLane };
+    }
+
+    const filledSlots = Array.from(
+      laneElement.querySelectorAll<HTMLButtonElement>(".lord-home-unit-slot.is-filled:not(:disabled)")
+    );
+    let bestTarget: { index: number; distance: number } | null = null;
+    for (const slot of filledSlots) {
+      const rect = slot.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const deltaX = Math.abs(point.x - centerX);
+      const deltaY = Math.abs(point.y - centerY);
+      const horizontalRadius = Math.max(36, rect.width * 0.8);
+      const verticalRadius = Math.max(34, rect.height * 0.7);
+      if (deltaX > horizontalRadius || deltaY > verticalRadius) {
+        continue;
+      }
+
+      const index = Number(slot.dataset.slotIndex);
+      if (!Number.isFinite(index)) {
+        continue;
+      }
+
+      const distance = Math.hypot(deltaX, deltaY);
+      if (!bestTarget || distance < bestTarget.distance) {
+        bestTarget = { index, distance };
+      }
+    }
+
+    return typeof bestTarget?.index === "number"
+      ? { lane: toLane, index: bestTarget.index }
+      : { lane: toLane };
+  };
+
+  const finishPointerStackDrop = (
+    point: { x: number; y: number }
+  ) => {
+    const pointerDrag = pointerDragRef.current;
+    if (!pointerDrag) {
+      return false;
+    }
+
+    updatePointerStackDrag(point);
+    pointerDragRef.current = null;
+    if (!pointerDrag.moved) {
+      setCurrentDragPayload(null);
+      return false;
+    }
+    suppressNextStackClickUntilRef.current = Date.now() + 350;
+
+    const target = getPointerStackDropTarget(point);
+    if (!target) {
+      setCurrentDragPayload(null);
+      return true;
+    }
+
+    const isSameSlot = pointerDrag.payload.lane === target.lane && pointerDrag.payload.index === target.index;
+    if (isSameSlot) {
+      setCurrentDragPayload(null);
+      return true;
+    }
+
+    handleStackDrop(target.lane, target.index);
+    return true;
+  };
+
+  const openStackSplit = (lane: "army" | "garrison", index: number) => {
+    const stack = lane === "army" ? army[index] : selectedGarrison[index];
+    if (!stack) {
+      return;
+    }
+    if (lane === "army" && !selectedHeroHere) {
+      setTransferStatus("Герой в другой локации");
+      return;
+    }
+
+    setRecruitUnitId(null);
+    setTransferDraft({ lane, index, mode: "split" });
+    setTransferQty(clampRecruitQty(1, Math.max(0, stack.count - 1)));
+    setTransferStatus(stack.count <= 1 ? "Эту пачку нельзя разделить" : "");
+  };
+
+  const mergeStacksLocally = (lane: "army" | "garrison", sourceIndex: number, targetIndex: number) => {
+    if (lane === "army") {
+      setArmy((current) => mergeLordHomeStackList(current, sourceIndex, targetIndex));
+      return;
+    }
+
+    setGarrisons((current) => ({
+      ...current,
+      [selectedTerritory.id]: mergeLordHomeStackList(current[selectedTerritory.id] ?? [], sourceIndex, targetIndex)
+    }));
+  };
+
+  const mergeStackDropLocally = (
+    from: Exclude<LordHomeDragPayload, null>,
+    to: { lane: "army" | "garrison"; index: number },
+    sourceStack: LordHomeStack
+  ) => {
+    if (from.lane === to.lane) {
+      mergeStacksLocally(from.lane, from.index, to.index);
+      return;
+    }
+
+    if (from.lane === "army") {
+      setArmy((current) => {
+        const next = current.map((stack) => ({ ...stack }));
+        next.splice(from.index, 1);
+        return next;
+      });
+      setGarrisons((current) => {
+        const stacks = current[selectedTerritory.id] ?? [];
+        const targetStack = stacks[to.index];
+        if (!targetStack || targetStack.unitId !== sourceStack.unitId) {
+          return current;
+        }
+        const next = stacks.map((stack) => ({ ...stack }));
+        next[to.index] = {
+          ...targetStack,
+          count: targetStack.count + sourceStack.count
+        };
+        return { ...current, [selectedTerritory.id]: next };
+      });
+      return;
+    }
+
+    setGarrisons((current) => {
+      const stacks = current[selectedTerritory.id] ?? [];
+      const next = stacks.map((stack) => ({ ...stack }));
+      next.splice(from.index, 1);
+      return { ...current, [selectedTerritory.id]: next };
+    });
+    setArmy((current) => {
+      const targetStack = current[to.index];
+      if (!targetStack || targetStack.unitId !== sourceStack.unitId) {
+        return current;
+      }
+      const next = current.map((stack) => ({ ...stack }));
+      next[to.index] = {
+        ...targetStack,
+        count: targetStack.count + sourceStack.count
+      };
+      return next;
+    });
+  };
+
+  const submitStackMerge = async (
+    from: Exclude<LordHomeDragPayload, null>,
+    to: { lane: "army" | "garrison"; index: number }
+  ) => {
+    const sourceStack = from.lane === "army" ? army[from.index] : selectedGarrison[from.index];
+    const targetStack = to.lane === "army" ? army[to.index] : selectedGarrison[to.index];
+    if (!sourceStack || !targetStack || isTransferSubmitting) {
+      return;
+    }
+    const isSameLane = from.lane === to.lane;
+    if (isSameLane && from.index === to.index) {
+      setCurrentDragPayload(null);
+      return;
+    }
+    if (sourceStack.unitId !== targetStack.unitId) {
+      setTransferStatus("Складывать можно только одинаковые пачки");
+      setCurrentDragPayload(null);
+      return;
+    }
+
+    const unit = lordHomeUnitCatalog[sourceStack.unitId];
+    setRecruitUnitId(null);
+    setTransferDraft(null);
+
+    if (!sourceStack.stackId || !targetStack.stackId) {
+      mergeStackDropLocally(from, to, sourceStack);
+      setTransferStatus(`${unit.name}: пачки объединены`);
+      setCurrentDragPayload(null);
+      return;
+    }
+
+    setIsTransferSubmitting(true);
+    setTransferStatus("Отправляю приказ");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/lords/${encodeURIComponent(backendLordId)}/garrisons/transfer`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Role-Token": backendRoleToken
+        },
+        body: JSON.stringify({
+          operation: isSameLane
+            ? from.lane === "army"
+              ? "merge_active"
+              : "merge_garrison"
+            : from.lane === "army"
+              ? "active_to_fort"
+              : "fort_to_active",
+          territory_id: selectedTerritory.backendTerritoryId,
+          card_id: unit.backendCardId,
+          stack_id: sourceStack.stackId,
+          target_stack_id: targetStack.stackId,
+          count: isSameLane ? 1 : sourceStack.count,
+          source: "lord_home_stack_merge"
+        })
+      });
+      const payload = (await response.json().catch(() => ({}))) as unknown;
+      if (!response.ok) {
+        throw new Error(getLordHomeApiErrorMessage(payload, "Объединение не выполнено"));
+      }
+
+      const stateResponse = await fetch(`${apiBaseUrl}/api/lords/${encodeURIComponent(backendLordId)}/state`, {
+        headers: { "X-Role-Token": backendRoleToken }
+      });
+      const state = (await stateResponse.json().catch(() => ({}))) as LordHomeBackendState;
+      if (!stateResponse.ok) {
+        setTransferStatus(`${unit.name}: приказ принят, обновите экран`);
+        return;
+      }
+
+      applyBackendState(state);
+      setTransferStatus(`${unit.name}: пачки объединены`);
+    } catch (error) {
+      setTransferStatus(error instanceof Error ? error.message : "Объединение не выполнено");
+    } finally {
+      setIsTransferSubmitting(false);
+      setCurrentDragPayload(null);
+    }
+  };
+
+  const handleStackDrop = (toLane: "army" | "garrison", targetIndex?: number) => {
+    pointerDragRef.current = null;
+    const droppedPayload = dragPayloadRef.current ?? dragPayload;
+    if (!droppedPayload) {
+      return;
+    }
+
+    if (typeof targetIndex === "number") {
+      void submitStackMerge(droppedPayload, { lane: toLane, index: targetIndex });
+      return;
+    }
+
+    if (droppedPayload.lane !== toLane) {
+      openStackTransfer(droppedPayload.lane, droppedPayload.index);
+    }
+    setCurrentDragPayload(null);
   };
 
   const submitStackTransfer = async () => {
@@ -2266,8 +3498,17 @@ function LordHomeScreen() {
       return;
     }
     const targetTerritoryId = selectedTerritory.backendTerritoryId;
-    const operation = transferDraft.lane === "army" ? "active_to_fort" : "fort_to_active";
+    const operation = transferDraft.mode === "split"
+      ? transferDraft.lane === "army"
+        ? "split_active"
+        : "split_garrison"
+      : transferDraft.lane === "army"
+        ? "active_to_fort"
+        : "fort_to_active";
     const count = clampRecruitQty(transferQty, transferStack.count);
+    const clampedCount = transferDraft.mode === "split"
+      ? clampRecruitQty(transferQty, Math.max(0, transferStack.count - 1))
+      : count;
 
     setIsTransferSubmitting(true);
     setTransferStatus("Отправляю приказ");
@@ -2282,7 +3523,8 @@ function LordHomeScreen() {
           operation,
           territory_id: targetTerritoryId,
           card_id: transferUnit.backendCardId,
-          count,
+          stack_id: transferStack.stackId,
+          count: clampedCount,
           source: "lord_home_stack_transfer"
         })
       });
@@ -2296,12 +3538,14 @@ function LordHomeScreen() {
       });
       const state = (await stateResponse.json().catch(() => ({}))) as LordHomeBackendState;
       if (!stateResponse.ok) {
-        setTransferStatus(`${transferUnit.name}: перенесено ${count}, обновите экран`);
+        setTransferStatus(`${transferUnit.name}: приказ принят, обновите экран`);
         return;
       }
 
       applyBackendState(state);
-      setTransferStatus(`${transferUnit.name}: перенесено ${count}`);
+      setTransferStatus(transferDraft.mode === "split"
+        ? `${transferUnit.name}: пачка разделена`
+        : `${transferUnit.name}: перенесено ${clampedCount}`);
       setTransferDraft(null);
     } catch (error) {
       setTransferStatus(error instanceof Error ? error.message : "Перенос не выполнен");
@@ -2455,7 +3699,7 @@ function LordHomeScreen() {
 
         <header className="lord-home-top-strip">
           <div className="lord-home-resource-row">
-            <div className="lord-home-resource gold"><Coins size={14} /><b>{lordGold}</b><span>(+3040/час)</span></div>
+            <div className="lord-home-resource gold"><Coins size={14} /><b>{lordGold}</b><span>(+{domainStats.incomePerHour}/час)</span></div>
             <div className="lord-home-resource wood"><Archive size={14} /><b>17</b></div>
             <div className="lord-home-resource violet"><Gem size={14} /><b>63</b></div>
             <div className="lord-home-resource blue"><Sparkles size={14} /><b>42</b></div>
@@ -2506,31 +3750,55 @@ function LordHomeScreen() {
 
             <section className="lord-home-bottom-panel" aria-label="Армия, гарнизон и найм">
               <div className="lord-home-location-title">{selectedTerritory.name}</div>
-              <div className="lord-home-local-income">Доход территории: +{selectedTerritory.income}/час</div>
+              <div className="lord-home-local-income">
+                +{selectedIncomePerHour}/час · Г {selectedGarrisonSlotsUsed}/{selectedGarrisonCapacity} · А {domainStats.activeArmySlotsUsed}/{domainStats.activeArmyCapacity}
+              </div>
 
               <LordHomeLane
                 lane="army"
                 label="Армия"
-                stacks={selectedTerritory.heroHere ? army : []}
-                locked={!selectedTerritory.heroHere}
-                onStackClick={(index) => openStackTransfer("army", index)}
-                onDragStart={(payload) => setDragPayload(payload)}
+                stacks={selectedHeroHere ? army : []}
+                locked={!selectedHeroHere}
+                onStackClick={(index) => openStackSplit("army", index)}
+                activeDragPayload={dragPayload}
                 onDrop={() => handleStackDrop("army")}
+                onPointerStart={(payload, point) => startPointerStackDrag(payload, point)}
+                onPointerMove={(point) => updatePointerStackDrag(point)}
+                onPointerDrop={(point) => finishPointerStackDrop(point)}
+                onSuppressStackClick={() => {
+                  if (Date.now() > suppressNextStackClickUntilRef.current) {
+                    suppressNextStackClickUntilRef.current = 0;
+                    return false;
+                  }
+                  suppressNextStackClickUntilRef.current = 0;
+                  return true;
+                }}
               />
               <LordHomeLane
                 lane="garrison"
                 label="Гарнизон"
                 stacks={selectedGarrison}
                 locked={false}
-                onStackClick={(index) => openStackTransfer("garrison", index)}
-                onDragStart={(payload) => setDragPayload(payload)}
+                onStackClick={(index) => openStackSplit("garrison", index)}
+                activeDragPayload={dragPayload}
                 onDrop={() => handleStackDrop("garrison")}
+                onPointerStart={(payload, point) => startPointerStackDrag(payload, point)}
+                onPointerMove={(point) => updatePointerStackDrag(point)}
+                onPointerDrop={(point) => finishPointerStackDrop(point)}
+                onSuppressStackClick={() => {
+                  if (Date.now() > suppressNextStackClickUntilRef.current) {
+                    suppressNextStackClickUntilRef.current = 0;
+                    return false;
+                  }
+                  suppressNextStackClickUntilRef.current = 0;
+                  return true;
+                }}
               />
 
-              {!selectedTerritory.heroHere ? <div className="lord-home-army-lock">Герой в другой локации</div> : null}
+              {!selectedHeroHere ? <div className="lord-home-army-lock">Герой в другой локации</div> : null}
 
               <div className="lord-home-recruit-grid">
-                {selectedTerritory.recruitIds.map((unitId, index) => {
+                {displayedRecruitUnitIds.map((unitId, index) => {
                   if (!unitId) {
                     return <div key={`empty-${index}`} className="lord-home-recruit-card is-empty" />;
                   }
@@ -2575,7 +3843,7 @@ function LordHomeScreen() {
 
         <section
           className="lord-home-act-widget"
-          aria-label={`Акт II, 42 минуты до следующего акта, передвижений ${currentMovementPoints} из ${lordHomeMaxMovementPoints}`}
+          aria-label={`${actLabel}, ${actTimerLabel} до следующего тика, передвижений ${currentMovementPoints} из ${movementPointCap}`}
         >
           <div className="lord-home-mp-rect-layer" aria-hidden="true">
             {lordHomeMovementFillFields.map((src, index) =>
@@ -2586,8 +3854,8 @@ function LordHomeScreen() {
           </div>
           <img className="lord-home-mp-widget-frame" src={lordHomeMpWidgetFrame} alt="" draggable={false} />
           <div className="lord-home-act-caption">
-            <b>Акт II</b>
-            <span>42 мин.</span>
+            <b>{actLabel}</b>
+            <span>{actTimerLabel}</span>
           </div>
         </section>
 
@@ -2715,7 +3983,7 @@ function LordHomeScreen() {
                   <img src={transferUnit.icon} alt="" draggable={false} />
                 </div>
                 <div className="lord-home-recruit-info">
-                  <span>{transferDraft.lane === "army" ? "В гарнизон" : "В армию"}</span>
+                  <span>{transferDraft.mode === "split" ? "Разделить пачку" : transferDraft.lane === "army" ? "В гарнизон" : "В армию"}</span>
                   <h2>{transferUnit.name}</h2>
                   <div className="lord-home-unit-stats">
                     <b><span>АТК</span>{transferUnit.attack}</b>
@@ -2765,16 +4033,16 @@ function LordHomeScreen() {
                   </div>
                 </div>
                 <div className="lord-home-recruit-cost">
-                  <span>Направление</span>
-                  <b>{transferDraft.lane === "army" ? "В гарнизон" : "В армию"}</b>
+                  <span>{transferDraft.mode === "split" ? "Новая пачка" : "Направление"}</span>
+                  <b>{transferDraft.mode === "split" ? "В той же линии" : transferDraft.lane === "army" ? "В гарнизон" : "В армию"}</b>
                   <small>В пачке: {transferStack.count}</small>
                   <small>{selectedTerritory.name}</small>
                 </div>
                 <div className="lord-home-recruit-status">
-                  {transferStatus || (selectedTerritory.heroHere ? "Выберите часть пачки" : "Герой в другой локации")}
+                  {transferStatus || (transferDraft.mode === "split" ? "Выберите размер новой пачки" : selectedHeroHere ? "Выберите часть пачки" : "Герой в другой локации")}
                 </div>
                 <button className="lord-home-hire-button" type="button" onClick={submitStackTransfer} disabled={!transferCanSubmit}>
-                  {isTransferSubmitting ? "Переношу" : "Перенести"}
+                  {isTransferSubmitting ? "Отправляю" : transferDraft.mode === "split" ? "Разделить" : "Перенести"}
                 </button>
               </motion.section>
             </motion.div>
@@ -3000,39 +4268,99 @@ function LordHomeLane({
   stacks,
   locked,
   onStackClick,
-  onDragStart,
-  onDrop
+  activeDragPayload,
+  onDrop,
+  onPointerStart,
+  onPointerMove,
+  onPointerDrop,
+  onSuppressStackClick
 }: {
   lane: "army" | "garrison";
   label: string;
   stacks: LordHomeStack[];
   locked: boolean;
   onStackClick: (index: number) => void;
-  onDragStart: (payload: LordHomeDragPayload) => void;
-  onDrop: () => void;
+  activeDragPayload: LordHomeDragPayload;
+  onDrop: (targetIndex?: number) => void;
+  onPointerStart: (payload: Exclude<LordHomeDragPayload, null>, point: { x: number; y: number }) => void;
+  onPointerMove: (point: { x: number; y: number }) => void;
+  onPointerDrop: (point: { x: number; y: number }) => boolean;
+  onSuppressStackClick: () => boolean;
 }) {
   return (
     <div
+      data-lane={lane}
       className={`lord-home-lane ${lane}${locked ? " is-locked" : ""}`}
-      onDragOver={(event) => {
-        event.preventDefault();
+      onPointerUp={(event) => {
+        const handled = onPointerDrop({ x: event.clientX, y: event.clientY });
+        if (handled) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+
+        onDrop();
       }}
-      onDrop={onDrop}
     >
       <span className="lord-home-lane-label">{label}</span>
       {Array.from({ length: 8 }).map((_, index) => {
         const stack = stacks[index];
+        const isDragSource = activeDragPayload?.lane === lane && activeDragPayload.index === index;
 
         return (
           <button
             key={`${lane}-${index}`}
-            className={`lord-home-unit-slot${stack ? " is-filled" : ""}`}
+            className={`lord-home-unit-slot${stack ? " is-filled" : ""}${isDragSource ? " is-drag-source" : ""}`}
             type="button"
+            data-slot-index={index}
             disabled={!stack || locked}
-            draggable={Boolean(stack && !locked)}
-            onDragStart={() => onDragStart({ lane, index })}
-            onDragEnd={() => onDragStart(null)}
-            onClick={() => stack && onStackClick(index)}
+            draggable={false}
+            onPointerDown={(event) => {
+              if (!stack || locked || event.button !== 0) {
+                return;
+              }
+
+              event.currentTarget.setPointerCapture(event.pointerId);
+              onPointerStart({ lane, index }, { x: event.clientX, y: event.clientY });
+            }}
+            onPointerMove={(event) => {
+              if (!stack || locked) {
+                return;
+              }
+
+              onPointerMove({ x: event.clientX, y: event.clientY });
+            }}
+            onPointerUp={(event) => {
+              if (!stack || locked) {
+                return;
+              }
+
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+
+              const handled = onPointerDrop({ x: event.clientX, y: event.clientY });
+              if (handled) {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+            }}
+            onPointerCancel={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+              onPointerDrop({ x: event.clientX, y: event.clientY });
+            }}
+            onClick={(event) => {
+              if (onSuppressStackClick()) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
+              if (stack) {
+                onStackClick(index);
+              }
+            }}
             aria-label={stack ? `${lordHomeUnitCatalog[stack.unitId].name}: ${stack.count}` : "Пустой слот"}
           >
             {stack ? (

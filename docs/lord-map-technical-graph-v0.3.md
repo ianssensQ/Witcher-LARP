@@ -93,6 +93,15 @@ v4/v5-артефакты сохранены как предыдущие comparis
 
 Эти координаты являются текущей опорой для следующей генерации PNG-карты.
 
+### Convenience route pass
+
+После визуальной проверки v6 добавлены три явных соседних перехода для более
+удобного обхода карты без новых узлов и без прохода через центральный дом:
+
+- `node_mountain_north_alpine -> node_lake_mist` за 2 MP;
+- `node_mountain_west_alpine -> node_spanish_magic` за 1 MP;
+- `node_forest_dark -> node_field_oats` за 2 MP.
+
 ## Стартовые ветки лордов
 
 | Лорд / домен | Старт | Первый слабый выход | Второй выход | Ближайшие конфликты |
@@ -121,14 +130,17 @@ v4/v5-артефакты сохранены как предыдущие comparis
 | `edge_north_field` | `node_res_north` | `node_field_oats` | 1 |
 | `edge_north_fort_east` | `node_res_north` | `node_fort_east` | 2 |
 | `edge_fort_east_mountain_north` | `node_fort_east` | `node_mountain_north_alpine` | 2 |
+| `edge_mountain_north_lake` | `node_mountain_north_alpine` | `node_lake_mist` | 2 |
 | `edge_fort_west_field_north` | `node_fort_west` | `node_field_oats` | 1 |
 | `edge_fort_west_field_west` | `node_fort_west` | `node_field_west_large` | 1 |
 | `edge_fort_west_fort_east` | `node_fort_west` | `node_fort_east` | 2 |
 | `edge_field_west_forest_dark` | `node_field_west_large` | `node_forest_dark` | 2 |
+| `edge_forest_dark_field_oats` | `node_forest_dark` | `node_field_oats` | 2 |
 | `edge_swamp_forest_west` | `node_swamp_black` | `node_forest_dark` | 2 |
 | `edge_swamp_fort_southwest` | `node_swamp_black` | `node_fort_southwest` | 2 |
 | `edge_forest_fort_southwest` | `node_res_forest` | `node_fort_southwest` | 1 |
 | `edge_fort_southwest_mountain_west` | `node_fort_southwest` | `node_mountain_west_alpine` | 2 |
+| `edge_mountain_west_magic` | `node_mountain_west_alpine` | `node_spanish_magic` | 1 |
 | `edge_forest_village` | `node_res_forest` | `node_village_barn` | 1 |
 | `edge_village_magic` | `node_village_barn` | `node_spanish_magic` | 2 |
 | `edge_village_mountain_gray` | `node_village_barn` | `node_mountain_gray` | 2 |
@@ -153,24 +165,24 @@ v4/v5-артефакты сохранены как предыдущие comparis
 | Речная резиденция | 2 | Колодезный торг, Восточная слобода |
 | Лесная резиденция | 2 | Сенной посад, Южная крепь |
 | Холмовая резиденция | 2 | Правые пашни, Серый дозор |
-| Северные овсы | 2 | Северная резиденция, Западный острог |
+| Северные овсы | 3 | Северная резиденция, Западный острог, Травничья роща |
 | Северная застава | 4 | Северная резиденция, Западный острог, Северный кряж, Колодезный торг |
-| Северный кряж | 1 | Северная застава |
+| Северный кряж | 2 | Северная застава, Зеркальный пруд |
 | Западный острог | 3 | Северные овсы, Северная застава, Левобережные пашни |
 | Левобережные пашни | 2 | Западный острог, Травничья роща |
 | Черная топь | 2 | Травничья роща, Южная крепь |
-| Травничья роща | 2 | Левобережные пашни, Черная топь |
+| Травничья роща | 3 | Левобережные пашни, Черная топь, Северные овсы |
 | Южная крепь | 3 | Лесная резиденция, Черная топь, Волчий утес |
-| Волчий утес | 1 | Южная крепь |
+| Волчий утес | 2 | Южная крепь, Чародейский угол |
 | Сенной посад | 3 | Лесная резиденция, Чародейский угол, Серый дозор |
-| Чародейский угол | 2 | Сенной посад, Двухъярусная мануфактура |
+| Чародейский угол | 3 | Сенной посад, Волчий утес, Двухъярусная мануфактура |
 | Двухъярусная мануфактура | 3 | Чародейский угол, Правые пашни, Нижний сад |
 | Нижний сад | 2 | Двухъярусная мануфактура, Лунная заводь |
 | Лунная заводь | 1 | Нижний сад |
 | Серый дозор | 2 | Холмовая резиденция, Сенной посад |
 | Колодезный торг | 3 | Северная застава, Восточная слобода, Речная резиденция |
 | Восточная слобода | 3 | Речная резиденция, Колодезный торг, Зеркальный пруд |
-| Зеркальный пруд | 2 | Восточная слобода, Правые пашни |
+| Зеркальный пруд | 3 | Восточная слобода, Северный кряж, Правые пашни |
 | Правые пашни | 3 | Холмовая резиденция, Зеркальный пруд, Двухъярусная мануфактура |
 
 ## Residence bypass audit

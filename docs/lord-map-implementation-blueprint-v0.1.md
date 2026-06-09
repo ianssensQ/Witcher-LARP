@@ -44,7 +44,7 @@ AI/OpenRouter генерирует только roadless-base без дорог,
 - `data/seed/movement_rules.csv` уже совпадает с новым правилом: MP cap `6`, refill `+3/hour`.
 - `data/seed/map_nodes.csv`, `map_edges.csv`, `territories.csv` отражают принятую карту: 4 raid-only резиденции в центральном доме, 19 capturable territories, 2 excluded зоны и принятый weighted route graph.
 - `data/seed/territory_forts.csv` существует, зарегистрирован в `backend/witcher_larp/content_schema.py`, а seed validation проверяет, что у каждой capturable territory ровно один fort row и garrison capacity соответствует tier default.
-- `backend/witcher_larp/web/lord/assets/lord_map_layout.json` существует как technical layout: canvas 2400x1500, 25 node anchors, hit-zones, 35 edge polylines, central house rect, minimap transform и visibility policy.
+- `backend/witcher_larp/web/lord/assets/lord_map_layout.json` существует как technical layout: canvas 2400x1500, 25 node anchors, hit-zones, 29 edge polylines, central house rect, minimap transform и visibility policy.
 - `pending_lord_moves` и `lord_map_intel` еще не существуют в `backend/witcher_larp/runtime_schema.py`.
 - `backend/witcher_larp/lord_runtime.py::move_lord` сейчас делает синхронное перемещение: валидирует route по `map_edges`, списывает MP, сразу обновляет `domain_runtime_state.current_node_id` и `active_army_runtime.location_node_id`, затем создает claim при необходимости.
 - `backend/witcher_larp/lord_panel.py::build_lord_state` отдает лорду `domain`, `movement`, территории, `active_army`, `map_nodes`, `map_edges`, `lord_map_layout` и action surfaces, но еще не отдает enemy intel read model и active `pending_move`.
@@ -75,6 +75,10 @@ AI/OpenRouter генерирует только roadless-base без дорог,
 - центральный дом не является capturable territory; optional route waypoint у дома не имеет владельца, гарнизона, дохода, боя и отдельного UI-таргета;
 - route validator не должен проводить лошадь сквозь нейтральную, чужую или contested территорию без остановки.
 
+v6 convenience pass добавляет три ребра без новых территорий: `node_mountain_north_alpine -> node_lake_mist`
+за 2 MP, `node_mountain_west_alpine -> node_spanish_magic` за 1 MP и
+`node_forest_dark -> node_field_oats` за 2 MP.
+
 `territory_forts.csv` нужен как отдельный seed-слой для UI и геймплея гарнизонов:
 
 ```csv
@@ -97,7 +101,7 @@ backend/witcher_larp/web/lord/assets/lord_map_layout.json
 - `central_house` как неприступная область с резиденциями графов;
 - `nodes` для всех 25 seed nodes: residences, 19 capturable territories и 2 excluded silhouettes;
 - `hit_zone` для каждого node;
-- `edges` для всех 35 seed edges, где первая и последняя точки совпадают с anchors соответствующих seed nodes;
+- `edges` для всех 29 seed edges, где первая и последняя точки совпадают с anchors соответствующих seed nodes;
 - `visibility`, где весь graph видим, а чужая армия/гарнизон скрываются до intel;
 - `minimap` source transform.
 

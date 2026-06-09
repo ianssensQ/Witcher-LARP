@@ -3545,6 +3545,8 @@ button:focus-visible {
     border-radius: 4px;
     background: transparent;
     box-shadow: none;
+    touch-action: none;
+    user-select: none;
   }
 
   .lord-home-unit-slot:disabled {
@@ -3554,6 +3556,17 @@ button:focus-visible {
   .lord-home-unit-slot.is-filled:hover {
     transform: translateY(-2px);
     filter: brightness(1.12) drop-shadow(0 0 10px rgba(104, 205, 255, .3));
+  }
+
+  .lord-home-unit-slot.is-drag-source {
+    cursor: grabbing;
+    transform: translateY(-4px) scale(1.06);
+    filter: brightness(1.22) drop-shadow(0 0 18px rgba(114, 214, 255, .62));
+    z-index: 5;
+  }
+
+  .lord-home-unit-slot.is-drag-source img {
+    filter: brightness(1.14) contrast(1.04) saturate(1.08);
   }
 
   .lord-home-unit-slot img {
@@ -3566,6 +3579,7 @@ button:focus-visible {
     border-radius: 50%;
     background: transparent;
     filter: brightness(1.04) contrast(.96) saturate(.92);
+    pointer-events: none;
   }
 
   .lord-home-unit-slot b {
@@ -3583,6 +3597,7 @@ button:focus-visible {
     color: #fff0bd;
     font-size: .78rem;
     line-height: 1;
+    pointer-events: none;
   }
 
   .lord-home-lane.is-locked .lord-home-unit-slot {
@@ -4448,7 +4463,6 @@ button:focus-visible {
   }
 
   .lord-map-playable-image {
-    z-index: 1;
     display: block;
     object-fit: fill;
     pointer-events: none;
@@ -4456,8 +4470,77 @@ button:focus-visible {
     -webkit-user-drag: none;
   }
 
-  .lord-map-owner-layer {
+  .lord-map-playable-image.is-base-map {
+    z-index: 1;
+  }
+
+  .lord-map-playable-image.is-road-map {
     z-index: 2;
+    opacity: 0;
+    transition: opacity .18s ease;
+  }
+
+  .lord-map-playable-image.is-road-map.is-visible {
+    opacity: 1;
+  }
+
+  .lord-map-route-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+    filter: drop-shadow(0 0 8px rgba(255, 224, 128, .48));
+  }
+
+  .lord-map-route-plan-shadow,
+  .lord-map-route-plan,
+  .lord-map-route-highlight-shadow,
+  .lord-map-route-highlight {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .lord-map-route-plan-shadow {
+    stroke: rgba(10, 7, 5, .62);
+    stroke-width: 13;
+  }
+
+  .lord-map-route-plan {
+    stroke: rgba(184, 201, 199, .62);
+    stroke-width: 5;
+    stroke-dasharray: 18 18;
+  }
+
+  .lord-map-route-highlight-shadow {
+    stroke: rgba(12, 7, 4, .82);
+    stroke-width: 19;
+  }
+
+  .lord-map-route-highlight {
+    stroke: rgba(255, 232, 142, .95);
+    stroke-width: 9;
+    stroke-dasharray: 22 18;
+    animation: lord-map-route-flow 1.1s linear infinite;
+  }
+
+  .lord-map-owner-layer {
+    z-index: 4;
+  }
+
+  .lord-map-artboard.hide-territories .lord-map-owner-socket {
+    opacity: 0;
+  }
+
+  .lord-map-artboard.hide-territories .lord-map-owner-socket.is-army-node,
+  .lord-map-artboard.hide-territories .lord-map-owner-socket.is-route-start,
+  .lord-map-artboard.hide-territories .lord-map-owner-socket.is-route-step,
+  .lord-map-artboard.hide-territories .lord-map-owner-socket.is-preview-target {
+    opacity: .86;
   }
 
   .lord-map-owner-socket {
@@ -4531,6 +4614,14 @@ button:focus-visible {
       0 0 1.45vw rgba(78, 232, 128, .48);
   }
 
+  .lord-map-owner-socket.is-route-start {
+    box-shadow:
+      inset 0 0 0 max(1px, .06vw) rgba(22, 12, 7, .72),
+      0 0 0 .16vw rgba(22, 12, 7, .92),
+      0 0 0 .34vw rgba(139, 215, 255, .72),
+      0 0 1.35vw rgba(87, 190, 255, .48);
+  }
+
   .lord-map-owner-socket.is-preview-target {
     transform: translate(-50%, -50%) scale(1.08);
   }
@@ -4569,7 +4660,7 @@ button:focus-visible {
   .lord-map-cost-layer {
     position: absolute;
     inset: 0;
-    z-index: 4;
+    z-index: 6;
     pointer-events: none;
   }
 
@@ -4580,7 +4671,7 @@ button:focus-visible {
     display: grid;
     place-items: center;
     padding: 0 8px;
-    transform: translate(-50%, 58%);
+    transform: translate(-50%, -50%);
     border: 1px solid rgba(243, 214, 144, .82);
     border-radius: 999px;
     background:
@@ -4594,7 +4685,25 @@ button:focus-visible {
     box-shadow: inset 0 0 0 1px rgba(255, 247, 219, .08), 0 5px 11px rgba(0, 0, 0, .52);
   }
 
+  .lord-map-travel-cost.is-route-cost {
+    border-color: rgba(255, 238, 164, .95);
+    color: #fff8c9;
+    filter: brightness(1.14);
+  }
+
+  .lord-map-travel-cost.is-active-route-cost {
+    border-color: rgba(151, 238, 170, .95);
+    color: #e5ffd8;
+    filter: brightness(1.22);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 247, 219, .1),
+      0 0 12px rgba(107, 231, 128, .42),
+      0 5px 11px rgba(0, 0, 0, .52);
+  }
+
   .lord-map-travel-cost.is-total-cost {
+    min-width: 68px;
+    transform: translate(-50%, 118%);
     border-color: rgba(137, 217, 255, .82);
     background:
       radial-gradient(circle at 50% 0%, rgba(186, 234, 255, .24), transparent 62%),
@@ -4611,11 +4720,11 @@ button:focus-visible {
 
   .lord-map-army-marker {
     position: absolute;
-    z-index: 5;
-    width: 4.4%;
+    z-index: 7;
+    width: 3.3%;
     aspect-ratio: 1 / 1.18;
     padding: 0;
-    transform: translate(-50%, -118%);
+    transform: translate(-50%, -139%);
     cursor: pointer;
     border: 0;
     background: transparent;
@@ -4693,7 +4802,7 @@ button:focus-visible {
   .lord-map-army-caption {
     position: absolute;
     left: 50%;
-    bottom: -16%;
+    bottom: 8%;
     padding: 3px 7px;
     transform: translateX(-50%);
     border: 1px solid rgba(236, 202, 128, .62);
@@ -4722,7 +4831,7 @@ button:focus-visible {
     z-index: 9;
     right: 3.1%;
     top: 5.2%;
-    width: min(340px, 27vw);
+    width: min(410px, 31vw);
     padding: 14px 16px;
     border: 1px solid rgba(222, 184, 104, .58);
     border-radius: 6px;
@@ -4767,6 +4876,75 @@ button:focus-visible {
     line-height: 1.05;
   }
 
+  .lord-map-route-picker {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 7px;
+    align-items: end;
+    margin: 9px 0 10px;
+  }
+
+  .lord-map-route-picker label {
+    min-width: 0;
+  }
+
+  .lord-map-route-picker label > span {
+    margin-bottom: 4px;
+    color: rgba(221, 209, 175, .74);
+    font-size: .58rem;
+    letter-spacing: 0;
+  }
+
+  .lord-map-route-picker select {
+    width: 100%;
+    min-height: 30px;
+    border: 1px solid rgba(220, 184, 107, .58);
+    border-radius: 4px;
+    background: rgba(11, 16, 20, .9);
+    color: #f9e7bd;
+    font-family: inherit;
+    font-size: .72rem;
+    font-weight: 800;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 2px #000;
+  }
+
+  .lord-map-route-picker select:focus-visible,
+  .lord-map-route-reset:focus-visible {
+    outline: 2px solid rgba(255, 229, 156, .74);
+    outline-offset: 2px;
+  }
+
+  .lord-map-route-reset {
+    min-height: 30px;
+    padding: 0 8px;
+    border: 1px solid rgba(139, 204, 232, .52);
+    border-radius: 4px;
+    background: linear-gradient(180deg, rgba(28, 52, 68, .92), rgba(8, 16, 24, .95));
+    color: #d8f4ff;
+    font-family: inherit;
+    font-size: .64rem;
+    font-weight: 900;
+    line-height: 1;
+    text-shadow: 0 1px 2px #000;
+  }
+
+  .lord-map-route-reset:not(:disabled) {
+    cursor: pointer;
+  }
+
+  .lord-map-route-reset:not(:disabled):hover {
+    filter: brightness(1.12);
+  }
+
+  .lord-map-route-reset:disabled {
+    cursor: default;
+    border-color: rgba(140, 125, 95, .42);
+    color: rgba(226, 213, 184, .42);
+    background: rgba(21, 21, 19, .82);
+  }
+
   .lord-map-selection p {
     margin: 0;
     color: #ffe3a1;
@@ -4791,6 +4969,18 @@ button:focus-visible {
     font-size: .76rem;
     font-weight: 800;
     line-height: 1.25;
+    text-shadow: 0 1px 2px #000;
+  }
+
+  .lord-map-route-current-note {
+    display: block;
+    max-height: 2.7em;
+    margin-top: 7px;
+    overflow: hidden;
+    color: #d7f7ff;
+    font-size: .72rem;
+    font-weight: 800;
+    line-height: 1.35;
     text-shadow: 0 1px 2px #000;
   }
 
@@ -4828,12 +5018,99 @@ button:focus-visible {
     color: rgba(239, 221, 184, .58);
   }
 
+  .lord-map-layer-panel {
+    position: absolute;
+    z-index: 9;
+    right: 3.1%;
+    bottom: 1.7%;
+    width: min(340px, 27vw);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 10px;
+    border: 1px solid rgba(222, 184, 104, .5);
+    border-radius: 6px;
+    background: rgba(7, 12, 18, .78);
+    color: #f8ead0;
+    text-shadow: 0 1px 2px #000;
+    box-shadow: 0 16px 28px rgba(0, 0, 0, .38), inset 0 0 0 1px rgba(255, 246, 219, .06);
+  }
+
+  .lord-map-layer-panel > span {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: #f3d06d;
+    font-size: .68rem;
+    font-weight: 900;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .lord-map-layer-toggles {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 0;
+  }
+
+  .lord-map-layer-toggle {
+    min-width: 0;
+    min-height: 29px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 6px;
+    border: 1px solid rgba(144, 125, 87, .58);
+    border-radius: 4px;
+    background: rgba(20, 18, 15, .8);
+    color: rgba(239, 222, 187, .68);
+    font-family: inherit;
+    font-size: .62rem;
+    line-height: 1;
+    text-shadow: 0 1px 2px #000;
+  }
+
+  .lord-map-layer-toggle b {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lord-map-layer-toggle.is-active {
+    border-color: rgba(239, 205, 133, .82);
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255, 244, 198, .16), transparent 62%),
+      linear-gradient(180deg, rgba(68, 45, 18, .94), rgba(20, 12, 8, .94));
+    color: #fff0b8;
+  }
+
+  .lord-map-layer-toggle:hover,
+  .lord-map-layer-toggle:focus-visible {
+    outline: none;
+    filter: brightness(1.12);
+  }
+
   @keyframes lord-home-alert-pulse {
     0%, 100% {
       filter: brightness(1) drop-shadow(0 3px 3px rgba(0, 0, 0, .85));
     }
     50% {
       filter: brightness(1.26) drop-shadow(0 0 14px rgba(255, 58, 47, .74));
+    }
+  }
+
+  @keyframes lord-map-route-flow {
+    from {
+      stroke-dashoffset: 0;
+    }
+
+    to {
+      stroke-dashoffset: -40;
     }
   }
 
