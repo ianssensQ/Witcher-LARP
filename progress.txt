@@ -2457,3 +2457,20 @@ Generated files refreshed:
 - docs\kanban.md
 - docs\helpers\task-board.html
 - docs\active-tasks.md
+
+2026-06-08 17:08 +03:00 TASK-047 Claim
+-------------------------------------
+Task: TASK-047 - Реализовать mobile gameplay UI для ведьмаков и чародеек.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-046 - Реализовать полноценный lord action UI. Parallel claims are allowed; avoid overlapping files.
+- worktree: 3 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs\kanban.md
+- docs\helpers\task-board.html
+- docs\active-tasks.md

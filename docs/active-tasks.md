@@ -8,14 +8,13 @@ Use this compact view for ordinary task orientation. `tasks.json` remains the ca
 - Total tasks in graph: 88
 - Active tasks shown here: 20
 - Done tasks hidden here: 68
-- In progress: 1
+- In progress: 2
 - Blocked: 0
-- Can start now / dependency-ready pending: 2
+- Can start now / dependency-ready pending: 1
 - Pending but waiting on dependencies: 17
 - Done dependency ids referenced by active tasks: 10
 
 Ready to start now:
-- `TASK-047` - Реализовать mobile gameplay UI для ведьмаков и чародеек
 - `TASK-049` - Реализовать Admin paper recovery и correction forms
 
 Done dependency ids referenced by active tasks:
@@ -94,12 +93,9 @@ Failure/review paths: Illegal or ambiguous actions show UI errors or route to ma
 Required tests: Browser/panel contract tests, API regression tests, lord home visual audit, illustrated lord venue map audit, territory fort/transfer audit, building-tree visual audit, recruit-modal audit, lord battle board visual audit, four-panel smoke and restart persistence.
 Implemented scoped lord map hardening slice: pending movement, route guards, fort capacity, map background/pending UI; full TASK-046 remains open.
 
-
-## Dependency Ready
-
 ### TASK-047 - Реализовать mobile gameplay UI для ведьмаков и чародеек
 
-- Status: `dependency-ready`
+- Status: `in_progress`
 - Priority: `P0`
 - Category: `mobile`
 - Stage: `STAGE-2B: Playable Role UI`
@@ -163,6 +159,9 @@ Implementation path: Keep Godot authoritative only for local/offline state and e
 Interfaces: background auto-connect, player_code/snapshot, QR/manual context, event_queue sync, reward approvals, gear/bag/deck, trade/order/player-state APIs, user:// persistence, Android APK export and iOS build/free provisioning path. Sorceress mana/spell/favorite endpoints remain future-layer UI dependencies, not TASK-047 V0 blockers.
 Failure/review paths: Network failure preserves local events; rejected/review/locked states are shown and not deleted; hidden diagnostic setup can repair server URL without exposing it as player gameplay; missing Android/iOS smoke blocks TASK-047/TASK-050 rather than being deferred as launch risk; action without QR/manual physical-presence confirmation goes to review/blocked state.
 Required tests: Godot contract tests, runtime integration smoke, QR/manual location smoke for witcher and sorceress skins, restart/offline persistence, Android device smoke and iOS device smoke.
+
+
+## Dependency Ready
 
 ### TASK-049 - Реализовать Admin paper recovery и correction forms
 
@@ -228,7 +227,7 @@ _No tasks._
 - Stage: `STAGE-2B: Playable Role UI`
 - Stage gate: `False`
 - Dependencies:
-  - open: `TASK-047` (pending)
+  - open: `TASK-047` (in_progress)
   - done ids: `TASK-041`, `TASK-045`, `TASK-067`
 
 Goal:
@@ -286,7 +285,7 @@ Required tests: Browser/mobile smoke, personal Gwent table visual audit, real-su
 - Stage: `STAGE-2B: Playable Role UI`
 - Stage gate: `False`
 - Dependencies:
-  - open: `TASK-046` (in_progress), `TASK-047` (pending), `TASK-048` (pending), `TASK-049` (pending)
+  - open: `TASK-046` (in_progress), `TASK-047` (in_progress), `TASK-048` (pending), `TASK-049` (pending)
   - done ids: `TASK-067`, `TASK-074`, `TASK-087`
 
 Goal:
@@ -349,7 +348,7 @@ Required tests: Real-device smoke, visual screenshot pass, evidence file review,
 - Stage: `STAGE-2B: Playable Role UI`
 - Stage gate: `True`
 - Dependencies:
-  - open: `TASK-046` (in_progress), `TASK-047` (pending), `TASK-048` (pending), `TASK-049` (pending), `TASK-058` (pending)
+  - open: `TASK-046` (in_progress), `TASK-047` (in_progress), `TASK-048` (pending), `TASK-049` (pending), `TASK-058` (pending)
   - done ids: `TASK-067`, `TASK-074`, `TASK-087`
 
 Goal:

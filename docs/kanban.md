@@ -7,19 +7,19 @@ Use `uv run python scripts/taskctl.py claim`, `done`, `block`, `release`, or `sy
 
 - Total tasks: 88
 - Done: 68
-- In progress: 1
+- In progress: 2
 - Blocked: 0
-- Can start now / dependency-ready pending: 2
+- Can start now / dependency-ready pending: 1
 - Pending but waiting on dependencies: 17
-- Pending total: 19
+- Pending total: 18
 - Stage gates: 7
 
 Ready to start now:
-- `TASK-047` - Реализовать mobile gameplay UI для ведьмаков и чародеек
 - `TASK-049` - Реализовать Admin paper recovery и correction forms
 
 In progress now:
 - `TASK-046` - Реализовать полноценный lord action UI
+- `TASK-047` - Реализовать mobile gameplay UI для ведьмаков и чародеек
 
 Blocked / launch-risk:
 - _None._
@@ -125,12 +125,9 @@ Failure/review paths: Illegal or ambiguous actions show UI errors or route to ma
 Required tests: Browser/panel contract tests, API regression tests, lord home visual audit, illustrated lord venue map audit, territory fort/transfer audit, building-tree visual audit, recruit-modal audit, lord battle board visual audit, four-panel smoke and restart persistence.
 Implemented scoped lord map hardening slice: pending movement, route guards, fort capacity, map background/pending UI; full TASK-046 remains open.
 
-
-## Dependency Ready
-
 ### TASK-047 - Реализовать mobile gameplay UI для ведьмаков и чародеек
 
-Status: `dependency-ready`
+Status: `in_progress`
 Priority: `P0`
 Category: `mobile`
 Stage: `STAGE-2B: Playable Role UI`
@@ -193,6 +190,9 @@ Implementation path: Keep Godot authoritative only for local/offline state and e
 Interfaces: background auto-connect, player_code/snapshot, QR/manual context, event_queue sync, reward approvals, gear/bag/deck, trade/order/player-state APIs, user:// persistence, Android APK export and iOS build/free provisioning path. Sorceress mana/spell/favorite endpoints remain future-layer UI dependencies, not TASK-047 V0 blockers.
 Failure/review paths: Network failure preserves local events; rejected/review/locked states are shown and not deleted; hidden diagnostic setup can repair server URL without exposing it as player gameplay; missing Android/iOS smoke blocks TASK-047/TASK-050 rather than being deferred as launch risk; action without QR/manual physical-presence confirmation goes to review/blocked state.
 Required tests: Godot contract tests, runtime integration smoke, QR/manual location smoke for witcher and sorceress skins, restart/offline persistence, Android device smoke and iOS device smoke.
+
+
+## Dependency Ready
 
 ### TASK-049 - Реализовать Admin paper recovery и correction forms
 

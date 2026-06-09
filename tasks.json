@@ -3203,7 +3203,7 @@
       "id": "TASK-047",
       "title": "Реализовать mobile gameplay UI для ведьмаков и чародеек",
       "description": "Довести Godot mobile shell до общего игрового приложения для ведьмаков и чародеек V0: auto-connect, вход по коду, QR/PvE, offline unlock, награды, gear inventory, bag, Gwent deck, заказы, торговля, репутация, личные цели, Gwent entry и sync; чародейская магия/фавориты остаются future layer.",
-      "status": "pending",
+      "status": "in_progress",
       "priority": "P0",
       "category": "mobile",
       "stage": "STAGE-2B: Playable Role UI",
