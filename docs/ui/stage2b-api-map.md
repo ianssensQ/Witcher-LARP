@@ -50,12 +50,36 @@
 | `L5 Army Transfer` | lord state active army location, armies/reserve/garrisons | `POST /api/lords/{lord_id}/garrisons/transfer` | territory_id, card_id, count, operation, source | transfer/error, updated counts, location/battle lock reason | lord-scoped | covered for transfer; TASK-046 UI must not enable active-army row when hero is elsewhere |
 | `L6 Building Tree` | lord state building catalog/tree scoped by residence or selected territory | `POST /api/lords/{lord_id}/buildings` | building_id, optional territory_id, source | purchased/error, resources/effects, unlocked recruit/building slots | lord-scoped | covered for residence catalog; TASK-046 adds minimal territory tree binding |
 | `L7 Recruit Unit Modal` | lord state accumulated recruit stock for selected territory | `POST /api/lords/{lord_id}/recruit` | action, territory_id, card_id, quantity, source | purchased/error, updated garrison, updated stock, locked slot state | lord-scoped | partial: TASK-046 replaces offer-list UI with accumulated-stock read/write shape |
-| `L8 Raid` | lord state raid tokens/effects/targets | `POST /api/lords/{lord_id}/raids` | target_territory_id, rule_id, source | debuff/loot/error | visibility by effect rules | covered |
+| `L8 Raid` | `GET /api/lords/{lord_id}/state` fields `raid_tokens`, `raid_rules[]`, `raid_targets[]`, `active_raid_effects[]`, `raid_history[]`, plus `building_catalog`/`owned_buildings` and `resources.gold` through `domain.gold` | `POST /api/lords/{lord_id}/raids` | `target_territory_id`, `rule_id`, `expected_token_cost`, `expected_gold_cost`, `source` | `started`, `resisted`, `loot_applied`, `validation_error`, `needs_master_review`, updated `raid_tokens`, updated `gold`, `active_raid_effects[]`, `audit_event_id` | lord sees own raid rules/tokens/costs/results; foreign target details are redacted unless visibility allows; master sees full log in Admin | covered; raid is not battle and never opens the 5x6 board |
 | `L9 Orders` | lord state orders | `POST /api/lords/{lord_id}/orders` | create/cancel fields | order status, escrow/review | public/addressed/player scoped | covered for lord; player read blocker remains |
 | `L10 Lord Battle` | `/api/lord-battles*` | battle create/action endpoints | create/action payload, actor side/domain | board, turn, timer, result/review | participants/master | covered |
 | `L11 Paper Continuation` | last known lord state, printed sheets | later Admin paper recovery | paper form fields | paper recovered/review result | master recovery | covered as outage-only |
 | `L12 Tutorial / Mock Lord` | static mock data plus optional current lord labels | none | none | mock castle/territory/map/recruit/order/raid/battle states | training only | covered as non-authoritative UI |
 | `A1-A11 Admin` | master endpoints listed above | master endpoints listed above | operator/reason required for corrections/review | master read models | master-only | covered; restore rehearsal residual risk remains TASK-036 |
+
+## L8 Raid contract
+
+`L8 Raid` is a lord command-table screen, not a map, order form or battle entry.
+The read model is owned by `GET /api/lords/{lord_id}/state`:
+
+- `raid_tokens`: spendable raid resource shown separately from MP.
+- `raid_rules[]`: `rule_id`, `name`, `tier`, `category`, `description`,
+  `token_cost`, `gold_cost`, `duration_minutes`, `effect_type`,
+  `allowed_target_types`, `required_building_ids`, `visibility`, `counterplay`,
+  and `locked_reason` when unavailable.
+- `raid_targets[]`: `target_territory_id`, `name`, `owner_domain_id`, `tier`,
+  `bonus_type`, `is_residence`, `is_raid_only`, `active_effects`,
+  `raid_resistance_label`, `visibility_level`, `can_target`,
+  and `disabled_reason`.
+- `active_raid_effects[]` and `raid_history[]`: visible result/expiry records
+  for source/target domains.
+
+`POST /api/lords/{lord_id}/raids` accepts
+`{target_territory_id, rule_id, expected_token_cost, expected_gold_cost, source}`.
+Validation errors include no token, insufficient gold, locked rule, invalid
+target, duplicate active effect, final lock, wrong lord token and stale expected
+cost. The response returns the new active effect, updated token/gold totals,
+result flags and an audit event id.
 
 ## Explicit read-model blockers
 

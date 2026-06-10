@@ -1,5 +1,21 @@
 # PRD - Witcher LARP App
 
+## iOS-only mobile pivot
+
+С 2026-06-09 production mobile path меняется на iOS-only: игроки на
+мобильных ролях используют нативное SwiftUI-приложение из `ios/`. Текущий
+`mobile/` Godot-проект не удаляется и остается legacy/reference-слоем, но
+больше не является acceptance-путем для мобильного gameplay.
+
+Серверная и игровая архитектура не переписывается: локальный FastAPI + SQLite,
+CSV/snapshot/export, event sync, панели лордов и мастерская web-панель остаются
+основой. Меняется только production mobile client. Android APK/device smoke
+выведен из scope текущей production-сборки; hard mobile gate теперь требует
+реальный iPhone install/launch/local-network/player-code/snapshot/QR/manual
+fallback/restart/sync smoke.
+
+Подробный план миграции: `docs/ios-native-plan.md`.
+
 ## Product delivery path
 
 Проект реализуется через шесть жестких stage-gates, чтобы каждый слой можно было тестировать отдельно и не смешивать движок, админку, игровые UI, генерацию контента, производство квестов и баланс.

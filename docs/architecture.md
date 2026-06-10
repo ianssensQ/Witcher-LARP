@@ -1,5 +1,20 @@
 # Техническая архитектура - Witcher LARP App
 
+## iOS-only mobile pivot
+
+С 2026-06-09 production mobile client является нативным iOS-приложением
+SwiftUI под `ios/`. `mobile/` с Godot сохраняется в репозитории как
+legacy/reference и не удаляется, но больше не закрывает Stage 2B mobile
+acceptance. Android больше не входит в production scope текущей версии.
+
+Не меняются: локальный FastAPI/SQLite server, CSV import, mobile snapshot,
+event sync, browser panels for lords/masters и paper fallback. Меняется
+исполнитель мобильного клиента: вместо Godot shell используется SwiftUI,
+AVFoundation camera QR, локальное хранилище snapshot/settings/event queue и
+тот же backend API contract.
+
+Подробный план: `docs/ios-native-plan.md`.
+
 ## Stage-gate architecture
 
 Архитектура делится на восемь проверяемых этапов, которые отражены в `tasks.json` через `project.stages`, поле `stage` и отдельные gate-задачи.

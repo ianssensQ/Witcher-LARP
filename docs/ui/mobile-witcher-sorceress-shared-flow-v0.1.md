@@ -1,5 +1,13 @@
 # Mobile witcher/sorceress shared UX flow v0.1
 
+## iOS-only update
+
+С 2026-06-09 этот shared flow реализуется в нативном SwiftUI iOS client под
+`ios/`. Упоминания Godot ниже остаются historical/reference context для уже
+сделанной работы в `mobile/`, но production acceptance больше не требует Godot
+или Android. Экранная карта, state matrix и визуальные требования применяются
+к iOS app, пока они не противоречат `docs/ios-native-plan.md`.
+
 Документ фиксирует первый production-oriented мобильный флоу для ведьмаков и
 чародеек. Для первой реализации у них одинаковый gameplay: персонаж,
 offline-first snapshot, QR/manual PvE, награды, gear inventory, сумка, колода,

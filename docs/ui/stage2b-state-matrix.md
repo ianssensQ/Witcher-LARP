@@ -69,7 +69,7 @@ for the first shared mobile gameplay UI.
 | `L5 Army Transfer` | counts update | capacity/minimum/ownership/location errors | online-only | active battle lock; hero-not-here lock | only own units shown |
 | `L6 Building Tree` | purchased node/effects for selected location | missing prereq/insufficient gold | online-only buy | locked/unlocked/purchased | no hidden economy of others |
 | `L7 Recruit Unit Modal` | accumulated unit stock bought into garrison | locked slot/insufficient stock/insufficient gold | online-only | garrison spawn; empty locked recruit slots stay visible | own recruit stock only |
-| `L8 Raid` | debuff/loot/expiry visible | invalid target/no token/gold | online-only | target lock/effect expiry | hidden details by effect rules |
+| `L8 Raid` | raid rule tree, target detail, token/gold spend, debuff/loot/expiry visible | invalid target, no token, insufficient gold, locked rule, duplicate active effect | stale/offline keeps last read model read-only and disables Start raid | target ward/resistance, effect expiry, loot applied, resisted/failed, needs_master_review, final lock | hidden target details, raid resistance and foreign garrison/army values redacted by effect/visibility rules |
 | `L9 Orders` | created/accepted/submitted | active cap/escrow conflict | online-only | contested_review, escrow locked | addressed visibility respected |
 | `L10 Lord Battle` | action/turn/result visible | illegal move/attack stays | cannot progress without server except paper outage | timer, timeout, auto-resolve, takeover | only participants/master see full board |
 | `L11 Paper Continuation` | paper fallback instructions visible | not applicable | outage state | later recovery review | marked not normal UI acceptance |

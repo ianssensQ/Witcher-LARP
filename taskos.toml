@@ -12,6 +12,7 @@ canonical_docs = [
   "docs/architecture.md",
   "docs/roadmap.md",
   "docs/game-mechanics.md",
+  "docs/ios-native-plan.md",
   "docs/app-technical-plan-v0.1.md",
   "pyproject.toml",
 ]

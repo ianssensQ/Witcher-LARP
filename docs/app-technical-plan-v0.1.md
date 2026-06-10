@@ -6,6 +6,27 @@
 
 Task queue reading contract: use `docs/active-tasks.md` or `uv run python scripts\taskctl.py ready` for ordinary orientation; keep `tasks.json` as the canonical full dependency graph; keep `progress.txt` as the completion log.
 
+## iOS-only mobile pivot
+
+С 2026-06-09 актуальная техническая каноника меняется: production mobile
+client становится iOS-only SwiftUI app в `ios/`. Существующий `mobile/` Godot
+project сохраняется как legacy/reference, но не удаляется и больше не является
+production acceptance path. Android support и Android APK smoke выведены из
+scope текущей версии.
+
+Локальный FastAPI + SQLite server, CSV/snapshot pipeline, event sync,
+browser panels for lords/masters и paper fallback остаются без архитектурной
+замены. Первый iOS vertical slice: player code -> local server auth -> snapshot
+download -> offline QR/manual PvE -> local event_queue -> sync при возвращении
+в Wi-Fi.
+
+Сборка и подпись iOS выполняются на Mac/Xcode через free provisioning,
+TestFlight или другой явно выбранный iOS distribution path. Windows/Codex
+workspace готовит исходники, docs, tests и asset contracts, но не является
+местом финальной iPhone-сборки.
+
+Подробный план: `docs/ios-native-plan.md`.
+
 Цель плана - зафиксировать оптимальный путь реализации с учетом ограничений: Wi-Fi только в доме, игроки ходят по участку с телефонами, нужно поддержать iOS и Android, лорды играют с ноутбуков, а мастерский ноутбук держит локальный сервер.
 
 Production profile текущей игры: 15 человек всего = 13 игроков + 2 NPC-мастера. Игроки: 4 лорда, 4 гибридные мобильные чародейки и 5 свободных ведьмаков.

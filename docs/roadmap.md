@@ -1,5 +1,19 @@
 # Роадмап - Witcher LARP App
 
+## iOS-only mobile pivot
+
+С 2026-06-09 roadmap принимает iOS-only production mobile path. Stage 2B
+mobile gameplay реализуется и принимается через нативный SwiftUI client в
+`ios/`, а не через Godot/Android+iOS bundle. `mobile/` Godot сохраняется как
+legacy/reference и не удаляется.
+
+Android acceptance больше не блокирует текущую production-сборку. iPhone
+acceptance остается hard gate: install/launch, local network, player code,
+snapshot, physical QR camera scan, manual QR fallback, restart persistence и
+event sync retry на реальном iPhone.
+
+Подробный план: `docs/ios-native-plan.md`.
+
 Роадмап теперь организован как шесть жестких этапов. Каждый этап заканчивается отдельной gate-задачей в `tasks.json`, и следующий этап считается открытым только после приемки предыдущего gate. Исключение - безопасная инфраструктурная подготовка, которая не меняет смысл этапов и не подменяет их приемку.
 
 `TASK-000` остается выполненным TaskOS baseline. Рабочая очередь после baseline начинается с `TASK-001`, `TASK-002`, `TASK-003`.
