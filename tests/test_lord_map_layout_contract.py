@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import struct
 import unittest
 
 from backend.witcher_larp.config import PROJECT_ROOT
@@ -10,23 +9,10 @@ from backend.witcher_larp.config import PROJECT_ROOT
 
 LAYOUT_PATH = (
     PROJECT_ROOT
-    / "backend"
-    / "witcher_larp"
-    / "web"
-    / "lord"
-    / "assets"
+    / "data"
+    / "seed"
     / "lord_map_layout.json"
 )
-HOLES_PATH = (
-    PROJECT_ROOT
-    / "backend"
-    / "witcher_larp"
-    / "web"
-    / "lord"
-    / "assets"
-    / "lord_map_playable_v1_holes.json"
-)
-LORD_STATIC_ROOT = PROJECT_ROOT / "backend" / "witcher_larp" / "web" / "lord"
 SEED_ROOT = PROJECT_ROOT / "data" / "seed"
 
 
@@ -95,16 +81,19 @@ class LordMapLayoutContractTests(unittest.TestCase):
             else:
                 self.assertTrue(node["ui_target"])
 
-    def test_owner_holes_exist_only_for_clickable_territories(self) -> None:
-        holes = json.loads(HOLES_PATH.read_text(encoding="utf-8"))
-        hole_node_ids = {hole["node_id"] for hole in holes["holes"]}
+    def test_ownership_sockets_exist_only_for_clickable_territories(self) -> None:
         clickable_node_ids = {
             node_id
             for node_id, node in self.layout["nodes"].items()
             if node["ui_target"]
         }
-        self.assertEqual(hole_node_ids, clickable_node_ids)
-        self.assertEqual(len(hole_node_ids), 23)
+        socket_node_ids = {
+            node_id
+            for node_id, node in self.layout["nodes"].items()
+            if "ownership_socket" in node
+        }
+        self.assertEqual(socket_node_ids, clickable_node_ids)
+        self.assertEqual(len(socket_node_ids), 23)
 
         for node_id, node in self.layout["nodes"].items():
             with self.subTest(node_id=node_id):
@@ -125,16 +114,12 @@ class LordMapLayoutContractTests(unittest.TestCase):
                 self.assertEqual(points[0], [from_node["x"], from_node["y"]])
                 self.assertEqual(points[-1], [to_node["x"], to_node["y"]])
 
-    def test_declared_map_art_matches_canvas(self) -> None:
+    def test_declared_map_art_is_decoupled_from_removed_static_panel(self) -> None:
         self.assertEqual(self.layout["art_asset"], "assets/lord_map_playable_v1_display.webp")
-        asset_path = LORD_STATIC_ROOT / self.layout["art_asset"]
-        self.assertTrue(asset_path.exists(), f"Missing map art asset: {asset_path}")
-        width, height = self.webp_size(asset_path.read_bytes())
         canvas_width = int(self.layout["canvas"]["width"])
         canvas_height = int(self.layout["canvas"]["height"])
-        self.assertEqual(canvas_width % width, 0)
-        self.assertEqual(canvas_height % height, 0)
-        self.assertEqual(canvas_width // width, canvas_height // height)
+        self.assertGreater(canvas_width, 0)
+        self.assertGreater(canvas_height, 0)
 
     @staticmethod
     def assert_in_canvas(x: int, y: int, width: int, height: int) -> None:
@@ -146,34 +131,6 @@ class LordMapLayoutContractTests(unittest.TestCase):
         left, top, right, bottom = rect
         if not (left <= int(x) <= right and top <= int(y) <= bottom):
             raise AssertionError(f"Point outside rect: {x}, {y}, rect={rect}")
-
-    @staticmethod
-    def webp_size(data: bytes) -> tuple[int, int]:
-        if data[:4] != b"RIFF" or data[8:12] != b"WEBP":
-            raise AssertionError("Expected a WebP RIFF asset")
-        offset = 12
-        while offset + 8 <= len(data):
-            chunk_type = data[offset : offset + 4]
-            chunk_size = struct.unpack("<I", data[offset + 4 : offset + 8])[0]
-            chunk_start = offset + 8
-            chunk = data[chunk_start : chunk_start + chunk_size]
-            if chunk_type == b"VP8 " and len(chunk) >= 10:
-                if chunk[3:6] != b"\x9d\x01\x2a":
-                    raise AssertionError("Invalid VP8 frame header")
-                width = struct.unpack("<H", chunk[6:8])[0] & 0x3FFF
-                height = struct.unpack("<H", chunk[8:10])[0] & 0x3FFF
-                return width, height
-            if chunk_type == b"VP8X" and len(chunk) >= 10:
-                width = int.from_bytes(chunk[4:7], "little") + 1
-                height = int.from_bytes(chunk[7:10], "little") + 1
-                return width, height
-            if chunk_type == b"VP8L" and len(chunk) >= 5:
-                bits = int.from_bytes(chunk[1:5], "little")
-                width = (bits & 0x3FFF) + 1
-                height = ((bits >> 14) & 0x3FFF) + 1
-                return width, height
-            offset = chunk_start + chunk_size + (chunk_size % 2)
-        raise AssertionError("Could not read WebP dimensions")
 
     @staticmethod
     def _load_csv(name: str) -> list[dict[str, str]]:

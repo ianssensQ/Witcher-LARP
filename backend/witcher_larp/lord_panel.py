@@ -1,4 +1,4 @@
-"""Read-only auth and state helpers for the static lord panel shell."""
+"""Read-only auth and state helpers for the lord browser frontend."""
 
 from __future__ import annotations
 
@@ -21,10 +21,9 @@ from .lord_battle_service import list_lord_battles
 from .repository import fetch_table, latest_snapshot_version
 
 LORD_MAP_LAYOUT_PATH = (
-    Path(__file__).resolve().parent
-    / "web"
-    / "lord"
-    / "assets"
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "seed"
     / "lord_map_layout.json"
 )
 

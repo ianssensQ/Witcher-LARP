@@ -1,15 +1,14 @@
 # Frontend UX/UI Screen Workflow
 
 > Status note: current lord visual/e2e work uses the React/Vite frontend in
-> `prototypes/stage2b-v2`. The FastAPI static panel in
-> `backend/witcher_larp/web/lord/` is legacy.
+> `prototypes/stage2b-v2`. The old FastAPI static lord panel has been removed.
 > Current confirmed lord screens are `/lords/login`, `/lords/home`,
 > `/lords/home?panel=orders`, and panels/follow-up lord screens opened from
 > `/lords/home` such as map, battle, buildings, recruit, raids, orders and
-> territory flows. Everything else in the Vite prototype is legacy/reference
-> until the user explicitly re-confirms it, including `/login`, `/`, the old
+> territory flows. The removed browser entrypoints `/login`, `/`, the old
 > Stage 2B showcase/landing page, `/lords`, `/lords/castle`,
-> `/lords/dashboard`, `/lords/endpoints` and `/endpoints`.
+> `/lords/dashboard`, `/lords/endpoints` and `/endpoints` must not be rebuilt
+> unless the user explicitly asks for a new current screen.
 > Active login must be the generated Warcraft-3-style dynamic chained plaque
 > with the `Witcher LARP I` logo, connected to backend role-token auth.
 

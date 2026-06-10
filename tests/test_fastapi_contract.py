@@ -54,7 +54,8 @@ class FastApiContractTests(unittest.TestCase):
         client = TestClient(create_app(settings))
 
         root = client.get("/", follow_redirects=False)
-        lord_panel = client.get("/lord")
+        old_lord_panel = client.get("/lord")
+        old_lord_login = client.get("/lords/login")
         invalid_role = client.post("/api/auth/role-token", json={"token": "NO-SUCH-TOKEN"})
         valid_role = client.post("/api/auth/role-token", json={"token": "LORD-NORTH-R8K4"})
         empty_player_code = client.post(
@@ -71,8 +72,9 @@ class FastApiContractTests(unittest.TestCase):
         )
 
         self.assertEqual(root.status_code, 307)
-        self.assertEqual(root.headers["location"], "/lord")
-        self.assertEqual(lord_panel.status_code, 200)
+        self.assertEqual(root.headers["location"], "/admin")
+        self.assertEqual(old_lord_panel.status_code, 404)
+        self.assertEqual(old_lord_login.status_code, 404)
         self.assertEqual(invalid_role.status_code, 401)
         self.assertEqual(valid_role.status_code, 200)
         self.assertEqual(valid_role.json()["owner_id"], "p_lord_1")

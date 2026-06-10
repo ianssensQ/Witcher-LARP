@@ -21,5 +21,5 @@
 ## Оставшиеся manual-only gaps
 
 - Реальные Android/iOS install-launch-camera QR smoke, local Wi-Fi/LAN outage behavior on venue hardware and four physical lord panels remain launch/rehearsal evidence, not automated proof.
-- Browser visual interaction for the static lord panel remains limited to FastAPI-served HTML/CSS/JS and API contract tests until Stage 2B real UI/device gate.
+- Browser visual interaction moved to the current React/Vite lord frontend; deleted FastAPI-static lord UI must not be used as acceptance evidence.
 - These manual checks belong to TASK-001/TASK-018 launch-risk or rehearsal notes; they should not replace the automated TASK-051 through TASK-056 regression suite.

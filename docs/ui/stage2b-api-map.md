@@ -5,8 +5,9 @@
 локальная правда допустима только для offline queue, чернового ввода и последнего
 известного snapshot с явной stale/offline меткой.
 
-Лордская стратегическая карта внедряется по отдельному техническому blueprint:
-`docs/lord-map-implementation-blueprint-v0.1.md`.
+Лордская стратегическая карта является частью текущего React/Vite lord frontend.
+Backend read model отдает layout из `data/seed/lord_map_layout.json`; удаленный
+FastAPI-static lord UI не является рабочим направлением.
 
 ## Endpoint groups
 

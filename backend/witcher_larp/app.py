@@ -66,7 +66,6 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in dependency smoke 
 
 
 WEB_ROOT = Path(__file__).parent / "web"
-LORD_PANEL_INDEX = WEB_ROOT / "lord" / "index.html"
 ADMIN_STUDIO_INDEX = WEB_ROOT / "admin" / "index.html"
 
 
@@ -416,14 +415,7 @@ def create_app(settings: Settings | None = None):
 
     @api.get("/", include_in_schema=False)
     def index_redirect():
-        return RedirectResponse(url="/lord")
-
-    @api.get("/lord", include_in_schema=False)
-    @api.get("/lord/", include_in_schema=False)
-    @api.get("/lords/login", include_in_schema=False)
-    @api.get("/lords/home", include_in_schema=False)
-    def lord_panel():
-        return FileResponse(LORD_PANEL_INDEX)
+        return RedirectResponse(url="/admin")
 
     @api.get("/admin", include_in_schema=False)
     @api.get("/admin/", include_in_schema=False)

@@ -550,10 +550,8 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         self.assertEqual(snapshot.json()["player"]["player_id"], "p_witcher_1")
         self.assertTrue(any(snapshot_dir.glob("*.json")))
 
-        lord_panel = client.get("/lord")
-        self.assertEqual(lord_panel.status_code, 200, lord_panel.text)
-        self.assertIn('data-app="lord-panel"', lord_panel.text)
-        self.assertIn("Код графа", lord_panel.text)
+        old_lord_panel = client.get("/lord")
+        self.assertEqual(old_lord_panel.status_code, 404, old_lord_panel.text)
         self.assertTrue((PROJECT_ROOT / "mobile" / "project.godot").exists())
         self.assertTrue((PROJECT_ROOT / "mobile" / "scripts" / "main.gd").exists())
 

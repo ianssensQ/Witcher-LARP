@@ -117,12 +117,12 @@ Test Steps:
 Notes:
 
 Contract:
-Inputs: TASK-042 playable/authenticated lord runtime, TASK-067 visual/asset brief, lord panel shell, venue_map_v1/territory_forts/lord_map_layout/intel seed and Stage 1 lord APIs.
+Inputs: TASK-042 playable/authenticated lord runtime, TASK-067 visual/asset brief, current React/Vite lord frontend, venue_map_v1/territory_forts/lord_map_layout/intel seed and Stage 1 lord APIs.
 Outputs: Browser-playable lord panel for all release-critical lord actions and battles, with `/lords/home` as the first authenticated castle/selected-territory screen, validated illustrated pan/full-graph/intel/route/horse lord map, thematic territory surfaces/forts, distinct lord battle board and building tree suitable for non-PvE gameplay testing.
-Implementation path: Extend FastAPI-served static HTML/CSS/JS unless architecture explicitly changes; use existing lord APIs rather than duplicating game logic in JS; render art as a data-bound layer over selected territory, venue_map_v1/territory_forts/building/unit IDs and use accepted layout hit-zones for map clicks. Keep map and battlefield as separate screens opened from `/lords/home`.
+Implementation path: Extend the React/Vite lord frontend in prototypes/stage2b-v2; use existing lord APIs rather than duplicating game logic in JS; render art as a data-bound layer over selected territory, venue_map_v1/territory_forts/building/unit IDs and use accepted layout hit-zones for map clicks. Keep map and battlefield as separate screens opened from `/lords/home`.
 Interfaces: /api/lords/{lord_id}/state must expose selected territory, background asset, local income, total resources, act timer, MP, active hero-army location, army-lane lock reason, garrison slots, accumulated recruit stock rate/current_stock, building tree, owned territory bubbles, battle alerts, lord_map_layout/intel and current pending_move when active. Mutations include move, garrisons/transfer, buildings, recruit, raids, orders, /api/lord-battles and role-token auth.
 Failure/review paths: Illegal or ambiguous actions show UI errors or route to master review; home/map/fort mismatch, unreadable critical state, unbound art hotspot, enemy detail leakage, lost pending move, copied third-party asset or lord battle UI confused with personal Gwent blocks TASK-050; never fake success locally.
-Required tests: Browser/panel contract tests, API regression tests, lord home visual audit, illustrated lord venue map audit, territory fort/transfer audit, building-tree visual audit, recruit-modal audit, lord battle board visual audit, four-panel smoke and restart persistence.
+Required tests: Vite frontend contract tests, API regression tests, lord home visual audit, illustrated lord venue map audit, territory fort/transfer audit, building-tree visual audit, recruit-modal audit, lord battle board visual audit, four-panel smoke and restart persistence.
 Implemented scoped lord map hardening slice: pending movement, route guards, fort capacity, map background/pending UI; full TASK-046 remains open.
 
 ### TASK-047 - Implement native iOS mobile gameplay UI for witchers and sorceresses
@@ -363,7 +363,7 @@ Contract:
 Inputs: TASK-046 lord UI, TASK-047 mobile gameplay UI, TASK-048 PvP/Gwent UI, TASK-067 visual/asset brief/prototype, TASK-049 Admin recovery UI, venue-like local network and at least one Android plus one iPhone.
 Outputs: Evidence under reports/stage2b/ that full non-PvE gameplay is testable as an application before generated PvE/content/balance stages, including visual/readability proof for `/lords/home`, building tree, forts/backgrounds, lord battle, personal Gwent and lord pan/full-graph/intel/route/horse map surfaces.
 Implementation path: Run a UI-first hardening script across mobile, lord panels and Admin Studio. Generated/full PvE content is out of scope, but seed QR/PvE smoke may be used only to prove mobile offline/sync/reward states. Store evidence permanently instead of relying on chat notes.
-Interfaces: Godot mobile, FastAPI/SQLite, static lord panels, Admin Studio, PvP/Gwent APIs, lord runtime APIs including `/lords/home`, selected territory, recruit stock, fort transfer, lord_map_layout/intel/pending_move, visual asset manifest, reports/stage2b/ evidence files and paper recovery services.
+Interfaces: Native iOS mobile, FastAPI/SQLite, Vite lord panels, Admin Studio, PvP/Gwent APIs, lord runtime APIs including `/lords/home`, selected territory, recruit stock, fort transfer, lord_map_layout/intel/pending_move, visual asset manifest, reports/stage2b/ evidence files and paper recovery services.
 Failure/review paths: Missing iOS smoke, missing evidence files, broken lord home/map/fort transfer, copied third-party art, unreadable personal Gwent/lord home/lord map/lord battle/fort state, broken intel redaction/pending move recovery, Gwent requiring Swagger, or any unresolved P0/P1/blocking P2 non-PvE defect blocks TASK-050. Paper fallback proves outage recovery only and cannot replace a missing normal UI.
 Required tests: Real-device smoke, visual screenshot pass, evidence file review, four-lord panel smoke, non-PvE scripted gameplay run, defect triage, pytest, TaskOS validate/doctor.
 
@@ -1956,31 +1956,31 @@ Scope:
 - Показ domain state, resources, territories, armies
 - Visibility только своего владения
 - Browser smoke для 4 lord panels
-- Serve lord panel as static HTML/CSS/JS from FastAPI in Stage 1 without Node build tooling
+- Keep Stage 1 lord backend APIs available for the current Vite lord frontend
 - Define browser API calls and polling/refresh strategy for lord state and battle updates
 
 Acceptance:
 - Лорд открывает свою панель по role_token
 - Чужие домены не раскрываются
 - 4 панели работают одновременно в Wi-Fi
-- Lord panel technical implementation path is static FastAPI-served web UI with no separate frontend build step
+- Lord panel acceptance uses the current Vite lord frontend and backend role-token/state APIs
 
 Test Steps:
 - Открыть lord panel с валидным role_token
 - Проверить invalid token
 - Проверить 4 browser sessions
 - uv run python scripts\taskctl.py validate
-- uv --cache-dir .deps\uv-cache run pytest -q -p no:cacheprovider; uv --cache-dir .deps\uv-cache run python scripts\taskctl.py validate; live smoke on http://127.0.0.1:8789/lord plus role-token/state API.
+- uv --cache-dir .deps\uv-cache run pytest -q -p no:cacheprovider; uv --cache-dir .deps\uv-cache run python scripts\taskctl.py validate; live smoke through the current Vite lord frontend plus role-token/state API.
 
 Notes:
 
 Contract:
 Inputs: Stage 1 backend, role token auth and lord state tables from importer.
-Outputs: Static FastAPI-served lord panel shell with login, state summary and placeholder action surfaces.
-Implementation path: Place HTML/CSS/JS under backend/witcher_larp/web and serve through FastAPI without Node build tooling.
-Interfaces: Panel consumes POST /api/auth/role-token and GET /api/lords/{lord_id}/state; all future actions call JSON APIs, no direct DB writes.
-Failure/review paths: Invalid token cannot see lord data; panel degrades to read-only/error if action APIs are unavailable.
-Required tests: Browser/static asset smoke, auth visibility test and no Node/Vite dependency check.
+Outputs: Backend role-token/state APIs consumed by the current React/Vite lord frontend.
+Implementation path: Keep lord gameplay authority in FastAPI services and expose JSON APIs; do not rebuild the deleted FastAPI-static lord UI.
+Interfaces: Frontend consumes POST /api/auth/role-token and GET /api/lords/{lord_id}/state; all future actions call JSON APIs, no direct DB writes.
+Failure/review paths: Invalid token cannot see lord data; frontend degrades to read-only/error if action APIs are unavailable.
+Required tests: API smoke, auth visibility test and Vite lord frontend smoke.
 
 ### TASK-012 - Реализовать territories, economy, buildings и orders runtime
 
@@ -2065,9 +2065,9 @@ Test Steps:
 Notes:
 
 Contract:
-Inputs: Map/building/unit/order seed, act timers and lord panel shell.
+Inputs: Map/building/unit/order seed, act timers and current lord frontend contract.
 Outputs: Territory, economy, building, recruit, raid and order runtime services.
-Implementation path: Implement server-side services and APIs for movement, claims, garrisons, buildings, recruit, raids and orders; lord panel is a thin client.
+Implementation path: Implement server-side services and APIs for movement, claims, garrisons, buildings, recruit, raids and orders; the current Vite lord frontend stays a thin client.
 Interfaces: APIs: GET /api/lords/{lord_id}/state; POST move, garrisons/transfer, buildings, recruit, raids, orders. State machines: territory_claim, order statuses from TASK-003, recruit stock tick/buy, raid effect expiry.
 Failure/review paths: Reject invalid MP, route, ownership, garrison, prerequisite, capacity, order cap or duplicate object; contested/pending states go to review instead of silent overwrite.
 Required tests: Unit/API tests for route MP, contested claim, garrison requirement, income tick, building prerequisites, recruit stock/purchase, order cap/object conflict, raid effect and anti-snowball.
@@ -4188,17 +4188,17 @@ Test Steps:
 - Run desktop and phone-width browser smoke for lord panel battle/garrison surfaces
 - uv run pytest tests/test_lord_panel_contract.py tests/test_lord_battle_runtime.py -q
 - uv run python scripts/taskctl.py validate
-- uv run pytest tests\test_lord_panel_contract.py tests\test_lord_battle_runtime.py -q; uv run ruff check backend\witcher_larp\lord_panel.py tests\test_lord_panel_contract.py; browser smoke desktop and 390px phone-width on http://127.0.0.1:8767/lord with screenshots in .test-data; uv run python scripts\taskctl.py validate
+- uv run pytest tests\test_lord_panel_contract.py tests\test_lord_battle_runtime.py -q; uv run ruff check backend\witcher_larp\lord_panel.py tests\test_lord_panel_contract.py; browser smoke desktop and 390px phone-width through /lords/login and /lords/home with screenshots in .test-data; uv run python scripts\taskctl.py validate
 
 Notes:
 
 Contract:
-Inputs: Current lord panel shell, lord_battle_service capture states and pre-Stage-2B review findings for lord gameplay UI blockers.
-Outputs: Lord panel controls that complete capture/garrison and lord battle loops through playable UI surfaces before Stage 2B starts.
-Implementation path: Bind panel state to capture_pending_garrison and battle board state returned by backend services; keep raw payload tools only as developer diagnostics if needed.
-Interfaces: backend/witcher_larp/lord_panel.py, backend/witcher_larp/lord_battle_service.py, backend/witcher_larp/web/lord/index.html and backend/witcher_larp/web/lord/lord.js.
+Inputs: Current Vite lord frontend, lord_battle_service capture states and pre-Stage-2B review findings for lord gameplay UI blockers.
+Outputs: Lord controls that complete capture/garrison and lord battle loops through playable UI surfaces before Stage 2B starts.
+Implementation path: Bind frontend state to capture_pending_garrison and battle board state returned by backend services; keep raw payload tools only as developer diagnostics if needed.
+Interfaces: backend/witcher_larp/lord_panel.py, backend/witcher_larp/lord_battle_service.py and the React/Vite lord screens under prototypes/stage2b-v2.
 Failure/review paths: illegal garrison, stale capture, hidden enemy data, wrong-lord action and invalid battle action must show UI errors and not mutate state.
-Required tests: lord panel contract, battle runtime regression, responsive smoke and TaskOS validate.
+Required tests: lord API/frontend contract, battle runtime regression, responsive smoke and TaskOS validate.
 
 ### TASK-078 - Fix Admin Studio paper recovery and Game Ops blockers
 

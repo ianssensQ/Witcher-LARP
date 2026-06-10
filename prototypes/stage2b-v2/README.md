@@ -16,23 +16,15 @@ confirmed lord player flow.
 Successful login must authenticate through `/api/auth/role-token`, store the
 lord token/id for `/lords/home`, and then open `/lords/home`.
 
-## Legacy / reference screens
+## Removed old browser entrypoints
 
-Everything outside the confirmed list above is legacy/reference until the user
-explicitly re-confirms it in a later screen pass.
+The old Stage 2B showcase/landing page and debug/index routes were removed from
+runtime. The routes `/`, `/login`, `/lords`, `/lords/castle`,
+`/lords/dashboard`, `/lords/endpoints` and `/endpoints` no longer render old
+screens: they redirect to the canonical lord flow instead.
 
-- `/login` is legacy. This is the old Stage 2B showcase/landing page from the
-  screenshot with "Ведьмачий ЛАРП: командный стол, Гвинт и мобильные досье";
-  it is not the active lord login.
-- `/` is legacy. It shows the generic showcase composition with `HeroHeader`,
-  `LordCommandTable`, `GwentBoard`, `MobileRoleScreens`, `AdminOps` and
-  `AssetHandoff`.
-- `/lords`, `/lords/castle` and `/lords/dashboard` are compatibility/old alias
-  routes, not canonical acceptance entry points.
-- `/lords/endpoints` and `/endpoints` are debug/index screens, not player flow.
-- Any plain/static login panel or local-only code validation that bypasses
-  backend role-token auth is legacy.
-- The FastAPI static panel in `backend/witcher_larp/web/lord/` is legacy.
+The FastAPI-served static lord panel under `backend/witcher_larp/web/lord/` was
+deleted. The backend now acts as API/Admin Studio for the Vite lord frontend.
 
 For local e2e checks, run the backend API separately and run this Vite app on
 the browser port. The canonical e2e route is:

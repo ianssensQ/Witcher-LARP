@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-import json
 import unittest
 from uuid import uuid4
 
@@ -23,7 +22,7 @@ class LordPanelContractTests(unittest.TestCase):
     def setUp(self) -> None:
         (PROJECT_ROOT / ".test-data").mkdir(exist_ok=True)
 
-    def test_lord_static_panel_is_served_without_node_build(self) -> None:
+    def test_legacy_lord_static_panel_is_removed(self) -> None:
         client = TestClient(create_app(self._settings("lord_static")))
 
         page = client.get("/lord")
@@ -32,67 +31,12 @@ class LordPanelContractTests(unittest.TestCase):
         layout = client.get("/static/lord/assets/lord_map_layout.json")
         map_art = client.get("/static/lord/assets/lord_map_playable_v1_display.webp")
 
-        self.assertEqual(page.status_code, 200)
-        self.assertIn('data-app="lord-panel"', page.text)
-        self.assertEqual(script.status_code, 200)
-        self.assertIn("/api/auth/role-token", script.text)
-        self.assertIn("route_node_ids", script.text)
-        self.assertIn("expected_cost", script.text)
-        self.assertIn("route-preview", script.text)
-        self.assertIn("requestRoutePreview", script.text)
-        self.assertIn("currentMapMode", script.text)
-        self.assertIn("renderEnemyArmyIntel", script.text)
-        self.assertIn("territoryInfoRows", script.text)
-        self.assertIn("previewStopNodeId", script.text)
-        self.assertIn("route-stop", script.text)
-        self.assertIn("renderMapSelection", script.text)
-        self.assertIn("renderMapBackground", script.text)
-        self.assertIn("renderMapOwnershipSockets", script.text)
-        self.assertIn("map-owner-socket", script.text)
-        self.assertIn("map-road-bed", script.text)
-        self.assertIn("renderLordMap", script.text)
-        self.assertIn("renderMinimap", script.text)
-        self.assertIn("recenterMapFromMinimap", script.text)
-        self.assertIn("moveSelectedMapTarget", script.text)
-        self.assertIn("battlePayloadFor", script.text)
-        self.assertIn("/api/lord-battles/", script.text)
-        self.assertNotIn("payload_json", script.text)
-        self.assertIn('id="lord-map"', page.text)
-        self.assertIn('id="lord-map-minimap"', page.text)
-        self.assertIn('id="map-minimap-shell"', page.text)
-        self.assertIn('id="map-mode-march"', page.text)
-        self.assertIn('id="map-mode-info"', page.text)
-        self.assertIn('id="map-move-button"', page.text)
-        self.assertIn('id="map-reset-button"', page.text)
-        self.assertIn('id="map-selection-card"', page.text)
-        self.assertIn('id="map-battle-button"', page.text)
-        self.assertIn('id="map-garrison-button"', page.text)
-        self.assertIn('id="battle-board"', page.text)
-        self.assertIn('data-battle-command="move"', page.text)
-        self.assertIn('data-battle-command="attack"', page.text)
-        self.assertNotIn('data-action-form="battle-action"', page.text)
-        self.assertNotIn("Payload JSON", page.text)
-        self.assertEqual(styles.status_code, 200)
-        self.assertIn("[hidden]", styles.text)
-        self.assertIn(".map-background", styles.text)
-        self.assertIn(".map-owner-socket", styles.text)
-        self.assertIn("generated_holes", styles.text)
-        self.assertIn(".map-road-bed", styles.text)
-        self.assertIn(".map-zone", styles.text)
-        self.assertIn(".map-zone.route-stop", styles.text)
-        self.assertIn(".map-army-marker", styles.text)
-        self.assertIn(".map-enemy-marker", styles.text)
-        self.assertIn(".map-mode-toggle", styles.text)
-        self.assertIn(".map-minimap-shell", styles.text)
-        self.assertIn(".minimap-viewport", styles.text)
-        self.assertIn(".battle-board", styles.text)
-        self.assertEqual(layout.status_code, 200)
-        layout_payload = json.loads(layout.text)
-        self.assertEqual(layout_payload["layout_id"], "venue_map_v3_playable_holes")
-        self.assertEqual(layout_payload["art_asset"], "assets/lord_map_playable_v1_display.webp")
-        self.assertEqual(map_art.status_code, 200)
-        self.assertEqual(map_art.content[:4], b"RIFF")
-        self.assertEqual(map_art.content[8:12], b"WEBP")
+        self.assertEqual(page.status_code, 404)
+        self.assertEqual(script.status_code, 404)
+        self.assertEqual(styles.status_code, 404)
+        self.assertEqual(layout.status_code, 404)
+        self.assertEqual(map_art.status_code, 404)
+        self.assertFalse((PROJECT_ROOT / "backend" / "witcher_larp" / "web" / "lord").exists())
         self.assertFalse(
             (PROJECT_ROOT / "backend" / "witcher_larp" / "web" / "package.json").exists()
         )
@@ -102,25 +46,7 @@ class LordPanelContractTests(unittest.TestCase):
         self._import_valid_seed(settings)
         client = TestClient(create_app(settings))
 
-        page = client.get("/lord")
-        script = client.get("/static/lord/lord.js")
-        self.assertEqual(page.status_code, 200)
-        self.assertEqual(script.status_code, 200)
-        self.assertIn('data-action-form="move"', page.text)
-        self.assertIn('id="move-route-preview"', page.text)
-        self.assertIn('data-action-form="garrison"', page.text)
-        self.assertIn('data-action-form="building"', page.text)
-        self.assertIn('data-action-form="recruit"', page.text)
-        self.assertIn('data-action-form="raid"', page.text)
-        self.assertIn('id="order-composer"', page.text)
-        self.assertIn('id="order-target-object"', page.text)
-        self.assertIn('id="order-publish-button"', page.text)
-        self.assertNotIn('data-action-form="order"', page.text)
-        self.assertIn("handleOrderComposerSubmit", script.text)
-        self.assertIn("/orders", script.text)
-        self.assertIn('data-action-form="battle-create"', page.text)
-        self.assertNotIn('data-action-form="battle-action"', page.text)
-        self.assertNotIn("read-only", page.text.lower())
+        self.assertEqual(client.get("/lord").status_code, 404)
 
         start = client.post(
             "/api/master/acts/act1/start",
@@ -456,8 +382,6 @@ class LordPanelContractTests(unittest.TestCase):
             "/api/lords/p_lord_1/state",
             headers={"X-Role-Token": "LORD-NORTH-R8K4"},
         )
-        page = client.get("/lord")
-        script = client.get("/static/lord/lord.js")
 
         self.assertEqual(battle.status_code, 200, battle.text)
         self.assertEqual(state.status_code, 200, state.text)
@@ -467,15 +391,8 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertEqual(panel_battle["board"]["height"], 6)
         self.assertIn("active_stack_id", panel_battle)
         self.assertIn("hero_cells", panel_battle["board"])
-        self.assertIn('id="battle-board"', page.text)
-        self.assertIn('data-battle-command="move"', page.text)
-        self.assertIn('data-battle-command="attack"', page.text)
-        self.assertIn('data-battle-command="surrender"', page.text)
-        self.assertIn("battlePayloadFor", script.text)
-        self.assertIn("selectedBattleTarget", script.text)
-        self.assertNotIn('name="battle_id"', page.text)
-        self.assertNotIn('name="actor_side"', page.text)
-        self.assertNotIn("payload_json", script.text)
+        self.assertEqual(client.get("/lord").status_code, 404)
+        self.assertEqual(client.get("/static/lord/lord.js").status_code, 404)
 
     def test_role_token_auth_returns_lord_identity(self) -> None:
         settings = self._settings("lord_auth")
