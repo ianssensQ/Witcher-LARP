@@ -6,6 +6,11 @@ __pycache__/
 .tools/
 node_modules/
 dist/
+.tmp/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcworkspace/xcuserdata/
+ios/DerivedData/
+ios/build/
 .codegraph/
 mobile/.godot/
 mobile/builds/*.log
