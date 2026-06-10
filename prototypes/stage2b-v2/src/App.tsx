@@ -74,15 +74,6 @@ import lordHomeHudOverlay from "./assets/generated/lords-home/ui/lord-home-hud-o
 import lordHomeMinimap from "./assets/generated/lords-home/minimap-v1.png";
 import lordMapStrictV6BakedRoads from "./assets/generated/lords-map/lord-map-ai-strict-v6-baked-roads.webp";
 import lordMapStrictV6RoadlessBase from "./assets/generated/lords-map/lord-map-ai-strict-v6-roadless-base.webp";
-import lordHomeMpFillField1 from "./assets/generated/lords-home/ui/mp-widget-fill-field-1-v5.png";
-import lordHomeMpFillField2 from "./assets/generated/lords-home/ui/mp-widget-fill-field-2-v5.png";
-import lordHomeMpFillField3 from "./assets/generated/lords-home/ui/mp-widget-fill-field-3-v5.png";
-import lordHomeMpFillField4 from "./assets/generated/lords-home/ui/mp-widget-fill-field-4-v5.png";
-import lordHomeMpFillField5 from "./assets/generated/lords-home/ui/mp-widget-fill-field-5-v5.png";
-import lordHomeMpFillField6 from "./assets/generated/lords-home/ui/mp-widget-fill-field-6-v5.png";
-import lordHomeMpFillField7 from "./assets/generated/lords-home/ui/mp-widget-fill-field-7-v5.png";
-import lordHomeMpFillField8 from "./assets/generated/lords-home/ui/mp-widget-fill-field-8-v5.png";
-import lordHomeMpWidgetFrame from "./assets/generated/lords-home/ui/mp-widget-frame-transparent-v5.png";
 import lordHomeRecruitModalFrame from "./assets/generated/lords-home/ui/recruit-modal-frame-v2.png";
 import territoryMistLakeHome from "./assets/generated/lords-home/territories/territory-home-mist-lake-v1.png";
 import territoryNorthFortHome from "./assets/generated/lords-home/territories/territory-home-north-fort-v1.png";
@@ -107,6 +98,8 @@ import riverGateCutout from "./assets/generated/map-cutouts/river-gate.png";
 import ruinsCutout from "./assets/generated/map-cutouts/ruins.png";
 import swampCutout from "./assets/generated/map-cutouts/swamp.png";
 import witchwoodCutout from "./assets/generated/map-cutouts/witchwood.png";
+import { LordMpHud, useLordMpRuntimeState } from "./LordMpHud";
+import LordBattleScreen from "./LordBattleScreen";
 
 type Tone = "gold" | "green" | "blue" | "red" | "violet" | "muted";
 
@@ -284,6 +277,7 @@ type LordHomeBackendTimerSummary = {
 type LordHomeTerritoryRuntime = {
   incomePerHour: number;
   heroHere: boolean;
+  isOwned: boolean;
   status: string;
   garrisonCapacity: number;
   garrisonSlotsUsed: number;
@@ -548,6 +542,7 @@ type LordHomeBackendState = {
     active_army_capacity?: number;
     active_army_slots_used?: number;
     active_army_slots_free?: number;
+    raid_tokens?: number;
   };
   movement?: {
     current_node_id?: string;
@@ -561,6 +556,19 @@ type LordHomeBackendState = {
   neutral_territories?: LordHomeBackendTerritory[];
   other_territories?: LordHomeBackendTerritory[];
   active_army?: LordHomeBackendStack[];
+  orders?: LordHomeOrder[];
+  order_cap?: LordHomeOrderCap;
+  escrow?: LordHomeOrderEscrow;
+  order_conflicts?: unknown[];
+  visible_targets?: LordHomeOrderTarget[];
+  eligible_recipients?: LordHomeOrderRecipient[];
+  order_reward_options?: LordHomeOrderRewardOption[];
+  raid_tokens?: number;
+  raid_rules?: LordHomeRaidRule[];
+  raid_targets?: LordHomeRaidTarget[];
+  active_raid_effects?: LordHomeRaidEffect[];
+  raid_history?: LordHomeRaidEffect[];
+  raid_effects?: LordHomeRaidEffect[];
   recruit_market?: Array<{
     offer_id: string;
     card_id: string;
@@ -597,6 +605,8 @@ type LordHomeRecruitActionResponse = {
 
 const lordHomeDefaultLordId = "p_lord_1";
 const lordHomeDefaultRoleToken = "LORD-NORTH-R8K4";
+const lordHomeClockTickMs = 1000;
+const lordHomeStatePollMs = 15_000;
 
 type LordMapBackendMovement = {
   domain_id?: string;
@@ -693,18 +703,6 @@ const lordHomeRecruitStatusRank = (status: string) => {
 
 const isLordHomeRecruitOfferUsable = (status: string) => status === "available" || status === "held";
 
-const lordHomeMaxMovementPoints = 8;
-const lordHomeMovementFillFields = [
-  lordHomeMpFillField1,
-  lordHomeMpFillField2,
-  lordHomeMpFillField3,
-  lordHomeMpFillField4,
-  lordHomeMpFillField5,
-  lordHomeMpFillField6,
-  lordHomeMpFillField7,
-  lordHomeMpFillField8
-];
-
 const lordHomeActionDock = [
   { id: "buildings", label: "Здания", icon: lordHomeActionBuildingsIcon, tone: "gold" },
   { id: "map", label: "Карта", icon: lordHomeActionMapIcon, tone: "blue" },
@@ -713,10 +711,174 @@ const lordHomeActionDock = [
   { id: "battle", label: "Бой", icon: lordHomeActionBattleIcon, tone: "red", alert: true }
 ] as const;
 
-type LordHomeView = "territory" | "buildings";
+type LordHomeView = "territory" | "buildings" | "orders" | "raids";
 type LordHomePanel = "map" | "orders" | "raids" | "battle" | "help";
 type LordBuildingBranch = "military" | "economy" | "order" | "magic";
 type LordBuildingState = "built" | "available" | "locked";
+
+type LordHomeOrderStatus =
+  | "draft"
+  | "published"
+  | "addressed_pending"
+  | "accepted"
+  | "in_progress"
+  | "claimed_at_prop"
+  | "submitted_pending_sync"
+  | "pending_master_approval"
+  | "completed"
+  | "failed_retryable"
+  | "failed_closed"
+  | "cancelled_by_lord"
+  | "expired"
+  | "contested_review";
+
+type LordHomeOrderVisibility = "public" | "addressed";
+
+type LordHomeOrder = {
+  order_id: string;
+  visibility?: LordHomeOrderVisibility | string;
+  visibility_label?: string;
+  status?: LordHomeOrderStatus | string;
+  status_label?: string;
+  visible_hook?: string;
+  object_id?: string | null;
+  object_label?: string;
+  location_id?: string | null;
+  location_label?: string;
+  target_player_id?: string | null;
+  target_player_label?: string;
+  executor_label?: string;
+  reward_label?: string;
+  escrow_label?: string;
+  escrow_reward_id?: string | null;
+  target_act_id?: string | null;
+  expires_at?: string | null;
+  conflict_badge?: { label?: string; tone?: string } | null;
+};
+
+type LordHomeOrderCap = {
+  public_active?: number;
+  public_limit?: number;
+  addressed_active?: number;
+  addressed_limit?: number;
+};
+
+type LordHomeOrderEscrow = {
+  locked_gold?: number;
+  locked_assets?: unknown[];
+  locked_asset_count?: number;
+  available_gold?: number;
+};
+
+type LordHomeOrderTarget = {
+  target_id: string;
+  target_type?: string;
+  target_type_label?: string;
+  label?: string;
+  location_id?: string | null;
+  location_label?: string;
+};
+
+type LordHomeOrderRecipient = {
+  player_id: string;
+  display_name?: string;
+  role_label?: string;
+};
+
+type LordHomeOrderRewardOption = {
+  reward_id: string;
+  label?: string;
+  gold?: number;
+};
+
+type LordHomeRaidEffect = {
+  raid_effect_id?: string;
+  rule_id?: string;
+  source_domain_id?: string;
+  target_domain_id?: string;
+  target_territory_id?: string;
+  status?: string;
+  effect_type?: string;
+  started_at?: string;
+  expires_at?: string;
+  expired_at?: string;
+  resisted?: boolean;
+  loot_applied?: boolean;
+  loot_gold?: number;
+  visibility?: string;
+  counterplay?: string;
+  result_label?: string;
+};
+
+type LordHomeRaidRule = {
+  rule_id: string;
+  name: string;
+  tier: number;
+  category: string;
+  category_label?: string;
+  description: string;
+  token_cost: number;
+  gold_cost: number;
+  duration_minutes: number;
+  effect_type: string;
+  allowed_target_types: string[];
+  required_building_ids: string[];
+  required_building_labels?: string[];
+  visibility: string;
+  counterplay: string;
+  locked_reason?: string | null;
+  x?: number;
+  y?: number;
+};
+
+type LordHomeRaidTarget = {
+  target_territory_id: string;
+  name: string;
+  owner_domain_id?: string | null;
+  owner_label?: string;
+  tier?: number;
+  bonus_type?: string;
+  bonus_label?: string;
+  is_residence?: boolean;
+  is_raid_only?: boolean;
+  active_effects?: LordHomeRaidEffect[];
+  raid_resistance_label?: string;
+  visibility_level?: string;
+  can_target?: boolean;
+  disabled_reason?: string;
+};
+
+type LordHomeRaidResponse = {
+  status?: string;
+  started?: boolean;
+  resisted?: boolean;
+  loot_applied?: boolean;
+  validation_error?: string | null;
+  needs_master_review?: boolean;
+  raid_tokens?: number;
+  gold?: number;
+  active_raid_effects?: LordHomeRaidEffect[];
+  audit_event_id?: number;
+  token_spent?: number;
+  gold_spent?: number;
+};
+
+type LordHomeOrderCreatePayload = {
+  visibility: LordHomeOrderVisibility;
+  target_player_id?: string;
+  object_id?: string;
+  visible_hook?: string;
+  reward: { reward_id?: string };
+  source: string;
+};
+
+type LordHomeRaidStartPayload = {
+  target_territory_id: string;
+  rule_id: string;
+  expected_token_cost: number;
+  expected_gold_cost: number;
+  source: string;
+};
 
 type LordBuildingNode = {
   id: string;
@@ -739,6 +901,200 @@ const lordBuildingBranchMeta = {
   order: { label: "Приказы", tone: "green", icon: ScrollText },
   magic: { label: "Магия", tone: "violet", icon: Sparkles }
 } as const;
+
+const lordHomeRaidCategoryMeta = {
+  economy: { label: "Экономика", tone: "gold", icon: Coins },
+  military: { label: "Военная диверсия", tone: "red", icon: Shield },
+  recruit: { label: "Саботаж найма", tone: "green", icon: Users },
+  intrigue: { label: "Интрига", tone: "violet", icon: EyeOff },
+  loot: { label: "Налет за добычей", tone: "blue", icon: Package },
+  residence: { label: "Рейд резиденции", tone: "red", icon: Castle }
+} as const;
+
+const lordHomeRaidNodePositions: Record<string, Array<{ x: number; y: number }>> = {
+  economy: [{ x: 21, y: 28 }],
+  military: [{ x: 44, y: 25 }],
+  recruit: [{ x: 29, y: 52 }],
+  intrigue: [{ x: 57, y: 50 }],
+  loot: [{ x: 43, y: 73 }],
+  residence: [{ x: 73, y: 32 }]
+};
+
+const lordHomeFallbackRaidRules: LordHomeRaidRule[] = [
+  {
+    rule_id: "raid_income_sabotage",
+    name: "Сжечь книги податей",
+    tier: 1,
+    category: "economy",
+    category_label: "Экономика",
+    description: "Тихая вылазка по складам и книгам сборщиков снижает доход цели.",
+    token_cost: 1,
+    gold_cost: 15,
+    duration_minutes: 30,
+    effect_type: "income_down",
+    allowed_target_types: ["territory"],
+    required_building_ids: ["b_raid_office"],
+    required_building_labels: ["Рейдовая ставка"],
+    visibility: "Цель видит следы после применения",
+    counterplay: "Гарнизон или обереги снижают эффект",
+    locked_reason: null
+  },
+  {
+    rule_id: "raid_garrison_diversion",
+    name: "Ночная диверсия",
+    tier: 1,
+    category: "military",
+    category_label: "Военная диверсия",
+    description: "Отряд режет сигнальные веревки и ослабляет дозор.",
+    token_cost: 1,
+    gold_cost: 20,
+    duration_minutes: 30,
+    effect_type: "defense_down",
+    allowed_target_types: ["territory"],
+    required_building_ids: ["b_raid_office"],
+    required_building_labels: ["Рейдовая ставка"],
+    visibility: "Источник и цель видят итог",
+    counterplay: "Сильный гарнизон может погасить удар",
+    locked_reason: null
+  },
+  {
+    rule_id: "raid_recruit_sabotage",
+    name: "Сорвать вербовку",
+    tier: 2,
+    category: "recruit",
+    category_label: "Саботаж найма",
+    description: "Ложные приказы на время останавливают приток рекрутов.",
+    token_cost: 1,
+    gold_cost: 25,
+    duration_minutes: 45,
+    effect_type: "recruit_block",
+    allowed_target_types: ["territory"],
+    required_building_ids: ["b_raid_office"],
+    required_building_labels: ["Рейдовая ставка"],
+    visibility: "Цель видит блокировку найма",
+    counterplay: "Заказ или оберег может снять помеху",
+    locked_reason: null
+  },
+  {
+    rule_id: "raid_order_intrigue",
+    name: "Черная печать",
+    tier: 2,
+    category: "intrigue",
+    category_label: "Интрига",
+    description: "Фальшивая печать путает доску объявлений и видимость следов.",
+    token_cost: 1,
+    gold_cost: 25,
+    duration_minutes: 45,
+    effect_type: "order_visibility_disrupt",
+    allowed_target_types: ["territory"],
+    required_building_ids: ["b_war_council"],
+    required_building_labels: ["Военный совет"],
+    visibility: "Часть деталей скрыта без разведки",
+    counterplay: "Комната видений или мастерский разбор раскрывает след",
+    locked_reason: "Нужно построить: Военный совет"
+  },
+  {
+    rule_id: "raid_loot_run",
+    name: "Налет за добычей",
+    tier: 2,
+    category: "loot",
+    category_label: "Налет за добычей",
+    description: "Быстрый налет не удерживает землю но может принести добычу.",
+    token_cost: 1,
+    gold_cost: 30,
+    duration_minutes: 10,
+    effect_type: "loot_once",
+    allowed_target_types: ["territory"],
+    required_building_ids: ["b_raid_office"],
+    required_building_labels: ["Рейдовая ставка"],
+    visibility: "Добычу видят источник и мастера",
+    counterplay: "Редкая добыча уходит в мастерский аудит",
+    locked_reason: null
+  },
+  {
+    rule_id: "raid_residence_mark",
+    name: "Метка на воротах",
+    tier: 3,
+    category: "residence",
+    category_label: "Рейд резиденции",
+    description: "Поздний знак на воротах приносит добычу или дебафф без захвата.",
+    token_cost: 2,
+    gold_cost: 45,
+    duration_minutes: 60,
+    effect_type: "residence_pressure",
+    allowed_target_types: ["residence"],
+    required_building_ids: ["b_war_council", "b_scrying_room"],
+    required_building_labels: ["Военный совет", "Комната видений"],
+    visibility: "Источник и цель видят итог",
+    counterplay: "Обереги или ритуальная палата могут заблокировать",
+    locked_reason: "Нужно построить: Военный совет, Комната видений"
+  }
+];
+
+const lordHomeFallbackRaidTargets: LordHomeRaidTarget[] = [
+  {
+    target_territory_id: "territory_fort_east",
+    name: "Северная застава",
+    owner_domain_id: "domain_river",
+    owner_label: "Речные ворота",
+    tier: 2,
+    bonus_type: "defense",
+    bonus_label: "оборона",
+    is_residence: false,
+    is_raid_only: false,
+    active_effects: [],
+    raid_resistance_label: "детали скрыты",
+    visibility_level: "hidden_details",
+    can_target: true
+  },
+  {
+    target_territory_id: "territory_field_east_large",
+    name: "Правые пашни",
+    owner_domain_id: "domain_forest",
+    owner_label: "Лесная марка",
+    tier: 1,
+    bonus_type: "recruit",
+    bonus_label: "найм",
+    is_residence: false,
+    is_raid_only: false,
+    active_effects: [{ rule_id: "raid_income_sabotage", status: "active", result_label: "Доход уже горит", expires_at: "через 18 мин." }],
+    raid_resistance_label: "детали скрыты",
+    visibility_level: "hidden_details",
+    can_target: true
+  },
+  {
+    target_territory_id: "territory_res_river",
+    name: "Речная резиденция",
+    owner_domain_id: "domain_river",
+    owner_label: "Речные ворота",
+    tier: 1,
+    bonus_type: "residence",
+    bonus_label: "резиденция",
+    is_residence: true,
+    is_raid_only: true,
+    active_effects: [],
+    raid_resistance_label: "обереги не раскрыты",
+    visibility_level: "hidden_details",
+    can_target: true
+  },
+  {
+    target_territory_id: "territory_res_north",
+    name: "Северная резиденция",
+    owner_domain_id: "domain_north",
+    owner_label: "Северный дозор",
+    tier: 1,
+    bonus_type: "residence",
+    bonus_label: "резиденция",
+    is_residence: true,
+    is_raid_only: true,
+    active_effects: [],
+    raid_resistance_label: "свои укрепления",
+    visibility_level: "owner_full",
+    can_target: false,
+    disabled_reason: "Своя резиденция не цель рейда"
+  }
+];
+
 
 const lordBuildingIconById: Partial<Record<string, string>> = {
   b_training_yard: buildingTrainingYardIcon,
@@ -1138,7 +1494,23 @@ const lordHomeApiErrorLabelByCode: Record<string, string> = {
   no_route: "Нет открытой дороги",
   route_cost_mismatch: "Стоимость пути изменилась",
   route_stopped_at_front: "Поход остановится на первом рубеже",
-  territory_node_not_found: "У этой земли нет точки на карте"
+  territory_node_not_found: "У этой земли нет точки на карте",
+  order_cap_exceeded: "Лимит активных заказов занят",
+  insufficient_escrow_gold: "В казне не хватает награды",
+  reward_asset_locked: "Эта награда уже под замком",
+  order_object_conflict: "За этот объект уже идет поручение",
+  final_lock_orders_closed: "Финал закрыл новые заказы",
+  invalid_addressed_target: "Адресат недоступен для заказа",
+  order_already_in_progress: "Заказ уже в работе или закрыт",
+  unknown_order_object: "Цель заказа сейчас недоступна",
+  insufficient_raid_tokens: "Нет рейдового жетона",
+  rule_locked: "Рейд закрыт постройками",
+  invalid_target: "Цель не подходит для этого рейда",
+  duplicate_active_effect: "Цель уже под таким эффектом",
+  stale_expected_cost: "Стоимость изменилась, обновите экран",
+  final_lock: "Финал закрыл новые рейды",
+  raid_rule_not_found: "План рейда недоступен",
+  territory_not_found: "Цель рейда недоступна"
 };
 
 const getLordHomeApiErrorMessage = (payload: unknown, fallback: string) => {
@@ -1164,6 +1536,202 @@ const getLordHomeApiErrorMessage = (payload: unknown, fallback: string) => {
   }
 
   return fallback;
+};
+
+const normalizeStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).filter(Boolean);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.split(/[;,]/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+};
+
+const getLordHomeRaidCategoryMeta = (category: string) =>
+  lordHomeRaidCategoryMeta[category as keyof typeof lordHomeRaidCategoryMeta] ??
+  lordHomeRaidCategoryMeta.economy;
+
+const getLordHomeRaidNodePosition = (rule: LordHomeRaidRule, index: number) => {
+  const positions = lordHomeRaidNodePositions[rule.category] ?? lordHomeRaidNodePositions.economy;
+  const base = positions[index % positions.length] ?? positions[0];
+  const rowOffset = Math.floor(index / positions.length) * 7;
+  return {
+    x: rule.x ?? Math.min(84, base.x + rowOffset),
+    y: rule.y ?? Math.min(82, base.y + rowOffset)
+  };
+};
+
+const normalizeLordHomeRaidRule = (rule: LordHomeRaidRule, index: number): LordHomeRaidRule => {
+  const fallback = lordHomeFallbackRaidRules[index % lordHomeFallbackRaidRules.length];
+  const category = rule.category || fallback.category;
+  return {
+    ...fallback,
+    ...rule,
+    rule_id: rule.rule_id || fallback.rule_id,
+    name: rule.name || fallback.name,
+    tier: Number(rule.tier ?? fallback.tier) || fallback.tier,
+    category,
+    category_label: rule.category_label || getLordHomeRaidCategoryMeta(category).label,
+    description: rule.description || fallback.description,
+    token_cost: Number(rule.token_cost ?? fallback.token_cost) || 0,
+    gold_cost: Number(rule.gold_cost ?? fallback.gold_cost) || 0,
+    duration_minutes: Number(rule.duration_minutes ?? fallback.duration_minutes) || 0,
+    effect_type: rule.effect_type || fallback.effect_type,
+    allowed_target_types: normalizeStringArray(rule.allowed_target_types).length
+      ? normalizeStringArray(rule.allowed_target_types)
+      : fallback.allowed_target_types,
+    required_building_ids: normalizeStringArray(rule.required_building_ids),
+    required_building_labels: normalizeStringArray(rule.required_building_labels),
+    visibility: rule.visibility || fallback.visibility,
+    counterplay: rule.counterplay || fallback.counterplay,
+    locked_reason: rule.locked_reason ?? null
+  };
+};
+
+const normalizeLordHomeRaidTarget = (target: LordHomeRaidTarget): LordHomeRaidTarget => ({
+  ...target,
+  tier: Number(target.tier ?? 1) || 1,
+  owner_label: target.owner_label || target.owner_domain_id || "ничья",
+  bonus_label: target.bonus_label || target.bonus_type || "земля",
+  active_effects: target.active_effects ?? [],
+  can_target: target.can_target !== false
+});
+
+const isLordHomeRaidTargetCompatible = (rule: LordHomeRaidRule, target: LordHomeRaidTarget | null) => {
+  if (!target) return false;
+  const allowed = new Set(rule.allowed_target_types);
+  if (target.is_residence) {
+    return allowed.has("residence");
+  }
+  return allowed.has("territory") || allowed.has("contested") || allowed.has("b_raid_only");
+};
+
+const getLordHomeRaidBlockReason = ({
+  rule,
+  target,
+  raidTokens,
+  lordGold,
+  activeEffects,
+  isSubmitting
+}: {
+  rule: LordHomeRaidRule | null;
+  target: LordHomeRaidTarget | null;
+  raidTokens: number;
+  lordGold: number;
+  activeEffects: LordHomeRaidEffect[];
+  isSubmitting: boolean;
+}) => {
+  if (isSubmitting) return "Печать уже ставится";
+  if (!rule) return "План рейда не выбран";
+  if (!target) return "Цель рейда не выбрана";
+  if (rule.locked_reason) return rule.locked_reason;
+  if (raidTokens < rule.token_cost) return "Нет рейдового жетона";
+  if (lordGold < rule.gold_cost) return "Недостаточно золота";
+  if (target.can_target === false) return target.disabled_reason || "Цель недоступна";
+  if (!isLordHomeRaidTargetCompatible(rule, target)) return "Цель не подходит для этого плана";
+  const duplicateTargetEffects = [
+    ...(target.active_effects ?? []),
+    ...activeEffects.filter((effect) => effect.target_territory_id === target.target_territory_id)
+  ];
+  if (duplicateTargetEffects.some((effect) => effect.rule_id === rule.rule_id || effect.effect_type === rule.effect_type)) {
+    return "Цель уже под таким эффектом";
+  }
+  if (target.disabled_reason) return target.disabled_reason;
+  return "";
+};
+
+const getLordHomeRaidExpiryLabel = (effects: LordHomeRaidEffect[]) => {
+  const dated = effects
+    .filter((effect) => effect.status === "active" && effect.expires_at)
+    .map((effect) => ({ effect, time: Date.parse(String(effect.expires_at)) }))
+    .filter((item) => Number.isFinite(item.time))
+    .sort((a, b) => a.time - b.time);
+  if (!dated.length) {
+    const textual = effects.find((effect) => effect.status === "active" && effect.expires_at)?.expires_at;
+    return textual ? String(textual) : "нет";
+  }
+  const deltaMs = dated[0].time - Date.now();
+  if (deltaMs <= 0) return "истекает";
+  return formatLordHomeTimerCountdown(deltaMs / 1000);
+};
+
+const getLordHomeRaidResultText = (result: LordHomeRaidResponse) => {
+  if (result.needs_master_review) return "Результат ушел мастеру";
+  if (result.resisted) return "Цель выдержала удар";
+  if (result.loot_applied) return "Добыча внесена в казну";
+  if (result.started) return "Рейд начат";
+  return result.status || "Приказ принят";
+};
+
+const lordHomeOrderFilters = [
+  { id: "drafts", label: "Черновики", statuses: ["draft"] },
+  { id: "open", label: "Открытые", statuses: ["published", "addressed_pending"] },
+  { id: "taken", label: "Взяты", statuses: ["accepted", "in_progress", "claimed_at_prop", "submitted_pending_sync"] },
+  { id: "review", label: "Ждут мастера", statuses: ["pending_master_approval", "contested_review", "failed_retryable"] },
+  { id: "archive", label: "Архив", statuses: ["completed", "failed_closed", "cancelled_by_lord", "expired"] }
+] as const;
+
+type LordHomeOrderFilterId = (typeof lordHomeOrderFilters)[number]["id"];
+
+const lordHomeCancellableOrderStatuses = new Set(["draft", "published", "addressed_pending", "accepted", "failed_retryable"]);
+
+const getLordHomeOrderCap = (cap?: LordHomeOrderCap) => ({
+  publicActive: Number(cap?.public_active ?? 0),
+  publicLimit: Number(cap?.public_limit ?? 2),
+  addressedActive: Number(cap?.addressed_active ?? 0),
+  addressedLimit: Number(cap?.addressed_limit ?? 1)
+});
+
+const getLordHomeOrdersForFilter = (orders: LordHomeOrder[], filterId: LordHomeOrderFilterId) => {
+  const filter = lordHomeOrderFilters.find((item) => item.id === filterId) ?? lordHomeOrderFilters[1];
+  const statuses = new Set<string>(filter.statuses);
+  return orders.filter((order) => statuses.has(String(order.status ?? "")));
+};
+
+const getLordHomeOrderDisplayTitle = (order: LordHomeOrder) => {
+  const label = (order.visible_hook || order.object_label || "Заказ").trim();
+  return label.replace(/^(Публичный|Адресный)\s+заказ:\s*/i, "").trim() || label;
+};
+
+const getLordHomeOrderWindowLabel = (order: LordHomeOrder) => {
+  if (order.expires_at) {
+    return order.expires_at;
+  }
+  const actMatch = String(order.target_act_id ?? "").match(/act_?(\d+)/i);
+  return actMatch ? `Акт ${actMatch[1]}` : "Текущее окно";
+};
+
+const getLordHomeOrderRewardGold = (reward?: LordHomeOrderRewardOption | null) => {
+  const gold = Number(reward?.gold ?? 0);
+  return Number.isFinite(gold) ? Math.max(0, gold) : 0;
+};
+
+const getLordHomeOrderEscrowLabel = (order?: LordHomeOrder | null) => {
+  const label = order?.escrow_label || "";
+  if (/^в escrow$/i.test(label)) return "В залоге";
+  if (/^нет escrow$/i.test(label)) return "нет";
+  return label || "нет";
+};
+
+const getLordHomeOrderAvailableGold = (escrow?: LordHomeOrderEscrow, lordGold = 0) => {
+  const availableGold = Number(escrow?.available_gold);
+  if (Number.isFinite(availableGold)) {
+    return Math.max(0, availableGold);
+  }
+  return Math.max(0, lordGold - Number(escrow?.locked_gold ?? 0));
+};
+
+const canCancelLordHomeOrder = (order?: LordHomeOrder | null) =>
+  Boolean(order?.order_id && lordHomeCancellableOrderStatuses.has(String(order.status ?? "")));
+
+const getLordHomeOrderTone = (order?: LordHomeOrder | null) => {
+  const status = String(order?.status ?? "");
+  if (status === "contested_review" || order?.conflict_badge) return "review";
+  if (status === "completed") return "done";
+  if (["cancelled_by_lord", "expired", "failed_closed"].includes(status)) return "muted";
+  if (["accepted", "in_progress", "claimed_at_prop", "submitted_pending_sync", "pending_master_approval"].includes(status)) return "taken";
+  return "open";
 };
 
 const getLordHomeStacksFromBackend = (rows: LordHomeBackendStack[] | "" | null | undefined): LordHomeStack[] => {
@@ -1236,21 +1804,91 @@ const lordHomeActLabelById: Record<string, string> = {
   final_lock: "Финал"
 };
 
+const lordHomeTickEffectLabelById: Record<string, string> = {
+  lord_income_and_mana: "тик дохода",
+  income: "тик дохода",
+  mana: "тик маны",
+  movement: "тик MP",
+  movement_points: "тик MP",
+  final_lock: "финальный тик"
+};
+
 const getLordHomeActLabel = (timerSummary: LordHomeBackendTimerSummary | null) => {
   const actId = timerSummary?.current_act_id ?? "";
   return lordHomeActLabelById[actId] ?? (actId ? actId : "Ожидание");
 };
 
-const getLordHomeTimerShortLabel = (timerSummary: LordHomeBackendTimerSummary | null) => {
+const formatLordHomeTimerCountdown = (seconds: number) => {
+  const safeSeconds = Math.max(0, Math.ceil(seconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const remainingSeconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}ч ${String(minutes).padStart(2, "0")}м`;
+  }
+
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const getLordHomeTimerRemainingSeconds = (
+  timerSummary: LordHomeBackendTimerSummary | null,
+  nowMs: number
+) => {
   const nextTick = timerSummary?.next_tick;
   if (!nextTick) {
-    return timerSummary?.status === "active" ? "тик завершен" : "нет акта";
+    return null;
+  }
+
+  const dueAtMs = nextTick.due_at ? Date.parse(nextTick.due_at) : Number.NaN;
+  if (Number.isFinite(dueAtMs)) {
+    return Math.max(0, Math.ceil((dueAtMs - nowMs) / 1000));
   }
 
   const secondsUntil = Number(nextTick.seconds_until ?? 0);
-  const minutesUntil = Math.max(0, Math.ceil(secondsUntil / 60));
-  return `${minutesUntil} мин.`;
+  return Number.isFinite(secondsUntil) ? Math.max(0, Math.ceil(secondsUntil)) : null;
 };
+
+const getLordHomeTimerShortLabel = (
+  timerSummary: LordHomeBackendTimerSummary | null,
+  nowMs = Date.now()
+) => {
+  const nextTick = timerSummary?.next_tick;
+  if (!nextTick) {
+    return timerSummary?.status === "active" ? "тики завершены" : "нет акта";
+  }
+
+  const secondsUntil = getLordHomeTimerRemainingSeconds(timerSummary, nowMs);
+  return secondsUntil === null ? "нет времени" : formatLordHomeTimerCountdown(secondsUntil);
+};
+
+const getLordHomeTickLabel = (timerSummary: LordHomeBackendTimerSummary | null) => {
+  const effectType = timerSummary?.next_tick?.effect_type ?? "";
+  return lordHomeTickEffectLabelById[effectType] ?? (effectType ? "следующий тик" : "");
+};
+
+function LordHomeTimerChip({
+  timerSummary,
+  nowMs
+}: {
+  timerSummary: LordHomeBackendTimerSummary | null;
+  nowMs: number;
+}) {
+  const actLabel = getLordHomeActLabel(timerSummary);
+  const timerLabel = getLordHomeTimerShortLabel(timerSummary, nowMs);
+  const tickLabel = getLordHomeTickLabel(timerSummary);
+  const isActive = timerSummary?.status === "active";
+  const ariaLabel = [actLabel, tickLabel, timerLabel].filter(Boolean).join(": ");
+
+  return (
+    <div className={`lord-home-timer-chip${isActive ? " is-active" : ""}`} aria-label={ariaLabel}>
+      <Clock3 size={14} aria-hidden="true" />
+      <b>{actLabel}</b>
+      <span>{timerLabel}</span>
+      {tickLabel ? <small>{tickLabel}</small> : null}
+    </div>
+  );
+}
 
 const clampLordHomeMetric = (value: number, fallback: number) =>
   Number.isFinite(value) ? Math.max(0, Math.round(value)) : fallback;
@@ -1311,8 +1949,14 @@ type LordMapMovementDraft = {
   startedAt: number;
   durationMs: number;
 };
+type LordMapMode = "march" | "info";
 type LordMapLayerId = "roads" | "territories" | "costs";
 type LordMapLayerState = Record<LordMapLayerId, boolean>;
+
+const lordMapModeButtons = [
+  { id: "march", label: "Поход", icon: Route },
+  { id: "info", label: "Сведения", icon: ScrollText }
+] as const satisfies ReadonlyArray<{ id: LordMapMode; label: string; icon: typeof Route }>;
 
 const lordMapLayerButtons = [
   { id: "roads", label: "Дороги", icon: Route },
@@ -1355,6 +1999,161 @@ const lordMapSockets = [
 }>;
 type LordMapSocket = (typeof lordMapSockets)[number];
 type LordMapRoadPoint = readonly [number, number];
+
+type LordMapTerritoryProfile = {
+  tier: string;
+  bonus: string;
+  income: string;
+  hire: string;
+  magic: string;
+  orders: string;
+  defense: string;
+  garrison: string;
+  neutralDefense: string;
+  raidEffects: string;
+};
+
+const lordMapTerritoryProfileOverrides: Record<string, Partial<LordMapTerritoryProfile>> = {
+  node_fort_east: {
+    tier: "T2",
+    bonus: "северный рубеж, оборона дорог",
+    income: "+8 золота/час",
+    hire: "стража T1",
+    magic: "нет",
+    orders: "перехват на северной дороге",
+    defense: "+2 к обороне",
+    garrison: "6 отрядов",
+    neutralDefense: "стража заставы, остановка при входе"
+  },
+  node_fort_west: {
+    tier: "T2",
+    bonus: "западный рубеж, контроль пашен",
+    income: "+8 золота/час",
+    hire: "копейщики T1",
+    defense: "+2 к обороне",
+    garrison: "6 отрядов",
+    neutralDefense: "острожная стража, остановка при входе"
+  },
+  node_fort_southwest: {
+    tier: "T2",
+    bonus: "южный рубеж, дорога к утесу",
+    income: "+7 золота/час",
+    hire: "ополчение T1",
+    defense: "+2 к обороне",
+    garrison: "6 отрядов",
+    neutralDefense: "нейтральная крепь, остановка при входе"
+  },
+  node_spanish_magic: {
+    tier: "T2",
+    bonus: "магический спор",
+    income: "+1 знак/час",
+    magic: "ритуальный узел",
+    orders: "заявка магам",
+    neutralDefense: "нестабильная зона, остановка при входе"
+  },
+  node_science_barn: {
+    tier: "T2",
+    bonus: "мануфактура",
+    income: "+10 золота/час",
+    hire: "нет",
+    orders: "ремесленный заказ"
+  }
+};
+
+const getLordMapDefaultTerritoryProfile = (socket: LordMapSocket): LordMapTerritoryProfile => {
+  if (isLordMapResidenceSocket(socket)) {
+    return {
+      tier: "T3",
+      bonus: "резиденция дома",
+      income: "+18 золота/час",
+      hire: "основной набор",
+      magic: "придворная поддержка",
+      orders: "приказы дома",
+      defense: "+3 к обороне",
+      garrison: "8 отрядов",
+      neutralDefense: "нет",
+      raidEffects: "нет видимых эффектов"
+    };
+  }
+
+  if (socket.id.includes("field") || socket.id.includes("oats")) {
+    return {
+      tier: "T1",
+      bonus: "зерно и доход",
+      income: "+6 золота/час",
+      hire: "ополчение T1",
+      magic: "нет",
+      orders: "снабжение",
+      defense: "+0 к обороне",
+      garrison: "4 отряда",
+      neutralDefense: "местная стража, остановка при входе",
+      raidEffects: "нет видимых эффектов"
+    };
+  }
+
+  if (socket.id.includes("village") || socket.id.includes("barn") || socket.id.includes("well")) {
+    return {
+      tier: "T1",
+      bonus: "люди и торговля",
+      income: "+5 золота/час",
+      hire: "ополчение T1",
+      magic: "нет",
+      orders: "посыльные",
+      defense: "+1 к обороне",
+      garrison: "4 отряда",
+      neutralDefense: "деревенская стража, остановка при входе",
+      raidEffects: "нет видимых эффектов"
+    };
+  }
+
+  if (socket.id.includes("mountain")) {
+    return {
+      tier: "T2",
+      bonus: "трудный перевал",
+      income: "+4 золота/час",
+      hire: "егеря T1",
+      magic: "нет",
+      orders: "дозор",
+      defense: "+2 к обороне",
+      garrison: "5 отрядов",
+      neutralDefense: "горный дозор, остановка при входе",
+      raidEffects: "нет видимых эффектов"
+    };
+  }
+
+  if (socket.id.includes("lake") || socket.id.includes("swamp") || socket.id.includes("forest")) {
+    return {
+      tier: "T1",
+      bonus: "укрытия и разведка",
+      income: "+4 золота/час",
+      hire: "следопыты T1",
+      magic: socket.id.includes("swamp") ? "слабый знак" : "нет",
+      orders: "засада",
+      defense: "+1 к обороне",
+      garrison: "4 отряда",
+      neutralDefense: "местные дозоры, остановка при входе",
+      raidEffects: "нет видимых эффектов"
+    };
+  }
+
+  return {
+    tier: "T1",
+    bonus: "локальный доход",
+    income: "+5 золота/час",
+    hire: "ополчение T1",
+    magic: "нет",
+    orders: "снабжение",
+    defense: "+1 к обороне",
+    garrison: "4 отряда",
+    neutralDefense: "нейтральная стража, остановка при входе",
+    raidEffects: "нет видимых эффектов"
+  };
+};
+
+const getLordMapTerritoryProfile = (socket: LordMapSocket): LordMapTerritoryProfile => ({
+  ...getLordMapDefaultTerritoryProfile(socket),
+  ...(lordMapTerritoryProfileOverrides[socket.id] ?? {})
+});
 
 const lordMapRoadViewBox = { width: 3172, height: 1984 } as const;
 
@@ -1889,10 +2688,18 @@ const castleBuildings = [
 
 const lordEndpointLinks = [
   {
+    path: "/login",
+    title: "Legacy showcase login",
+    detail: "Old Stage 2B showcase/fallback from the screenshot; not the active lord login.",
+    state: "legacy",
+    icon: Layers,
+    tone: "red"
+  },
+  {
     path: "/lords/login",
     title: "Вход лорда",
     detail: "Игровой код роли, валидный вход в лордский контур.",
-    state: "готово",
+    state: "current",
     icon: Crown,
     tone: "blue"
   },
@@ -1900,15 +2707,15 @@ const lordEndpointLinks = [
     path: "/lords/castle",
     title: "Замок",
     detail: "Основная страница после входа: резиденция, ветки развития и здания.",
-    state: "основная",
+    state: "legacy",
     icon: Castle,
-    tone: "gold"
+    tone: "muted"
   },
   {
     path: "/lords/home",
     title: "Карта владений",
     detail: "Крупная карта, мини-карта и переходы в замок, заказы и рейды.",
-    state: "готово",
+    state: "current",
     icon: Map,
     tone: "green"
   },
@@ -1916,7 +2723,7 @@ const lordEndpointLinks = [
     path: "/lords/dashboard",
     title: "Карта, алиас",
     detail: "Тот же экран карты для старых ссылок и тестов.",
-    state: "алиас",
+    state: "legacy alias",
     icon: Route,
     tone: "muted"
   },
@@ -1924,7 +2731,7 @@ const lordEndpointLinks = [
     path: "/lords",
     title: "Основной вход",
     detail: "Алиас основной страницы лорда, сейчас ведет в замок.",
-    state: "алиас",
+    state: "legacy alias",
     icon: Castle,
     tone: "muted"
   },
@@ -1932,9 +2739,9 @@ const lordEndpointLinks = [
     path: "/",
     title: "Stage 2B обзор",
     detail: "Общая витрина прототипов и старых экранов Stage 2B.",
-    state: "служебно",
+    state: "legacy showcase",
     icon: Layers,
-    tone: "violet"
+    tone: "muted"
   }
 ] as const;
 
@@ -1950,6 +2757,10 @@ const toneClass: Record<Tone, string> = {
 function App() {
   if (window.location.pathname === "/lords/login") {
     return <AnimatedLordLoginScreen />;
+  }
+
+  if (window.location.pathname === "/lords/battle") {
+    return <LordBattleScreen />;
   }
 
 
@@ -1971,6 +2782,7 @@ function App() {
 
   return (
     <main className="min-h-screen bg-night-950 text-ember-50">
+      <LegacyPrototypeNotice />
       <HeroHeader />
       <section className="mx-auto flex w-full max-w-[1760px] flex-col gap-8 px-5 pb-16 md:px-8">
         <LordCommandTable />
@@ -1980,6 +2792,21 @@ function App() {
         <AssetHandoff />
       </section>
     </main>
+  );
+}
+
+function LegacyPrototypeNotice() {
+  return (
+    <div className="border-b border-red-300/30 bg-red-950/70 px-5 py-3 text-sm text-red-50 md:px-8">
+      <div className="mx-auto flex w-full max-w-[1760px] flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <strong className="uppercase tracking-[.24em] text-red-200">Legacy / reference</strong>
+        <span className="text-red-50/85">
+          Current lord flow: <a className="underline decoration-red-200/60 underline-offset-4" href="/lords/login">/lords/login</a>{" -> "}
+          <a className="underline decoration-red-200/60 underline-offset-4" href="/lords/home">/lords/home</a>{" -> "}
+          <a className="underline decoration-red-200/60 underline-offset-4" href="/lords/home?panel=orders">/lords/home?panel=orders</a>
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -2009,8 +2836,11 @@ function LordMapScreen() {
   const [serverRoutePreview, setServerRoutePreview] = useState<LordMapBackendRoutePreview | null>(null);
   const [routePreviewState, setRoutePreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [mapActionStatus, setMapActionStatus] = useState("");
+  const [mapMode, setMapMode] = useState<LordMapMode>("march");
+  const [isMapInspectorCollapsed, setIsMapInspectorCollapsed] = useState(false);
   const [isMoveSubmitting, setIsMoveSubmitting] = useState(false);
   const [pendingRenderNowMs, setPendingRenderNowMs] = useState(() => Date.now());
+  const [mapTimerNowMs, setMapTimerNowMs] = useState(() => Date.now());
   const [mapLayers, setMapLayers] = useState<LordMapLayerState>({
     roads: true,
     territories: true,
@@ -2028,6 +2858,7 @@ function LordMapScreen() {
   const mapMovementPoints = Number.isFinite(backendCurrentMp) ? Math.max(0, backendCurrentMp) : lordMapMovementPoints;
   const backendMpCap = Number(backendMovement?.mp_cap);
   const mapMovementCap = Number.isFinite(backendMpCap) ? Math.max(mapMovementPoints, backendMpCap) : lordMapMovementPoints;
+  const isMarchMode = mapMode === "march";
 
   const fetchLordMapState = useCallback(async (options?: { silent?: boolean }) => {
     try {
@@ -2085,6 +2916,26 @@ function LordMapScreen() {
 
   useEffect(() => {
     void fetchLordMapState({ silent: true });
+  }, [fetchLordMapState]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setMapTimerNowMs(Date.now());
+    }, lordHomeClockTickMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void fetchLordMapState({ silent: true });
+    }, lordHomeStatePollMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
   }, [fetchLordMapState]);
 
   useEffect(() => {
@@ -2201,7 +3052,7 @@ function LordMapScreen() {
 
   const selectedSocket = getLordMapSocketById(selectedSocketId);
   const pendingDisplaySocketId = backendPendingMove?.requested_to_node_id ?? backendPendingMove?.to_node_id;
-  const displaySocketId = movementDraft?.targetSocketId ?? pendingDisplaySocketId ?? hoveredSocketId ?? selectedSocketId;
+  const displaySocketId = movementDraft?.targetSocketId ?? pendingDisplaySocketId ?? (isMarchMode ? hoveredSocketId : null) ?? selectedSocketId;
   const displaySocket = getLordMapSocketById(displaySocketId);
   const armySocket = getLordMapSocketById(armySocketId);
   const routeStartSocket = getLordMapSocketById(routeStartSocketId);
@@ -2229,8 +3080,8 @@ function LordMapScreen() {
       : null;
   const routeStopSocketId = pendingStopSocket?.id ?? serverStopSocket?.id ?? displayRoutePreview.contactSocketId;
   const contactSocket = routeStopSocketId ? getLordMapSocketById(routeStopSocketId) : null;
-  const activeRoutePathIds = movementDraft?.pathIds ?? (pendingPathIds.length > 1 ? pendingPathIds : serverRouteIds);
-  const displayPathIds = movementDraft?.pathIds ?? displayRoutePreview.pathIds;
+  const activeRoutePathIds = movementDraft?.pathIds ?? (pendingPathIds.length > 1 ? pendingPathIds : isMarchMode ? serverRouteIds : []);
+  const displayPathIds = movementDraft?.pathIds ?? (isMarchMode ? displayRoutePreview.pathIds : []);
   const displayRouteSegments = getLordMapRouteSegments(displayPathIds);
   const activeRouteSegments = getLordMapRouteSegments(activeRoutePathIds);
   const hasSeparateActiveRoute =
@@ -2238,7 +3089,7 @@ function LordMapScreen() {
     displayPathIds.length > 1 &&
     activeRoutePathIds.join("|") !== displayPathIds.join("|");
   const routePlanSegments = hasSeparateActiveRoute ? displayRouteSegments : [];
-  const routeCurrentSegments = hasSeparateActiveRoute ? activeRouteSegments : displayRouteSegments;
+  const routeCurrentSegments = activeRoutePathIds.length > 1 ? activeRouteSegments : displayRouteSegments;
   const displayRouteEdgeIds = new Set(
     displayPathIds.slice(1).map((socketId, index) => getLordMapTravelEdge(displayPathIds[index], socketId)?.id).filter(Boolean)
   );
@@ -2247,7 +3098,7 @@ function LordMapScreen() {
   );
   const displayPathLabel = displayPathIds.map((socketId) => getLordMapSocketById(socketId).name).join(" - ");
   const displayPathCost = displayPathIds.length > 1 ? getLordMapPathCost(displayPathIds) : displayRoutePreview.cost;
-  const hasDisplayRoute = displayPathIds.length > 1 && Number.isFinite(displayPathCost);
+  const hasDisplayRoute = isMarchMode && displayPathIds.length > 1 && Number.isFinite(displayPathCost);
   const pendingMoveTiming = getLordMapMoveTiming(backendPendingMove, pendingRenderNowMs);
   const pendingTravelProgress = pendingMoveTiming.progress;
   const armyMarkerPoint = movementDraft
@@ -2264,6 +3115,7 @@ function LordMapScreen() {
     movementDraft?.targetSocketId ?? backendPendingMove?.requested_to_node_id ?? backendPendingMove?.to_node_id ?? armySocketId;
   const isPlanningFromArmy = routeStartSocketId === armySocketId;
   const canDispatchRoute =
+    isMarchMode &&
     !isMoveSubmitting &&
     !isBackendPendingMove &&
     routePreviewState !== "loading" &&
@@ -2275,6 +3127,7 @@ function LordMapScreen() {
 
   useEffect(() => {
     if (
+      !isMarchMode ||
       mapApiState !== "online" ||
       !isPlanningFromArmy ||
       movementDraft ||
@@ -2350,6 +3203,7 @@ function LordMapScreen() {
     displayRoutePreview.status,
     isBackendPendingMove,
     isPlanningFromArmy,
+    isMarchMode,
     mapApiState,
     mapMovementPoints,
     movementDraft
@@ -2414,6 +3268,59 @@ function LordMapScreen() {
       ? `Текущий ход: ${activeRouteLabel}`
       : null;
   const activeBattle = true;
+  const mapTimerSummary = backendState?.timer_summary ?? null;
+  const backendArmyCapacity = Number(backendState?.domain?.active_army_capacity);
+  const mapArmyCapacity = Math.min(
+    8,
+    Math.max(
+      1,
+      Number.isFinite(backendArmyCapacity)
+        ? backendArmyCapacity
+        : lordHomeInitialDomainStats.activeArmyCapacity
+    )
+  );
+  const backendActiveArmy = getLordHomeStacksFromBackend(backendState?.active_army ?? null);
+  const mapActiveArmyStacks = mapApiState === "online" ? backendActiveArmy : lordHomeInitialArmy;
+  const mapArmySlots = Array.from({ length: mapArmyCapacity }, (_, index) => mapActiveArmyStacks[index] ?? null);
+  const mapArmyUnitCount = mapActiveArmyStacks.reduce((total, stack) => total + stack.count, 0);
+  const mapHudStatusText = movementDraft
+    ? `Идет к ${movingTargetSocket?.name ?? previewTargetSocket.name}`
+    : isBackendPendingMove
+      ? `В пути к ${pendingTargetSocket?.name ?? previewTargetSocket.name}: ${pendingRemainingLabel}`
+      : `Стоит в ${armySocket.name}`;
+  const mapBattleSocket =
+    !movementDraft &&
+    !isBackendPendingMove &&
+    !isMoveSubmitting &&
+    isLordMapRouteStopSocket(armySocket, currentLord)
+      ? armySocket
+      : null;
+  const territoryProfile = getLordMapTerritoryProfile(displaySocket);
+  const territoryInfoRows = [
+    { label: "Tier", value: territoryProfile.tier },
+    { label: "Бонус", value: territoryProfile.bonus },
+    { label: "Доход", value: territoryProfile.income },
+    { label: "Найм", value: territoryProfile.hire },
+    { label: "Магия", value: territoryProfile.magic },
+    { label: "Заказы", value: territoryProfile.orders },
+    { label: "Оборона", value: territoryProfile.defense },
+    { label: "Гарнизон", value: territoryProfile.garrison },
+    { label: "Нейтральная стража", value: territoryProfile.neutralDefense },
+    { label: "Набеги", value: territoryProfile.raidEffects }
+  ];
+  const territoryRoads = getLordMapNeighbors(displaySocket.id).map((neighbor) => {
+    const neighborSocket = getLordMapSocketById(neighbor.id);
+    return `${neighborSocket.name}: ${neighbor.cost} MP`;
+  });
+
+  const setLordMapMode = (mode: LordMapMode) => {
+    setMapMode(mode);
+    setHoveredSocketId(null);
+    if (mode === "info") {
+      setServerRoutePreview(null);
+      setRoutePreviewState("idle");
+    }
+  };
 
   const toggleMapLayer = (layerId: LordMapLayerId) => {
     setMapLayers((currentLayers) => ({
@@ -2557,6 +3464,9 @@ function LordMapScreen() {
     <main className="lord-map-game-screen" onContextMenu={(event) => event.preventDefault()}>
       <div className="lord-map-game-stage">
         <div className="lord-map-game-grade" />
+        <header className="lord-map-top-strip">
+          <LordHomeTimerChip timerSummary={mapTimerSummary} nowMs={mapTimerNowMs} />
+        </header>
         <nav className="lord-map-left-dock lord-home-left-dock" aria-label="Основные действия лорда">
           {lordHomeActionDock.map((action) => (
             <button
@@ -2572,6 +3482,11 @@ function LordMapScreen() {
 
                 if (action.id === "buildings") {
                   window.location.assign("/lords/home?view=buildings");
+                  return;
+                }
+
+                if (action.id === "battle") {
+                  window.location.assign("/lords/battle");
                   return;
                 }
 
@@ -2624,13 +3539,18 @@ function LordMapScreen() {
                 const directTravelCost = getLordMapDirectCost(routeStartSocketId, socket.id);
                 const isArmySocket = socket.id === armySocketId && !movementDraft && !isBackendPendingMove;
                 const isRouteStart = socket.id === routeStartSocketId && !isArmySocket;
-                const isRouteStep = displayPathIds.includes(socket.id);
+                const isRouteStep = displayPathIds.includes(socket.id) || activeRoutePathIds.includes(socket.id);
                 const isRouteStop = routeStopSocketId === socket.id && hasDisplayRoute;
-                const isPreviewTarget = displaySocket.id === socket.id && !isArmySocket;
-                const isRequestedTarget = displayRoutePreview.requestedSocketId === socket.id && routeStopSocketId !== null && routeStopSocketId !== socket.id;
-                const isDirectRoute = directTravelCost !== null && !isArmySocket && !isLordMapForeignResidence(socket, currentLord);
-                const isBlockedTarget = isPreviewTarget && displayRoutePreview.status === "blocked";
+                const isPreviewTarget = isMarchMode && displaySocket.id === socket.id && !isArmySocket;
+                const isRequestedTarget =
+                  isMarchMode &&
+                  displayRoutePreview.requestedSocketId === socket.id &&
+                  routeStopSocketId !== null &&
+                  routeStopSocketId !== socket.id;
+                const isDirectRoute = isMarchMode && directTravelCost !== null && !isArmySocket && !isLordMapForeignResidence(socket, currentLord);
+                const isBlockedTarget = isMarchMode && isPreviewTarget && displayRoutePreview.status === "blocked";
                 const isOutOfRange =
+                  isMarchMode &&
                   isPreviewTarget &&
                   displayRoutePreview.pathIds.length > 1 &&
                   Number.isFinite(displayRoutePreview.cost) &&
@@ -2648,13 +3568,13 @@ function LordMapScreen() {
                       }
                     }}
                     onFocus={() => {
-                      if (!isMarching) {
+                      if (!isMarching && isMarchMode) {
                         setHoveredSocketId(socket.id);
                       }
                     }}
                     onBlur={() => setHoveredSocketId(null)}
                     onMouseEnter={() => {
-                      if (!isMarching) {
+                      if (!isMarching && isMarchMode) {
                         setHoveredSocketId(socket.id);
                       }
                     }}
@@ -2695,9 +3615,17 @@ function LordMapScreen() {
               type="button"
               style={{ left: `${armyMarkerPoint.x}%`, top: `${armyMarkerPoint.y}%` }}
               onClick={() => setSelectedSocketId(armyMarkerTargetSocketId)}
-              onFocus={() => setHoveredSocketId(armyMarkerTargetSocketId)}
+              onFocus={() => {
+                if (isMarchMode) {
+                  setHoveredSocketId(armyMarkerTargetSocketId);
+                }
+              }}
               onBlur={() => setHoveredSocketId(null)}
-              onMouseEnter={() => setHoveredSocketId(armyMarkerTargetSocketId)}
+              onMouseEnter={() => {
+                if (isMarchMode) {
+                  setHoveredSocketId(armyMarkerTargetSocketId);
+                }
+              }}
               onMouseLeave={() => setHoveredSocketId(null)}
               aria-label={`${currentLord.armyName}, ${(movingTargetSocket ?? armySocket).name}`}
             >
@@ -2708,77 +3636,178 @@ function LordMapScreen() {
               </span>
               <span className="lord-map-army-caption">{movementDraft || isBackendPendingMove || isMoveSubmitting ? "Идет" : "Армия"}</span>
             </button>
+            {mapBattleSocket && (
+              <button
+                className="lord-map-battle-cta"
+                type="button"
+                style={{ left: `${mapBattleSocket.x}%`, top: `${mapBattleSocket.y}%` }}
+                aria-label={`Начать бой: ${mapBattleSocket.name}`}
+                onClick={() => {
+                  window.location.assign(`/lords/battle?node=${mapBattleSocket.id}`);
+                }}
+              >
+                <Swords size={15} />
+                Бой
+              </button>
+            )}
           </motion.div>
         </section>
 
-        <aside className={`lord-map-selection ${previewTargetSocket.tone}${movementDraft || isBackendPendingMove ? " is-moving" : ""}`} aria-live="polite">
-          <span>{selectionOwnerLabel}</span>
-          <h1>{displaySocket.name}</h1>
-          <div className="lord-map-route-picker" aria-label="План похода">
-            <label>
-              <span>Старт</span>
-              <select
-                value={routeStartSocketId}
-                onChange={(event) => setRouteStartSocketId(event.target.value)}
-                disabled={isMarching}
-              >
-                {lordMapSockets.map((socket) => (
-                  <option key={socket.id} value={socket.id}>
-                    {socket.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              className="lord-map-route-reset"
-              type="button"
-              disabled={isMarching || routeStartSocketId === armySocketId}
-              onClick={() => setRouteStartSocketId(armySocketId)}
-            >
-              От армии
-            </button>
-            <label>
-              <span>Цель</span>
-              <select
-                value={displaySocket.id}
-                onChange={(event) => {
-                  setSelectedSocketId(event.target.value);
-                  setHoveredSocketId(null);
-                }}
-                disabled={isMarching}
-              >
-                {lordMapSockets.map((socket) => (
-                  <option key={socket.id} value={socket.id}>
-                    {socket.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <button
+          className={`lord-map-inspector-toggle${isMapInspectorCollapsed ? " is-collapsed" : ""}`}
+          type="button"
+          aria-label={isMapInspectorCollapsed ? "Развернуть панель карты" : "Свернуть панель карты"}
+          aria-expanded={!isMapInspectorCollapsed}
+          onClick={() => setIsMapInspectorCollapsed((current) => !current)}
+        >
+          {isMapInspectorCollapsed ? <Maximize2 size={17} /> : <Minimize2 size={17} />}
+        </button>
+
+        {!isMapInspectorCollapsed && (
+          <aside className={`lord-map-selection ${displaySocket.tone}${movementDraft || isBackendPendingMove ? " is-moving" : ""}`} aria-live="polite">
+            <span>{selectionOwnerLabel}</span>
+            <h1>{displaySocket.name}</h1>
+            <div className="lord-map-mode-toggle" role="tablist" aria-label="Режим карты">
+              {lordMapModeButtons.map((modeButton) => {
+                const ModeIcon = modeButton.icon;
+
+                return (
+                  <button
+                    key={modeButton.id}
+                    className={mapMode === modeButton.id ? "is-active" : ""}
+                    type="button"
+                    role="tab"
+                    aria-selected={mapMode === modeButton.id}
+                    onClick={() => setLordMapMode(modeButton.id)}
+                  >
+                    <ModeIcon size={14} />
+                    {modeButton.label}
+                  </button>
+                );
+              })}
+            </div>
+            {isMarchMode ? (
+              <>
+                <div className="lord-map-route-picker" aria-label="План похода">
+                  <label>
+                    <span>Старт</span>
+                    <select
+                      value={routeStartSocketId}
+                      onChange={(event) => setRouteStartSocketId(event.target.value)}
+                      disabled={isMarching}
+                    >
+                      {lordMapSockets.map((socket) => (
+                        <option key={socket.id} value={socket.id}>
+                          {socket.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    className="lord-map-route-reset"
+                    type="button"
+                    disabled={isMarching || routeStartSocketId === armySocketId}
+                    onClick={() => setRouteStartSocketId(armySocketId)}
+                  >
+                    От армии
+                  </button>
+                  <label>
+                    <span>Цель</span>
+                    <select
+                      value={displaySocket.id}
+                      onChange={(event) => {
+                        setSelectedSocketId(event.target.value);
+                        setHoveredSocketId(null);
+                      }}
+                      disabled={isMarching}
+                    >
+                      {lordMapSockets.map((socket) => (
+                        <option key={socket.id} value={socket.id}>
+                          {socket.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <p>{displayRouteText}</p>
+                {contactNoteText && (
+                  <small className="lord-map-route-stop-note">{contactNoteText}</small>
+                )}
+                {activeRouteNoteText && (
+                  <small className="lord-map-route-current-note">{activeRouteNoteText}</small>
+                )}
+                {mapActionStatus && (
+                  <small className="lord-map-route-stop-note">{mapActionStatus}</small>
+                )}
+                {displayPathIds.length > 1 && (
+                  <small className="lord-map-route-chain">{displayPathLabel}</small>
+                )}
+                <button
+                  className="lord-map-route-action"
+                  type="button"
+                  disabled={!canDispatchRoute || isMarching}
+                  onClick={() => {
+                    void sendArmyToPreviewTarget();
+                  }}
+                >
+                  {routeActionLabel}
+                </button>
+              </>
+            ) : (
+              <div className="lord-map-info-details" aria-label="Сведения о территории">
+                <dl className="lord-map-info-grid">
+                  {territoryInfoRows.map((row) => (
+                    <div key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="lord-map-info-roads">
+                  <b>Дороги</b>
+                  <p>{territoryRoads.length > 0 ? territoryRoads.join("; ") : "нет открытых дорог"}</p>
+                </div>
+              </div>
+            )}
+          </aside>
+        )}
+
+        <section className="lord-map-army-hud" aria-label="Активная армия">
+          <div className="lord-map-army-hud-main">
+            <div className="lord-map-army-hud-title">
+              <span>Активная армия</span>
+              <b>{currentLord.armyName}</b>
+              <small>{mapHudStatusText}</small>
+            </div>
+            <div className="lord-map-army-hud-row" aria-label={`${mapActiveArmyStacks.length} отрядов в активной армии`}>
+              {mapArmySlots.map((stack, index) => {
+                const unit = stack ? lordHomeUnitCatalog[stack.unitId] : null;
+
+                return (
+                  <div
+                    key={stack?.stackId ?? `${stack?.unitId ?? "empty"}-${index}`}
+                    className={`lord-map-army-hud-slot${stack && unit ? ` is-filled tone-${unit.tone}` : " is-empty"}`}
+                    aria-label={stack && unit ? `${unit.name}: ${stack.count}` : "Пустой слот армии"}
+                  >
+                    {stack && unit ? (
+                      <>
+                        <img src={unit.icon} alt="" draggable={false} />
+                        <b>{stack.count}</b>
+                        <small>{unit.name}</small>
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="lord-map-army-hud-meta">
+              <span><Users size={13} /> {mapArmyUnitCount}</span>
+              <span>{mapActiveArmyStacks.length}/{mapArmyCapacity} слотов</span>
+            </div>
           </div>
-          <p>{displayRouteText}</p>
-          {contactNoteText && (
-            <small className="lord-map-route-stop-note">{contactNoteText}</small>
-          )}
-          {activeRouteNoteText && (
-            <small className="lord-map-route-current-note">{activeRouteNoteText}</small>
-          )}
-          {mapActionStatus && (
-            <small className="lord-map-route-stop-note">{mapActionStatus}</small>
-          )}
-          {displayPathIds.length > 1 && (
-            <small className="lord-map-route-chain">{displayPathLabel}</small>
-          )}
-          <button
-            className="lord-map-route-action"
-            type="button"
-            disabled={!canDispatchRoute || isMarching}
-            onClick={() => {
-              void sendArmyToPreviewTarget();
-            }}
-          >
-            {routeActionLabel}
-          </button>
-        </aside>
+          <LordMpHud className="lord-map-mp-widget" currentMp={mapMovementPoints} mpCap={mapMovementCap} />
+        </section>
+
         <aside className="lord-map-layer-panel" aria-label="Слои карты">
           <span><Layers size={14} /> Слои</span>
           <div className="lord-map-layer-toggles">
@@ -2807,15 +3836,23 @@ function LordMapScreen() {
 
 function LordHomeScreen() {
   const homeRouteParams = new URLSearchParams(window.location.search);
-  const initialHomeView: LordHomeView = homeRouteParams.get("view") === "buildings" ? "buildings" : "territory";
+  const viewParam = homeRouteParams.get("view");
+  const panelParam = homeRouteParams.get("panel");
+  const initialHomeView: LordHomeView =
+    viewParam === "buildings"
+      ? "buildings"
+      : viewParam === "raids" || panelParam === "raids"
+        ? "raids"
+      : viewParam === "orders" || panelParam === "orders"
+        ? "orders"
+        : "territory";
   const buildingParam = homeRouteParams.get("building");
   const initialSelectedBuildingId =
     buildingParam && lordBuildingTreeNodes.some((building) => building.id === buildingParam)
       ? buildingParam
       : "b_barracks";
-  const panelParam = homeRouteParams.get("panel");
   const initialOpenPanel: LordHomePanel | null =
-    panelParam === "map" || panelParam === "orders" || panelParam === "raids" || panelParam === "battle" || panelParam === "help"
+    panelParam === "map" || panelParam === "battle" || panelParam === "help"
       ? panelParam
       : null;
   const apiBaseUrl = (homeRouteParams.get("api") || import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -2827,6 +3864,7 @@ function LordHomeScreen() {
   const [territoryRuntime, setTerritoryRuntime] = useState<Partial<Record<LordHomeTerritoryId, LordHomeTerritoryRuntime>>>({});
   const [domainStats, setDomainStats] = useState<LordHomeDomainStats>(lordHomeInitialDomainStats);
   const [timerSummary, setTimerSummary] = useState<LordHomeBackendTimerSummary | null>(null);
+  const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
   const [recruitStock, setRecruitStock] = useState(lordHomeInitialRecruitStock);
   const [recruitOffersByCard, setRecruitOffersByCard] = useState<Record<string, LordHomeRecruitOffer>>(lordHomeSeedRecruitOffers);
   const [recruitUnitId, setRecruitUnitId] = useState<LordHomeUnitId | null>(null);
@@ -2853,6 +3891,25 @@ function LordHomeScreen() {
   const [selectedBuildingId, setSelectedBuildingId] = useState(initialSelectedBuildingId);
   const [buildingStatus, setBuildingStatus] = useState("");
   const [buildingPurchaseId, setBuildingPurchaseId] = useState<string | null>(null);
+  const [lordOrders, setLordOrders] = useState<LordHomeOrder[]>([]);
+  const [lordOrderCap, setLordOrderCap] = useState<LordHomeOrderCap>({});
+  const [lordOrderEscrow, setLordOrderEscrow] = useState<LordHomeOrderEscrow>({});
+  const [lordOrderTargets, setLordOrderTargets] = useState<LordHomeOrderTarget[]>([]);
+  const [lordOrderRecipients, setLordOrderRecipients] = useState<LordHomeOrderRecipient[]>([]);
+  const [lordOrderRewards, setLordOrderRewards] = useState<LordHomeOrderRewardOption[]>([]);
+  const [lordOrderFilter, setLordOrderFilter] = useState<LordHomeOrderFilterId>("open");
+  const [selectedLordOrderId, setSelectedLordOrderId] = useState<string | null>(null);
+  const [lordOrderStatus, setLordOrderStatus] = useState("");
+  const [isLordOrderSubmitting, setIsLordOrderSubmitting] = useState(false);
+  const [raidTokens, setRaidTokens] = useState(2);
+  const [lordRaidRules, setLordRaidRules] = useState<LordHomeRaidRule[]>(lordHomeFallbackRaidRules);
+  const [lordRaidTargets, setLordRaidTargets] = useState<LordHomeRaidTarget[]>(lordHomeFallbackRaidTargets);
+  const [activeRaidEffects, setActiveRaidEffects] = useState<LordHomeRaidEffect[]>([]);
+  const [lordRaidHistory, setLordRaidHistory] = useState<LordHomeRaidEffect[]>([]);
+  const [selectedRaidRuleId, setSelectedRaidRuleId] = useState(lordHomeFallbackRaidRules[0].rule_id);
+  const [selectedRaidTargetId, setSelectedRaidTargetId] = useState(lordHomeFallbackRaidTargets[0].target_territory_id);
+  const [lordRaidStatus, setLordRaidStatus] = useState("");
+  const [isLordRaidSubmitting, setIsLordRaidSubmitting] = useState(false);
   const [openPanel, setOpenPanel] = useState<LordHomePanel | null>(initialOpenPanel);
   const prefersReducedMotion = useReducedMotion();
   const selectedTerritory = lordHomeTerritories.find((territory) => territory.id === selectedTerritoryId) ?? lordHomeTerritories[0];
@@ -2862,6 +3919,10 @@ function LordHomeScreen() {
   const selectedIncomePerHour = selectedTerritoryRuntime?.incomePerHour ?? selectedTerritory.income;
   const selectedGarrisonCapacity = selectedTerritoryRuntime?.garrisonCapacity ?? 8;
   const selectedGarrisonSlotsUsed = selectedTerritoryRuntime?.garrisonSlotsUsed ?? selectedGarrison.length;
+  const selectedGarrisonSlotsFree = Math.max(0, selectedGarrisonCapacity - selectedGarrisonSlotsUsed);
+  const displayedTerritoryBubbles = lordHomeTerritories
+    .slice(1)
+    .filter((territory) => territoryRuntime[territory.id]?.isOwned);
   const transferStack = transferDraft
     ? transferDraft.lane === "army"
       ? army[transferDraft.index]
@@ -2890,32 +3951,38 @@ function LordHomeScreen() {
   const recruitStockInfo = recruitUnitId ? recruitStock[selectedTerritory.id][recruitUnitId] : null;
   const recruitOffer = recruitUnit ? recruitOffersByCard[recruitUnit.backendCardId] : null;
   const recruitStockAvailable = Math.max(0, recruitStockInfo?.stock ?? recruitOffer?.stock ?? 0);
-  const recruitAffordableQty = recruitUnit ? Math.floor(lordGold / recruitUnit.cost) : 0;
-  const maxRecruitQty = Math.max(0, Math.min(recruitStockAvailable, recruitAffordableQty));
+  const recruitUnitCost = Math.max(0, recruitOffer?.cost ?? recruitUnit?.cost ?? 0);
+  const recruitWouldUseNewGarrisonSlot = Boolean(
+    recruitUnitId && !selectedGarrison.some((stack) => stack.unitId === recruitUnitId)
+  );
+  const recruitBlockedByGarrisonCap = recruitWouldUseNewGarrisonSlot && selectedGarrisonSlotsFree < 1;
+  const recruitAffordableQty = recruitUnit
+    ? recruitUnitCost > 0
+      ? Math.floor(lordGold / recruitUnitCost)
+      : recruitStockAvailable
+    : 0;
+  const maxRecruitQty = recruitBlockedByGarrisonCap
+    ? 0
+    : Math.max(0, Math.min(recruitStockAvailable, recruitAffordableQty));
   const recruitSliderPercent = maxRecruitQty > 1
     ? ((recruitQty - 1) / (maxRecruitQty - 1)) * 100
     : maxRecruitQty > 0 ? 100 : 0;
-  const recruitTotalCost = recruitUnit ? recruitQty * recruitUnit.cost : 0;
+  const recruitTotalCost = recruitQty * recruitUnitCost;
   const recruitCanSubmit = Boolean(
     recruitUnit &&
       recruitOffer &&
       ["available", "held"].includes(recruitOffer.status) &&
       recruitQty >= 1 &&
       recruitQty <= maxRecruitQty &&
+      !recruitBlockedByGarrisonCap &&
       !isRecruitHiring
   );
   const activeBattle = true;
+  const movementPointCap = Math.max(1, clampLordHomeMetric(domainStats.mpCap, lordHomeInitialDomainStats.mpCap));
   const currentMovementPoints = Math.min(
-    lordHomeMovementFillFields.length,
+    movementPointCap,
     clampLordHomeMetric(domainStats.currentMp, lordHomeInitialDomainStats.currentMp)
   );
-  const movementPointCap = Math.min(
-    lordHomeMaxMovementPoints,
-    lordHomeMovementFillFields.length,
-    Math.max(1, clampLordHomeMetric(domainStats.mpCap, lordHomeInitialDomainStats.mpCap))
-  );
-  const actLabel = getLordHomeActLabel(timerSummary);
-  const actTimerLabel = getLordHomeTimerShortLabel(timerSummary);
   const recruitUnitIds = lordHomeUnitOrder.filter((unitId) => {
     const offer = recruitOffersByCard[lordHomeUnitCatalog[unitId].backendCardId];
     return Boolean(offer && isLordHomeRecruitOfferUsable(offer.status));
@@ -2928,6 +3995,54 @@ function LordHomeScreen() {
       setLordGold(nextGold);
     }
     setTimerSummary(state.timer_summary ?? null);
+    if (Array.isArray(state.orders)) {
+      setLordOrders(state.orders);
+    }
+    setLordOrderCap(state.order_cap ?? {});
+    setLordOrderEscrow(state.escrow ?? {});
+    if (Array.isArray(state.visible_targets)) {
+      setLordOrderTargets(state.visible_targets);
+    }
+    if (Array.isArray(state.eligible_recipients)) {
+      setLordOrderRecipients(state.eligible_recipients);
+    }
+    if (Array.isArray(state.order_reward_options)) {
+      setLordOrderRewards(state.order_reward_options);
+    }
+    const nextRaidTokens = Number(state.raid_tokens ?? state.domain?.raid_tokens);
+    if (Number.isFinite(nextRaidTokens)) {
+      setRaidTokens(nextRaidTokens);
+    }
+    if (Array.isArray(state.raid_rules) && state.raid_rules.length > 0) {
+      const normalizedRules = state.raid_rules.map(normalizeLordHomeRaidRule);
+      setLordRaidRules(normalizedRules);
+      setSelectedRaidRuleId((current) =>
+        normalizedRules.some((rule) => rule.rule_id === current)
+          ? current
+          : normalizedRules[0]?.rule_id ?? current
+      );
+    }
+    if (Array.isArray(state.raid_targets) && state.raid_targets.length > 0) {
+      const normalizedTargets = state.raid_targets.map(normalizeLordHomeRaidTarget);
+      setLordRaidTargets(normalizedTargets);
+      setSelectedRaidTargetId((current) =>
+        normalizedTargets.some((target) => target.target_territory_id === current)
+          ? current
+          : normalizedTargets.find((target) => target.can_target)?.target_territory_id ??
+            normalizedTargets[0]?.target_territory_id ??
+            current
+      );
+    }
+    if (Array.isArray(state.active_raid_effects)) {
+      setActiveRaidEffects(state.active_raid_effects);
+    } else if (Array.isArray(state.raid_effects)) {
+      setActiveRaidEffects(state.raid_effects.filter((effect) => effect.status === "active"));
+    }
+    if (Array.isArray(state.raid_history)) {
+      setLordRaidHistory(state.raid_history);
+    } else if (Array.isArray(state.raid_effects)) {
+      setLordRaidHistory(state.raid_effects);
+    }
     setDomainStats((current) => {
       const nextIncome = Number(state.domain?.income_per_hour);
       const nextRawIncome = Number(state.domain?.raw_income_per_hour);
@@ -2958,9 +4073,9 @@ function LordHomeScreen() {
     }
 
     const backendTerritories = [
-      ...(state.territories ?? []),
-      ...(state.neutral_territories ?? []),
-      ...(state.other_territories ?? [])
+      ...(state.territories ?? []).map((territory) => ({ territory, isOwned: true })),
+      ...(state.neutral_territories ?? []).map((territory) => ({ territory, isOwned: false })),
+      ...(state.other_territories ?? []).map((territory) => ({ territory, isOwned: false }))
     ];
     if (backendTerritories.length > 0) {
       const activeNodeId = state.movement?.current_node_id ?? state.domain?.current_node_id;
@@ -2970,7 +4085,7 @@ function LordHomeScreen() {
       );
       const nextTerritoryRuntime: Partial<Record<LordHomeTerritoryId, LordHomeTerritoryRuntime>> = {};
 
-      for (const territory of backendTerritories) {
+      for (const { territory, isOwned } of backendTerritories) {
         const localTerritoryId = territory.territory_id
           ? lordHomeTerritoryIdByBackendId[territory.territory_id]
           : undefined;
@@ -2989,6 +4104,7 @@ function LordHomeScreen() {
         nextTerritoryRuntime[localTerritoryId] = {
           incomePerHour: clampLordHomeMetric(incomePerHour, localTerritory?.income ?? 0),
           heroHere: hasActiveNodeId ? activeNodeId === territory.node_id : Boolean(localTerritory?.heroHere),
+          isOwned,
           status: territory.status ?? "controlled",
           garrisonCapacity: clampLordHomeMetric(garrisonCapacity, Math.max(8, stacks.length)),
           garrisonSlotsUsed: clampLordHomeMetric(garrisonSlotsUsed, stacks.length)
@@ -3074,10 +4190,66 @@ function LordHomeScreen() {
     }
   }, []);
 
+  const reloadLordHomeState = useCallback(async (signal?: AbortSignal) => {
+    const response = await fetch(`${apiBaseUrl}/api/lords/${encodeURIComponent(backendLordId)}/state`, {
+      headers: { "X-Role-Token": backendRoleToken },
+      signal
+    });
+    const state = (await response.json().catch(() => ({}))) as LordHomeBackendState;
+    if (!response.ok) {
+      throw new Error(getLordHomeApiErrorMessage(state, "Канцелярия не отвечает"));
+    }
+    applyBackendState(state);
+    return state;
+  }, [apiBaseUrl, applyBackendState, backendLordId, backendRoleToken]);
+
   useEffect(() => {
     localStorage.setItem("witcher_larp_lord_id", backendLordId);
     localStorage.setItem("witcher_larp_role_token", backendRoleToken);
   }, [backendLordId, backendRoleToken]);
+
+  useEffect(() => {
+    const filteredOrders = getLordHomeOrdersForFilter(lordOrders, lordOrderFilter);
+    if (filteredOrders.length === 0) {
+      setSelectedLordOrderId(null);
+      return;
+    }
+    if (!filteredOrders.some((order) => order.order_id === selectedLordOrderId)) {
+      setSelectedLordOrderId(filteredOrders[0].order_id);
+    }
+  }, [lordOrderFilter, lordOrders, selectedLordOrderId]);
+
+  useEffect(() => {
+    if (!lordRaidRules.some((rule) => rule.rule_id === selectedRaidRuleId)) {
+      setSelectedRaidRuleId(lordRaidRules[0]?.rule_id ?? "");
+    }
+  }, [lordRaidRules, selectedRaidRuleId]);
+
+  useEffect(() => {
+    if (!lordRaidTargets.some((target) => target.target_territory_id === selectedRaidTargetId)) {
+      setSelectedRaidTargetId(
+        lordRaidTargets.find((target) => target.can_target)?.target_territory_id ??
+        lordRaidTargets[0]?.target_territory_id ??
+        ""
+      );
+    }
+  }, [lordRaidTargets, selectedRaidTargetId]);
+
+  useEffect(() => {
+    if (selectedTerritory.id !== "castle" && selectedTerritoryRuntime && !selectedTerritoryRuntime.isOwned) {
+      setSelectedTerritoryId("castle");
+    }
+  }, [selectedTerritory.id, selectedTerritoryRuntime]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setTimerNowMs(Date.now());
+    }, lordHomeClockTickMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -3112,7 +4284,11 @@ function LordHomeScreen() {
     };
 
     loadBackendState();
-    return () => controller.abort();
+    const intervalId = window.setInterval(loadBackendState, lordHomeStatePollMs);
+    return () => {
+      window.clearInterval(intervalId);
+      controller.abort();
+    };
   }, [apiBaseUrl, applyBackendState, backendLordId, backendRoleToken]);
 
   useEffect(() => {
@@ -3182,6 +4358,118 @@ function LordHomeScreen() {
       setBuildingStatus(message);
     } finally {
       setBuildingPurchaseId(null);
+    }
+  };
+
+  const createLordHomeOrder = async (payload: LordHomeOrderCreatePayload) => {
+    if (isLordOrderSubmitting) {
+      return;
+    }
+
+    setIsLordOrderSubmitting(true);
+    setLordOrderStatus("Ставлю печать и удерживаю награду");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/lords/${encodeURIComponent(backendLordId)}/orders`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Role-Token": backendRoleToken
+        },
+        body: JSON.stringify({
+          action: "create",
+          ...payload
+        })
+      });
+      const result = (await response.json().catch(() => ({}))) as { order?: LordHomeOrder };
+      if (!response.ok) {
+        throw new Error(getLordHomeApiErrorMessage(result, "Заказ не опубликован"));
+      }
+
+      if (result.order?.order_id) {
+        setSelectedLordOrderId(result.order.order_id);
+      }
+      setLordOrderFilter("open");
+      setLordOrderStatus("Заказ опубликован, награда под замком");
+      await reloadLordHomeState();
+    } catch (error) {
+      setLordOrderStatus(error instanceof Error ? error.message : "Заказ не опубликован");
+    } finally {
+      setIsLordOrderSubmitting(false);
+    }
+  };
+
+  const cancelLordHomeOrder = async (order: LordHomeOrder) => {
+    if (isLordOrderSubmitting || !canCancelLordHomeOrder(order)) {
+      return;
+    }
+
+    setIsLordOrderSubmitting(true);
+    setLordOrderStatus("Отзываю заказ и возвращаю награду");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/lords/${encodeURIComponent(backendLordId)}/orders`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Role-Token": backendRoleToken
+        },
+        body: JSON.stringify({
+          action: "cancel",
+          order_id: order.order_id,
+          reason: "lord_cancelled_from_stage2b_orders",
+          source: "stage2b_lord_home_orders"
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(getLordHomeApiErrorMessage(result, "Заказ не отменен"));
+      }
+
+      setLordOrderStatus("Заказ отменен, награда возвращена");
+      await reloadLordHomeState();
+    } catch (error) {
+      setLordOrderStatus(error instanceof Error ? error.message : "Заказ не отменен");
+    } finally {
+      setIsLordOrderSubmitting(false);
+    }
+  };
+
+  const startLordHomeRaid = async (payload: LordHomeRaidStartPayload) => {
+    if (isLordRaidSubmitting) {
+      return;
+    }
+
+    setIsLordRaidSubmitting(true);
+    setLordRaidStatus("Ставлю печать на план рейда");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/lords/${encodeURIComponent(backendLordId)}/raids`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Role-Token": backendRoleToken
+        },
+        body: JSON.stringify(payload)
+      });
+      const result = (await response.json().catch(() => ({}))) as LordHomeRaidResponse;
+      if (!response.ok) {
+        throw new Error(getLordHomeApiErrorMessage(result, "Рейд не начат"));
+      }
+
+      if (typeof result.raid_tokens === "number") {
+        setRaidTokens(result.raid_tokens);
+      }
+      if (typeof result.gold === "number") {
+        setLordGold(result.gold);
+      }
+      if (Array.isArray(result.active_raid_effects) && result.active_raid_effects.length > 0) {
+        setActiveRaidEffects((current) => [...result.active_raid_effects!, ...current]);
+        setLordRaidHistory((current) => [...result.active_raid_effects!, ...current].slice(0, 8));
+      }
+      setLordRaidStatus(getLordHomeRaidResultText(result));
+      await reloadLordHomeState();
+    } catch (error) {
+      setLordRaidStatus(error instanceof Error ? error.message : "Рейд не начат");
+    } finally {
+      setIsLordRaidSubmitting(false);
     }
   };
 
@@ -3634,7 +4922,8 @@ function LordHomeScreen() {
     const unit = lordHomeUnitCatalog[unitId];
     const offer = recruitOffersByCard[unit.backendCardId];
     const stock = recruitStock[selectedTerritory.id][unitId].stock || offer?.stock || 0;
-    const affordable = Math.floor(lordGold / unit.cost);
+    const unitCost = Math.max(0, offer?.cost ?? unit.cost);
+    const affordable = unitCost > 0 ? Math.floor(lordGold / unitCost) : stock;
     setRecruitQty(clampRecruitQty(1, Math.min(stock, affordable)));
     setRecruitStatus("");
   };
@@ -3682,6 +4971,19 @@ function LordHomeScreen() {
               onBuild={buildSelectedBuilding}
             />
           </>
+        ) : homeView === "raids" ? (
+          <>
+            <motion.img
+              className="lord-home-building-bg lord-raid-war-table-bg"
+              src={buildingTreeBg}
+              alt=""
+              draggable={false}
+              initial={prefersReducedMotion ? false : { opacity: 0, scale: 1.01 }}
+              animate={prefersReducedMotion ? undefined : { opacity: 1, scale: [1, 1.008, 1] }}
+              transition={prefersReducedMotion ? undefined : { opacity: { duration: 0.22 }, scale: { duration: 36, repeat: Infinity, ease: "easeInOut" } }}
+            />
+            <div className="lord-raid-table-grade" />
+          </>
         ) : (
           <>
             <motion.div
@@ -3697,13 +4999,53 @@ function LordHomeScreen() {
         )}
         <img className="lord-home-hud-overlay" src={lordHomeHudOverlay} alt="" draggable={false} />
 
+        {homeView === "orders" ? (
+          <LordHomeOrdersBoard
+            orders={lordOrders}
+            orderCap={lordOrderCap}
+            escrow={lordOrderEscrow}
+            targets={lordOrderTargets}
+            recipients={lordOrderRecipients}
+            rewards={lordOrderRewards}
+            filterId={lordOrderFilter}
+            selectedOrderId={selectedLordOrderId}
+            lordGold={lordGold}
+            actionStatus={lordOrderStatus}
+            isSubmitting={isLordOrderSubmitting}
+            onFilterChange={setLordOrderFilter}
+            onSelectOrder={setSelectedLordOrderId}
+            onCreateOrder={(payload) => void createLordHomeOrder(payload)}
+            onCancelOrder={(order) => void cancelLordHomeOrder(order)}
+            onStatus={setLordOrderStatus}
+          />
+        ) : null}
+
+        {homeView === "raids" ? (
+          <LordHomeRaidsBoard
+            rules={lordRaidRules}
+            targets={lordRaidTargets}
+            activeEffects={activeRaidEffects}
+            raidHistory={lordRaidHistory}
+            raidTokens={raidTokens}
+            lordGold={lordGold}
+            actionStatus={lordRaidStatus}
+            isSubmitting={isLordRaidSubmitting}
+            selectedRuleId={selectedRaidRuleId}
+            selectedTargetId={selectedRaidTargetId}
+            onSelectRule={setSelectedRaidRuleId}
+            onSelectTarget={setSelectedRaidTargetId}
+            onStart={(payload) => void startLordHomeRaid(payload)}
+          />
+        ) : null}
+
         <header className="lord-home-top-strip">
+          <LordHomeTimerChip timerSummary={timerSummary} nowMs={timerNowMs} />
           <div className="lord-home-resource-row">
             <div className="lord-home-resource gold"><Coins size={14} /><b>{lordGold}</b><span>(+{domainStats.incomePerHour}/час)</span></div>
             <div className="lord-home-resource wood"><Archive size={14} /><b>17</b></div>
             <div className="lord-home-resource violet"><Gem size={14} /><b>63</b></div>
             <div className="lord-home-resource blue"><Sparkles size={14} /><b>42</b></div>
-            <div className="lord-home-resource red"><Flame size={14} /><b>41</b></div>
+            <div className="lord-home-resource red"><Flame size={14} /><b>{raidTokens}</b><span>рейды</span></div>
             <div className="lord-home-resource iron"><Shield size={14} /><b>37</b></div>
             <div className="lord-home-resource green"><Users size={14} /><b>181</b></div>
           </div>
@@ -3719,7 +5061,7 @@ function LordHomeScreen() {
           {lordHomeActionDock.map((action) => (
             <button
               key={action.id}
-              className={`lord-home-dock-button action-${action.id} ${action.tone}${"alert" in action && action.alert && activeBattle ? " is-alert" : ""}${action.id === "buildings" && homeView === "buildings" ? " is-selected" : ""}`}
+              className={`lord-home-dock-button action-${action.id} ${action.tone}${"alert" in action && action.alert && activeBattle ? " is-alert" : ""}${action.id === homeView ? " is-selected" : ""}`}
               type="button"
               aria-label={action.label}
               onClick={() => {
@@ -3729,12 +5071,27 @@ function LordHomeScreen() {
                   return;
                 }
 
+                if (action.id === "orders") {
+                  setHomeView((current) => current === "orders" ? "territory" : "orders");
+                  setOpenPanel(null);
+                  return;
+                }
+
+                if (action.id === "raids") {
+                  setHomeView((current) => current === "raids" ? "territory" : "raids");
+                  setOpenPanel(null);
+                  return;
+                }
+
                 if (action.id === "map") {
                   window.location.assign("/lords/map");
                   return;
                 }
 
-                setOpenPanel(action.id);
+                if (action.id === "battle") {
+                  window.location.assign("/lords/battle");
+                  return;
+                }
               }}
             >
               <LordHomeActionIcon src={action.icon} />
@@ -3748,10 +5105,11 @@ function LordHomeScreen() {
           <span />
         </button>
 
+            {homeView !== "orders" ? (
             <section className="lord-home-bottom-panel" aria-label="Армия, гарнизон и найм">
               <div className="lord-home-location-title">{selectedTerritory.name}</div>
               <div className="lord-home-local-income">
-                +{selectedIncomePerHour}/час · Г {selectedGarrisonSlotsUsed}/{selectedGarrisonCapacity} · А {domainStats.activeArmySlotsUsed}/{domainStats.activeArmyCapacity}
+                +{selectedIncomePerHour}/час · Г {selectedGarrisonSlotsUsed}/{selectedGarrisonCapacity} · А {domainStats.activeArmySlotsUsed}/{domainStats.activeArmyCapacity} · Рейды {raidTokens} · Эффекты {activeRaidEffects.filter((effect) => effect.status === "active").length} · {getLordHomeRaidExpiryLabel(activeRaidEffects)}
               </div>
 
               <LordHomeLane
@@ -3820,10 +5178,11 @@ function LordHomeScreen() {
                 })}
               </div>
             </section>
+            ) : null}
 
         {homeView === "territory" ? (
             <aside className="lord-home-territory-bubbles" aria-label="Захваченные территории">
-              {lordHomeTerritories.slice(1).map((territory) => (
+              {displayedTerritoryBubbles.map((territory) => (
                 <button
                   key={territory.id}
                   className={`lord-home-territory-bubble${territory.id === selectedTerritory.id ? " is-selected" : ""}`}
@@ -3841,23 +5200,7 @@ function LordHomeScreen() {
             </aside>
         ) : null}
 
-        <section
-          className="lord-home-act-widget"
-          aria-label={`${actLabel}, ${actTimerLabel} до следующего тика, передвижений ${currentMovementPoints} из ${movementPointCap}`}
-        >
-          <div className="lord-home-mp-rect-layer" aria-hidden="true">
-            {lordHomeMovementFillFields.map((src, index) =>
-              index < currentMovementPoints ? (
-                <img key={src} className="lord-home-mp-fill-field" src={src} alt="" draggable={false} />
-              ) : null
-            )}
-          </div>
-          <img className="lord-home-mp-widget-frame" src={lordHomeMpWidgetFrame} alt="" draggable={false} />
-          <div className="lord-home-act-caption">
-            <b>{actLabel}</b>
-            <span>{actTimerLabel}</span>
-          </div>
-        </section>
+        <LordMpHud className="lord-home-act-widget" currentMp={currentMovementPoints} mpCap={movementPointCap} />
 
         <AnimatePresence>
           {recruitUnit && recruitUnitId ? (
@@ -3956,7 +5299,7 @@ function LordHomeScreen() {
                   <small>Можно: {maxRecruitQty}</small>
                 </div>
                 <div className="lord-home-recruit-status">
-                  {recruitStatus || (!recruitOffer ? "Предложение не открыто" : recruitAffordableQty < 1 ? "Недостаточно золота" : "Гарнизон выбран")}
+                  {recruitStatus || (!recruitOffer ? "Предложение не открыто" : recruitBlockedByGarrisonCap ? "Нет свободного слота в гарнизоне" : recruitAffordableQty < 1 ? "Недостаточно золота" : "Гарнизон выбран")}
                 </div>
                 <button className="lord-home-hire-button" type="button" onClick={hireRecruit} disabled={!recruitCanSubmit}>
                   {isRecruitHiring ? "Нанимаю" : "Нанять"}
@@ -4376,6 +5719,624 @@ function LordHomeLane({
   );
 }
 
+function LordHomeOrdersBoard({
+  orders,
+  orderCap,
+  escrow,
+  targets,
+  recipients,
+  rewards,
+  filterId,
+  selectedOrderId,
+  lordGold,
+  actionStatus,
+  isSubmitting,
+  onFilterChange,
+  onSelectOrder,
+  onCreateOrder,
+  onCancelOrder,
+  onStatus
+}: {
+  orders: LordHomeOrder[];
+  orderCap: LordHomeOrderCap;
+  escrow: LordHomeOrderEscrow;
+  targets: LordHomeOrderTarget[];
+  recipients: LordHomeOrderRecipient[];
+  rewards: LordHomeOrderRewardOption[];
+  filterId: LordHomeOrderFilterId;
+  selectedOrderId: string | null;
+  lordGold: number;
+  actionStatus: string;
+  isSubmitting: boolean;
+  onFilterChange: (filterId: LordHomeOrderFilterId) => void;
+  onSelectOrder: (orderId: string | null) => void;
+  onCreateOrder: (payload: LordHomeOrderCreatePayload) => void;
+  onCancelOrder: (order: LordHomeOrder) => void;
+  onStatus: (message: string) => void;
+}) {
+  const cap = getLordHomeOrderCap(orderCap);
+  const filteredOrders = getLordHomeOrdersForFilter(orders, filterId);
+  const selectedOrder = filteredOrders.find((order) => order.order_id === selectedOrderId) ?? filteredOrders[0] ?? null;
+  const lockedAssets = Number(escrow.locked_asset_count ?? escrow.locked_assets?.length ?? 0);
+  const lockedGold = Number(escrow.locked_gold ?? 0);
+  const availableGold = getLordHomeOrderAvailableGold(escrow, lordGold);
+  const conflictCount = orders.filter((order) => order.conflict_badge).length;
+  const activeOrdersCount = cap.publicActive + cap.addressedActive;
+  const activeOrdersLimit = cap.publicLimit + cap.addressedLimit;
+  const defaultVisibility: LordHomeOrderVisibility =
+    cap.publicActive < cap.publicLimit ? "public" : "addressed";
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [visibility, setVisibility] = useState<LordHomeOrderVisibility>(defaultVisibility);
+  const [targetId, setTargetId] = useState(targets[0]?.target_id ?? "");
+  const [recipientId, setRecipientId] = useState("");
+  const [rewardId, setRewardId] = useState(rewards[0]?.reward_id ?? "");
+  const [visibleHook, setVisibleHook] = useState("");
+  const selectedTarget = targets.find((target) => target.target_id === targetId) ?? null;
+  const selectedRecipient = recipients.find((recipient) => recipient.player_id === recipientId) ?? null;
+  const selectedReward = rewards.find((reward) => reward.reward_id === rewardId) ?? null;
+  const prefersReducedMotion = useReducedMotion();
+  const publicFull = cap.publicActive >= cap.publicLimit;
+  const addressedFull = cap.addressedActive >= cap.addressedLimit;
+  const selectedCapFull = visibility === "addressed" ? addressedFull : publicFull;
+  const rewardGold = getLordHomeOrderRewardGold(selectedReward);
+  const insufficientGold = rewardGold > availableGold;
+  const needsRecipient = visibility === "addressed" && !recipientId;
+  const createBlockReason =
+    !targets.length
+      ? "Нет доступных целей для заказа"
+      : !rewards.length
+        ? "В казне нет доступной награды"
+        : publicFull && addressedFull
+          ? `Лимит заказов занят: публичные ${cap.publicActive}/${cap.publicLimit}, адресный ${cap.addressedActive}/${cap.addressedLimit}`
+          : "";
+  const createHint =
+    createBlockReason && publicFull && addressedFull
+      ? "Лимит заказов занят"
+      : createBlockReason || `${availableGold}g доступно для награды`;
+  const publishBlockReason =
+    isSubmitting
+      ? "Канцелярия уже ставит печать"
+      : createBlockReason
+        ? createBlockReason
+        : selectedCapFull
+          ? visibility === "addressed"
+            ? `Адресный лимит занят ${cap.addressedActive}/${cap.addressedLimit}`
+            : `Публичные заказы заняты ${cap.publicActive}/${cap.publicLimit}`
+          : needsRecipient
+            ? "Выберите адресата"
+            : insufficientGold
+              ? "В казне не хватает награды"
+              : !selectedTarget || !selectedReward
+                ? "Заполните цель и награду"
+                : "";
+  const previewHook = visibleHook.trim() || `Найти и подтвердить: ${selectedTarget?.label ?? "цель"}`;
+  const previewRecipient =
+    visibility === "addressed"
+      ? selectedRecipient
+        ? `${selectedRecipient.display_name ?? "Исполнитель"}, ${selectedRecipient.role_label ?? ""}`.trim()
+        : "адресат"
+      : "любой исполнитель";
+  const openComposer = (mode: "create" | "repeat" | "assign" = "create", order?: LordHomeOrder) => {
+    setComposerOpen(true);
+    const nextVisibility =
+      mode === "assign"
+        ? "addressed"
+        : order?.visibility === "addressed"
+          ? "addressed"
+          : defaultVisibility;
+    setVisibility(nextVisibility);
+    setTargetId(order?.object_id || targets[0]?.target_id || "");
+    setRecipientId(mode === "assign" ? order?.target_player_id || recipients[0]?.player_id || "" : order?.target_player_id || "");
+    setRewardId(order?.escrow_reward_id || rewards[0]?.reward_id || "");
+    setVisibleHook(order?.visible_hook || "");
+    onStatus("");
+  };
+
+  useEffect(() => {
+    if (!targetId && targets[0]?.target_id) {
+      setTargetId(targets[0].target_id);
+    }
+  }, [targetId, targets]);
+
+  useEffect(() => {
+    if (!rewardId && rewards[0]?.reward_id) {
+      setRewardId(rewards[0].reward_id);
+    }
+  }, [rewardId, rewards]);
+
+  useEffect(() => {
+    if (visibility === "addressed" && !recipientId && recipients[0]?.player_id) {
+      setRecipientId(recipients[0].player_id);
+    }
+  }, [recipientId, recipients, visibility]);
+
+  const submitOrder = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (publishBlockReason || !selectedTarget || !selectedReward) {
+      onStatus(publishBlockReason || "Заполните заказ");
+      return;
+    }
+
+    setComposerOpen(false);
+    onCreateOrder({
+      visibility,
+      object_id: selectedTarget.target_id,
+      target_player_id: visibility === "addressed" ? recipientId : undefined,
+      visible_hook: visibleHook.trim() || previewHook,
+      reward: { reward_id: selectedReward.reward_id },
+      source: "stage2b_lord_home_orders"
+    });
+  };
+
+  return (
+    <motion.section
+      className="lord-orders-board"
+      aria-label="Канцелярия заказов"
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
+      animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={prefersReducedMotion ? undefined : { duration: 0.22, ease: "easeOut" }}
+    >
+      <header className="lord-orders-header">
+        <div className="lord-orders-title">
+          <span>Доска объявлений владения</span>
+          <h1>Канцелярия заказов</h1>
+        </div>
+        <div className="lord-orders-summary" aria-label="Состояние заказов">
+          <b><ScrollText size={14} /> Активно {activeOrdersCount}/{activeOrdersLimit}</b>
+          <span>Публичные {cap.publicActive}/{cap.publicLimit}</span>
+          <span>Адресный {cap.addressedActive}/{cap.addressedLimit}</span>
+          <span><Archive size={13} /> Залог {lockedGold}g</span>
+          {lockedAssets ? <span><Package size={13} /> Вещи {lockedAssets}</span> : null}
+          <span className={conflictCount ? "is-alert" : undefined}>
+            <AlertTriangle size={13} /> Конфликты {conflictCount}
+          </span>
+        </div>
+        <div className="lord-orders-create-shell">
+          <button
+            className="lord-orders-create"
+            type="button"
+            disabled={Boolean(createBlockReason)}
+            title={createBlockReason || "Создать заказ"}
+            onClick={() => openComposer("create")}
+          >
+            <ScrollText size={15} />
+            Создать
+          </button>
+          <small>{createHint}</small>
+        </div>
+      </header>
+
+      <aside className="lord-orders-filters" aria-label="Фильтры заказов">
+        {lordHomeOrderFilters.map((filter) => (
+          <button
+            key={filter.id}
+            type="button"
+            aria-pressed={filter.id === filterId}
+            onClick={() => {
+              setComposerOpen(false);
+              onFilterChange(filter.id);
+            }}
+          >
+            <span>{filter.label}</span>
+            <b>{getLordHomeOrdersForFilter(orders, filter.id).length}</b>
+          </button>
+        ))}
+      </aside>
+
+      <section className="lord-orders-list" aria-label="Пергаменты заказов">
+        {filteredOrders.length ? filteredOrders.map((order) => (
+          <button
+            key={order.order_id}
+            className={`lord-order-parchment ${getLordHomeOrderTone(order)}`}
+            type="button"
+            aria-pressed={selectedOrder?.order_id === order.order_id}
+            onClick={() => {
+              setComposerOpen(false);
+              onSelectOrder(order.order_id);
+            }}
+          >
+            <span className="lord-order-wax" aria-hidden="true" />
+            <div className="lord-order-card-top">
+              <span>{order.visibility_label || (order.visibility === "addressed" ? "Адресный" : "Публичный")}</span>
+              <b>{order.status_label || order.status || "Открыт"}</b>
+            </div>
+            <h2>{getLordHomeOrderDisplayTitle(order)}</h2>
+            <div className="lord-order-card-grid">
+              <span><Crosshair size={13} /> {order.object_label || "объект"}</span>
+              <span><Map size={13} /> {order.location_label || "по следу"}</span>
+              <span className="is-wide"><Coins size={13} /> {order.reward_label || "награда"}</span>
+            </div>
+            <div className="lord-order-card-foot">
+              <span><Archive size={13} /> {getLordHomeOrderEscrowLabel(order)}</span>
+              <span><Clock3 size={13} /> {getLordHomeOrderWindowLabel(order)}</span>
+              {order.executor_label ? <span><Users size={13} /> {order.executor_label}</span> : null}
+              {order.conflict_badge ? <mark>{order.conflict_badge.label}</mark> : null}
+            </div>
+          </button>
+        )) : (
+          <div className="lord-orders-empty">
+            <ScrollText size={22} />
+            <b>{lordHomeOrderFilters.find((filter) => filter.id === filterId)?.label}</b>
+            <span>В этом разделе пока тихо.</span>
+            <button type="button" disabled={Boolean(createBlockReason)} onClick={() => openComposer("create")}>
+              Создать
+            </button>
+          </div>
+        )}
+      </section>
+
+      <aside className="lord-orders-detail" aria-label="Детали заказа">
+        {composerOpen ? (
+          <form className="lord-orders-composer" onSubmit={submitOrder}>
+            <div className="lord-orders-detail-head">
+              <span>Новая запись</span>
+              <h2>Поручение исполнителю</h2>
+            </div>
+            <label>
+              <span>Тип</span>
+              <select value={visibility} onChange={(event) => setVisibility(event.target.value as LordHomeOrderVisibility)}>
+                <option value="public">Публичный</option>
+                <option value="addressed">Адресный</option>
+              </select>
+            </label>
+            <label>
+              <span>Цель</span>
+              <select value={targetId} onChange={(event) => setTargetId(event.target.value)}>
+                {targets.map((target) => (
+                  <option key={target.target_id} value={target.target_id}>
+                    {target.target_type_label ? `${target.target_type_label}: ` : ""}{target.label}
+                    {target.location_label && target.location_label !== target.label ? `, ${target.location_label}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Адресат</span>
+              <select
+                value={recipientId}
+                disabled={visibility !== "addressed"}
+                onChange={(event) => setRecipientId(event.target.value)}
+              >
+                <option value="">Любой исполнитель</option>
+                {recipients.map((recipient) => (
+                  <option key={recipient.player_id} value={recipient.player_id}>
+                    {recipient.display_name}{recipient.role_label ? `, ${recipient.role_label}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Описание для исполнителя</span>
+              <textarea
+                value={visibleHook}
+                onChange={(event) => setVisibleHook(event.target.value)}
+                placeholder={`Найти и подтвердить: ${selectedTarget?.label ?? "цель"}`}
+              />
+            </label>
+            <label>
+              <span>Награда</span>
+              <select value={rewardId} onChange={(event) => setRewardId(event.target.value)}>
+                {rewards.map((reward) => (
+                  <option key={reward.reward_id} value={reward.reward_id}>{reward.label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="lord-orders-preview">
+              <span>Как увидит исполнитель</span>
+              <strong>{previewHook}</strong>
+              <small>{previewRecipient} · {selectedTarget?.location_label || "локация по следу"}</small>
+              <small>{selectedReward?.label || "награда"}; казна удержит {rewardGold}g из {availableGold}g</small>
+            </div>
+            <p className="lord-orders-status" role="status">{publishBlockReason || actionStatus}</p>
+            <div className="lord-orders-actions">
+              <button type="button" onClick={() => setComposerOpen(false)}>Отмена</button>
+              <button type="submit" disabled={Boolean(publishBlockReason)}>
+                <Gavel size={15} />
+                Опубликовать
+              </button>
+            </div>
+          </form>
+        ) : selectedOrder ? (
+          <article className={`lord-orders-selected ${getLordHomeOrderTone(selectedOrder)}`}>
+            <span className="lord-order-wax detail" aria-hidden="true" />
+            <div className="lord-orders-detail-head">
+              <span>{selectedOrder.visibility_label || selectedOrder.visibility || "Публичный"}</span>
+              <h2>{selectedOrder.status_label || selectedOrder.status || "Статус заказа"}</h2>
+            </div>
+            <p className="lord-orders-detail-note">
+              {selectedOrder.executor_label
+                ? `Исполнитель: ${selectedOrder.executor_label}`
+                : selectedOrder.target_player_label
+                  ? `Адресат: ${selectedOrder.target_player_label}`
+                  : "Исполнитель пока не назначен"}
+            </p>
+            <dl>
+              <div><dt>Тип</dt><dd>{selectedOrder.visibility_label || (selectedOrder.visibility === "addressed" ? "Адресный" : "Публичный")}</dd></div>
+              <div><dt>Залог</dt><dd>{getLordHomeOrderEscrowLabel(selectedOrder)}</dd></div>
+              <div><dt>Срок</dt><dd>{getLordHomeOrderWindowLabel(selectedOrder)}</dd></div>
+            </dl>
+            {selectedOrder.conflict_badge ? (
+              <p className="lord-orders-review-note">
+                <AlertTriangle size={15} />
+                {selectedOrder.conflict_badge.label}
+              </p>
+            ) : null}
+            <div className="lord-orders-actions lord-orders-action-stack">
+              <button type="button" disabled={!canCancelLordHomeOrder(selectedOrder) || isSubmitting} onClick={() => onCancelOrder(selectedOrder)}>
+                <XCircle size={15} />
+                Отменить
+              </button>
+              <button type="button" disabled={isSubmitting} onClick={() => openComposer("repeat", selectedOrder)}>
+                <ScrollText size={15} />
+                Повторить
+              </button>
+              <button
+                type="button"
+                disabled={!selectedOrder.conflict_badge}
+                onClick={() => onStatus(selectedOrder.conflict_badge?.label || "По этому заказу нет открытого конфликта")}
+              >
+                <AlertTriangle size={15} />
+                Посмотреть конфликт
+              </button>
+              <button type="button" disabled={isSubmitting || addressedFull} onClick={() => openComposer("assign", selectedOrder)}>
+                <Users size={15} />
+                Назначить исполнителя
+              </button>
+            </div>
+            <p className="lord-orders-status" role="status">{actionStatus}</p>
+          </article>
+        ) : (
+          <div className="lord-orders-empty is-detail">
+            <ClipboardCheck size={24} />
+            <b>Заказ не выбран</b>
+            <span>Выберите пергамент или создайте новое поручение.</span>
+            <button type="button" disabled={Boolean(createBlockReason)} onClick={() => openComposer("create")}>Создать</button>
+          </div>
+        )}
+      </aside>
+    </motion.section>
+  );
+}
+
+function LordHomeRaidsBoard({
+  rules,
+  targets,
+  activeEffects,
+  raidHistory,
+  raidTokens,
+  lordGold,
+  actionStatus,
+  isSubmitting,
+  selectedRuleId,
+  selectedTargetId,
+  onSelectRule,
+  onSelectTarget,
+  onStart
+}: {
+  rules: LordHomeRaidRule[];
+  targets: LordHomeRaidTarget[];
+  activeEffects: LordHomeRaidEffect[];
+  raidHistory: LordHomeRaidEffect[];
+  raidTokens: number;
+  lordGold: number;
+  actionStatus: string;
+  isSubmitting: boolean;
+  selectedRuleId: string;
+  selectedTargetId: string;
+  onSelectRule: (ruleId: string) => void;
+  onSelectTarget: (targetId: string) => void;
+  onStart: (payload: LordHomeRaidStartPayload) => void;
+}) {
+  const prefersReducedMotion = useReducedMotion();
+  const normalizedRules = rules.map(normalizeLordHomeRaidRule);
+  const selectedRule = normalizedRules.find((rule) => rule.rule_id === selectedRuleId) ?? normalizedRules[0] ?? null;
+  const normalizedTargets = targets.map(normalizeLordHomeRaidTarget);
+  const selectedTarget =
+    normalizedTargets.find((target) => target.target_territory_id === selectedTargetId) ??
+    normalizedTargets.find((target) => target.can_target) ??
+    normalizedTargets[0] ??
+    null;
+  const blockReason = getLordHomeRaidBlockReason({
+    rule: selectedRule,
+    target: selectedTarget,
+    raidTokens,
+    lordGold,
+    activeEffects,
+    isSubmitting
+  });
+  const activeCount = activeEffects.filter((effect) => effect.status === "active").length;
+  const nearestExpiry = getLordHomeRaidExpiryLabel(activeEffects);
+  const categoryEntries = Object.entries(lordHomeRaidCategoryMeta);
+  const targetGroups = [
+    {
+      id: "foreign",
+      label: "Чужие территории",
+      items: normalizedTargets.filter((target) => target.can_target && !target.is_residence)
+    },
+    {
+      id: "residence",
+      label: "Резиденции raid-only",
+      items: normalizedTargets.filter((target) => target.can_target && target.is_residence)
+    },
+    {
+      id: "blocked",
+      label: "Недоступны",
+      items: normalizedTargets.filter((target) => !target.can_target)
+    }
+  ].filter((group) => group.items.length > 0);
+
+  return (
+    <motion.section
+      className="lord-raids-board"
+      aria-label="Рейдовые операции владения"
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+      animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={prefersReducedMotion ? undefined : { duration: 0.22, ease: "easeOut" }}
+    >
+      <header className="lord-raids-header">
+        <div className="lord-raids-title">
+          <span>Военный стол</span>
+          <h1>Рейдовые операции</h1>
+        </div>
+        <div className="lord-raids-summary" aria-label="Сводка рейдов">
+          <b><Flame size={14} /> Жетоны {raidTokens}</b>
+          <span><Coins size={13} /> Казна {lordGold}</span>
+          <span><Clock3 size={13} /> Эффекты {activeCount}</span>
+          <span><Hourglass size={13} /> Истекает {nearestExpiry}</span>
+        </div>
+        <div className="lord-raids-seal">
+          <span>Выбранный план</span>
+          <b>{selectedRule?.name ?? "не выбран"}</b>
+        </div>
+      </header>
+
+      <aside className="lord-raids-legend" aria-label="Типы рейдов">
+        {categoryEntries.map(([category, meta]) => {
+          const Icon = meta.icon;
+          const count = normalizedRules.filter((rule) => rule.category === category).length;
+          return (
+            <button
+              key={category}
+              type="button"
+              onClick={() => {
+                const firstRule = normalizedRules.find((rule) => rule.category === category);
+                if (firstRule) onSelectRule(firstRule.rule_id);
+              }}
+            >
+              <Icon size={15} />
+              <span>{meta.label}</span>
+              <b>{count}</b>
+            </button>
+          );
+        })}
+        <div className="lord-raids-active-strip">
+          <span>Активные метки</span>
+          {activeEffects.slice(0, 3).map((effect) => (
+            <b key={effect.raid_effect_id ?? `${effect.rule_id}-${effect.target_territory_id}`}>
+              {effect.result_label || effect.rule_id || "эффект"} · {effect.expires_at ? getLordHomeRaidExpiryLabel([effect]) : "идет"}
+            </b>
+          ))}
+          {activeEffects.length === 0 ? <b>Нет активных эффектов</b> : null}
+        </div>
+      </aside>
+
+      <section className="lord-raids-plan" aria-label="Сетка доступных рейдов">
+        <svg className="lord-raids-link-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <path className="lord-raids-link" d="M 21 28 C 29 39 24 45 29 52" />
+          <path className="lord-raids-link" d="M 44 25 C 50 35 52 42 57 50" />
+          <path className="lord-raids-link" d="M 29 52 C 36 63 38 68 43 73" />
+          <path className="lord-raids-link" d="M 57 50 C 66 45 70 39 73 32" />
+        </svg>
+        {normalizedRules.map((rule, index) => {
+          const meta = getLordHomeRaidCategoryMeta(rule.category);
+          const Icon = meta.icon;
+          const position = getLordHomeRaidNodePosition(rule, index);
+          const isActive = selectedRule?.rule_id === rule.rule_id;
+          return (
+            <button
+              key={rule.rule_id}
+              className={`lord-raid-node ${meta.tone}${isActive ? " is-active" : ""}${rule.locked_reason ? " is-locked" : ""}`}
+              type="button"
+              style={{ left: `${position.x}%`, top: `${position.y}%` }}
+              aria-pressed={isActive}
+              onClick={() => onSelectRule(rule.rule_id)}
+            >
+              <span className="lord-raid-node-icon"><Icon size={18} /></span>
+              <span className="lord-raid-node-tier">T{rule.tier}</span>
+              <b>{rule.name}</b>
+              <small><Flame size={11} /> {rule.token_cost} · <Coins size={11} /> {rule.gold_cost} · {rule.duration_minutes}м</small>
+              {rule.locked_reason ? <i>{rule.locked_reason}</i> : null}
+            </button>
+          );
+        })}
+      </section>
+
+      <aside className="lord-raids-detail" aria-label="Детали выбранного рейда">
+        {selectedRule ? (
+          <motion.article
+            key={selectedRule.rule_id}
+            className={`lord-raid-detail-card ${getLordHomeRaidCategoryMeta(selectedRule.category).tone}`}
+            initial={prefersReducedMotion ? false : { opacity: 0, x: 18 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1, x: 0 }}
+            transition={prefersReducedMotion ? undefined : { duration: 0.18, ease: "easeOut" }}
+          >
+            <div className="lord-raids-detail-head">
+              <span>{selectedRule.category_label}</span>
+              <h2>{selectedRule.name}</h2>
+            </div>
+            <p>{selectedRule.description}</p>
+            <dl>
+              <div><dt>Цель</dt><dd>{selectedTarget?.name ?? "не выбрана"}</dd></div>
+              <div><dt>Стоимость</dt><dd>{selectedRule.token_cost} жетон · {selectedRule.gold_cost} золота</dd></div>
+              <div><dt>Эффект</dt><dd>{selectedRule.effect_type}</dd></div>
+              <div><dt>Длительность</dt><dd>{selectedRule.duration_minutes} минут</dd></div>
+              <div><dt>Видимость</dt><dd>{selectedRule.visibility}</dd></div>
+              <div><dt>Защита</dt><dd>{selectedTarget?.raid_resistance_label || "детали скрыты"}</dd></div>
+              <div><dt>Ответ</dt><dd>{selectedRule.counterplay}</dd></div>
+            </dl>
+
+            <div className="lord-raids-targets" aria-label="Цели рейда">
+              {targetGroups.map((group) => (
+                <section key={group.id}>
+                  <span>{group.label}</span>
+                  {group.items.map((target) => {
+                    const isSelected = target.target_territory_id === selectedTarget?.target_territory_id;
+                    const compatible = isLordHomeRaidTargetCompatible(selectedRule, target);
+                    return (
+                      <button
+                        key={target.target_territory_id}
+                        className={`${isSelected ? "is-selected" : ""}${compatible ? "" : " is-incompatible"}${target.active_effects?.length ? " has-effect" : ""}`}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => onSelectTarget(target.target_territory_id)}
+                      >
+                        <b>{target.name}</b>
+                        <small>{target.owner_label} · T{target.tier} · {target.bonus_label}</small>
+                        <em>{target.active_effects?.length ? `${target.active_effects.length} эффект` : target.visibility_level === "hidden_details" ? "детали скрыты" : target.disabled_reason || "цель открыта"}</em>
+                      </button>
+                    );
+                  })}
+                </section>
+              ))}
+            </div>
+
+            <p className="lord-raids-status" role="status">
+              {actionStatus || blockReason || "План готов к печати"}
+            </p>
+            <button
+              className="lord-raids-start"
+              type="button"
+              disabled={Boolean(blockReason)}
+              onClick={() => {
+                if (!selectedTarget || blockReason) return;
+                onStart({
+                  target_territory_id: selectedTarget.target_territory_id,
+                  rule_id: selectedRule.rule_id,
+                  expected_token_cost: selectedRule.token_cost,
+                  expected_gold_cost: selectedRule.gold_cost,
+                  source: "stage2b_lord_home_raids"
+                });
+              }}
+            >
+              <Flame size={15} />
+              {isSubmitting ? "Начинаю" : "Начать рейд"}
+            </button>
+          </motion.article>
+        ) : null}
+        <div className="lord-raids-history">
+          <span>Последние исходы</span>
+          {raidHistory.slice(0, 3).map((effect) => (
+            <b key={effect.raid_effect_id ?? `${effect.rule_id}-${effect.started_at}`}>
+              {effect.result_label || effect.rule_id || "рейд"} · {effect.status || "записан"}
+            </b>
+          ))}
+          {raidHistory.length === 0 ? <b>История пуста</b> : null}
+        </div>
+      </aside>
+    </motion.section>
+  );
+}
+
 function LordHomeActionOverlay({
   panel,
   selectedTerritory,
@@ -4483,6 +6444,7 @@ function LordCastleScreen() {
   const [selectedBranch, setSelectedBranch] = useState<(typeof castleBranchTabs)[number]["id"]>("all");
   const [selectedBuildingId, setSelectedBuildingId] = useState<(typeof castleBuildings)[number]["id"]>("residence");
   const prefersReducedMotion = useReducedMotion();
+  const castleMpState = useLordMpRuntimeState();
   const visibleBuildings =
     selectedBranch === "all"
       ? castleBuildings
@@ -4597,6 +6559,7 @@ function LordCastleScreen() {
           {selectedBuilding.action}
         </button>
       </section>
+      <LordMpHud className="lord-castle-mp-widget" currentMp={castleMpState.currentMp} mpCap={castleMpState.mpCap} />
     </main>
   );
 }
@@ -4702,6 +6665,14 @@ function LordLoginScreen() {
 type AnimatedLordLoginMode = "menu" | "login" | "onboarding";
 type AnimatedLordMenuTarget = "enter" | "training";
 
+type LordRoleTokenAuth = {
+  role_type?: string;
+  owner_id?: string;
+  lord_id?: string | null;
+  domain_id?: string | null;
+  display_name?: string;
+};
+
 const lordLoginCopy = {
   enter: "\u0412\u0445\u043e\u0434",
   training: "\u041e\u0431\u0443\u0447\u0435\u043d\u0438\u0435",
@@ -4715,8 +6686,6 @@ const lordLoginCopy = {
   onboarding:
     "\u0412\u043e\u0439\u0434\u0438\u0442\u0435 \u043f\u043e \u043a\u043e\u0434\u0443 \u043b\u043e\u0440\u0434\u0430 \u043d\u0430 \u0441\u0432\u043e\u0435\u043c \u043a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440\u0435. \u041f\u043e\u0441\u043b\u0435 \u0432\u0445\u043e\u0434\u0430 \u043e\u0442\u043a\u0440\u043e\u0435\u0442\u0441\u044f \u0432\u043b\u0430\u0434\u0435\u043d\u0438\u0435, \u043a\u0430\u0440\u0442\u0430 \u0438 \u0430\u0440\u043c\u0438\u044f."
 } as const;
-
-const validLordAccessCodes = new Set(["1234", "LORD", "LORD-1", "\u0421\u0415\u0412\u0415\u0420"]);
 
 const normalizeLordAccessCode = (value: string) => value.trim().replace(/\s+/g, "").toLocaleUpperCase("ru-RU");
 
@@ -4733,11 +6702,15 @@ const preventLordLoginContextMenu = (event: MouseEvent<HTMLElement>) => {
 function AnimatedLordLoginScreen() {
   const queryParams = new URLSearchParams(window.location.search);
   const requestedView = queryParams.get("view");
+  const apiBaseUrl = (queryParams.get("api") || import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+  const requestedNext = queryParams.get("next");
+  const nextPath = requestedNext?.startsWith("/lords/") ? requestedNext : "/lords/home";
   const initialMode: AnimatedLordLoginMode =
     requestedView === "login" || requestedView === "onboarding" ? requestedView : "menu";
   const [mode, setMode] = useState<AnimatedLordLoginMode>(initialMode);
   const [code, setCode] = useState("");
   const [loginError, setLoginError] = useState(queryParams.get("error") === "login" ? lordLoginCopy.invalidCode : "");
+  const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [pressedTarget, setPressedTarget] = useState<AnimatedLordMenuTarget | null>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -4799,7 +6772,7 @@ function AnimatedLordLoginScreen() {
     }
   };
 
-  const handleLoginSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const normalizedCode = normalizeLordAccessCode(code);
@@ -4810,14 +6783,38 @@ function AnimatedLordLoginScreen() {
       return;
     }
 
-    if (validLordAccessCodes.has(normalizedCode)) {
-      setLoginError("");
-      window.location.assign("/lords/home");
-      return;
-    }
+    setIsSubmittingLogin(true);
 
-    setLoginError(lordLoginCopy.invalidCode);
-    window.setTimeout(focusCodeInput, 0);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/auth/role-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ token: normalizedCode })
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(lordLoginCopy.invalidCode);
+      }
+
+      const auth = payload as LordRoleTokenAuth;
+      const lordId = auth.lord_id || auth.owner_id;
+      if (auth.role_type !== "lord" || !lordId) {
+        throw new Error(lordLoginCopy.invalidCode);
+      }
+
+      localStorage.setItem("witcher_larp_role_token", normalizedCode);
+      localStorage.setItem("witcher_larp_lord_id", lordId);
+      if (auth.domain_id) {
+        localStorage.setItem("witcher_larp_domain_id", auth.domain_id);
+      }
+      setLoginError("");
+      window.location.assign(nextPath);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : lordLoginCopy.invalidCode);
+      window.setTimeout(focusCodeInput, 0);
+    } finally {
+      setIsSubmittingLogin(false);
+    }
   };
 
   const openTrainingBuild = () => {
@@ -4941,10 +6938,10 @@ function AnimatedLordLoginScreen() {
                   />
                 </label>
                 <div className="lord-form-actions">
-                  <button className="lord-panel-action-button lord-submit-button" type="submit" disabled={isTransitioning}>
+                  <button className="lord-panel-action-button lord-submit-button" type="submit" disabled={isTransitioning || isSubmittingLogin}>
                     {lordLoginCopy.submit}
                   </button>
-                  <button className="lord-panel-action-button lord-back-button" type="button" onClick={() => void movePanelTo("menu")} disabled={isTransitioning}>
+                  <button className="lord-panel-action-button lord-back-button" type="button" onClick={() => void movePanelTo("menu")} disabled={isTransitioning || isSubmittingLogin}>
                     {lordLoginCopy.back}
                   </button>
                 </div>
