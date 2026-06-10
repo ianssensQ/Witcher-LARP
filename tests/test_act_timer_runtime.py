@@ -113,8 +113,26 @@ class ActTimerRuntimeTests(unittest.TestCase):
         with connect(settings) as connection:
             applied = apply_due_timers(connection, settings, now=first_due)
             self.assertEqual([tick["effect_type"] for tick in applied], ["lord_income_and_mana"])
+            north_update = next(
+                update
+                for update in applied[0]["domain_updates"]
+                if update["domain_id"] == "domain_north"
+            )
+            north_growth = next(
+                growth
+                for growth in applied[0]["recruit_growth"]
+                if growth["domain_id"] == "domain_north"
+                and growth["card_id"] == "unit_infantry_t1"
+            )
             north = connection.execute(
                 "SELECT gold, current_mp, influence FROM domain_runtime_state WHERE domain_id = 'domain_north'"
+            ).fetchone()
+            north_reserve = connection.execute(
+                """
+                SELECT count
+                FROM army_reserve_runtime
+                WHERE reserve_id = 'reserve_north_infantry'
+                """
             ).fetchone()
             sorceress = connection.execute(
                 "SELECT mana, max_mana FROM player_runtime_state WHERE player_id = 'p_sorc_1'"
@@ -129,7 +147,14 @@ class ActTimerRuntimeTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM army_windows WHERE act_id = 'act1' AND status = 'open'"
             ).fetchone()[0]
 
-        self.assertEqual(dict(north), {"gold": 105, "current_mp": 6, "influence": 4})
+        self.assertEqual(north_update["territory_income"], 8)
+        self.assertEqual(north_update["raw_income"], 33)
+        self.assertEqual(
+            dict(north),
+            {"gold": 80 + north_update["income"], "current_mp": 6, "influence": 4},
+        )
+        self.assertEqual(north_growth["growth"], 24)
+        self.assertEqual(north_reserve["count"], north_growth["after"])
         self.assertEqual(dict(sorceress), {"mana": 2, "max_mana": 7})
         self.assertEqual(witcher["challenge_tokens"], 3)
         self.assertEqual(lord["challenge_tokens"], 0)
@@ -146,6 +171,11 @@ class ActTimerRuntimeTests(unittest.TestCase):
         with connect(settings) as connection:
             second_applied = apply_due_timers(connection, settings, now=second_due)
             self.assertEqual([tick["effect_type"] for tick in second_applied], ["lord_income_and_mana"])
+            second_north_update = next(
+                update
+                for update in second_applied[0]["domain_updates"]
+                if update["domain_id"] == "domain_north"
+            )
             north_gold = connection.execute(
                 "SELECT gold, influence FROM domain_runtime_state WHERE domain_id = 'domain_north'"
             ).fetchone()
@@ -153,7 +183,10 @@ class ActTimerRuntimeTests(unittest.TestCase):
                 "SELECT mana FROM player_runtime_state WHERE player_id = 'p_sorc_1'"
             ).fetchone()["mana"]
 
-        self.assertEqual(north_gold["gold"], 130)
+        self.assertEqual(
+            north_gold["gold"],
+            80 + north_update["income"] + second_north_update["income"],
+        )
         self.assertEqual(north_gold["influence"], 5)
         self.assertEqual(sorceress_mana, 4)
 
@@ -256,7 +289,26 @@ class ActTimerRuntimeTests(unittest.TestCase):
         )
 
         self.assertEqual(state.status_code, 200, state.text)
-        self.assertEqual(state.json()["domain"]["gold"], 105)
+        with connect(settings) as connection:
+            tick_payload = json.loads(
+                connection.execute(
+                    """
+                    SELECT payload_json
+                    FROM applied_timer_ticks
+                    WHERE effect_type = 'lord_income_and_mana'
+                    """
+                ).fetchone()["payload_json"]
+            )
+        north_update = next(
+            update
+            for update in tick_payload["domain_updates"]
+            if update["domain_id"] == "domain_north"
+        )
+        self.assertEqual(state.json()["domain"]["gold"], 80 + north_update["income"])
+        self.assertEqual(
+            state.json()["domain"]["territory_income_per_hour"],
+            north_update["territory_income"],
+        )
         self.assertEqual(state.json()["domain"]["current_mp"], 6)
         with connect(settings) as connection:
             tick_count = connection.execute(

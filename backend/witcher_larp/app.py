@@ -38,6 +38,7 @@ from .pvp_service import convert_personal_card_to_lord, create_pvp_challenge
 from .pvp_service import finish_gwent_match, get_pvp_tables, record_gwent_round
 from .pvp_service import record_pvp_refusal, set_pvp_throttle_mode, start_pvp_challenge
 from .qr_runtime import QrLookupRequest, has_qr_content, lookup_qr_runtime
+from .qr_runtime import normalize_qr_code
 from .reputation_service import ReputationError
 from .reputation_service import apply_reputation_change, get_reputation_view
 from .review_service import ReviewDecisionError, decide_event_review
@@ -75,6 +76,12 @@ class QrLookupPayload(BaseModel):
     device_id: str | None = None
     source: str = "manual_id"
     physical_presence_confirmed: bool = False
+
+
+class QrOrderCheckPayload(BaseModel):
+    code: str
+    device_id: str | None = None
+    source: str = "qr_scan"
 
 
 class PlayerCodePayload(BaseModel):
@@ -263,7 +270,13 @@ class LordRoutePreviewPayload(BaseModel):
 
 class GarrisonTransferPayload(BaseModel):
     territory_id: str
-    card_id: str
+    card_id: str | None = None
+    stack_id: str | None = None
+    target_stack_id: str | None = None
+    army_id: str | None = None
+    target_army_id: str | None = None
+    garrison_id: str | None = None
+    target_garrison_id: str | None = None
     count: int = 1
     operation: str = "garrison"
     source: str = "lord_panel"
@@ -285,6 +298,8 @@ class RecruitPayload(BaseModel):
 class RaidPayload(BaseModel):
     target_territory_id: str
     rule_id: str | None = None
+    expected_token_cost: int | None = None
+    expected_gold_cost: int | None = None
     source: str = "lord_panel"
 
 
@@ -292,9 +307,13 @@ class OrderPayload(BaseModel):
     action: str = "create"
     order_id: str | None = None
     object_id: str | None = None
+    location_id: str | None = None
     target_player_id: str | None = None
     visibility: str = "public"
     escrow_reward_id: str | None = None
+    visible_hook: str | None = None
+    reward: str | dict[str, Any] | None = None
+    expires_at: str | None = None
     player_id: str | None = None
     result_event_id: str | None = None
     reason: str | None = None
@@ -463,6 +482,31 @@ def create_app(settings: Settings | None = None):
                     source=payload.source,
                     physical_presence_confirmed=payload.physical_presence_confirmed,
                 ),
+            )
+
+    @api.post("/api/mobile/qr-order-check")
+    def mobile_qr_order_check(
+        payload: QrOrderCheckPayload,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
+        player_code: str | None = None,
+    ):
+        if not payload.code.strip():
+            raise HTTPException(status_code=400, detail="QR/manual ID is required.")
+        with connect(runtime_settings) as connection:
+            lookup_player_code = x_player_code or player_code
+            if not lookup_player_code or not lookup_player_code.strip():
+                raise HTTPException(status_code=401, detail="Player code is required.")
+            auth = _authenticate_player_code(connection, lookup_player_code)
+            if auth is None:
+                raise HTTPException(status_code=401, detail="Invalid player code.")
+            if not has_qr_content(connection):
+                raise HTTPException(status_code=404, detail="No imported QR content is available.")
+            return _build_mobile_qr_order_check(
+                connection,
+                player_id=str(auth["player_id"]),
+                code=payload.code,
+                device_id=payload.device_id,
+                source=payload.source,
             )
 
     @api.post("/api/events/sync", response_model=EventSyncResponse)
@@ -729,6 +773,12 @@ def create_app(settings: Settings | None = None):
                     lord_id,
                     territory_id=payload.territory_id,
                     card_id=payload.card_id,
+                    stack_id=payload.stack_id,
+                    target_stack_id=payload.target_stack_id,
+                    army_id=payload.army_id,
+                    target_army_id=payload.target_army_id,
+                    garrison_id=payload.garrison_id,
+                    target_garrison_id=payload.target_garrison_id,
                     count=payload.count,
                     operation=payload.operation,
                     source=payload.source,
@@ -795,6 +845,8 @@ def create_app(settings: Settings | None = None):
                     lord_id,
                     target_territory_id=payload.target_territory_id,
                     rule_id=payload.rule_id,
+                    expected_token_cost=payload.expected_token_cost,
+                    expected_gold_cost=payload.expected_gold_cost,
                     source=payload.source,
                 )
             except LordRuntimeError as exc:
@@ -845,21 +897,27 @@ def create_app(settings: Settings | None = None):
                 _require_lord_token(connection, lord_id, token)
             _reconcile_due_timers(connection, runtime_settings)
             try:
-                return order_action(
+                result = order_action(
                     connection,
                     lord_id,
                     action=payload.action,
                     order_id=payload.order_id,
-                    object_id=payload.object_id,
+                    object_id=payload.object_id or payload.location_id,
                     target_player_id=payload.target_player_id,
                     visibility=payload.visibility,
-                    escrow_reward_id=payload.escrow_reward_id,
+                    escrow_reward_id=payload.escrow_reward_id
+                    or _order_reward_id(payload.reward),
+                    visible_hook=payload.visible_hook,
+                    expires_at=payload.expires_at,
                     player_id=player_id,
                     result_event_id=payload.result_event_id,
                     reason=payload.reason,
                     source=source,
                     actor_role=actor_role,
                 )
+                if payload.action in {"create", "cancel"}:
+                    return _with_lord_order_state(connection, lord_id, result)
+                return result
             except LordRuntimeError as exc:
                 raise _lord_http_error(exc) from exc
 
@@ -2096,11 +2154,336 @@ def _player_auth_reputation_state(
     }
 
 
+def _build_mobile_qr_order_check(
+    connection,
+    *,
+    player_id: str,
+    code: str,
+    device_id: str | None,
+    source: str,
+) -> dict[str, object]:
+    normalized_code = normalize_qr_code(code)
+    source_type = source if source in {"qr_scan", "manual_id"} else "qr_scan"
+    qr = _fetch_mobile_qr_by_code(connection, normalized_code)
+    if qr is None:
+        return {
+            "status": "unknown_qr",
+            "allowed": False,
+            "message": "Unknown QR/manual ID.",
+            "normalized_code": normalized_code,
+            "source": source_type,
+            "device_id": device_id,
+        }
+
+    if _mobile_qr_act_locked(connection, qr):
+        return {
+            "status": "act_locked",
+            "allowed": False,
+            "message": "QR is locked until this act opens.",
+            "normalized_code": normalized_code,
+            "source": source_type,
+            "device_id": device_id,
+        }
+
+    scenario = _fetch_mobile_row_by_id(
+        connection,
+        "pve_scenarios",
+        "scenario_id",
+        str(qr.get("scenario_id", "")),
+    )
+    order = _matching_mobile_order_for_qr(
+        connection,
+        player_id=player_id,
+        qr=qr,
+        scenario=scenario or {},
+    )
+    if order is None:
+        return {
+            "status": "not_taken",
+            "allowed": False,
+            "message": "QR is not linked to an active order for this player.",
+            "normalized_code": normalized_code,
+            "source": source_type,
+            "device_id": device_id,
+        }
+
+    object_label, object_type = _mobile_order_object_metadata(connection, str(order.get("object_id", "")), qr)
+    return {
+        "status": "matched_order",
+        "allowed": True,
+        "normalized_code": normalized_code,
+        "source": source_type,
+        "device_id": device_id,
+        "qr": {
+            "qr_id": str(qr.get("qr_id", "")),
+            "manual_code": str(qr.get("manual_code", "")),
+            "qr_mode": str(qr.get("qr_mode", "")),
+            "act_id": str(qr.get("act_id", "")),
+            "scenario_id": str(qr.get("scenario_id", "")),
+            "location_node_id": str(qr.get("location_node_id", "")),
+        },
+        "order": {
+            "order_id": str(order.get("order_id", "")),
+            "lord_id": str(order.get("lord_id", "")),
+            "target_player_id": str(order.get("target_player_id", "")),
+            "object_id": str(order.get("object_id", "")),
+            "object_label": object_label,
+            "object_type": object_type,
+            "title": object_label,
+            "status": str(order.get("status", "")),
+            "visibility": str(order.get("visibility", "")),
+        },
+        "quest": _mobile_quest_payload(scenario),
+    }
+
+
+def _fetch_mobile_qr_by_code(
+    connection,
+    normalized_code: str,
+) -> dict[str, object] | None:
+    if not normalized_code:
+        return None
+    row = connection.execute(
+        """
+        SELECT *
+        FROM qr_objects
+        WHERE UPPER(manual_code) = ?
+        LIMIT 1
+        """,
+        (normalized_code,),
+    ).fetchone()
+    return _mobile_row_to_dict(row)
+
+
+def _matching_mobile_order_for_qr(
+    connection,
+    *,
+    player_id: str,
+    qr: dict[str, object],
+    scenario: dict[str, object],
+) -> dict[str, object] | None:
+    for order in _active_mobile_orders_for_player(connection, player_id):
+        if _mobile_order_matches_qr(connection, order, qr, scenario):
+            return order
+    return None
+
+
+def _active_mobile_orders_for_player(connection, player_id: str) -> list[dict[str, object]]:
+    rows_by_id: dict[str, dict[str, object]] = {}
+    if _mobile_table_exists(connection, "orders"):
+        for row in connection.execute("SELECT * FROM orders").fetchall():
+            order = _mobile_row_to_dict(row)
+            if order is not None:
+                rows_by_id[str(order.get("order_id", ""))] = order
+    if _mobile_table_exists(connection, "order_runtime_state"):
+        for row in connection.execute("SELECT * FROM order_runtime_state").fetchall():
+            order = _mobile_row_to_dict(row)
+            if order is not None:
+                rows_by_id[str(order.get("order_id", ""))] = order
+
+    result: list[dict[str, object]] = []
+    for order in rows_by_id.values():
+        if _mobile_order_is_active_for_player(order, player_id):
+            result.append(order)
+    return result
+
+
+def _mobile_order_is_active_for_player(order: dict[str, object], player_id: str) -> bool:
+    status = str(order.get("status", "")).strip().lower()
+    if status in {"completed", "cancelled", "rejected", "failed", "contested_review"}:
+        return False
+    if not player_id:
+        return False
+    return player_id in {
+        str(order.get("target_player_id", "")),
+        str(order.get("accepted_by_player_id", "")),
+        str(order.get("submitted_by_player_id", "")),
+    }
+
+
+def _mobile_order_matches_qr(
+    connection,
+    order: dict[str, object],
+    qr: dict[str, object],
+    scenario: dict[str, object],
+) -> bool:
+    object_id = str(order.get("object_id", "")).strip().upper()
+    if not object_id:
+        return False
+    node_id = str(qr.get("location_node_id", ""))
+    values = {
+        str(qr.get("qr_id", "")),
+        str(qr.get("manual_code", "")),
+        node_id,
+        str(qr.get("scenario_id", "")),
+        str(scenario.get("scenario_id", "")),
+        _mobile_territory_id_for_node(connection, node_id),
+    }
+    return object_id in {value.strip().upper() for value in values if value}
+
+
+def _mobile_order_object_metadata(
+    connection,
+    object_id: str,
+    qr: dict[str, object],
+) -> tuple[str, str]:
+    territory = _fetch_mobile_row_by_id(connection, "territories", "territory_id", object_id)
+    if territory is not None:
+        return str(territory.get("name", object_id)), "territory"
+
+    if object_id == str(qr.get("qr_id", "")):
+        node = _fetch_mobile_row_by_id(
+            connection,
+            "map_nodes",
+            "node_id",
+            str(qr.get("location_node_id", "")),
+        )
+        if node is not None:
+            return str(node.get("name", object_id)), "qr_object"
+        return object_id, "qr_object"
+
+    return object_id, "unknown"
+
+
+def _mobile_quest_payload(scenario: dict[str, object] | None) -> dict[str, object]:
+    if not scenario:
+        return {}
+    primary_stat = str(scenario.get("primary_stat", ""))
+    dc = str(scenario.get("dc", ""))
+    success_text = str(scenario.get("success_text", ""))
+    memo_parts = []
+    if primary_stat and dc:
+        memo_parts.append(f"{primary_stat} vs {dc}")
+    if success_text:
+        memo_parts.append(success_text)
+    return {
+        "scenario_id": str(scenario.get("scenario_id", "")),
+        "scene_type": str(scenario.get("scene_type", "")),
+        "primary_stat": primary_stat,
+        "dc": dc,
+        "success_text": success_text,
+        "failure_text": str(scenario.get("failure_text", "")),
+        "timeout_outcome": str(scenario.get("timeout_outcome", "")),
+        "memo": " · ".join(memo_parts),
+    }
+
+
+def _mobile_qr_act_locked(connection, qr: dict[str, object]) -> bool:
+    act_id = str(qr.get("act_id", ""))
+    if not act_id or act_id == "act1":
+        return False
+    act = _fetch_mobile_row_by_id(connection, "acts", "act_id", act_id)
+    if act is not None and str(act.get("unlock_required", "")).strip().lower() != "true":
+        return False
+    if not _mobile_table_exists(connection, "act_history"):
+        return True
+    row = connection.execute(
+        """
+        SELECT physical_announcement_state, unlock_revealed_at
+        FROM act_history
+        WHERE act_id = ?
+        """,
+        (act_id,),
+    ).fetchone()
+    if row is None:
+        return True
+    return not (
+        _mobile_is_announced(row["physical_announcement_state"])
+        or bool(row["unlock_revealed_at"])
+    )
+
+
+def _mobile_territory_id_for_node(connection, node_id: str) -> str:
+    if not node_id:
+        return ""
+    row = connection.execute(
+        """
+        SELECT territory_id
+        FROM map_nodes
+        WHERE node_id = ?
+        LIMIT 1
+        """,
+        (node_id,),
+    ).fetchone()
+    return str(row["territory_id"]) if row is not None else ""
+
+
+def _fetch_mobile_row_by_id(
+    connection,
+    table: str,
+    column: str,
+    value: str,
+) -> dict[str, object] | None:
+    if not value or not _mobile_table_exists(connection, table):
+        return None
+    row = connection.execute(
+        f'SELECT * FROM "{table}" WHERE "{column}" = ? LIMIT 1',
+        (value,),
+    ).fetchone()
+    return _mobile_row_to_dict(row)
+
+
+def _mobile_row_to_dict(row) -> dict[str, object] | None:
+    if row is None:
+        return None
+    return {
+        key: row[key]
+        for key in row.keys()
+        if key not in {"_import_run_id", "_row_number"}
+    }
+
+
+def _mobile_table_exists(connection, table: str) -> bool:
+    row = connection.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name = ?
+        """,
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _mobile_is_announced(value: object) -> bool:
+    return str(value or "").strip().lower() in {
+        "announced",
+        "completed",
+        "done",
+        "physical_announced",
+    }
+
+
 def _lord_http_error(exc: LordRuntimeError):
     return HTTPException(
         status_code=exc.status_code,
         detail={"code": exc.code, "message": str(exc)},
     )
+
+
+def _order_reward_id(reward: str | dict[str, Any] | None) -> str | None:
+    if reward is None:
+        return None
+    if isinstance(reward, str):
+        return reward.strip() or None
+    for key in ("reward_id", "id", "escrow_reward_id"):
+        value = reward.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _with_lord_order_state(
+    connection: sqlite3.Connection, lord_id: str, result: dict[str, Any]
+) -> dict[str, Any]:
+    state = build_lord_state(connection, lord_id) or {}
+    return {
+        **result,
+        "orders": state.get("orders", []),
+        "order_cap": state.get("order_cap"),
+        "escrow": state.get("escrow"),
+        "order_conflicts": state.get("order_conflicts", []),
+    }
 
 
 def _battle_http_error(exc: LordBattleError):

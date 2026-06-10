@@ -50,10 +50,10 @@
           </div>
           <div class="resource-strip" aria-label="Ресурсы домена">
             <span><b id="gold-value">-</b><small>золото</small></span>
-            <span><b id="income-value">-</b><small>доход/час</small></span>
-            <span><b id="mp-value">-</b><small>ход</small></span>
-            <span><b id="orders-value">-</b><small>заказы</small></span>
-            <span><b id="battle-count">-</b><small>бои</small></span>
+            <span><b id="escrow-value">-</b><small>заложено</small></span>
+            <span><b id="orders-value">-</b><small>публичные</small></span>
+            <span><b id="addressed-orders-value">-</b><small>адресный</small></span>
+            <span><b id="act-window-value">-</b><small>акт/окно</small></span>
           </div>
           <div class="home-top-actions">
             <button type="button" id="refresh-button" title="Обновить состояние">Обновить</button>
@@ -82,9 +82,9 @@
             <img src="/static/lord/assets/generated/lords-home/actions/action-battle-v1.png" alt="">
             <span>Бой</span>
           </button>
-          <button type="button" data-surface-button="dev" aria-label="Служебные действия">
+          <button type="button" data-surface-button="dev" aria-label="Распоряжения">
             <img src="/static/lord/assets/generated/lords-home/actions/action-territory-v1.png" alt="">
-            <span>Служебное</span>
+            <span>Распоряжения</span>
           </button>
         </nav>
 
@@ -141,9 +141,13 @@
                 <h3>Карта земель</h3>
                 <span id="map-status">Нет состояния</span>
               </div>
+              <div class="map-mode-toggle" aria-label="Режим карты">
+                <button type="button" id="map-mode-march" data-map-mode="march" aria-pressed="true">Поход</button>
+                <button type="button" id="map-mode-info" data-map-mode="info" aria-pressed="false">Сведения</button>
+              </div>
               <div class="map-actions">
                 <button type="button" id="map-reset-button">Центр</button>
-                <button type="button" id="map-move-button" disabled>Идти</button>
+                <button type="button" id="map-move-button" disabled>Выступить</button>
               </div>
             </div>
             <div class="map-viewport" id="lord-map-viewport">
@@ -191,11 +195,45 @@
           </section>
 
           <section class="surface-panel" data-surface="orders" hidden>
-            <div class="panel-heading">
-              <h3>Доска заказов</h3>
-              <span id="active-orders">0 активных</span>
+            <div class="panel-heading order-heading">
+              <div>
+                <h3>Канцелярия заказов</h3>
+                <span id="active-orders">Публичные 0/2 - Адресный 0/1</span>
+              </div>
+              <button type="button" id="order-create-button">Создать</button>
             </div>
-            <div class="order-list" id="order-list"></div>
+            <div class="order-metrics" aria-label="Состояние заказов">
+              <span><b id="order-public-cap">0/2</b><small>публичные</small></span>
+              <span><b id="order-addressed-cap">0/1</b><small>адресный</small></span>
+              <span><b id="order-escrow-locked">0g</b><small>под замком</small></span>
+              <span><b id="order-escrow-assets">0</b><small>вещи под замком</small></span>
+            </div>
+            <div class="orders-workbench">
+              <aside class="order-filter-panel" id="order-filter-list" aria-label="Фильтры заказов"></aside>
+              <div class="order-list" id="order-list"></div>
+              <aside class="order-side-panel">
+                <article class="order-detail" id="order-detail"></article>
+                <form class="order-composer" id="order-composer" hidden>
+                  <h4>Новый заказ</h4>
+                  <label for="order-visibility">Тип</label>
+                  <select id="order-visibility" name="visibility">
+                    <option value="public">Публичный</option>
+                    <option value="addressed">Адресный</option>
+                  </select>
+                  <label for="order-target-object">Цель</label>
+                  <select id="order-target-object" name="object_id" required></select>
+                  <label for="order-target-player">Адресат</label>
+                  <select id="order-target-player" name="target_player_id"></select>
+                  <label for="order-visible-hook">Описание для исполнителя</label>
+                  <textarea id="order-visible-hook" name="visible_hook" maxlength="240" placeholder="Что увидит исполнитель"></textarea>
+                  <label for="order-reward">Награда</label>
+                  <select id="order-reward" name="reward_id" required></select>
+                  <div class="order-preview" id="order-preview"></div>
+                  <p class="order-form-status" id="order-form-status" role="status"></p>
+                  <button type="submit" id="order-publish-button">Опубликовать</button>
+                </form>
+              </aside>
+            </div>
           </section>
 
           <section class="surface-panel" data-surface="raids" hidden>
@@ -234,8 +272,8 @@
 
           <section class="surface-panel" data-surface="dev" hidden>
             <div class="panel-heading">
-              <h3>Служебные действия</h3>
-              <span>реальные mutations</span>
+              <h3>Полевые распоряжения</h3>
+              <span>быстрые команды владения</span>
             </div>
             <div class="action-forms">
               <form class="action-card" data-action-form="move">
@@ -285,22 +323,6 @@
                 <label for="raid-target">Цель</label>
                 <select id="raid-target" name="target_territory_id" required></select>
                 <button type="submit">Начать рейд</button>
-              </form>
-
-              <form class="action-card" data-action-form="order">
-                <h4>Заказ</h4>
-                <label for="order-object">Объект</label>
-                <input id="order-object" name="object_id" required>
-                <label for="order-target">Адресат</label>
-                <input id="order-target" name="target_player_id">
-                <label for="order-visibility">Видимость</label>
-                <select id="order-visibility" name="visibility">
-                  <option value="public">Публичный</option>
-                  <option value="addressed">Адресный</option>
-                </select>
-                <label for="order-reward">Награда escrow</label>
-                <input id="order-reward" name="escrow_reward_id">
-                <button type="submit">Создать</button>
               </form>
 
               <form class="action-card" data-action-form="battle-create">

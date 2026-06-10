@@ -361,6 +361,49 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["event_context"]["qr_mode"], "repeatable_scene")
         self.assertTrue(payload["event_context"]["physical_presence_confirmed"])
 
+    def test_mobile_qr_order_check_matches_only_player_orders(self) -> None:
+        settings = self._settings("mobile_qr_order_check")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings))
+
+        matched = client.post(
+            "/api/mobile/qr-order-check",
+            headers=WITCHER_HEADERS,
+            json={
+                "code": "witcher-larp://qr?code=QR-A1-X3L5",
+                "device_id": "phone-wolf",
+                "source": "qr_scan",
+            },
+        )
+
+        self.assertEqual(matched.status_code, 200, matched.text)
+        matched_payload = matched.json()
+        self.assertEqual(matched_payload["status"], "matched_order")
+        self.assertTrue(matched_payload["allowed"])
+        self.assertEqual(matched_payload["qr"]["qr_id"], "qr_a1_006")
+        self.assertEqual(matched_payload["order"]["order_id"], "order_north_public_1")
+        self.assertEqual(matched_payload["order"]["object_label"], "Severnaya Zastava")
+        self.assertEqual(matched_payload["quest"]["scene_type"], "order_object")
+        self.assertEqual(matched_payload["quest"]["primary_stat"], "Сила")
+
+        not_taken = client.post(
+            "/api/mobile/qr-order-check",
+            headers=WITCHER_HEADERS,
+            json={
+                "code": "QR-A1-L2G6",
+                "device_id": "phone-wolf",
+                "source": "manual_id",
+            },
+        )
+
+        self.assertEqual(not_taken.status_code, 200, not_taken.text)
+        not_taken_payload = not_taken.json()
+        self.assertEqual(not_taken_payload["status"], "not_taken")
+        self.assertFalse(not_taken_payload["allowed"])
+        self.assertNotIn("order", not_taken_payload)
+        self.assertNotIn("quest", not_taken_payload)
+        self.assertNotIn("qr", not_taken_payload)
+
     def test_qr_lookup_locks_future_act_without_scene_payload_until_announcement(self) -> None:
         settings = self._settings("qr_future_act_locked")
         self._import_valid_seed(settings)

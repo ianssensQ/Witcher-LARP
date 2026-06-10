@@ -264,10 +264,18 @@ def _apply_timer_effect(
 def _apply_lord_income_mana_and_mp(
     connection: sqlite3.Connection, applied_at: datetime
 ) -> dict[str, object]:
-    from .lord_runtime import anti_snowball_cut_for_domain, ensure_lord_runtime_state
+    from .lord_runtime import (
+        anti_snowball_cut_for_domain,
+        apply_recruit_growth_tick,
+        ensure_lord_runtime_state,
+    )
 
     ensure_lord_runtime_state(connection)
     pending_rewards = _create_contested_pending_tick_rewards(connection, applied_at)
+    recruit_growth = apply_recruit_growth_tick(
+        connection,
+        now=_iso(applied_at),
+    )
     domain_updates = []
     for row in connection.execute(
         """
@@ -342,6 +350,7 @@ def _apply_lord_income_mana_and_mp(
     return {
         "status": "applied",
         "domain_updates": domain_updates,
+        "recruit_growth": recruit_growth,
         "sorceress_updates": sorceress_updates,
         "pending_tick_rewards": pending_rewards,
     }
@@ -481,8 +490,6 @@ def _territory_income(connection: sqlite3.Connection, domain_id: str) -> int:
             (domain_id,),
         ).fetchall()
     for row in rows:
-        if row["bonus_type"] == "residence":
-            continue
         total += income_by_tier.get(_to_int(row["tier"]), 0)
     return total
 

@@ -24,7 +24,35 @@ const SURFACE_COPY = {
   orders: ["Доска заказов", "Публичные и адресные поручения"],
   raids: ["Рейды", "Цели, эффекты и истечение"],
   battle: ["Захваты и бои", "Состояния претензий и 5x6 бой"],
-  dev: ["Служебные действия", "Реальные mutations текущего runtime"],
+  dev: ["Полевые распоряжения", "Быстрые команды владения"],
+};
+
+const ORDER_FILTERS = [
+  { id: "drafts", label: "Черновики", statuses: ["draft"] },
+  { id: "open", label: "Открытые", statuses: ["published", "addressed_pending", "failed_retryable"] },
+  { id: "taken", label: "Взяты", statuses: ["accepted", "in_progress", "claimed_at_prop", "submitted_pending_sync"] },
+  { id: "review", label: "Ждут мастера", statuses: ["pending_master_approval", "contested_review"] },
+  { id: "archive", label: "Архив", statuses: ["completed", "failed_closed", "cancelled_by_lord", "expired"] },
+];
+
+const ORDER_ERROR_COPY = {
+  order_cap_exceeded: "Лимит активных заказов исчерпан",
+  insufficient_escrow_gold: "В казне не хватает награды",
+  asset_locked: "Награда уже под замком",
+  asset_not_owned: "Эта награда недоступна казне",
+  order_object_conflict: "Исполнитель уже связан с этим объектом",
+  final_lock_orders_closed: "Финал закрыл новые заказы",
+  invalid_visibility: "Выберите тип заказа",
+  addressed_order_mismatch: "Заказ адресован другому исполнителю",
+  missing_target: "Выберите адресата",
+  missing_object: "Выберите цель",
+  missing_escrow_reward: "Выберите награду",
+  unknown_order_object: "Такой цели нет в канцелярии",
+  invalid_addressed_target: "Адресат недоступен для заказов",
+  order_not_accepting: "Заказ уже нельзя взять",
+  order_not_found: "Заказ не найден",
+  order_not_submittable: "Заказ нельзя закрыть в этом состоянии",
+  order_already_in_progress: "Заказ уже в работе",
 };
 
 const els = {
@@ -43,9 +71,10 @@ const els = {
   lordName: document.querySelector("#lord-name"),
   domainName: document.querySelector("#domain-name"),
   goldValue: document.querySelector("#gold-value"),
-  incomeValue: document.querySelector("#income-value"),
-  mpValue: document.querySelector("#mp-value"),
+  escrowValue: document.querySelector("#escrow-value"),
   ordersValue: document.querySelector("#orders-value"),
+  addressedOrdersValue: document.querySelector("#addressed-orders-value"),
+  actWindowValue: document.querySelector("#act-window-value"),
   territoryCount: document.querySelector("#territory-count"),
   selectedTerritoryName: document.querySelector("#selected-territory-name"),
   selectedTerritoryMeta: document.querySelector("#selected-territory-meta"),
@@ -63,7 +92,6 @@ const els = {
   buildingList: document.querySelector("#building-list"),
   raidCount: document.querySelector("#raid-count"),
   raidList: document.querySelector("#raid-list"),
-  battleCount: document.querySelector("#battle-count"),
   battlePanelCount: document.querySelector("#battle-panel-count"),
   actionStatus: document.querySelector("#action-status"),
   territoryList: document.querySelector("#territory-list"),
@@ -81,6 +109,7 @@ const els = {
   lordMapMinimap: document.querySelector("#lord-map-minimap"),
   mapStatus: document.querySelector("#map-status"),
   mapResetButton: document.querySelector("#map-reset-button"),
+  mapModeButtons: document.querySelectorAll("[data-map-mode]"),
   mapMoveButton: document.querySelector("#map-move-button"),
   mapSelectionCard: document.querySelector("#map-selection-card"),
   mapSelectionTitle: document.querySelector("#map-selection-title"),
@@ -89,6 +118,22 @@ const els = {
   mapBattleButton: document.querySelector("#map-battle-button"),
   mapGarrisonButton: document.querySelector("#map-garrison-button"),
   orderList: document.querySelector("#order-list"),
+  orderFilterList: document.querySelector("#order-filter-list"),
+  orderCreateButton: document.querySelector("#order-create-button"),
+  orderDetail: document.querySelector("#order-detail"),
+  orderComposer: document.querySelector("#order-composer"),
+  orderVisibility: document.querySelector("#order-visibility"),
+  orderTargetObject: document.querySelector("#order-target-object"),
+  orderTargetPlayer: document.querySelector("#order-target-player"),
+  orderVisibleHook: document.querySelector("#order-visible-hook"),
+  orderReward: document.querySelector("#order-reward"),
+  orderPreview: document.querySelector("#order-preview"),
+  orderFormStatus: document.querySelector("#order-form-status"),
+  orderPublishButton: document.querySelector("#order-publish-button"),
+  orderPublicCap: document.querySelector("#order-public-cap"),
+  orderAddressedCap: document.querySelector("#order-addressed-cap"),
+  orderEscrowLocked: document.querySelector("#order-escrow-locked"),
+  orderEscrowAssets: document.querySelector("#order-escrow-assets"),
   recruitList: document.querySelector("#recruit-list"),
   refreshButton: document.querySelector("#refresh-button"),
   logoutButton: document.querySelector("#logout-button"),
@@ -113,11 +158,16 @@ let selectedMapNodeId = null;
 let selectedTerritoryId = localStorage.getItem(SELECTED_TERRITORY_KEY);
 let activeSurface = null;
 let mapViewBox = null;
+let currentMapMode = "march";
 let mapDrag = null;
 let suppressNextMapClick = false;
 let selectedRoutePreview = null;
 let routePreviewSerial = 0;
 let routePreviewPendingNodeId = null;
+let selectedOrderId = null;
+let orderFilter = "open";
+let orderComposerOpen = false;
+let isStateStale = false;
 
 els.form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -133,8 +183,14 @@ els.refreshButton.addEventListener("click", async () => {
 els.moveTarget.addEventListener("change", () => {
   selectedMapNodeId = valueOrNull(els.moveTarget.value);
   updateMoveRoutePreview(selectedMapNodeId);
-  if (selectedMapNodeId) requestRoutePreview(selectedMapNodeId);
+  if (selectedMapNodeId && currentMapMode === "march") requestRoutePreview(selectedMapNodeId);
 });
+
+for (const button of els.mapModeButtons) {
+  button.addEventListener("click", () => {
+    setMapMode(button.dataset.mapMode || "march");
+  });
+}
 
 els.mapResetButton.addEventListener("click", () => {
   resetMapView(currentState);
@@ -165,6 +221,23 @@ els.mapGarrisonButton.addEventListener("click", () => {
   if (target?.territory_id) els.garrisonTerritory.value = target.territory_id;
   openSurface("dev");
 });
+
+els.orderCreateButton.addEventListener("click", () => {
+  const reason = orderCreateBlockReason(currentState);
+  if (reason) {
+    setActionStatus(reason);
+    return;
+  }
+  orderComposerOpen = true;
+  selectedOrderId = null;
+  renderOrders(currentState?.orders || []);
+});
+
+els.orderComposer.addEventListener("submit", handleOrderComposerSubmit);
+for (const control of [els.orderVisibility, els.orderTargetObject, els.orderTargetPlayer, els.orderReward, els.orderVisibleHook]) {
+  control.addEventListener("input", updateOrderComposerState);
+  control.addEventListener("change", updateOrderComposerState);
+}
 
 els.lordMap.addEventListener("pointerdown", startMapPan);
 els.lordMap.addEventListener("pointermove", continueMapPan);
@@ -251,37 +324,49 @@ async function login(token) {
 
 async function loadState(currentSession) {
   setStatus("Загружаю состояние");
-  const response = await fetch(`/api/lords/${currentSession.auth.lord_id}/state`, {
-    headers: { "X-Role-Token": currentSession.token },
-  });
-  if (!response.ok) {
-    setStatus(`State request failed: ${response.status}`);
-    return;
-  }
-  const state = await response.json();
-  currentState = state;
-  selectedRoutePreview = null;
-  renderState(state);
-  if (state.pending_move) {
-    setStatus(`Армия в пути: ${routeLabel(state.pending_move.route_node_ids || state.pending_move.route || [])}, прибытие ${state.pending_move.arrival_at || "-"}`);
-  } else {
-    setStatus(`Слепок: ${state.snapshot_version || "не импортирован"}`);
+  try {
+    const response = await fetch(`/api/lords/${currentSession.auth.lord_id}/state`, {
+      headers: { "X-Role-Token": currentSession.token },
+    });
+    if (!response.ok) {
+      throw new Error(`Состояние не загружено: ${response.status}`);
+    }
+    const state = await response.json();
+    isStateStale = false;
+    currentState = state;
+    selectedRoutePreview = null;
+    renderState(state);
+    if (state.pending_move) {
+      setStatus(`Армия в пути: ${routeLabel(state.pending_move.route_node_ids || state.pending_move.route || [])}, прибытие ${state.pending_move.arrival_at || "-"}`);
+    } else {
+      setStatus(`Слепок: ${state.snapshot_version || "не импортирован"}`);
+    }
+  } catch (error) {
+    isStateStale = true;
+    if (currentState) {
+      orderComposerOpen = false;
+      renderState(currentState);
+      setStatus("Связь потеряна: показан последний слепок, заказы только для просмотра");
+      return;
+    }
+    setStatus(error.message || "Состояние не загружено");
   }
 }
 
 function renderState(state) {
   const selectedTerritory = selectedTerritoryForState(state);
+  const cap = orderCap(state);
+  const escrow = state.escrow || {};
+  els.dashboard.classList.toggle("state-stale", isStateStale);
   els.lordName.textContent = state.lord.display_name;
   els.domainName.textContent = state.domain.name || state.lord.domain_id;
   els.goldValue.textContent = `${state.domain.gold ?? state.domain.starting_gold ?? state.lord.gold}g`;
-  els.incomeValue.textContent = `+${state.domain.base_income ?? state.domain.income ?? 0}/ч`;
-  els.mpValue.textContent = state.movement
-    ? `${state.movement.current_mp}/${state.movement.mp_cap}`
-    : "-";
-  els.ordersValue.textContent = `${state.summary.active_orders}`;
+  els.escrowValue.textContent = `${Number(escrow.locked_gold || 0)}g`;
+  els.ordersValue.textContent = `${cap.public_active}/${cap.public_limit}`;
+  els.addressedOrdersValue.textContent = `${cap.addressed_active}/${cap.addressed_limit}`;
+  els.actWindowValue.textContent = `${actLabelForState(state)}`;
   els.territoryCount.textContent = `${state.summary.owned_territories}`;
-  els.activeOrders.textContent = `${state.summary.active_orders} активных`;
-  els.battleCount.textContent = `${state.summary.active_battles || 0}`;
+  els.activeOrders.textContent = `Публичные ${cap.public_active}/${cap.public_limit} - Адресный ${cap.addressed_active}/${cap.addressed_limit}`;
   els.battlePanelCount.textContent = `${state.summary.active_battles || 0} боев`;
   els.raidCount.textContent = `${state.summary.active_raids || 0} активных`;
 
@@ -296,7 +381,11 @@ function renderState(state) {
   renderActionOptions(state);
   renderLordMap(state);
   updateMoveRoutePreview(selectedMapNodeId);
-  if (selectedMapNodeId && selectedMapNodeId !== state.movement?.current_node_id) {
+  if (
+    currentMapMode === "march"
+    && selectedMapNodeId
+    && selectedMapNodeId !== state.route_options?.current_node_id
+  ) {
     requestRoutePreview(selectedMapNodeId);
   }
 }
@@ -678,18 +767,430 @@ function renderBattles(items) {
 }
 
 function renderOrders(items) {
-  renderList(els.orderList, items, (item) => {
-    const card = rowCard();
-    card.innerHTML = `
-      <div class="row-main">
-        <span>${escapeHtml(item.object_id)}</span>
-        <span>${escapeHtml(item.status)}</span>
-      </div>
-      <div class="row-meta">${escapeHtml(item.visibility)} - ${escapeHtml(item.target_player_id)}</div>
+  if (isOrdersReadOnly() && orderComposerOpen) orderComposerOpen = false;
+  renderOrderMetrics(currentState);
+  renderOrderFilters(items);
+  populateOrderComposerOptions(currentState);
+  const filtered = ordersForFilter(items, orderFilter);
+  if (filtered.length) {
+    const selectedInFilter = filtered.some((item) => item.order_id === selectedOrderId);
+    if (!selectedInFilter) selectedOrderId = filtered[0].order_id;
+  } else {
+    selectedOrderId = null;
+  }
+  els.orderList.replaceChildren();
+  if (!filtered.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty order-empty";
+    empty.innerHTML = `
+      <strong>${escapeHtml(orderFilterLabel(orderFilter))}</strong>
+      <span>${orderFilter === "drafts" ? "Черновиков нет. Создайте новый заказ и опубликуйте его после проверки." : "В этом разделе пока тихо."}</span>
     `;
-    if (item.status.includes("review")) card.classList.add("danger");
-    return card;
+    const create = document.createElement("button");
+    create.type = "button";
+    create.textContent = "Создать";
+    const reason = orderCreateBlockReason(currentState);
+    create.disabled = Boolean(reason);
+    create.title = reason || "Создать заказ";
+    create.addEventListener("click", () => {
+      const blockReason = orderCreateBlockReason(currentState);
+      if (blockReason) {
+        setActionStatus(blockReason);
+        return;
+      }
+      orderComposerOpen = true;
+      renderOrders(currentState?.orders || []);
+    });
+    empty.append(create);
+    els.orderList.append(empty);
+  } else {
+    for (const item of filtered) {
+      els.orderList.append(orderCard(item));
+    }
+  }
+  renderOrderSidePanel(filtered);
+  updateOrderComposerState();
+}
+
+function renderOrderMetrics(state) {
+  const cap = orderCap(state);
+  const escrow = state?.escrow || {};
+  els.orderPublicCap.textContent = `${cap.public_active}/${cap.public_limit}`;
+  els.orderAddressedCap.textContent = `${cap.addressed_active}/${cap.addressed_limit}`;
+  els.orderEscrowLocked.textContent = `${Number(escrow.locked_gold || 0)}g`;
+  els.orderEscrowAssets.textContent = `${Number(escrow.locked_asset_count || 0)}`;
+  const reason = orderCreateBlockReason(state);
+  els.orderCreateButton.disabled = Boolean(reason);
+  els.orderCreateButton.title = reason || "Создать заказ";
+}
+
+function renderOrderFilters(items) {
+  els.orderFilterList.replaceChildren();
+  for (const filter of ORDER_FILTERS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "order-filter";
+    button.setAttribute("aria-pressed", filter.id === orderFilter ? "true" : "false");
+    button.innerHTML = `
+      <span>${escapeHtml(filter.label)}</span>
+      <b>${ordersForFilter(items, filter.id).length}</b>
+    `;
+    button.addEventListener("click", () => {
+      orderFilter = filter.id;
+      orderComposerOpen = false;
+      renderOrders(currentState?.orders || []);
+    });
+    els.orderFilterList.append(button);
+  }
+}
+
+function orderCard(item) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `order-parchment ${orderTone(item)}`;
+  button.setAttribute("aria-pressed", item.order_id === selectedOrderId ? "true" : "false");
+  button.innerHTML = `
+    <span class="order-seal" aria-hidden="true"></span>
+    <div class="order-card-top">
+      <span>${escapeHtml(item.visibility_label || item.visibility)}</span>
+      <b>${escapeHtml(item.status_label || item.status)}</b>
+    </div>
+    <h4>${escapeHtml(item.visible_hook || item.object_label || "Заказ")}</h4>
+    <dl>
+      <div><dt>Цель</dt><dd>${escapeHtml(item.object_label || "объект")}</dd></div>
+      <div><dt>Место</dt><dd>${escapeHtml(item.location_label || "по следу")}</dd></div>
+      <div><dt>Награда</dt><dd>${escapeHtml(item.reward_label || "залог")}</dd></div>
+      <div><dt>Залог</dt><dd>${escapeHtml(item.escrow_label || "нет")}</dd></div>
+      <div><dt>Срок</dt><dd>${escapeHtml(orderWindowLabel(item))}</dd></div>
+    </dl>
+    ${item.executor_label ? `<p>${escapeHtml(item.executor_label)}</p>` : ""}
+    ${item.conflict_badge ? `<mark>${escapeHtml(item.conflict_badge.label)}</mark>` : ""}
+  `;
+  button.addEventListener("click", () => {
+    selectedOrderId = item.order_id;
+    orderComposerOpen = false;
+    renderOrders(currentState?.orders || []);
   });
+  return button;
+}
+
+function renderOrderSidePanel(items) {
+  if (orderComposerOpen) {
+    els.orderDetail.hidden = true;
+    els.orderComposer.hidden = false;
+    return;
+  }
+  els.orderComposer.hidden = true;
+  els.orderDetail.hidden = false;
+  const order = items.find((item) => item.order_id === selectedOrderId);
+  if (!order) {
+    const reason = orderCreateBlockReason(currentState);
+    els.orderDetail.innerHTML = `
+      <h4>Доска пуста</h4>
+      <p>В канцелярии нет заказов для выбранного раздела.</p>
+      <button type="button" data-order-action="create" ${reason ? "disabled" : ""}>Создать</button>
+    `;
+    els.orderDetail.querySelector("[data-order-action='create']").addEventListener("click", () => {
+      const blockReason = orderCreateBlockReason(currentState);
+      if (blockReason) {
+        setActionStatus(blockReason);
+        return;
+      }
+      orderComposerOpen = true;
+      renderOrders(currentState?.orders || []);
+    });
+    return;
+  }
+  const readOnly = isOrdersReadOnly();
+  const cancelDisabled = readOnly || !canCancelOrder(order);
+  const editDisabled = readOnly;
+  els.orderDetail.className = `order-detail ${orderTone(order)}`;
+  els.orderDetail.innerHTML = `
+    <span class="order-seal detail-seal" aria-hidden="true"></span>
+    <div class="order-card-top">
+      <span>${escapeHtml(order.visibility_label || order.visibility)}</span>
+      <b>${escapeHtml(order.status_label || order.status)}</b>
+    </div>
+    <h4>${escapeHtml(order.visible_hook || order.object_label || "Заказ")}</h4>
+    <dl>
+      <div><dt>Цель</dt><dd>${escapeHtml(order.object_label || "объект")}</dd></div>
+      <div><dt>Локация</dt><dd>${escapeHtml(order.location_label || "по следу")}</dd></div>
+      <div><dt>Награда</dt><dd>${escapeHtml(order.reward_label || "залог")}</dd></div>
+      <div><dt>Залог</dt><dd>${escapeHtml(order.escrow_label || "нет")}</dd></div>
+      <div><dt>Исполнитель</dt><dd>${escapeHtml(order.executor_label || order.target_player_label || "не назначен")}</dd></div>
+      <div><dt>Срок</dt><dd>${escapeHtml(orderWindowLabel(order))}</dd></div>
+    </dl>
+    ${readOnly ? `<p class="order-readonly-note">Связь потеряна. Канцелярия открыта только для просмотра.</p>` : ""}
+    ${order.conflict_badge ? `<p class="order-review-note">${escapeHtml(order.conflict_badge.label)}</p>` : ""}
+    <div class="order-detail-actions">
+      <button type="button" data-order-action="cancel" ${cancelDisabled ? "disabled" : ""}>Отменить</button>
+      <button type="button" data-order-action="repeat" ${editDisabled ? "disabled" : ""}>Повторить</button>
+      <button type="button" data-order-action="conflict" ${order.conflict_badge ? "" : "disabled"}>Посмотреть конфликт</button>
+      <button type="button" data-order-action="assign" ${editDisabled ? "disabled" : ""}>Назначить исполнителя</button>
+    </div>
+  `;
+  for (const button of els.orderDetail.querySelectorAll("[data-order-action]")) {
+    button.addEventListener("click", () => handleOrderDetailAction(button.dataset.orderAction, order));
+  }
+}
+
+function populateOrderComposerOptions(state) {
+  if (!state) return;
+  setOptions(
+    els.orderTargetObject,
+    state.visible_targets || [],
+    (item) => item.target_id,
+    (item) => `${item.target_type_label}: ${item.label}${item.location_label && item.location_label !== item.label ? `, ${item.location_label}` : ""}`,
+    "Нет доступных целей"
+  );
+  setOptions(
+    els.orderTargetPlayer,
+    [{ player_id: "", display_name: "Любой исполнитель", role_label: "" }, ...(state.eligible_recipients || [])],
+    (item) => item.player_id,
+    (item) => item.role_label ? `${item.display_name}, ${item.role_label}` : item.display_name,
+    "Нет адресатов"
+  );
+  setOptions(
+    els.orderReward,
+    state.order_reward_options || [],
+    (item) => item.reward_id,
+    (item) => item.label,
+    "Нет доступной награды"
+  );
+}
+
+function updateOrderComposerState() {
+  if (!currentState || !els.orderComposer || els.orderComposer.hidden) return;
+  const visibility = els.orderVisibility.value || "public";
+  const target = selectedOrderTarget();
+  const recipient = selectedOrderRecipient();
+  const reward = selectedOrderReward();
+  const cap = orderCap(currentState);
+  const readOnly = isOrdersReadOnly();
+  const capReached = visibility === "addressed"
+    ? cap.addressed_active >= cap.addressed_limit
+    : cap.public_active >= cap.public_limit;
+  const needsRecipient = visibility === "addressed" && !valueOrNull(els.orderTargetPlayer.value);
+  for (const control of [els.orderVisibility, els.orderTargetObject, els.orderVisibleHook, els.orderReward]) {
+    control.disabled = readOnly;
+  }
+  els.orderTargetPlayer.disabled = readOnly || visibility !== "addressed";
+  const targetLabel = target?.label || "цель";
+  const rewardLabel = reward?.label || "награда";
+  const recipientLabel = visibility === "addressed"
+    ? (recipient ? `${recipient.display_name}, ${recipient.role_label}` : "адресат")
+    : "любой исполнитель";
+  const rewardGold = Number(reward?.gold || 0);
+  const availableGold = availableOrderGold(currentState);
+  const insufficientGold = reward && rewardGold > availableGold;
+  if (!els.orderVisibleHook.value.trim() && target?.label) {
+    els.orderVisibleHook.placeholder = `Найти и подтвердить: ${target.label}`;
+  }
+  els.orderPreview.innerHTML = `
+    <span>Как увидит исполнитель</span>
+    <strong>${escapeHtml(els.orderVisibleHook.value.trim() || `Найти и подтвердить: ${targetLabel}`)}</strong>
+    <small>${escapeHtml(`${recipientLabel} - ${target?.location_label || "локация по следу"}`)}</small>
+    <small>${escapeHtml(`${rewardLabel}; казна удержит ${rewardGold}g из ${availableGold}g`)}</small>
+  `;
+  const missing = !target || !reward || needsRecipient;
+  let reason = "";
+  if (readOnly) {
+    reason = "Связь потеряна: публикация закрыта";
+  } else if (capReached) {
+    reason = visibility === "addressed"
+      ? `Адресный лимит занят ${cap.addressed_active}/${cap.addressed_limit}`
+      : `Публичные заказы заняты ${cap.public_active}/${cap.public_limit}`;
+  } else if (insufficientGold) {
+    reason = "В казне не хватает награды";
+  } else if (missing) {
+    reason = "Заполните цель, адресата и награду";
+  }
+  els.orderPublishButton.disabled = Boolean(reason);
+  els.orderFormStatus.textContent = reason;
+}
+
+async function handleOrderComposerSubmit(event) {
+  event.preventDefault();
+  if (!session || !currentState || els.orderPublishButton.disabled || isOrdersReadOnly()) return;
+  const visibility = els.orderVisibility.value || "public";
+  try {
+    setActionStatus("Ставлю печать и удерживаю награду");
+    const payload = {
+      action: "create",
+      visibility,
+      object_id: valueOrNull(els.orderTargetObject.value),
+      visible_hook: valueOrNull(els.orderVisibleHook.value),
+      reward: { reward_id: valueOrNull(els.orderReward.value) },
+      source: "lord_panel",
+    };
+    if (visibility === "addressed") {
+      payload.target_player_id = valueOrNull(els.orderTargetPlayer.value);
+    }
+    const result = await apiPost(`/api/lords/${session.auth.lord_id}/orders`, payload);
+    selectedOrderId = result.order?.order_id || selectedOrderId;
+    orderComposerOpen = false;
+    setActionStatus("Заказ опубликован, награда под замком");
+    await loadState(session);
+    openSurface("orders");
+  } catch (error) {
+    els.orderFormStatus.textContent = error.message || "Заказ не опубликован";
+    setActionStatus(error.message || "Заказ не опубликован");
+  }
+}
+
+async function handleOrderDetailAction(action, order) {
+  if (isOrdersReadOnly() && action !== "conflict") {
+    setActionStatus("Связь потеряна: заказы только для просмотра");
+    return;
+  }
+  if (action === "create") {
+    orderComposerOpen = true;
+    renderOrders(currentState?.orders || []);
+    return;
+  }
+  if (action === "repeat") {
+    orderComposerOpen = true;
+    renderOrders(currentState?.orders || []);
+    els.orderVisibility.value = order.visibility || "public";
+    setSelectIfOptionExists(els.orderTargetObject, order.object_id);
+    setSelectIfOptionExists(els.orderTargetPlayer, order.target_player_id || "");
+    setSelectIfOptionExists(els.orderReward, order.escrow_reward_id);
+    els.orderVisibleHook.value = order.visible_hook || "";
+    updateOrderComposerState();
+    return;
+  }
+  if (action === "assign") {
+    orderComposerOpen = true;
+    renderOrders(currentState?.orders || []);
+    els.orderVisibility.value = "addressed";
+    setSelectIfOptionExists(els.orderTargetObject, order.object_id);
+    setSelectIfOptionExists(els.orderReward, order.escrow_reward_id);
+    els.orderVisibleHook.value = order.visible_hook || "";
+    updateOrderComposerState();
+    return;
+  }
+  if (action === "conflict") {
+    setActionStatus(order.conflict_badge?.label || "Для этого заказа нет открытого конфликта");
+    return;
+  }
+  if (action === "cancel") {
+    await cancelOrder(order);
+  }
+}
+
+async function cancelOrder(order) {
+  if (!session || !order?.order_id || !canCancelOrder(order) || isOrdersReadOnly()) return;
+  try {
+    setActionStatus("Отзываю заказ и возвращаю награду");
+    await apiPost(`/api/lords/${session.auth.lord_id}/orders`, {
+      action: "cancel",
+      order_id: order.order_id,
+      reason: "lord_cancelled_from_orders_screen",
+      source: "lord_panel",
+    });
+    setActionStatus("Заказ отменен, награда возвращена");
+    await loadState(session);
+    openSurface("orders");
+  } catch (error) {
+    setActionStatus(error.message || "Заказ не отменен");
+  }
+}
+
+function ordersForFilter(items, filterId) {
+  const filter = ORDER_FILTERS.find((item) => item.id === filterId) || ORDER_FILTERS[1];
+  return (items || []).filter((item) => filter.statuses.includes(item.status));
+}
+
+function orderFilterLabel(filterId) {
+  return ORDER_FILTERS.find((item) => item.id === filterId)?.label || "Заказы";
+}
+
+function orderTone(order) {
+  const status = String(order.status || "");
+  if (status === "contested_review" || order.conflict_badge) return "review";
+  if (["completed"].includes(status)) return "done";
+  if (["cancelled_by_lord", "expired", "failed_closed"].includes(status)) return "muted";
+  if (["accepted", "in_progress", "claimed_at_prop", "submitted_pending_sync", "pending_master_approval"].includes(status)) return "taken";
+  return "open";
+}
+
+function orderWindowLabel(order) {
+  if (order.expires_at) return order.expires_at;
+  if (order.target_act_id) return humanizeActLabel(order.target_act_id);
+  return humanizeActLabel(actLabelForState(currentState));
+}
+
+function selectedOrderTarget() {
+  const targetId = valueOrNull(els.orderTargetObject.value);
+  return (currentState?.visible_targets || []).find((item) => item.target_id === targetId) || null;
+}
+
+function selectedOrderRecipient() {
+  const playerId = valueOrNull(els.orderTargetPlayer.value);
+  return (currentState?.eligible_recipients || []).find((item) => item.player_id === playerId) || null;
+}
+
+function selectedOrderReward() {
+  const rewardId = valueOrNull(els.orderReward.value);
+  return (currentState?.order_reward_options || []).find((item) => item.reward_id === rewardId) || null;
+}
+
+function orderCap(state) {
+  const cap = state?.order_cap || {};
+  return {
+    public_active: Number(cap.public_active ?? 0),
+    public_limit: Number(cap.public_limit ?? 2),
+    addressed_active: Number(cap.addressed_active ?? 0),
+    addressed_limit: Number(cap.addressed_limit ?? 1),
+  };
+}
+
+function isOrdersReadOnly() {
+  return isStateStale || !session;
+}
+
+function orderCreateBlockReason(state) {
+  if (!state) return "Канцелярия еще не загружена";
+  if (isOrdersReadOnly()) return "Связь потеряна: создание заказов закрыто";
+  const cap = orderCap(state);
+  const publicFull = cap.public_active >= cap.public_limit;
+  const addressedFull = cap.addressed_active >= cap.addressed_limit;
+  if (publicFull && addressedFull) {
+    return `Лимит заказов занят: публичные ${cap.public_active}/${cap.public_limit}, адресный ${cap.addressed_active}/${cap.addressed_limit}`;
+  }
+  if (!(state.visible_targets || []).length) return "Нет доступных целей для заказа";
+  if (!(state.order_reward_options || []).length) return "В казне нет доступной награды";
+  return "";
+}
+
+function availableOrderGold(state) {
+  const escrow = state?.escrow || {};
+  const domain = state?.domain || {};
+  return Number(escrow.available_gold ?? domain.gold ?? domain.starting_gold ?? 0);
+}
+
+function canCancelOrder(order) {
+  return ["draft", "published", "addressed_pending", "accepted", "failed_retryable"].includes(order.status);
+}
+
+function actLabelForState(state) {
+  const currentAct = state?.timer_summary?.current_act_id || state?.act?.act_id || state?.current_act?.act_id;
+  const timer = state?.timer_summary?.next_tick?.minutes_until;
+  if (currentAct && timer !== undefined) return `${currentAct}, ${timer} мин`;
+  return currentAct || state?.act?.status || state?.current_act?.status || "Акт";
+}
+
+function humanizeActLabel(value) {
+  return String(value || "Акт")
+    .replace(/\bact[_-]?(\d+)\b/gi, "Акт $1")
+    .replaceAll("_", " ");
+}
+
+function setSelectIfOptionExists(select, value) {
+  const text = valueOrNull(value) || "";
+  if ([...select.options].some((option) => option.value === text)) {
+    select.value = text;
+  }
 }
 
 function renderRecruit(items) {
@@ -1098,11 +1599,36 @@ function setMapStatus(message) {
   els.mapStatus.textContent = message;
 }
 
+function setMapMode(mode) {
+  currentMapMode = mode === "info" ? "info" : "march";
+  for (const button of els.mapModeButtons) {
+    button.setAttribute("aria-pressed", button.dataset.mapMode === currentMapMode ? "true" : "false");
+  }
+  if (currentMapMode === "info") {
+    selectedRoutePreview = null;
+    routePreviewPendingNodeId = null;
+  } else if (selectedMapNodeId && currentState?.pending_move?.status !== "pending") {
+    requestRoutePreview(selectedMapNodeId);
+  }
+  updateMoveRoutePreview(selectedMapNodeId);
+}
+
 function updateMoveRoutePreview(requestedTargetNodeId = undefined) {
   if (!els.moveRoutePreview || !currentState) return;
   const targetNodeId = requestedTargetNodeId !== undefined
     ? requestedTargetNodeId
     : selectedMapNodeId;
+  selectedMapNodeId = targetNodeId;
+  if ([...els.moveTarget.options].some((option) => option.value === targetNodeId)) {
+    els.moveTarget.value = targetNodeId;
+  }
+  if (currentMapMode === "info") {
+    els.moveRoutePreview.textContent = targetNodeId
+      ? `Сведения: ${nodeDisplayName(currentState, targetNodeId)}`
+      : "Выберите землю для сведений";
+    renderLordMap(currentState);
+    return;
+  }
   const preview = matchingRoutePreview(targetNodeId);
   const route = previewRoute(preview);
   els.moveRoutePreview.textContent = route
@@ -1115,10 +1641,6 @@ function updateMoveRoutePreview(requestedTargetNodeId = undefined) {
       route,
       targetNodeId,
     );
-  }
-  selectedMapNodeId = targetNodeId;
-  if ([...els.moveTarget.options].some((option) => option.value === targetNodeId)) {
-    els.moveTarget.value = targetNodeId;
   }
   if (preview?.reason) {
     els.moveRoutePreview.textContent = `${els.moveRoutePreview.textContent} - ${preview.reason}`;
@@ -1170,7 +1692,13 @@ function routeSummaryText(state, preview, route, requestedTargetNodeId) {
 }
 
 async function requestRoutePreview(targetNodeId) {
-  if (!session || !currentState || !targetNodeId || currentState.pending_move?.status === "pending") {
+  if (
+    currentMapMode !== "march"
+    || !session
+    || !currentState
+    || !targetNodeId
+    || currentState.pending_move?.status === "pending"
+  ) {
     return null;
   }
   const serial = routePreviewSerial + 1;
@@ -1228,6 +1756,7 @@ function renderLordMap(state) {
 
   const svg = els.lordMap;
   svg.dataset.mapMode = layout.mode || "";
+  svg.dataset.interactionMode = currentMapMode;
   svg.setAttribute("viewBox", viewBoxString(mapViewBox));
   svg.replaceChildren();
   svg.append(svgNode("rect", { class: "map-canvas", x: 0, y: 0, width, height }));
@@ -1243,8 +1772,8 @@ function renderLordMap(state) {
     svg.append(renderCentralHouse(layout.central_house));
   }
 
-  const selectedPreview = matchingRoutePreview(selectedMapNodeId);
-  const route = previewRoute(selectedPreview);
+  const selectedPreview = currentMapMode === "march" ? matchingRoutePreview(selectedMapNodeId) : null;
+  const route = currentMapMode === "march" ? previewRoute(selectedPreview) : null;
   const routeStopNodeId = previewStopNodeId(selectedPreview);
 
   if (layout.visibility?.svg_edges_visible !== false) {
@@ -1279,7 +1808,13 @@ function renderLordMap(state) {
     shape.dataset.nodeId = nodeId;
     shape.append(svgNode("title", {}, mapNodeTitle(seedNode, territory)));
     if (node.ui_target) {
-      shape.addEventListener("click", () => selectMapNode(nodeId));
+      shape.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+      shape.addEventListener("click", (event) => {
+        event.stopPropagation();
+        selectMapNode(nodeId);
+      });
     }
     zoneLayer.append(shape);
   }
@@ -1328,6 +1863,7 @@ function renderLordMap(state) {
     svg.append(nodeLayer);
   }
   svg.append(labelLayer);
+  svg.append(renderEnemyArmyIntel(state, layout));
   svg.append(renderArmyMarker(state, layout));
 
   updateMapStatus(state, route);
@@ -1420,6 +1956,50 @@ function renderArmyMarker(state, layout) {
   return marker;
 }
 
+function renderEnemyArmyIntel(state, layout) {
+  const layer = svgNode("g", { class: "map-enemy-layer" });
+  const scale = mapUiScale(layout);
+  for (const intel of state?.lord_map_intel?.enemy_armies || []) {
+    const node = layout.nodes?.[intel.node_id];
+    if (!node) continue;
+    const anchor = node.marker_anchor || node;
+    const marker = svgNode("g", {
+      class: `map-enemy-marker intel-${intel.intel_level || "presence"}`,
+      transform: `translate(${anchor.x + 34} ${anchor.y - 22}) scale(${scale})`,
+    });
+    marker.append(svgNode("title", {}, enemyArmyTitle(intel)));
+    marker.append(svgNode("circle", { cx: 0, cy: 0, r: 24 }));
+    marker.append(svgNode("path", { d: "M -8 8 L 0 -14 L 10 8 Z" }));
+    marker.append(svgNode("text", { x: 0, y: 43 }, enemyArmyMarkerLabel(intel)));
+    layer.append(marker);
+  }
+  return layer;
+}
+
+function enemyArmyMarkerLabel(intel) {
+  if (intel.owner_domain_name) return shortTerritoryName(intel.owner_domain_name);
+  if (intel.rough_strength) return roughStrengthLabel(intel.rough_strength);
+  return "След";
+}
+
+function enemyArmyTitle(intel) {
+  const parts = [
+    "Чужая армия рядом",
+    intel.territory_name,
+    intel.owner_domain_name ? `Домен: ${intel.owner_domain_name}` : null,
+    intel.rough_strength ? `Сила: ${roughStrengthLabel(intel.rough_strength)}` : null,
+    intel.composition ? `Отрядов: ${intel.stack_count || intel.composition.length}` : null,
+  ];
+  return parts.filter(Boolean).join(". ");
+}
+
+function roughStrengthLabel(value) {
+  if (value === "small") return "малая";
+  if (value === "medium") return "средняя";
+  if (value === "large") return "крупная";
+  return String(value || "неясна");
+}
+
 function mapUiScale(layout) {
   return Math.max(1, Number(layout?.canvas?.width || 2400) / 2400);
 }
@@ -1502,11 +2082,15 @@ function selectMapNode(nodeId) {
     els.moveTarget.value = nodeId;
   }
   updateMoveRoutePreview(nodeId);
-  requestRoutePreview(nodeId);
+  if (currentMapMode === "march") requestRoutePreview(nodeId);
 }
 
 async function moveSelectedMapTarget() {
   if (!session || !currentState || !selectedMapNodeId) return;
+  if (currentMapMode !== "march") {
+    setActionStatus("В режиме сведений армия не двигается");
+    return;
+  }
   try {
     const preview = await ensureRoutePreview(selectedMapNodeId);
     const route = previewRoute(preview);
@@ -1540,6 +2124,11 @@ function updateMapStatus(state, route) {
   const preview = matchingRoutePreview(nodeId);
   renderMapSelection(state, preview, route);
   const label = territory?.name || seedNodesById(state).get(nodeId)?.name || "Нет цели";
+  if (currentMapMode === "info") {
+    setMapStatus(nodeId ? `${label} - сведения` : "Выберите землю для сведений");
+    els.mapMoveButton.disabled = true;
+    return;
+  }
   if (!nodeId || !route) {
     setMapStatus(`${label} - нет маршрута`);
     els.mapMoveButton.disabled = true;
@@ -1577,6 +2166,13 @@ function renderMapSelection(state, preview, route) {
     ownerLabel(state, territory?.owner_domain_id),
     territory?.fort ? `форт ${territory.fort.garrison_capacity}` : null,
   ].filter(Boolean).join(" - ");
+  els.mapSelectionCard.dataset.mode = currentMapMode;
+  if (currentMapMode === "info") {
+    els.mapSelectionDetail.textContent = territoryInfoRows(state, territory, seedNode).join(" ");
+    els.mapBattleButton.hidden = true;
+    els.mapGarrisonButton.hidden = true;
+    return;
+  }
   const routeText = route
     ? `Маршрут: ${route.nodes.join(" -> ")} (${route.cost} MP)`
     : "Маршрут не выбран";
@@ -1604,6 +2200,76 @@ function renderMapSelection(state, preview, route) {
   els.mapBattleButton.hidden = !battle && !(claim?.claimant_domain_id === state.lord.domain_id);
   els.mapBattleButton.textContent = battle ? "Открыть бой" : "Создать бой";
   els.mapGarrisonButton.hidden = !garrisonTarget;
+}
+
+function territoryInfoRows(state, territory, seedNode) {
+  if (!territory) {
+    return [
+      seedNode?.zone_status === "no_play_excluded"
+        ? "Эта область вне игры."
+        : "У этой точки нет отдельной памятки территории.",
+      neighborRoadsText(state, seedNode?.node_id),
+    ].filter(Boolean);
+  }
+  const bonus = territory.bonus_type || "без бонуса";
+  const fortCapacity = territory.fort?.garrison_capacity ?? "-";
+  return [
+    `Владелец: ${ownerLabel(state, territory.owner_domain_id)}.`,
+    `Tier: ${territory.tier || "?"}. Основной бонус: ${bonusLabel(bonus)}.`,
+    `Доход: +${territory.income_per_hour ?? 0}/ч. Найм: ${yesNo(bonus === "recruit")}. Магия: ${yesNo(bonus === "magic")}. Заказы: ${yesNo(bonus === "order")}. Оборона: ${yesNo(bonus === "defense" || Boolean(territory.fort))}.`,
+    `Гарнизон: ${garrisonIntelText(territory)}. Вместимость: ${fortCapacity}.`,
+    `Нейтральная оборона: ${territory.neutral_defense_profile_id || "нет"}.`,
+    `Рейды: ${visibleRaidEffectsText(state, territory.territory_id)}.`,
+    neighborRoadsText(state, territory.node_id),
+    enemyIntelTextForNode(state, territory.node_id),
+  ].filter(Boolean);
+}
+
+function yesNo(value) {
+  return value ? "да" : "нет";
+}
+
+function garrisonIntelText(territory) {
+  const garrisons = territory?.garrisons || [];
+  if (!garrisons.length) return "пусто";
+  if (garrisons.some((item) => item.hidden)) return "детали скрыты";
+  const stacks = garrisons.length;
+  const units = garrisons.reduce((total, item) => total + Number(item.count || 0), 0);
+  return `${stacks} отрядов, ${units} бойцов`;
+}
+
+function visibleRaidEffectsText(state, territoryId) {
+  const effects = (state?.raid_effects || []).filter(
+    (item) => item.target_territory_id === territoryId && item.status === "active",
+  );
+  if (!effects.length) return "нет видимых";
+  return effects.map((item) => item.rule_id || item.raid_effect_id || "эффект").join(", ");
+}
+
+function neighborRoadsText(state, nodeId) {
+  if (!nodeId) return null;
+  const roads = [];
+  for (const edge of state?.map_edges || []) {
+    const bidirectional = String(edge.bidirectional).toLowerCase() === "true" || edge.bidirectional === true;
+    if (edge.from_node_id === nodeId) {
+      roads.push(`${nodeDisplayName(state, edge.to_node_id)} ${edge.mp_cost} MP`);
+    } else if (bidirectional && edge.to_node_id === nodeId) {
+      roads.push(`${nodeDisplayName(state, edge.from_node_id)} ${edge.mp_cost} MP`);
+    }
+  }
+  return roads.length ? `Дороги: ${roads.join("; ")}.` : "Дорог нет.";
+}
+
+function enemyIntelTextForNode(state, nodeId) {
+  const intel = (state?.lord_map_intel?.enemy_armies || []).find((item) => item.node_id === nodeId);
+  if (!intel) return null;
+  const parts = [
+    "Чужая армия: присутствие подтверждено",
+    intel.owner_domain_name ? `домен ${intel.owner_domain_name}` : null,
+    intel.rough_strength ? `сила ${roughStrengthLabel(intel.rough_strength)}` : null,
+    intel.composition ? `отрядов ${intel.stack_count || intel.composition.length}` : null,
+  ];
+  return `${parts.filter(Boolean).join(", ")}.`;
 }
 
 function selectedMapTerritory(state) {
@@ -1649,6 +2315,7 @@ function renderMinimap(state, layout, route) {
   const height = Number(layout.canvas.height || 0);
   const minimap = els.lordMapMinimap;
   minimap.dataset.mapMode = layout.mode || "";
+  minimap.dataset.interactionMode = currentMapMode;
   minimap.setAttribute("viewBox", `0 0 ${width} ${height}`);
   minimap.replaceChildren();
   const territoryByNode = territoriesByNodeId(state);
@@ -1946,65 +2613,6 @@ function svgNode(tagName, attributes = {}, text = null) {
   return node;
 }
 
-function buildRoute(state, targetNodeId) {
-  if (state?.pending_move?.status === "pending") return null;
-  const startNodeId = state?.movement?.current_node_id;
-  if (!startNodeId || !targetNodeId) return null;
-  if (startNodeId === targetNodeId) return null;
-
-  const graph = new Map();
-  for (const edge of state.map_edges || []) {
-    addEdge(graph, edge.from_node_id, edge.to_node_id, Number(edge.mp_cost || 0));
-    if (String(edge.bidirectional).toLowerCase() === "true" || edge.bidirectional === true) {
-      addEdge(graph, edge.to_node_id, edge.from_node_id, Number(edge.mp_cost || 0));
-    }
-  }
-
-  const distances = new Map([[startNodeId, 0]]);
-  const previous = new Map();
-  const pending = new Set(graph.keys());
-  pending.add(startNodeId);
-  pending.add(targetNodeId);
-
-  while (pending.size) {
-    let current = null;
-    let best = Infinity;
-    for (const nodeId of pending) {
-      const distance = distances.get(nodeId) ?? Infinity;
-      if (distance < best) {
-        current = nodeId;
-        best = distance;
-      }
-    }
-    if (current === null || best === Infinity) break;
-    pending.delete(current);
-    if (current === targetNodeId) break;
-    for (const edge of graph.get(current) || []) {
-      const candidate = best + edge.cost;
-      if (candidate < (distances.get(edge.to) ?? Infinity)) {
-        distances.set(edge.to, candidate);
-        previous.set(edge.to, current);
-        pending.add(edge.to);
-      }
-    }
-  }
-
-  if (!distances.has(targetNodeId)) return null;
-  const nodes = [targetNodeId];
-  while (nodes[0] !== startNodeId) {
-    const prior = previous.get(nodes[0]);
-    if (!prior) return null;
-    nodes.unshift(prior);
-  }
-  return { nodes, cost: distances.get(targetNodeId) };
-}
-
-function addEdge(graph, fromNodeId, toNodeId, cost) {
-  if (!fromNodeId || !toNodeId || !Number.isFinite(cost)) return;
-  if (!graph.has(fromNodeId)) graph.set(fromNodeId, []);
-  graph.get(fromNodeId).push({ to: toNodeId, cost });
-}
-
 function resolveLordAssetHref(asset) {
   if (asset.startsWith("/") || asset.startsWith("http://") || asset.startsWith("https://")) {
     return asset;
@@ -2053,7 +2661,7 @@ function valueOrNull(value) {
 function errorMessage(data, status) {
   const detail = data.detail;
   if (detail && typeof detail === "object") {
-    return `${detail.code || status}: ${detail.message || "Действие не выполнено"}`;
+    return ORDER_ERROR_COPY[detail.code] || detail.message || "Действие не выполнено";
   }
   return detail || `Запрос не выполнен: ${status}`;
 }

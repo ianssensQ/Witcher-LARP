@@ -738,6 +738,14 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
     )
     _ensure_columns(
         connection,
+        "order_runtime_state",
+        {
+            "visible_hook": "TEXT",
+            "expires_at": "TEXT",
+        },
+    )
+    _ensure_columns(
+        connection,
         "pvp_stake_ledger",
         {
             "quantity": "INTEGER NOT NULL DEFAULT 1",

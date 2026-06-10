@@ -1,2 +1,7 @@
-rule_id,token_cost,gold_cost,duration_min,resistance_check,loot_policy,counterplay
-raid_default,1,15,30,defense_or_ward,optional_gold_card_influence_loot,garrison_or_ward_reduces_effect
+rule_id,name,tier,category,description,token_cost,gold_cost,duration_min,resistance_check,loot_policy,effect_type,allowed_target_types,required_building_ids,visibility,counterplay
+raid_income_sabotage,Сжечь книги податей,1,economy,Тихая вылазка по складам и книгам сборщиков снижает доход цели до следующего тика.,1,15,30,defense_or_ward,no_loot,income_down,territory,b_raid_office,source_target_and_masters,garrison_or_ward_reduces_effect
+raid_garrison_diversion,Ночная диверсия,1,military,Малый отряд режет сигнальные веревки и выводит часть дозора из строя.,1,20,30,defense_or_ward,no_loot,defense_down,territory,b_raid_office,source_target_and_masters,garrison_or_ward_reduces_effect
+raid_recruit_sabotage,Сорвать вербовку,2,recruit,Подкупленные глашатаи и ложные приказы на время останавливают приток рекрутов.,1,25,45,defense_or_ward,no_loot,recruit_block,territory,b_raid_office,visible_to_target,owner_can_clear_with_order_or_ward
+raid_order_intrigue,Черная печать,2,intrigue,Фальшивая печать путает доску объявлений и скрывает часть следов исполнителей.,1,25,45,magic_or_ward,no_loot,order_visibility_disrupt,territory,b_war_council,source_target_and_masters,scrying_or_master_review_reveals
+raid_loot_run,Налет за добычей,2,loot,Быстрый налет не удерживает землю но может принести золото или политический рычаг.,1,30,10,defense_or_ward,gold_card_influence_loot,loot_once,territory;b_raid_only,b_raid_office,source_and_masters,loot_requires_master_audit_if_rare
+raid_residence_mark,Метка на воротах,3,residence,Поздний ночной знак на резиденции приносит добычу или дебафф но не открывает захват.,2,45,60,ward,strong_loot_or_debuff,residence_pressure,residence,b_war_council;b_scrying_room,source_target_and_masters,wards_or_ritual_chamber_can_block

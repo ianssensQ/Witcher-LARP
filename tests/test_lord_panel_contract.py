@@ -39,8 +39,10 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertIn("route_node_ids", script.text)
         self.assertIn("expected_cost", script.text)
         self.assertIn("route-preview", script.text)
-        self.assertIn("buildRoute", script.text)
         self.assertIn("requestRoutePreview", script.text)
+        self.assertIn("currentMapMode", script.text)
+        self.assertIn("renderEnemyArmyIntel", script.text)
+        self.assertIn("territoryInfoRows", script.text)
         self.assertIn("previewStopNodeId", script.text)
         self.assertIn("route-stop", script.text)
         self.assertIn("renderMapSelection", script.text)
@@ -58,6 +60,8 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertIn('id="lord-map"', page.text)
         self.assertIn('id="lord-map-minimap"', page.text)
         self.assertIn('id="map-minimap-shell"', page.text)
+        self.assertIn('id="map-mode-march"', page.text)
+        self.assertIn('id="map-mode-info"', page.text)
         self.assertIn('id="map-move-button"', page.text)
         self.assertIn('id="map-reset-button"', page.text)
         self.assertIn('id="map-selection-card"', page.text)
@@ -77,6 +81,8 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertIn(".map-zone", styles.text)
         self.assertIn(".map-zone.route-stop", styles.text)
         self.assertIn(".map-army-marker", styles.text)
+        self.assertIn(".map-enemy-marker", styles.text)
+        self.assertIn(".map-mode-toggle", styles.text)
         self.assertIn(".map-minimap-shell", styles.text)
         self.assertIn(".minimap-viewport", styles.text)
         self.assertIn(".battle-board", styles.text)
@@ -97,14 +103,21 @@ class LordPanelContractTests(unittest.TestCase):
         client = TestClient(create_app(settings))
 
         page = client.get("/lord")
+        script = client.get("/static/lord/lord.js")
         self.assertEqual(page.status_code, 200)
+        self.assertEqual(script.status_code, 200)
         self.assertIn('data-action-form="move"', page.text)
         self.assertIn('id="move-route-preview"', page.text)
         self.assertIn('data-action-form="garrison"', page.text)
         self.assertIn('data-action-form="building"', page.text)
         self.assertIn('data-action-form="recruit"', page.text)
         self.assertIn('data-action-form="raid"', page.text)
-        self.assertIn('data-action-form="order"', page.text)
+        self.assertIn('id="order-composer"', page.text)
+        self.assertIn('id="order-target-object"', page.text)
+        self.assertIn('id="order-publish-button"', page.text)
+        self.assertNotIn('data-action-form="order"', page.text)
+        self.assertIn("handleOrderComposerSubmit", script.text)
+        self.assertIn("/orders", script.text)
         self.assertIn('data-action-form="battle-create"', page.text)
         self.assertNotIn('data-action-form="battle-action"', page.text)
         self.assertNotIn("read-only", page.text.lower())
@@ -227,7 +240,13 @@ class LordPanelContractTests(unittest.TestCase):
         )
         self.assertTrue(state_payload["lord_map_layout"]["visibility"]["graph_visible"])
         self.assertIn("lord_map_intel", state_payload)
+        self.assertIn("enemy_armies", state_payload["lord_map_intel"])
         self.assertIn("pending_move", state_payload)
+        self.assertEqual(
+            state_payload["route_options"]["current_node_id"],
+            state_payload["movement"]["current_node_id"],
+        )
+        self.assertEqual(state_payload["route_options"]["mp_available"], 4)
         self.assertIn("claims", state_payload)
         self.assertIn("active_claims", state_payload["summary"])
         self.assertIn("fort", state_payload["neutral_territories"][0])
@@ -521,12 +540,64 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertEqual(payload["snapshot_version"], report.snapshot_version)
         self.assertEqual(payload["lord"]["lord_id"], "p_lord_1")
         self.assertEqual(payload["domain"]["domain_id"], "domain_north")
+        self.assertIn("income_per_hour", payload["domain"])
+        self.assertIn("active_army_slots_used", payload["domain"])
+        self.assertIn("raid_tokens", payload)
+        self.assertTrue(payload["raid_rules"])
+        self.assertTrue(payload["raid_targets"])
+        self.assertIn("active_raid_effects", payload)
+        self.assertIn("raid_history", payload)
+        self.assertIn("locked_reason", payload["raid_rules"][0])
+        self.assertIn("timer_summary", payload)
+        self.assertIn("server_time", payload["timer_summary"])
         self.assertNotIn("challenge_tokens", payload["lord"])
         self.assertNotIn("challenge_tokens", payload["domain"])
         self.assertEqual(payload["summary"]["owned_territories"], 1)
         self.assertEqual(payload["summary"]["active_orders"], 3)
+        self.assertEqual(
+            payload["order_cap"],
+            {
+                "public_active": 2,
+                "public_limit": 2,
+                "addressed_active": 1,
+                "addressed_limit": 1,
+            },
+        )
+        self.assertEqual(payload["escrow"]["locked_gold"], 45)
+        self.assertEqual(payload["escrow"]["available_gold"], 80)
+        self.assertGreaterEqual(payload["escrow"]["locked_asset_count"], 3)
+        self.assertTrue(payload["visible_targets"])
+        self.assertTrue(
+            any(target["target_type"] == "qr_scene" for target in payload["visible_targets"])
+        )
+        self.assertTrue(
+            any(
+                recipient["role_type"] == "sorceress"
+                for recipient in payload["eligible_recipients"]
+            )
+        )
+        self.assertTrue(payload["order_reward_options"])
+        self.assertIn("order_conflicts", payload)
+        first_order = payload["orders"][0]
+        self.assertIn("object_label", first_order)
+        self.assertIn("visible_hook", first_order)
+        self.assertIn("reward_label", first_order)
+        self.assertIn("escrow_label", first_order)
         self.assertTrue(payload["territories"])
+        self.assertIn("income_per_hour", payload["territories"][0])
+        self.assertIn("garrison_slots_used", payload["territories"][0]["fort"])
+        self.assertIn("garrison_slots_free", payload["territories"][0]["fort"])
         self.assertTrue(payload["recruit_market"])
+        self.assertEqual(
+            len(payload["recruit_market"]),
+            len({offer["card_id"] for offer in payload["recruit_market"]}),
+        )
+        self.assertTrue(
+            all(
+                offer["status"] in {"available", "held"}
+                for offer in payload["recruit_market"]
+            )
+        )
         infantry_offer = next(
             offer
             for offer in payload["recruit_market"]
