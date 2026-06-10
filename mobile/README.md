@@ -71,11 +71,15 @@ playable offline proof.
 5. Enter several wrong manual IDs; the fifth bad attempt should move to
    `needs_master_review` with `manual_rate_limit`.
 
-The current shell accepts QR payload text such as
-`witcher-larp://qr?code=QR-A1-K7Q2` from a scanner/plugin/browser bridge and
-keeps manual opaque ID as the guaranteed fallback. Predictable `qr_id` values
-are not valid lookup secrets. Native camera decoding still needs a
-target-device plugin smoke before release.
+The M2 QR order screen opens the camera immediately and accepts QR payload text
+such as `witcher-larp://qr?code=QR-A1-K7Q2` from the native scanner/plugin
+bridge through `receive_scanned_qr()`. Manual opaque ID remains the guaranteed
+fallback. The order gate is offline-first: it checks the code against the last
+server-scoped snapshot on the phone and must not require a network request to
+show a matched order. Predictable `qr_id` values are not valid lookup secrets.
+On iPhone, `res://ios/plugins/witcher_qr_scanner` uses AVFoundation metadata
+output to decode QR locally; build and copy its `.xcframework` on macOS before
+the target-device scanner smoke.
 
 ## Event queue smoke
 
@@ -105,9 +109,8 @@ Assumptions:
 - Godot Android export templates are installed.
 - Android SDK and `adb` are configured in the Godot editor.
 - The phone is on the same venue Wi-Fi as the FastAPI server.
-- Android `INTERNET` and network-state permissions are enabled by the preset.
-- Camera permission is off in this shell; QR camera smoke belongs to the later
-  QR task unless a scanner plugin is added.
+- Android `INTERNET`, network-state and camera permissions are enabled by the
+  preset for the M2 QR order screen.
 
 Smoke:
 
@@ -136,7 +139,9 @@ Assumptions:
 - A Mac with Xcode is available.
 - Free provisioning or TestFlight path is available for the target iPhone.
 - iOS local network permission is expected on first LAN connection attempt.
-- Camera permission is documented for future QR scanner smoke only.
+- Camera usage is documented for the M2 QR order screen.
+- `mobile/ios/plugins/witcher_qr_scanner/witcher_qr_scanner.xcframework` has
+  been built on macOS and copied next to its `.gdip` descriptor.
 
 Smoke:
 
@@ -144,6 +149,9 @@ Smoke:
 2. Open the exported project in Xcode or follow the TestFlight path.
 3. Launch on device, allow local network access, check `/health`, log in with a
    seed `player_code`, download or load fallback snapshot, restart the app.
+4. Open the M2 QR screen, allow camera access and scan an order QR while the
+   FastAPI server is offline; a taken order should resolve from the local
+   snapshot and an unrelated QR should leave the camera running.
 
 If no Mac/Xcode path exists, keep iOS as explicit launch-risk with owner
 tech operator/master and use Android, browser/manual QR flow or paper recovery.

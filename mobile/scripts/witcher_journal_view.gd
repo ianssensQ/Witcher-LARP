@@ -21,9 +21,9 @@ const PANELS := {
 		"body": "Личные цели, найденные улики и заметки, которые не должны потеряться в общем потоке."
 	},
 	"qr": {
-		"eyebrow": "оффлайн",
-		"title": "QR / ручной ID",
-		"body": "Переход к локальной PvE-сцене по QR или ручному коду без обязательной сети."
+		"eyebrow": "заказ",
+		"title": "Скан QR",
+		"body": "Камера сверяет знак с вашими взятыми заказами. Ручной код нужен только если камера не сработала."
 	},
 	"bag": {
 		"eyebrow": "сумка",
@@ -58,7 +58,7 @@ const BUTTON_PANELS := {
 	"CharacterButton": "profile",
 	"OrderButton": "orders",
 	"GoalButton": "goals",
-	"QrActionButton": "qr",
+	"QrActionButton": "qr_pve",
 	"OrdersActionButton": "orders",
 	"TradeActionButton": "trade",
 	"BagTabButton": "bag",

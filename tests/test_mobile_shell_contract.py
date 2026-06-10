@@ -39,6 +39,7 @@ class MobileShellContractTests(unittest.TestCase):
 
         self.assertIn('run/main_scene="res://scenes/main.tscn"', project)
         self.assertIn('AppState="*res://scripts/app_state.gd"', project)
+        self.assertIn('QrScannerBridge="*res://scripts/qr_scanner_bridge.gd"', project)
         self.assertIn('config/features=PackedStringArray("4.6", "Mobile")', project)
 
     def test_mobile_scripts_declare_offline_storage_files_for_godot_smoke(self) -> None:
@@ -79,6 +80,92 @@ class MobileShellContractTests(unittest.TestCase):
         self.assertIn('role_type == "sorceress"', main)
         self.assertNotIn("Offline-first player shell", main + login_scene)
         self.assertNotIn("Login + Snapshot", main + login_scene)
+
+    def test_mobile_m2_qr_gate_routes_from_journal_and_checks_player_tasks(self) -> None:
+        main = (MOBILE_ROOT / "scripts" / "main.gd").read_text(encoding="utf-8")
+        app_state = (MOBILE_ROOT / "scripts" / "app_state.gd").read_text(
+            encoding="utf-8"
+        )
+        journal = (MOBILE_ROOT / "scripts" / "witcher_journal_view.gd").read_text(
+            encoding="utf-8"
+        )
+        qr_scene = (MOBILE_ROOT / "scenes" / "qr_pve.tscn").read_text(
+            encoding="utf-8"
+        )
+        qr_view = (MOBILE_ROOT / "scripts" / "qr_pve_view.gd").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('preload("res://scenes/qr_pve.tscn")', main)
+        self.assertIn('"QrActionButton": "qr_pve"', journal)
+        self.assertIn('path="res://scripts/qr_pve_view.gd"', qr_scene)
+        self.assertIn("signal qr_code_detected(code: String, source: String)", qr_view)
+        self.assertIn("CameraPanel", qr_view)
+        self.assertIn("ManualCodeInput", qr_view)
+        self.assertIn("func receive_scanned_qr(qr_text: String) -> void:", qr_view)
+        self.assertIn("AppState.check_qr_order_gate(code, source)", main)
+        self.assertIn("func check_qr_order_gate(value: String, source: String) -> Dictionary:", app_state)
+        self.assertIn("func _qr_task_match(lookup: Dictionary) -> Dictionary:", app_state)
+        self.assertIn('"offline": true', app_state)
+        self.assertIn('"matched_order"', app_state)
+        self.assertIn('"blocked_wrong_task"', app_state)
+        self.assertIn('"qr_not_in_active_tasks"', app_state)
+        self.assertIn('scene_type", "")).strip_edges().to_lower() == "order_object"', app_state)
+        self.assertIn('enqueue_event("pve_completed", payload)', app_state)
+        self.assertIn('qr_id == normalized_code', app_state)
+        self.assertNotIn("API_QR_ORDER_CHECK_PATH", main)
+        self.assertNotIn('"qr_order_check"', main)
+        self.assertNotIn("Сканировать", qr_view)
+        self.assertNotIn("Обновить заказы", qr_view)
+        self.assertNotIn("Текущий заказ", qr_view)
+        self.assertNotIn("ManualToggle", qr_view)
+        self.assertNotIn("ManualCheck", qr_view)
+        self.assertNotIn("sync_requested", qr_view)
+        self.assertNotIn("проверка мастера", qr_view)
+        self.assertNotIn("RollButton", qr_view)
+        self.assertNotIn("TimeoutButton", qr_view)
+        self.assertNotIn('enqueue_event("pve_result"', app_state + qr_view + main)
+
+    def test_mobile_m2_ios_qr_scanner_is_native_and_offline_first(self) -> None:
+        project = (MOBILE_ROOT / "project.godot").read_text(encoding="utf-8")
+        main = (MOBILE_ROOT / "scripts" / "main.gd").read_text(encoding="utf-8")
+        qr_view = (MOBILE_ROOT / "scripts" / "qr_pve_view.gd").read_text(
+            encoding="utf-8"
+        )
+        bridge = (MOBILE_ROOT / "scripts" / "qr_scanner_bridge.gd").read_text(
+            encoding="utf-8"
+        )
+        plugin_dir = MOBILE_ROOT / "ios" / "plugins" / "witcher_qr_scanner"
+        gdip = (plugin_dir / "witcher_qr_scanner.gdip").read_text(encoding="utf-8")
+        native = (plugin_dir / "witcher_qr_scanner.mm").read_text(encoding="utf-8")
+        native_header = (plugin_dir / "witcher_qr_scanner.h").read_text(
+            encoding="utf-8"
+        )
+        build_doc = (plugin_dir / "BUILDING.md").read_text(encoding="utf-8")
+
+        self.assertIn('QrScannerBridge="*res://scripts/qr_scanner_bridge.gd"', project)
+        self.assertIn('const PLUGIN_SINGLETON := "WitcherQrScanner"', bridge)
+        self.assertIn("Engine.has_singleton(PLUGIN_SINGLETON)", bridge)
+        self.assertIn("start_scan_normalized(scan_rect: Rect2)", bridge)
+        self.assertIn("signal qr_scanned(text: String)", bridge)
+        self.assertIn("QrScannerBridge.qr_scanned.connect", qr_view)
+        self.assertIn("QrScannerBridge.start_scan_normalized(scan_rect)", qr_view)
+        self.assertIn("func _native_scan_rect_normalized() -> Rect2:", qr_view)
+        self.assertIn('receive_scanned_qr(qr_text)', qr_view)
+        self.assertIn("AppState.check_qr_order_gate(code, source)", main)
+        self.assertNotIn("API_QR_ORDER_CHECK_PATH", main)
+        self.assertNotIn('"qr_order_check"', main)
+
+        self.assertIn('name="WitcherQrScanner"', gdip)
+        self.assertIn('binary="witcher_qr_scanner.xcframework"', gdip)
+        self.assertIn('system=["AVFoundation.framework", "UIKit.framework"]', gdip)
+        self.assertIn("NSCameraUsageDescription", gdip)
+        self.assertIn("AVCaptureMetadataOutput", native)
+        self.assertIn("AVMetadataObjectTypeQRCode", native)
+        self.assertIn('emit_signal("qr_scanned", p_text)', native)
+        self.assertIn("start_scan_normalized", native_header + native)
+        self.assertIn("request_camera_permission", native_header + native)
+        self.assertIn("does not call the backend while scanning", build_doc)
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_mobile_login_snapshot_and_sync_queue_use_runtime_contracts(self) -> None:
@@ -658,14 +745,17 @@ class MobileShellContractTests(unittest.TestCase):
             'export_path="builds/android/witcher_larp_mobile_debug.apk"', presets
         )
         self.assertIn("permissions/internet=true", presets)
+        self.assertIn("permissions/camera=true", presets)
         self.assertIn('name="iOS Free Provisioning"', presets)
         self.assertIn('export_path="builds/ios/witcher_larp_mobile_ios.zip"', presets)
         self.assertIn("privacy/local_network_usage_description", presets)
+        self.assertIn("privacy/camera_usage_description", presets)
         self.assertIn("Android export smoke", readme)
         self.assertIn("iOS export smoke", readme)
-        self.assertIn("Native camera decoding still needs a", readme)
-        self.assertIn("target-device plugin smoke before release", readme)
-        self.assertIn("Camera permission is off in this shell", readme)
+        self.assertIn("res://ios/plugins/witcher_qr_scanner", readme)
+        self.assertIn("decode QR locally", readme)
+        self.assertIn("target-device scanner smoke", readme)
+        self.assertIn("camera permissions are enabled", readme)
         self.assertIn("launch-risk: qr-camera", technical_plan)
         self.assertIn("TASK-047`/`TASK-058`/`TASK-050", technical_plan)
 

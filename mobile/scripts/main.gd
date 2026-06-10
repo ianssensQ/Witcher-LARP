@@ -6,12 +6,14 @@ const API_HEALTH_PATH := "/health"
 const API_EVENTS_SYNC_PATH := "/api/events/sync"
 const PLAYER_LOGIN_SCENE := preload("res://scenes/player_login.tscn")
 const WITCHER_JOURNAL_SCENE := preload("res://scenes/witcher_journal.tscn")
+const QR_PVE_SCENE := preload("res://scenes/qr_pve.tscn")
 
 var _http: HTTPRequest
 var _pending_request := ""
 var _pending_player_code := ""
 var _login_view: Control
 var _journal_view: Control
+var _qr_pve_view: Control
 var _pending_sync_event_ids := []
 var _status_message := ""
 var _status_is_error := false
@@ -53,10 +55,12 @@ func _refresh_from_state() -> void:
 	if player.is_empty():
 		_set_login_surface(true)
 		_set_journal_surface(false)
+		_set_qr_pve_surface(false)
 		_refresh_login_view()
 		return
 
 	_set_login_surface(false)
+	_set_qr_pve_surface(false)
 	_set_journal_surface(true)
 	_refresh_login_view()
 
@@ -86,12 +90,70 @@ func _set_journal_surface(should_show: bool) -> void:
 			_journal_view = WITCHER_JOURNAL_SCENE.instantiate()
 			_journal_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 			add_child(_journal_view)
+			if _journal_view.has_signal("navigate_requested"):
+				_journal_view.connect("navigate_requested", Callable(self, "_on_journal_navigation_requested"))
 		_journal_view.visible = true
 		_journal_view.move_to_front()
 		if _journal_view.has_method("refresh_from_state"):
 			_journal_view.call("refresh_from_state")
 	elif _journal_view:
 		_journal_view.visible = false
+
+
+func _set_qr_pve_surface(should_show: bool) -> void:
+	if should_show:
+		if not _qr_pve_view:
+			_qr_pve_view = QR_PVE_SCENE.instantiate()
+			_qr_pve_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+			add_child(_qr_pve_view)
+			if _qr_pve_view.has_signal("back_requested"):
+				_qr_pve_view.connect("back_requested", Callable(self, "_on_qr_back_requested"))
+			if _qr_pve_view.has_signal("qr_code_detected"):
+				_qr_pve_view.connect("qr_code_detected", Callable(self, "_on_qr_code_detected"))
+			if _qr_pve_view.has_signal("start_requested"):
+				_qr_pve_view.connect("start_requested", Callable(self, "_on_qr_start_requested"))
+		_qr_pve_view.visible = true
+		_qr_pve_view.move_to_front()
+		if _qr_pve_view.has_method("refresh_from_state"):
+			_qr_pve_view.call("refresh_from_state")
+	elif _qr_pve_view:
+		_qr_pve_view.visible = false
+
+
+func _on_journal_navigation_requested(target: String) -> void:
+	if target == "qr_pve" or target == "qr":
+		_set_journal_surface(false)
+		_set_qr_pve_surface(true)
+		_set_status("")
+		return
+	_set_status("Этот раздел пока остаётся в журнале.", true)
+
+
+func _on_qr_back_requested() -> void:
+	_set_qr_pve_surface(false)
+	_set_journal_surface(true)
+	_set_status("")
+
+
+func _on_qr_sync_requested() -> void:
+	if AppState.has_syncable_events():
+		_on_sync_queue_pressed()
+		return
+	if str(AppState.session.get("player_id", "")).is_empty():
+		_set_status("Сначала войдите по коду игрока.", true)
+		return
+	_start_request("snapshot", _snapshot_request_path(), HTTPClient.METHOD_GET, {})
+
+
+func _on_qr_code_detected(code: String, source: String) -> void:
+	var payload := AppState.check_qr_order_gate(code, source)
+	if _qr_pve_view and _qr_pve_view.has_method("apply_order_check_response"):
+		_qr_pve_view.call("apply_order_check_response", 200, payload)
+
+
+func _on_qr_start_requested(_context: Dictionary) -> void:
+	if _qr_pve_view and _qr_pve_view.has_method("show_start_placeholder"):
+		_qr_pve_view.call("show_start_placeholder")
 
 
 func _on_save_connection_pressed() -> void:
@@ -193,12 +255,12 @@ func _on_unlock_act_pressed() -> void:
 	_set_status("Act unlocked locally; sync queue will verify the master reveal.")
 
 
-func _on_qr_scan_text_pressed() -> void:
-	_prepare_qr("qr_scan")
+func _on_qr_scan_text_pressed(qr_text: String = "") -> void:
+	_prepare_qr("qr_scan", qr_text)
 
 
-func _on_manual_qr_pressed() -> void:
-	_prepare_qr("manual_id")
+func _on_manual_qr_pressed(qr_text: String = "") -> void:
+	_prepare_qr("manual_id", qr_text)
 
 
 func _on_confirm_qr_presence_pressed() -> void:
@@ -255,8 +317,7 @@ func _on_sync_queue_pressed() -> void:
 	_start_request("event_sync", API_EVENTS_SYNC_PATH, HTTPClient.METHOD_POST, request_body)
 
 
-func _prepare_qr(source: String) -> void:
-	var qr_text := ""
+func _prepare_qr(source: String, qr_text: String = "") -> void:
 	var context := AppState.prepare_qr_attempt(qr_text, source)
 	_refresh_from_state()
 	var status := str(context.get("local_status", ""))
@@ -343,7 +404,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 
 	if label == "event_sync":
 		_handle_event_sync_response(result, response_code, body)
-
+		return
 
 func _handle_auth_response(result: int, response_code: int, body: PackedByteArray) -> void:
 	if result != OK or response_code == 0 or response_code == 404:

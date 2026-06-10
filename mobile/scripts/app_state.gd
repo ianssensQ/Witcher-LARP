@@ -279,6 +279,7 @@ func prepare_qr_attempt(value: String, source: String) -> Dictionary:
 	var status := "awaiting_physical_presence"
 	var event_type := "qr_attempt"
 	var reason := ""
+	var task_match := _qr_task_match(lookup)
 
 	if lookup.get("status", "") == "empty":
 		status = "input_error"
@@ -296,6 +297,9 @@ func prepare_qr_attempt(value: String, source: String) -> Dictionary:
 	elif bool(lookup.get("requires_act_unlock", false)):
 		status = "blocked_future_act"
 		reason = "future_act_requires_sync_or_unlock"
+	elif not bool(task_match.get("allowed", true)):
+		status = "blocked_wrong_task"
+		reason = str(task_match.get("reason", "qr_not_in_active_tasks"))
 	else:
 		var qr = lookup.get("qr", {})
 		var cooldown := active_pve_cooldown(str(qr.get("qr_id", "")) if typeof(qr) == TYPE_DICTIONARY else "")
@@ -311,6 +315,8 @@ func prepare_qr_attempt(value: String, source: String) -> Dictionary:
 		reason,
 		false
 	)
+	context["task_match"] = task_match
+	context["task_allowed"] = bool(task_match.get("allowed", false))
 	_store_qr_context(context)
 	if _should_queue_qr_context(context):
 		_queue_qr_context_for_sync(context)
@@ -331,6 +337,8 @@ func confirm_qr_physical_presence() -> Dictionary:
 		context["review_reason"] = "future_act_requires_sync_or_unlock"
 	elif str(context.get("local_status", "")) == "cooldown_active":
 		context["review_reason"] = "pve_failure_cooldown"
+	elif str(context.get("local_status", "")) == "blocked_wrong_task":
+		context["review_reason"] = str(context.get("review_reason", "qr_not_in_active_tasks"))
 	else:
 		context["event_type"] = "qr_scene_started"
 		context["local_status"] = "ready"
@@ -748,6 +756,79 @@ func player_reputation_display(player: Dictionary) -> String:
 	return "Hidden"
 
 
+func current_player_primary_order() -> Dictionary:
+	var orders := _active_orders_for_current_player()
+	if orders.is_empty():
+		return {}
+	return orders[0]
+
+
+func check_qr_order_gate(value: String, source: String) -> Dictionary:
+	var source_type := "qr_scan" if source == "qr_scan" else "manual_id"
+	if current_player().is_empty():
+		return {
+			"status": "needs_login",
+			"allowed": false,
+			"source": source_type,
+			"offline": true,
+			"message": "Сначала войдите по коду игрока."
+		}
+
+	var context := prepare_qr_attempt(value, source_type)
+	var raw_task_match = context.get("task_match", {})
+	var task_match: Dictionary = raw_task_match if typeof(raw_task_match) == TYPE_DICTIONARY else {}
+	var local_status := str(context.get("local_status", ""))
+	var match_status := str(task_match.get("status", ""))
+
+	if local_status == "awaiting_physical_presence" and match_status == "matched_order":
+		var qr := _find_qr(str(context.get("normalized_code", "")))
+		var scenario := _find_by_id(snapshot.get("pve_scenarios", []), "scenario_id", str(context.get("scenario_id", "")))
+		var order := _matching_order_for_qr(qr, scenario)
+		return {
+			"status": "matched_order",
+			"allowed": true,
+			"source": source_type,
+			"offline": true,
+			"normalized_code": str(context.get("normalized_code", "")),
+			"event_context": context.duplicate(true),
+			"qr": _qr_order_gate_qr_payload(qr, context),
+			"order": _qr_order_gate_order_payload(order, task_match),
+			"quest": _qr_order_gate_quest_payload(scenario)
+		}
+
+	var response_status := "not_taken"
+	var message := "Этот знак не относится к вашим взятым заказам."
+	if local_status == "input_error":
+		response_status = "input_error"
+		message = "Введите код знака."
+	elif local_status == "unknown_qr":
+		response_status = "unknown_qr"
+		message = "Код не найден."
+	elif local_status == "blocked_future_act":
+		response_status = "act_locked"
+		message = "Этот знак откроется в следующем акте."
+	elif local_status == "cooldown_active":
+		response_status = "cooldown_active"
+		message = "Этот знак временно недоступен."
+	elif local_status == "needs_master_review":
+		response_status = "needs_master_review"
+		message = "Слишком много неверных кодов."
+	elif match_status == "needs_tasks_sync":
+		message = "На телефоне нет активных заказов из последнего снимка."
+	elif match_status == "free_scene":
+		message = "Это не QR-заказ."
+
+	return {
+		"status": response_status,
+		"allowed": false,
+		"source": source_type,
+		"offline": true,
+		"normalized_code": str(context.get("normalized_code", "")),
+		"event_context": context.duplicate(true),
+		"message": message
+	}
+
+
 func clear_session() -> void:
 	session = {
 		"player_id": "",
@@ -762,8 +843,9 @@ func clear_session() -> void:
 func _find_qr(normalized_code: String) -> Dictionary:
 	for row in snapshot.get("qr_objects", []):
 		if typeof(row) == TYPE_DICTIONARY:
+			var qr_id := str(row.get("qr_id", "")).to_upper()
 			var manual_code := str(row.get("manual_code", "")).to_upper()
-			if manual_code == normalized_code:
+			if manual_code == normalized_code or qr_id == normalized_code:
 				return row
 	return {}
 
@@ -775,6 +857,165 @@ func _find_by_id(rows: Variant, id_key: String, row_id: String) -> Dictionary:
 		if typeof(row) == TYPE_DICTIONARY and str(row.get(id_key, "")) == row_id:
 			return row
 	return {}
+
+
+func _qr_order_gate_qr_payload(qr: Dictionary, context: Dictionary) -> Dictionary:
+	return {
+		"qr_id": str(qr.get("qr_id", context.get("qr_id", ""))),
+		"manual_code": str(qr.get("manual_code", context.get("manual_code", ""))),
+		"qr_mode": str(qr.get("qr_mode", context.get("qr_mode", ""))),
+		"act_id": str(qr.get("act_id", context.get("act_id", ""))),
+		"scenario_id": str(qr.get("scenario_id", context.get("scenario_id", ""))),
+		"location_node_id": str(qr.get("location_node_id", context.get("location_node_id", "")))
+	}
+
+
+func _qr_order_gate_order_payload(order: Dictionary, task_match: Dictionary) -> Dictionary:
+	var object_label := str(order.get("object_label", task_match.get("object_label", "")))
+	if object_label.is_empty():
+		object_label = str(order.get("object_id", task_match.get("object_id", "Заказ")))
+	return {
+		"order_id": str(order.get("order_id", task_match.get("order_id", ""))),
+		"lord_id": str(order.get("lord_id", "")),
+		"target_player_id": str(order.get("target_player_id", "")),
+		"object_id": str(order.get("object_id", task_match.get("object_id", ""))),
+		"object_label": object_label,
+		"object_type": str(order.get("object_type", "qr_object")),
+		"title": object_label,
+		"status": str(order.get("status", "")),
+		"visibility": str(order.get("visibility", ""))
+	}
+
+
+func _qr_order_gate_quest_payload(scenario: Dictionary) -> Dictionary:
+	if scenario.is_empty():
+		return {}
+	var primary_stat := str(scenario.get("primary_stat", ""))
+	var dc := str(scenario.get("dc", ""))
+	var success_text := str(scenario.get("success_text", ""))
+	var memo_parts := []
+	if not primary_stat.is_empty() and not dc.is_empty():
+		memo_parts.append("%s против %s" % [primary_stat, dc])
+	if not success_text.is_empty():
+		memo_parts.append(success_text)
+	return {
+		"scenario_id": str(scenario.get("scenario_id", "")),
+		"scene_type": str(scenario.get("scene_type", "")),
+		"primary_stat": primary_stat,
+		"dc": dc,
+		"success_text": success_text,
+		"failure_text": str(scenario.get("failure_text", "")),
+		"timeout_outcome": str(scenario.get("timeout_outcome", "")),
+		"memo": " · ".join(memo_parts)
+	}
+
+
+func _qr_task_match(lookup: Dictionary) -> Dictionary:
+	if str(lookup.get("status", "")) != "found":
+		return {"status": "not_found", "allowed": false, "reason": "qr_not_found"}
+
+	var qr: Dictionary = lookup.get("qr", {})
+	var scenario: Dictionary = lookup.get("scenario", {})
+	if typeof(qr) != TYPE_DICTIONARY or qr.is_empty():
+		return {"status": "not_found", "allowed": false, "reason": "qr_not_found"}
+	if typeof(scenario) != TYPE_DICTIONARY:
+		scenario = {}
+
+	if not _qr_requires_task_match(qr, scenario):
+		return {"status": "free_scene", "allowed": true}
+
+	var order := _matching_order_for_qr(qr, scenario)
+	if not order.is_empty():
+		return {
+			"status": "matched_order",
+			"allowed": true,
+			"order_id": str(order.get("order_id", "")),
+			"object_id": str(order.get("object_id", "")),
+			"object_label": str(order.get("object_label", order.get("object_id", "")))
+		}
+
+	var reason := "qr_not_in_active_tasks"
+	var match_status := "wrong_task"
+	if _active_orders_for_current_player().is_empty():
+		reason = "tasks_sync_required"
+		match_status = "needs_tasks_sync"
+	return {"status": match_status, "allowed": false, "reason": reason}
+
+
+func _qr_requires_task_match(qr: Dictionary, scenario: Dictionary) -> bool:
+	if str(scenario.get("scene_type", "")).strip_edges().to_lower() == "order_object":
+		return true
+	if _any_order_object_references_qr(qr, scenario):
+		return true
+	return false
+
+
+func _any_order_object_references_qr(qr: Dictionary, scenario: Dictionary) -> bool:
+	for order in snapshot.get("orders", []):
+		if typeof(order) != TYPE_DICTIONARY:
+			continue
+		if _order_matches_qr(order, qr, scenario):
+			return true
+	return false
+
+
+func _matching_order_for_qr(qr: Dictionary, scenario: Dictionary) -> Dictionary:
+	for order in _active_orders_for_current_player():
+		if _order_matches_qr(order, qr, scenario):
+			return order
+	return {}
+
+
+func _active_orders_for_current_player() -> Array:
+	var result := []
+	var player_id := str(session.get("player_id", ""))
+	for raw_order in snapshot.get("orders", []):
+		if typeof(raw_order) != TYPE_DICTIONARY:
+			continue
+		var order: Dictionary = raw_order
+		if not _order_is_active_for_player(order, player_id):
+			continue
+		result.append(order)
+	return result
+
+
+func _order_is_active_for_player(order: Dictionary, player_id: String) -> bool:
+	var status := str(order.get("status", "")).strip_edges().to_lower()
+	if ["completed", "cancelled", "rejected", "failed", "contested_review"].has(status):
+		return false
+	var target_player_id := str(order.get("target_player_id", ""))
+	var accepted_by_player_id := str(order.get("accepted_by_player_id", ""))
+	var submitted_by_player_id := str(order.get("submitted_by_player_id", ""))
+	if player_id.is_empty():
+		return true
+	return target_player_id == player_id or accepted_by_player_id == player_id or submitted_by_player_id == player_id
+
+
+func _order_matches_qr(order: Dictionary, qr: Dictionary, scenario: Dictionary) -> bool:
+	var object_id := str(order.get("object_id", "")).strip_edges().to_upper()
+	if object_id.is_empty():
+		return false
+	var qr_values := [
+		str(qr.get("qr_id", "")),
+		str(qr.get("manual_code", "")),
+		str(qr.get("location_node_id", "")),
+		str(qr.get("scenario_id", "")),
+		str(scenario.get("scenario_id", "")),
+		_territory_id_for_node(str(qr.get("location_node_id", "")))
+	]
+	for value in qr_values:
+		if not str(value).strip_edges().is_empty() and str(value).strip_edges().to_upper() == object_id:
+			return true
+	return false
+
+
+func _territory_id_for_node(node_id: String) -> String:
+	if node_id.is_empty():
+		return ""
+	for row in snapshot.get("map_nodes", []):
+		if typeof(row) == TYPE_DICTIONARY and str(row.get("node_id", "")) == node_id:
+			return str(row.get("territory_id", ""))
+	return ""
 
 
 func _requires_act_unlock(qr: Dictionary, act: Dictionary) -> bool:
