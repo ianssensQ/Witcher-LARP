@@ -76,22 +76,30 @@ TASK-028, TASK-050 and Stage 5.
 ## Manual LAN Smoke Script
 
 1. On the master laptop, import seed or confirm current game DB is ready.
-2. Start the server for LAN access:
+2. Start the production server for LAN access:
 
    ```powershell
    $env:WITCHER_LARP_HOST = "0.0.0.0"
-   $env:WITCHER_LARP_PORT = "8000"
+   $env:WITCHER_LARP_PORT = "8002"
    uv run python -m backend.witcher_larp
    ```
 
-3. Find the master laptop LAN IP on the Wi-Fi network.
-4. From another laptop on the same Wi-Fi, open
-   `http://<LAN-IP>:8000/admin`.
+3. Find the master laptop LAN IP on the Wi-Fi network. Current smoke IP is
+   `192.168.0.103`; if it changes, replace only the host and keep port `8002`.
+4. From another laptop on the same Wi-Fi, open Admin Studio:
+   `http://<LAN-IP>:8002/admin`.
 5. Log in with a master role token.
-6. Confirm the dashboard shows Stage 2, current snapshot, all 6 sections and no
+6. From a lord laptop/browser, open the current lord game entry:
+   `http://<LAN-IP>:8002/lords/login`.
+7. Log in with a lord player code from Admin Studio, for example
+   `LC-NORTH-7QK2`, and confirm the lord panel loads from the same server.
+8. Confirm the dashboard shows Stage 2, current snapshot, all 6 sections and no
    unexpected blocking alert.
-7. Click Content, Game Ops, Events, NPC, Backups and Final; confirm the controls
+9. Click Content, Game Ops, Events, NPC, Backups and Final; confirm the controls
    named in the checklist render without requiring Swagger/manual API.
-8. If the page does not load, triage as network/firewall/router setup first:
+10. Do not use dev/Vite ports such as `5174` or `5178` for this smoke. The
+   production server is the single `8002` FastAPI process that serves Admin
+   Studio, lord screens and `/api`.
+11. If the page does not load, triage as network/firewall/router setup first:
    local `/health`, host binding, Windows firewall, both devices on the same
    subnet, then retry.
