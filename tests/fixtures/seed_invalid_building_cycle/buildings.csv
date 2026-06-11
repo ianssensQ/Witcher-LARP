@@ -1,3 +1,3 @@
-building_id,branch,name,tier,gold_cost,prerequisite_ids,recruit_unlock_ids,capacity_delta,raid_unlock
-b_cycle_a,military,Cycle A,1,40,b_cycle_b,,0,false
-b_cycle_b,military,Cycle B,1,40,b_cycle_a,,0,false
+building_id,branch,name,tier,gold_cost,prerequisite_ids,recruit_unlock_ids,capacity_delta,raid_unlock,raid_token_delta
+b_cycle_a,military,Cycle A,1,40,b_cycle_b,,0,false,0
+b_cycle_b,military,Cycle B,1,40,b_cycle_a,,0,false,0

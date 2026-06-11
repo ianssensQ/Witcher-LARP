@@ -459,7 +459,7 @@ class PveRuntimeTests(unittest.TestCase):
         self.assertEqual(forged_response.results[0].status, "needs_master_review")
         self.assertEqual(review["reason"], "pve result does not match single_d20 replay")
 
-    def test_unique_pve_object_is_consumed_once_with_auto_reward(self) -> None:
+    def test_unique_pve_object_is_consumed_once_with_pending_reward(self) -> None:
         settings = self._settings("pve_unique_consumed")
         self._import_valid_seed(settings)
 
@@ -506,10 +506,19 @@ class PveRuntimeTests(unittest.TestCase):
                 """,
                 (second_event_id,),
             ).fetchone()
+            approval_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM reward_approvals
+                WHERE reward_id = 'reward_order_success'
+                  AND status = 'pending_master_approval'
+                """
+            ).fetchone()[0]
 
-        self.assertEqual(first_response.results[0].status, "accepted")
+        self.assertEqual(first_response.results[0].status, "pending_master_approval")
         self.assertEqual(consumed["player_id"], "p_witcher_1")
         self.assertEqual(consumed["scenario_id"], "scn_a1_006")
+        self.assertEqual(approval_count, 1)
         self.assertEqual(second_response.results[0].status, "needs_master_review")
         self.assertEqual(review["reason"], "unique QR object already consumed")
 
@@ -880,7 +889,7 @@ class PveRuntimeTests(unittest.TestCase):
         self.assertEqual(state["xp"], 4)
         self.assertEqual(state["gold"], 30)
 
-    def test_scenario_bound_pending_reward_auto_applies_without_approval_lock(self) -> None:
+    def test_scenario_bound_pending_reward_creates_approval_without_auto_apply(self) -> None:
         settings = self._settings("pve_scenario_pending_reward")
         self._import_valid_seed(settings)
 
@@ -959,17 +968,17 @@ class PveRuntimeTests(unittest.TestCase):
                 """
             ).fetchone()[0]
 
-        self.assertEqual(first_response.results[0].status, "accepted")
-        self.assertEqual(duplicate_response.results[0].status, "duplicate")
-        self.assertEqual(duplicate_response.results[0].reason, "event_id already processed")
+        self.assertEqual(first_response.results[0].status, "pending_master_approval")
+        self.assertEqual(duplicate_response.results[0].status, "pending_master_approval")
+        self.assertEqual(duplicate_response.results[0].reason, "reward requires master approval")
         self.assertEqual(attempt["reward_id"], "reward_order_success")
-        self.assertEqual(attempt["reward_status"], "auto")
-        self.assertEqual(state["xp"], 6)
+        self.assertEqual(attempt["reward_status"], "pending_master_approval")
+        self.assertEqual(state["xp"], 0)
         self.assertEqual(state["level"], 1)
-        self.assertEqual(state["gold"], 35)
-        self.assertEqual(approval_count, 0)
-        self.assertEqual(lock_count, 0)
-        self.assertEqual(ownership_count, 1)
+        self.assertEqual(state["gold"], 20)
+        self.assertEqual(approval_count, 1)
+        self.assertEqual(lock_count, 1)
+        self.assertEqual(ownership_count, 0)
 
     def _settings(self, name: str) -> Settings:
         return Settings(database_path=TEST_TMP_ROOT / f"{name}_{uuid4().hex}.db")

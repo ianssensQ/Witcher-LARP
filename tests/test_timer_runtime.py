@@ -42,19 +42,41 @@ class TimerRuntimeContractTests(unittest.TestCase):
                     )
                     before = apply_due_timers(connection, settings, now=started_at + timedelta(minutes=29))
                     due = apply_due_timers(connection, settings, now=started_at + timedelta(minutes=30))
-                    stored = connection.execute(
+                    before_second = apply_due_timers(
+                        connection,
+                        settings,
+                        now=started_at + timedelta(minutes=59),
+                    )
+                    second_due = apply_due_timers(
+                        connection,
+                        settings,
+                        now=started_at + timedelta(minutes=60),
+                    )
+                    stored_rows = connection.execute(
                         """
                         SELECT timer_id, due_at
                         FROM applied_timer_ticks
                         WHERE timer_id = ?
+                        ORDER BY due_at
                         """,
                         (timer_id,),
-                    ).fetchone()
+                    ).fetchall()
 
                 self.assertEqual(before, [])
                 self.assertEqual([tick["effect_type"] for tick in due], ["lord_income_and_mana"])
                 self.assertEqual(due[0]["domain_updates"][0]["influence_gain"], 1)
-                self.assertEqual(stored["due_at"], (started_at + timedelta(minutes=30)).isoformat(timespec="seconds"))
+                self.assertEqual(before_second, [])
+                self.assertEqual(
+                    [tick["effect_type"] for tick in second_due],
+                    ["lord_income_and_mana"],
+                )
+                self.assertEqual(
+                    [row["due_at"] for row in stored_rows],
+                    [
+                        (started_at + timedelta(minutes=30)).isoformat(timespec="seconds"),
+                        (started_at + timedelta(minutes=60)).isoformat(timespec="seconds"),
+                    ],
+                )
 
     def test_mana_regen_uses_runtime_owner_and_current_patron(self) -> None:
         settings = self._settings("timer_mana_runtime_owner")

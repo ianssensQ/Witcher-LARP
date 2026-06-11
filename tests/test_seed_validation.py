@@ -182,8 +182,8 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             ),
             (
                 "buildings.csv",
-                "building_id,branch,name,tier,gold_cost,prerequisite_ids,recruit_unlock_ids,capacity_delta,raid_unlock\n"
-                "b_bad,alchemy,Bad Building,5,0,b_bad,,0,false\n",
+                "building_id,branch,name,tier,gold_cost,prerequisite_ids,recruit_unlock_ids,capacity_delta,raid_unlock,raid_token_delta\n"
+                "b_bad,alchemy,Bad Building,5,0,b_bad,,0,false,0\n",
                 {
                     "invalid_building_branch",
                     "invalid_building_tier",
@@ -455,8 +455,8 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             "qr_a1_001,QR-A1-K7Q2,scn_a1_001,repeatable_scene,act1,node_forest_dark,true,5_per_minute,consume_once",
         )
         bad_domains = self._seed_csv("domains.csv").replace(
-            "domain_north,p_lord_1,North Watch",
-            "domain_north,p_witcher_1,North Watch",
+            "domain_north,p_lord_1,Северный Дозор",
+            "domain_north,p_witcher_1,Северный Дозор",
         )
         bad_role_tokens = self._seed_csv("role_tokens.csv").replace(
             "token_lord_1,lord,p_lord_1",
@@ -466,8 +466,8 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             "token_master_king,npc_master,p_lord_1",
         )
         bad_sorceress_binding = self._seed_csv("players.csv").replace(
-            "p_sorc_1,sorceress,Yennefer Circle,,p_lord_1",
-            "p_sorc_1,sorceress,Yennefer Circle,,p_witcher_1",
+            "p_sorc_1,sorceress,Чародейка Йеннифэр,,p_lord_1",
+            "p_sorc_1,sorceress,Чародейка Йеннифэр,,p_witcher_1",
         )
         bad_lord_battle = (
             "rule_id,grid_width,grid_height,turn_timer_seconds,damage_formula,initiative_tiebreaker,timeout_policy,auto_resolve_policy\n"

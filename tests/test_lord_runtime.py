@@ -103,6 +103,7 @@ class LordRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(battle.status_code, 200, battle.text)
+        self._start_battle_after_deployment(client, "battle_fort_east_capture")
         resolved = client.post(
             "/api/lord-battles/battle_fort_east_capture/actions",
             headers=self._headers("north"),
@@ -297,6 +298,7 @@ class LordRuntimeTests(unittest.TestCase):
             json={"building_id": "b_siege_yard"},
         )
         self.assertEqual(siege.status_code, 200)
+        self.assertEqual(siege.json()["raid_token_delta"], 0)
         self.assertIn(
             "unit_heavy_siege_t3",
             {offer["card_id"] for offer in siege.json()["unlocked_recruit_offers"]},
@@ -414,6 +416,118 @@ class LordRuntimeTests(unittest.TestCase):
             ).fetchone()["count"]
         self.assertEqual(reserve_count, 3)
 
+    def test_building_purchase_is_scoped_to_residence(self) -> None:
+        settings = self._settings("lord_building_scope")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET gold = 1000
+                WHERE domain_id = 'domain_north'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_north', status = 'controlled'
+                WHERE territory_id = 'territory_fort_east'
+                """
+            )
+
+        residence_training = client.post(
+            "/api/lords/p_lord_1/buildings",
+            headers=self._headers("north"),
+            json={
+                "building_id": "b_training_yard",
+                "territory_id": "territory_res_north",
+            },
+        )
+        self.assertEqual(residence_training.status_code, 200, residence_training.text)
+        self.assertEqual(residence_training.json()["territory_id"], "territory_res_north")
+
+        default_barracks = client.post(
+            "/api/lords/p_lord_1/buildings",
+            headers=self._headers("north"),
+            json={"building_id": "b_barracks"},
+        )
+        self.assertEqual(default_barracks.status_code, 200, default_barracks.text)
+        self.assertEqual(default_barracks.json()["territory_id"], "territory_res_north")
+
+        non_residence_barracks = client.post(
+            "/api/lords/p_lord_1/buildings",
+            headers=self._headers("north"),
+            json={
+                "building_id": "b_barracks",
+                "territory_id": "territory_fort_east",
+            },
+        )
+        self.assertEqual(non_residence_barracks.status_code, 400, non_residence_barracks.text)
+        self.assertEqual(
+            non_residence_barracks.json()["detail"]["code"],
+            "building_tree_residence_only",
+        )
+
+        fort_training = client.post(
+            "/api/lords/p_lord_1/buildings",
+            headers=self._headers("north"),
+            json={
+                "building_id": "b_training_yard",
+                "territory_id": "territory_fort_east",
+            },
+        )
+        self.assertEqual(fort_training.status_code, 400, fort_training.text)
+        self.assertEqual(
+            fort_training.json()["detail"]["code"],
+            "building_tree_residence_only",
+        )
+
+        wrong_tree = client.post(
+            "/api/lords/p_lord_1/buildings",
+            headers=self._headers("north"),
+            json={"building_id": "b_bank", "territory_id": "territory_fort_east"},
+        )
+        self.assertEqual(wrong_tree.status_code, 400, wrong_tree.text)
+        self.assertEqual(
+            wrong_tree.json()["detail"]["code"],
+            "building_tree_residence_only",
+        )
+
+        not_owned = client.post(
+            "/api/lords/p_lord_1/buildings",
+            headers=self._headers("north"),
+            json={
+                "building_id": "b_training_yard",
+                "territory_id": "territory_fort_west",
+            },
+        )
+        self.assertEqual(not_owned.status_code, 403, not_owned.text)
+        self.assertEqual(not_owned.json()["detail"]["code"], "territory_not_owned")
+
+        state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers=self._headers("north"),
+        )
+        self.assertEqual(state.status_code, 200, state.text)
+        payload = state.json()
+        residence = self._territory(payload["territory_views"], "territory_res_north")
+        fort = self._territory(payload["territory_views"], "territory_fort_east")
+        residence_nodes = {
+            node["building_id"]: node for node in residence["building_tree"]["nodes"]
+        }
+
+        self.assertEqual(residence_nodes["b_training_yard"]["status"], "built")
+        self.assertEqual(residence_nodes["b_barracks"]["status"], "built")
+        self.assertEqual(fort["building_tree"]["scope"], "residence_only")
+        self.assertEqual(fort["building_tree"]["node_ids"], [])
+        self.assertEqual(
+            fort["building_tree_lock_reason"],
+            "Здания строятся в главном замке",
+        )
+
     def test_recruit_purchase_quantity_to_owned_garrison(self) -> None:
         settings = self._settings("lord_recruit_garrison")
         self._import_seed(settings)
@@ -425,11 +539,6 @@ class LordRuntimeTests(unittest.TestCase):
             json={"action": "refresh"},
         )
         self.assertEqual(refresh.status_code, 200)
-        infantry_offer = next(
-            offer
-            for offer in refresh.json()["offers"]
-            if offer["card_id"] == "unit_infantry_t1"
-        )
         with connect(settings) as connection:
             connection.execute(
                 """
@@ -459,8 +568,8 @@ class LordRuntimeTests(unittest.TestCase):
             "/api/lords/p_lord_1/recruit",
             headers=self._headers("north"),
             json={
-                "action": "purchase",
-                "offer_id": infantry_offer["offer_id"],
+                "action": "purchase_stock",
+                "card_id": "unit_infantry_t1",
                 "quantity": 20,
                 "territory_id": "territory_res_north",
             },
@@ -498,6 +607,157 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(gold, 60)
         self.assertEqual(reserve_count, 4)
         self.assertEqual(garrison_count, 20)
+
+    def test_recruit_purchase_payload_with_offer_id_still_hires(self) -> None:
+        settings = self._settings("lord_recruit_legacy_payload")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+
+        refresh = client.post(
+            "/api/lords/p_lord_1/recruit",
+            headers=self._headers("north"),
+            json={"action": "refresh"},
+        )
+        self.assertEqual(refresh.status_code, 200, refresh.text)
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE army_reserve_runtime
+                SET count = 8
+                WHERE domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                """
+            )
+
+        hired = client.post(
+            "/api/lords/p_lord_1/recruit",
+            headers=self._headers("north"),
+            json={
+                "action": "purchase",
+                "offer_id": "offer_north_infantry",
+                "quantity": 6,
+                "territory_id": "territory_res_north",
+            },
+        )
+
+        self.assertEqual(hired.status_code, 200, hired.text)
+        payload = hired.json()
+        self.assertEqual(payload["status"], "hired")
+        self.assertEqual(payload["count"], 6)
+        self.assertEqual(payload["gold_spent"], 6)
+        self.assertEqual(payload["garrison"]["territory_id"], "territory_res_north")
+
+    def test_recruit_purchase_stock_rejects_empty_stock_contested_and_capacity(self) -> None:
+        settings = self._settings("lord_recruit_stock_guards")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+
+        refresh = client.post(
+            "/api/lords/p_lord_1/recruit",
+            headers=self._headers("north"),
+            json={"action": "refresh"},
+        )
+        self.assertEqual(refresh.status_code, 200, refresh.text)
+
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE army_reserve_runtime
+                SET count = 0,
+                    status = 'empty'
+                WHERE domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                """
+            )
+        empty_stock = client.post(
+            "/api/lords/p_lord_1/recruit",
+            headers=self._headers("north"),
+            json={
+                "action": "purchase_stock",
+                "card_id": "unit_infantry_t1",
+                "quantity": 1,
+                "territory_id": "territory_res_north",
+            },
+        )
+        self.assertEqual(empty_stock.status_code, 400, empty_stock.text)
+        self.assertEqual(empty_stock.json()["detail"]["code"], "insufficient_stock")
+
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                INSERT INTO army_reserve_runtime (
+                    reserve_id, domain_id, card_id, count, status, updated_at
+                )
+                VALUES (
+                    'reserve_test_infantry_stock',
+                    'domain_north',
+                    'unit_infantry_t1',
+                    5,
+                    'available',
+                    '2026-01-01T00:00:00+00:00'
+                )
+                ON CONFLICT(reserve_id) DO UPDATE SET
+                    count = excluded.count,
+                    status = excluded.status,
+                    updated_at = excluded.updated_at
+                """
+            )
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET status = 'contested',
+                    contested_by_domain_id = 'domain_river'
+                WHERE territory_id = 'territory_res_north'
+                """
+            )
+        contested = client.post(
+            "/api/lords/p_lord_1/recruit",
+            headers=self._headers("north"),
+            json={
+                "action": "purchase_stock",
+                "card_id": "unit_infantry_t1",
+                "quantity": 1,
+                "territory_id": "territory_res_north",
+            },
+        )
+        self.assertEqual(contested.status_code, 400, contested.text)
+        self.assertEqual(contested.json()["detail"]["code"], "territory_contested")
+
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET status = 'controlled',
+                    contested_by_domain_id = NULL
+                WHERE territory_id = 'territory_res_north'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE territory_forts
+                SET garrison_capacity = 0
+                WHERE territory_id = 'territory_res_north'
+                """
+            )
+            connection.execute(
+                """
+                DELETE FROM garrison_runtime_state
+                WHERE territory_id = 'territory_res_north'
+                  AND card_id = 'unit_infantry_t1'
+                """
+            )
+        capacity = client.post(
+            "/api/lords/p_lord_1/recruit",
+            headers=self._headers("north"),
+            json={
+                "action": "purchase_stock",
+                "card_id": "unit_infantry_t1",
+                "quantity": 1,
+                "territory_id": "territory_res_north",
+            },
+        )
+        self.assertEqual(capacity.status_code, 400, capacity.text)
+        self.assertEqual(capacity.json()["detail"]["code"], "fort_capacity_exceeded")
 
     def test_movement_without_active_army_cannot_create_contested_claim(self) -> None:
         settings = self._settings("lord_move_requires_active")
@@ -1416,20 +1676,20 @@ class LordRuntimeTests(unittest.TestCase):
             json={
                 "target_territory_id": "territory_fort_east",
                 "rule_id": "raid_loot_run",
-                "expected_token_cost": 1,
-                "expected_gold_cost": 30,
+                "expected_token_cost": 2,
+                "expected_gold_cost": 0,
             },
         )
         self.assertEqual(raid.status_code, 200)
         payload = raid.json()
-        self.assertEqual(payload["status"], "active")
-        self.assertEqual(payload["token_spent"], 1)
-        self.assertEqual(payload["gold_spent"], 30)
+        self.assertEqual(payload["status"], "resolved")
+        self.assertEqual(payload["token_spent"], 2)
+        self.assertEqual(payload["gold_spent"], 0)
         self.assertTrue(payload["started"])
         self.assertFalse(payload["resisted"])
         self.assertTrue(payload["loot_applied"])
-        self.assertEqual(payload["raid_tokens"], 2)
-        self.assertEqual(payload["gold"], 480)
+        self.assertEqual(payload["raid_tokens"], 1)
+        self.assertEqual(payload["gold"], 516)
         self.assertEqual(payload["active_raid_effects"][0]["rule_id"], "raid_loot_run")
         self.assertIsNotNone(payload["audit_event_id"])
         self.assertIsNotNone(payload["expires_at"])
@@ -1440,12 +1700,12 @@ class LordRuntimeTests(unittest.TestCase):
             json={
                 "target_territory_id": "territory_fort_east",
                 "rule_id": "raid_loot_run",
-                "expected_token_cost": 1,
-                "expected_gold_cost": 30,
+                "expected_token_cost": 2,
+                "expected_gold_cost": 0,
             },
         )
-        self.assertEqual(duplicate.status_code, 409)
-        self.assertEqual(duplicate.json()["detail"]["code"], "duplicate_active_effect")
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(duplicate.json()["detail"]["code"], "insufficient_raid_tokens")
 
         stale_cost = client.post(
             "/api/lords/p_lord_1/raids",
@@ -1460,6 +1720,22 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(stale_cost.status_code, 409)
         self.assertEqual(stale_cost.json()["detail"]["code"], "stale_expected_cost")
 
+        with connect(settings) as connection:
+            connection.execute(
+                "UPDATE domain_runtime_state SET raid_tokens = 4 WHERE domain_id = 'domain_north'"
+            )
+        expiring_raid = client.post(
+            "/api/lords/p_lord_1/raids",
+            headers=self._headers("north"),
+            json={
+                "target_territory_id": "territory_fort_east",
+                "rule_id": "raid_income_sabotage",
+                "expected_token_cost": 1,
+                "expected_gold_cost": 0,
+            },
+        )
+        self.assertEqual(expiring_raid.status_code, 200)
+        self.assertEqual(expiring_raid.json()["status"], "active")
         residence_raid = client.post(
             "/api/lords/p_lord_1/raids",
             headers=self._headers("north"),
@@ -1467,10 +1743,11 @@ class LordRuntimeTests(unittest.TestCase):
                 "target_territory_id": "territory_res_river",
                 "rule_id": "raid_residence_mark",
                 "expected_token_cost": 2,
-                "expected_gold_cost": 45,
+                "expected_gold_cost": 0,
             },
         )
         self.assertEqual(residence_raid.status_code, 200)
+        self.assertEqual(residence_raid.json()["status"], "active")
         self.assertTrue(residence_raid.json()["resisted"])
         self.assertFalse(residence_raid.json()["loot_applied"])
 
@@ -1482,7 +1759,10 @@ class LordRuntimeTests(unittest.TestCase):
                 SET expires_at = ?
                 WHERE raid_effect_id = ?
                 """,
-                (expired_at.isoformat(timespec="seconds"), payload["raid_effect_id"]),
+                (
+                    expired_at.isoformat(timespec="seconds"),
+                    expiring_raid.json()["raid_effect_id"],
+                ),
             )
         expired_state = client.get(
             "/api/lords/p_lord_1/state",
@@ -1492,7 +1772,7 @@ class LordRuntimeTests(unittest.TestCase):
         expired_raid = next(
             raid
             for raid in expired_state.json()["raid_effects"]
-            if raid["raid_effect_id"] == payload["raid_effect_id"]
+            if raid["raid_effect_id"] == expiring_raid.json()["raid_effect_id"]
         )
         self.assertEqual(expired_raid["status"], "expired")
         self.assertTrue(expired_state.json()["raid_rules"])
@@ -1523,9 +1803,204 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertGreaterEqual(report["army_power_ratio"], 170)
         self.assertEqual(report["income_cut_percent"], 50)
 
+    def test_raid_income_debuff_affects_timer_and_refills_tokens(self) -> None:
+        settings = self._settings("lord_raid_income_effect")
+        self._import_seed(settings)
+        self._unlock_raid_rules(settings)
+        client = TestClient(create_app(settings))
+
+        raid = client.post(
+            "/api/lords/p_lord_1/raids",
+            headers=self._headers("north"),
+            json={
+                "target_territory_id": "territory_fort_east",
+                "rule_id": "raid_income_sabotage",
+                "expected_token_cost": 1,
+                "expected_gold_cost": 0,
+            },
+        )
+        self.assertEqual(raid.status_code, 200, raid.text)
+        self.assertEqual(raid.json()["status"], "active")
+        self.assertEqual(raid.json()["raid_tokens"], 2)
+
+        tick = client.post(
+            "/api/master/timers/lord-income-tick",
+            headers=self._master_headers(),
+            json={"operator": "gm_test", "source": "raid_income_test"},
+        )
+        self.assertEqual(tick.status_code, 200, tick.text)
+        applied = tick.json()["applied_now"][0]
+        river_update = next(
+            item for item in applied["domain_updates"] if item["domain_id"] == "domain_river"
+        )
+        self.assertEqual(river_update["territory_income"], 22)
+        self.assertEqual(river_update["raw_income"], 47)
+        north_refill = next(
+            item for item in applied["raid_token_refill"] if item["domain_id"] == "domain_north"
+        )
+        self.assertEqual(north_refill["before"], 2)
+        self.assertEqual(north_refill["after"], 3)
+        self.assertEqual(north_refill["cap"], 4)
+
+    def test_building_effects_drive_income_stock_raids_and_ritual_cleanse(self) -> None:
+        settings = self._settings("lord_building_effects")
+        self._import_seed(settings)
+        self._unlock_raid_rules(settings)
+        self._grant_residence_buildings(
+            settings,
+            "domain_north",
+            (
+                "b_training_yard",
+                "b_market",
+                "b_tax_office",
+                "b_storehouse",
+                "b_bank",
+                "b_treasury_hall",
+            ),
+        )
+        self._grant_residence_buildings(
+            settings,
+            "domain_river",
+            ("b_bank", "b_mage_study", "b_alchemy_lab", "b_ritual_chamber"),
+        )
+        client = TestClient(create_app(settings))
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_north', status = 'controlled'
+                WHERE territory_id IN ('territory_field_oats', 'territory_well_city')
+                """
+            )
+            connection.execute(
+                """
+                UPDATE army_reserve_runtime
+                SET count = 299,
+                    updated_at = '2026-01-01T00:00:00+00:00'
+                WHERE reserve_id = 'reserve_north_infantry'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE anti_snowball_rules
+                SET army_power_ratio_threshold = 0,
+                    income_cut_percent = 80
+                WHERE rule_id = 'anti_snowball_soft'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET gold = 0
+                WHERE domain_id = 'domain_north'
+                """
+            )
+
+        tick = client.post(
+            "/api/master/timers/lord-income-tick",
+            headers=self._master_headers(),
+            json={"operator": "gm_test", "source": "building_effects_test"},
+        )
+        self.assertEqual(tick.status_code, 200, tick.text)
+        applied = tick.json()["applied_now"][0]
+        north_update = next(
+            item for item in applied["domain_updates"] if item["domain_id"] == "domain_north"
+        )
+        self.assertEqual(north_update["flat_building_income"], 35)
+        self.assertEqual(north_update["territory_income_bonus_percent"], 25)
+        self.assertEqual(north_update["territory_income_before_penalties"], 37)
+        self.assertEqual(north_update["raw_income"], 97)
+        self.assertEqual(north_update["treasury_income_floor"], 48)
+        self.assertEqual(north_update["income"], 48)
+        infantry_growth = next(
+            item for item in applied["recruit_growth"] if item["card_id"] == "unit_infantry_t1"
+        )
+        self.assertEqual(infantry_growth["cap"], 300)
+        self.assertEqual(infantry_growth["after"], 300)
+        river_ritual = next(
+            item for item in applied["ritual_cleanse_refill"] if item["domain_id"] == "domain_river"
+        )
+        self.assertEqual(river_ritual["after"], 1)
+
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET raid_tokens = 5, raid_token_cap = 5
+                WHERE domain_id = 'domain_north'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET gold = 500
+                WHERE domain_id = 'domain_river'
+                """
+            )
+
+        loot = client.post(
+            "/api/lords/p_lord_1/raids",
+            headers=self._headers("north"),
+            json={"target_territory_id": "territory_fort_east", "rule_id": "raid_loot_run"},
+        )
+        self.assertEqual(loot.status_code, 200, loot.text)
+        self.assertEqual(loot.json()["loot_gold"], 8)
+
+        sabotage = client.post(
+            "/api/lords/p_lord_1/raids",
+            headers=self._headers("north"),
+            json={
+                "target_territory_id": "territory_fort_east",
+                "rule_id": "raid_income_sabotage",
+            },
+        )
+        self.assertEqual(sabotage.status_code, 200, sabotage.text)
+        self.assertEqual(sabotage.json()["status"], "active")
+        self.assertEqual(sabotage.json()["duration_min"], 15)
+        self.assertEqual(sabotage.json()["alchemy_duration_reduction"], 15)
+
+        cleanse = client.post(
+            "/api/lords/p_lord_2/raids/cleanse",
+            headers=self._headers("river"),
+            json={"raid_effect_id": sabotage.json()["raid_effect_id"]},
+        )
+        self.assertEqual(cleanse.status_code, 200, cleanse.text)
+        self.assertEqual(cleanse.json()["status"], "cleansed")
+        self.assertEqual(cleanse.json()["ritual_cleanse_charges"], 0)
+        with connect(settings) as connection:
+            status = connection.execute(
+                "SELECT status FROM raid_effects WHERE raid_effect_id = ?",
+                (sabotage.json()["raid_effect_id"],),
+            ).fetchone()["status"]
+        self.assertEqual(status, "cleansed")
+
+        self._grant_residence_buildings(settings, "domain_river", ("b_wards",))
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET raid_tokens = 4
+                WHERE domain_id = 'domain_north'
+                """
+            )
+        residence_raid = client.post(
+            "/api/lords/p_lord_1/raids",
+            headers=self._headers("north"),
+            json={
+                "target_territory_id": "territory_res_river",
+                "rule_id": "raid_residence_mark",
+            },
+        )
+        self.assertEqual(residence_raid.status_code, 200, residence_raid.text)
+        self.assertTrue(residence_raid.json()["blocked"])
+        self.assertEqual(residence_raid.json()["status"], "blocked")
+
     def test_order_caps_object_conflict_success_race_and_escrow_release(self) -> None:
         settings = self._settings("lord_orders")
         self._import_seed(settings)
+        self._grant_residence_buildings(settings, "domain_north", ("b_notice_board",))
+        self._grant_residence_buildings(settings, "domain_forest", ("b_notice_board",))
         client = TestClient(create_app(settings))
 
         north_over_cap = client.post(
@@ -1735,9 +2210,81 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(dict(witcher_reward), {"xp": 6, "gold": 35})
         self.assertEqual(order_seal["quantity"], 1)
 
+    def test_order_creation_requires_notice_board_and_envoy_hall(self) -> None:
+        settings = self._settings("lord_order_building_gates")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+
+        public_locked = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._headers("forest"),
+            json={
+                "action": "create",
+                "object_id": "territory_well_city",
+                "visibility": "public",
+                "target_player_id": "p_witcher_2",
+                "escrow_reward_id": "reward_order_success",
+            },
+        )
+        self.assertEqual(public_locked.status_code, 400)
+        self.assertEqual(public_locked.json()["detail"]["code"], "public_orders_locked")
+
+        addressed_locked = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._headers("forest"),
+            json={
+                "action": "create",
+                "object_id": "territory_well_city",
+                "visibility": "addressed",
+                "target_player_id": "p_witcher_2",
+                "escrow_reward_id": "reward_order_success",
+            },
+        )
+        self.assertEqual(addressed_locked.status_code, 400)
+        self.assertEqual(
+            addressed_locked.json()["detail"]["code"],
+            "addressed_orders_locked",
+        )
+
+        self._grant_residence_buildings(settings, "domain_forest", ("b_notice_board",))
+        public_created = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._headers("forest"),
+            json={
+                "action": "create",
+                "object_id": "territory_well_city",
+                "visibility": "public",
+                "target_player_id": "p_witcher_2",
+                "escrow_reward_id": "reward_order_success",
+            },
+        )
+        self.assertEqual(public_created.status_code, 200, public_created.text)
+        self.assertEqual(public_created.json()["order_cap"]["public_limit"], 2)
+
+        self._grant_residence_buildings(settings, "domain_forest", ("b_envoy_hall",))
+        addressed_created = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers=self._headers("forest"),
+            json={
+                "action": "create",
+                "object_id": "territory_magic_corner",
+                "visibility": "addressed",
+                "target_player_id": "p_witcher_3",
+                "escrow_reward_id": "reward_order_success",
+            },
+        )
+        self.assertEqual(addressed_created.status_code, 200, addressed_created.text)
+        self.assertEqual(addressed_created.json()["order_cap"]["addressed_limit"], 1)
+
     def test_cross_lord_order_race_closes_competitors_and_refunds_escrow(self) -> None:
         settings = self._settings("lord_cross_lord_orders")
         self._import_seed(settings)
+        self._grant_residence_buildings(settings, "domain_forest", ("b_notice_board",))
+        self._grant_residence_buildings(
+            settings,
+            "domain_hill",
+            ("b_notice_board", "b_envoy_hall"),
+        )
         with connect(settings) as connection:
             ensure_lord_runtime_state(connection)
             initial_hill_gold = connection.execute(
@@ -1949,6 +2496,11 @@ class LordRuntimeTests(unittest.TestCase):
         settings = self._settings("lord_guardrails")
         self._import_seed(settings)
         self._unlock_raid_rules(settings)
+        self._grant_residence_buildings(
+            settings,
+            "domain_hill",
+            ("b_notice_board", "b_envoy_hall"),
+        )
         client = TestClient(create_app(settings))
 
         missing_route = client.post(
@@ -2046,10 +2598,11 @@ class LordRuntimeTests(unittest.TestCase):
             json={
                 "target_territory_id": "territory_fort_east",
                 "rule_id": "raid_income_sabotage",
+                "expected_gold_cost": 0,
             },
         )
-        self.assertEqual(no_raid_gold.status_code, 400)
-        self.assertEqual(no_raid_gold.json()["detail"]["code"], "insufficient_gold")
+        self.assertEqual(no_raid_gold.status_code, 200)
+        self.assertEqual(no_raid_gold.json()["gold_spent"], 0)
 
         missing_offer = client.post(
             "/api/lords/p_lord_1/recruit",
@@ -2171,6 +2724,23 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(recreated.status_code, 200, recreated.text)
         self.assertEqual(recreated.json()["order_cap"]["public_active"], 1)
 
+        card_object_order = client.post(
+            "/api/lords/p_lord_4/orders",
+            headers=self._headers("hill"),
+            json={
+                "action": "create",
+                "object_id": "pc_infantry_t1",
+                "visibility": "public",
+                "visible_hook": "Вернуть лорду карту: Infantry Favor",
+                "reward": {"gold": 23},
+            },
+        )
+        self.assertEqual(card_object_order.status_code, 200, card_object_order.text)
+        self.assertEqual(card_object_order.json()["order"]["object_id"], "pc_infantry_t1")
+        self.assertEqual(card_object_order.json()["order_cap"]["public_active"], 2)
+        self.assertEqual(card_object_order.json()["escrow"]["locked_gold"], 38)
+        self.assertEqual(card_object_order.json()["order"]["escrow_reward_id"], "order_gold_23")
+
         invalid_addressed_target = client.post(
             "/api/lords/p_lord_4/orders",
             headers=self._headers("hill"),
@@ -2205,6 +2775,65 @@ class LordRuntimeTests(unittest.TestCase):
                 now=datetime.now(UTC) + timedelta(minutes=1),
             )
 
+    def _start_battle_after_deployment(
+        self,
+        client: TestClient,
+        battle_id: str,
+        *,
+        attacker_lord: str = "north",
+        defender_lord: str = "river",
+    ) -> dict[str, object]:
+        battle = client.get(
+            f"/api/lord-battles/{battle_id}",
+            headers=self._master_headers(),
+        ).json()
+        board = battle["board"]
+        deployment = battle["deployment"]
+        for side, lord in (("attacker", attacker_lord), ("defender", defender_lord)):
+            if side == "defender" and battle["battle_type"] == "neutral":
+                continue
+            for index, item in enumerate(deployment["hand"][side][: int(deployment["deployment_cap"])]):
+                x, y = self._deployment_cell(board, side, index)
+                deployed = client.post(
+                    f"/api/lord-battles/{battle_id}/actions",
+                    headers=self._headers(lord),
+                    json={
+                        "action_id": f"deploy-{battle_id}-{side}-{index}",
+                        "action_type": "deploy",
+                        "actor_side": side,
+                        "payload": {
+                            "source_id": item["source_id"],
+                            "card_id": item["card_id"],
+                            "to": {"x": x, "y": y},
+                        },
+                    },
+                )
+                self.assertEqual(deployed.status_code, 200, deployed.text)
+            ready = client.post(
+                f"/api/lord-battles/{battle_id}/actions",
+                headers=self._headers(lord),
+                json={
+                    "action_id": f"ready-{battle_id}-{side}",
+                    "action_type": "ready",
+                    "actor_side": side,
+                },
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            if isinstance(ready.json().get("battle"), dict):
+                battle = ready.json()["battle"]
+        return battle
+
+    @staticmethod
+    def _deployment_cell(board: dict[str, object], side: str, index: int) -> tuple[int, int]:
+        x_order = [0, 1, 3, 4, 2]
+        start_lines = board["start_lines"]
+        start = int(start_lines[side])
+        if side == "attacker":
+            y_order = [start, start, start, start, min(int(board["height"]) - 1, start + 1)]
+        else:
+            y_order = [start, start, start, start, max(0, start - 1)]
+        return x_order[index], y_order[index]
+
     def _set_reserve_count(self, settings: Settings, reserve_id: str, count: int) -> None:
         with connect(settings) as connection:
             ensure_lord_runtime_state(connection)
@@ -2224,9 +2853,11 @@ class LordRuntimeTests(unittest.TestCase):
             ):
                 connection.execute(
                     """
-                    INSERT INTO domain_buildings (domain_id, building_id, purchased_at, source)
-                    VALUES ('domain_north', ?, ?, 'test')
-                    ON CONFLICT(domain_id, building_id) DO NOTHING
+                    INSERT INTO domain_buildings (
+                        domain_id, territory_id, building_id, purchased_at, source
+                    )
+                    VALUES ('domain_north', 'territory_res_north', ?, ?, 'test')
+                    ON CONFLICT(domain_id, territory_id, building_id) DO NOTHING
                     """,
                     (building_id, now),
                 )
@@ -2245,6 +2876,38 @@ class LordRuntimeTests(unittest.TestCase):
                 """,
                 (now,),
             )
+
+    def _grant_residence_buildings(
+        self,
+        settings: Settings,
+        domain_id: str,
+        building_ids: tuple[str, ...],
+    ) -> None:
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            row = connection.execute(
+                """
+                SELECT territory_id
+                FROM territories
+                WHERE owner_domain_id = ? AND bonus_type = 'residence'
+                ORDER BY _row_number
+                LIMIT 1
+                """,
+                (domain_id,),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            for building_id in building_ids:
+                connection.execute(
+                    """
+                    INSERT INTO domain_buildings (
+                        domain_id, territory_id, building_id, purchased_at, source
+                    )
+                    VALUES (?, ?, ?, ?, 'test')
+                    ON CONFLICT(domain_id, territory_id, building_id) DO NOTHING
+                    """,
+                    (domain_id, row["territory_id"], building_id, now),
+                )
 
     @staticmethod
     def _headers(lord: str) -> dict[str, str]:

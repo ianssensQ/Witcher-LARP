@@ -248,6 +248,51 @@ class ImportSnapshotPipelineTests(unittest.TestCase):
         self.assertEqual(player_count, 13)
         self.assertEqual(latest_snapshot, valid_report.snapshot_version)
 
+    def test_import_adds_new_csv_columns_to_existing_content_tables(self) -> None:
+        settings = self.make_settings("content_schema_migration")
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                CREATE TABLE raid_rules (
+                    _import_run_id TEXT NOT NULL,
+                    _row_number INTEGER NOT NULL,
+                    rule_id TEXT NOT NULL DEFAULT '',
+                    token_cost TEXT NOT NULL DEFAULT '',
+                    gold_cost TEXT NOT NULL DEFAULT '',
+                    duration_min TEXT NOT NULL DEFAULT '',
+                    resistance_check TEXT NOT NULL DEFAULT '',
+                    loot_policy TEXT NOT NULL DEFAULT '',
+                    counterplay TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+
+        report = import_seed_pack(
+            settings,
+            manifest_path=FIXTURE_ROOT / "seed_valid" / "fixture_manifest.csv",
+            snapshot_dir=None,
+        )
+
+        self.assertEqual(report.status, "success")
+        with connect(settings) as connection:
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(raid_rules)").fetchall()
+            }
+            row = connection.execute(
+                """
+                SELECT name, effect_type, allowed_target_types, required_building_ids
+                FROM raid_rules
+                WHERE rule_id = 'raid_income_sabotage'
+                """
+            ).fetchone()
+
+        self.assertIn("effect_type", columns)
+        self.assertIn("allowed_target_types", columns)
+        self.assertEqual(row["effect_type"], "income_down")
+        self.assertEqual(row["allowed_target_types"], "territory")
+        self.assertEqual(row["required_building_ids"], "b_raid_office")
+
     def test_loader_validation_can_be_run_before_sqlite_write(self) -> None:
         pack = load_pack_from_manifest(FIXTURE_ROOT / "seed_valid" / "fixture_manifest.csv")
         errors = validate_seed_pack(pack)

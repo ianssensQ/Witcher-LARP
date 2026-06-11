@@ -8,6 +8,7 @@ from backend.witcher_larp.config import PROJECT_ROOT, Settings
 from backend.witcher_larp.database import connect
 from backend.witcher_larp.event_schema import ensure_event_schema
 from backend.witcher_larp.import_service import import_seed_pack
+from backend.witcher_larp.lord_runtime import ensure_lord_runtime_state
 from backend.witcher_larp.reward_service import create_pending_reward_approval
 
 try:
@@ -44,45 +45,76 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertEqual(script.status_code, 200)
         self.assertIn("/api/auth/role-token", script.text)
         self.assertIn("/api/master/admin/overview", script.text)
+        self.assertIn("/api/master/game/start-setup", script.text)
+        self.assertIn("Подтверждение", script.text)
+        self.assertIn("Запустить акт?", script.text)
+        self.assertIn("Будут изменены только перечисленные поля", script.text)
         self.assertIn("/api/master/content/import", script.text)
+        self.assertIn("/api/master/content/import-report/latest", script.text)
+        self.assertIn("/api/master/content/qr-checklist", script.text)
+        self.assertIn("/api/master/content/handout-checklist", script.text)
         self.assertIn("/api/master/state", script.text)
-        self.assertIn("/api/master/visibility-audit", script.text)
+        self.assertIn("/api/master/acts/elapsed", script.text)
         self.assertIn("/api/master/game-ops/corrections", script.text)
-        self.assertIn("/api/master/backups/status", script.text)
-        self.assertIn("/api/master/final-summary", script.text)
-        self.assertIn("Submit paper recovery", script.text)
-        self.assertIn("paper_pve_result", script.text)
-        self.assertIn("paper_pvp_stake", script.text)
-        self.assertIn("paper_lord_action", script.text)
-        self.assertIn("paper_lord_battle", script.text)
-        self.assertIn("paper_order_resolution", script.text)
-        self.assertIn("paper_npc_deal", script.text)
-        self.assertIn("paper_final_evidence", script.text)
-        self.assertIn("Recent event log and sync status", script.text)
-        self.assertIn("Anti-snowball state", script.text)
-        self.assertIn("Potion market correction", script.text)
-        self.assertIn("Trade transfer correction", script.text)
-        self.assertIn("Player economy correction", script.text)
-        self.assertIn("Apply correction", script.text)
-        self.assertIn("QR/manual checklist", script.text)
-        self.assertIn("Handout checklist", script.text)
-        self.assertIn("PvP throttle", script.text)
-        self.assertIn("Record King event", script.text)
-        self.assertIn("Wanderer hidden price", script.text)
-        self.assertIn("Capture NPC deal", script.text)
-        self.assertIn("Exact reputation view", script.text)
-        self.assertIn("Artifact visibility audit", script.text)
-        self.assertIn("Open final summary", script.text)
-        self.assertIn("Export final summary", script.text)
+        self.assertIn("/api/master/timers/lord-income-tick", script.text)
+        self.assertIn("/api/master/player-codes", script.text)
+        self.assertIn("/api/lord-battles", script.text)
+        self.assertIn("const ADMIN_AUTO_REFRESH_MS = 10_000;", script.text)
+        self.assertIn('refreshAll({ source: "auto", scope: "overview" })', script.text)
+        self.assertIn("startAutoRefresh()", script.text)
+        self.assertIn("isMasterEditing()", script.text)
+        self.assertIn("pendingAutoRender", script.text)
+        self.assertIn("/api/events/", script.text)
+        self.assertIn("/api/master/reward-approvals/", script.text)
+        self.assertIn("Пульт игры", script.text)
+        self.assertIn("Запустить акт", script.text)
+        self.assertIn("Поставить время акта", script.text)
+        self.assertIn("Начислить тик лордам", script.text)
+        self.assertIn("Пульт лордов", script.text)
+        self.assertIn("Пульт наблюдения за лордами", script.text)
+        self.assertIn("Требуют внимания", script.text)
+        self.assertIn("+50 золота", script.text)
+        self.assertIn("MP максимум", script.text)
+        self.assertIn("Сохранить лорда", script.text)
+        self.assertIn("Игроки", script.text)
+        self.assertIn("Ведьмаки", script.text)
+        self.assertIn("Сохранить игрока", script.text)
+        self.assertIn("Коды игроков", script.text)
+        self.assertIn("Продакшен-сервер", script.text)
+        self.assertIn("Вход лордов", script.text)
+        self.assertIn("player_login_url", script.text)
+        self.assertIn("Скопировать все коды", script.text)
+        self.assertIn("Скопировать сообщение", script.text)
+        self.assertIn('execCommand("copy")', script.text)
+        self.assertIn("Ревью и бои", script.text)
+        self.assertIn("Одобрить", script.text)
+        self.assertIn("Отклонить", script.text)
+        self.assertIn("Генерация и подготовка контента", script.text)
+        self.assertIn("Обновить игровой контент", script.text)
+        self.assertIn("Проверить готовность", script.text)
         self.assertIn("npc_master", script.text)
-        self.assertIn("Master role token required", script.text)
+        self.assertIn("Нужен код мастера", script.text)
+        self.assertNotIn("Отправить бумажное восстановление", script.text)
+        self.assertNotIn("Patch JSON", script.text)
+        self.assertNotIn("Коррекция JSON", script.text)
+        self.assertNotIn("Папка снапшотов", script.text)
+        self.assertNotIn("manifest_path\" value", script.text)
+        self.assertNotIn("endpointLabel", script.text)
         self.assertEqual(styles.status_code, 200)
         self.assertIn("[hidden]", styles.text)
         self.assertIn(".status-badge", styles.text)
-        self.assertIn(".content-controls", styles.text)
+        self.assertIn(".content-result", styles.text)
         self.assertIn(".ops-panel", styles.text)
-        self.assertIn(".paper-fieldset", styles.text)
-        self.assertIn(".typed-correction", styles.text)
+        self.assertIn(".filter-tabs", styles.text)
+        self.assertIn(".entity-card", styles.text)
+        self.assertIn(".code-card", styles.text)
+        self.assertIn(".control-hero", styles.text)
+        self.assertIn("<span>Акт</span>", page.text)
+        self.assertIn("<span>Игроки</span>", page.text)
+        self.assertIn("<span>Лорды</span>", page.text)
+        self.assertIn("<span>Ревью</span>", page.text)
+        self.assertIn("/static/admin/admin.css?v=20260611-performance-1", page.text)
+        self.assertIn("/static/admin/admin.js?v=20260611-performance-1", page.text)
         self.assertIn('id="dashboard-status"', page.text)
         self.assertFalse(
             (PROJECT_ROOT / "backend" / "witcher_larp" / "web" / "package.json").exists()
@@ -107,7 +139,7 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertEqual(master.status_code, 200, master.text)
 
         payload = master.json()
-        self.assertEqual(payload["stage"], "STAGE-2: Admin Studio")
+        self.assertEqual(payload["stage"], "ЭТАП 2: Мастерская панель")
         self.assertEqual(payload["visibility"]["scope"], "master")
         section_ids = {section["id"] for section in payload["sections"]}
         self.assertEqual(
@@ -118,9 +150,115 @@ class AdminStudioContractTests(unittest.TestCase):
             [item["id"] for item in payload["navigation"]],
             ["content", "game-ops", "events", "npc", "backups", "final"],
         )
+        self.assertEqual(
+            [item["label"] for item in payload["navigation"][:3]],
+            ["Настройка", "Пульт мастера", "Ревью"],
+        )
         self.assertIn("master:read", self._auth(client)["permissions"])
         for secret in SECRET_VALUES:
             self.assertNotIn(secret, master.text)
+
+    def test_master_player_codes_are_master_only_and_readable(self) -> None:
+        settings = self._settings("admin_player_codes")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings))
+
+        missing = client.get("/api/master/player-codes")
+        lord = client.get("/api/master/player-codes", headers=LORD_HEADERS)
+        master = client.get("/api/master/player-codes", headers=MASTER_HEADERS)
+
+        self.assertEqual(missing.status_code, 401)
+        self.assertEqual(lord.status_code, 403)
+        self.assertEqual(master.status_code, 200, master.text)
+        payload = master.json()
+        self.assertEqual(payload["total"], 13)
+        self.assertEqual(payload["enabled_count"], 13)
+        self.assertIn("server_url", payload)
+        self.assertIn("player_login_url", payload)
+        self.assertTrue(payload["player_login_url"].endswith("/lords/login"))
+        self.assertNotIn(":5174", payload["player_login_url"])
+        first = payload["items"][0]
+        self.assertIn("display_name", first)
+        self.assertIn("code", first)
+        self.assertIn("role_type", first)
+        codes = {item["player_id"]: item["code"] for item in payload["items"]}
+        self.assertEqual(codes["p_witcher_1"], "WC-WOLF-6GF4")
+
+    def test_local_frontend_origins_can_call_runtime_api(self) -> None:
+        settings = self._settings("admin_cors")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings))
+
+        preflight = client.options(
+            "/api/lords/p_lord_1/state",
+            headers={
+                "Origin": "http://127.0.0.1:5174",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "x-role-token",
+            },
+        )
+
+        self.assertEqual(preflight.status_code, 200)
+        self.assertEqual(preflight.headers["access-control-allow-origin"], "*")
+        self.assertIn("x-role-token", preflight.headers["access-control-allow-headers"].lower())
+
+    def test_lord_frontend_keeps_runtime_api_connection_for_live_master_ops(self) -> None:
+        app_source = (PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "App.tsx").read_text(
+            encoding="utf-8"
+        )
+        mp_source = (
+            PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "LordMpHud.tsx"
+        ).read_text(encoding="utf-8")
+        battle_source = (
+            PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "LordBattleScreen.tsx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('const lordHomeStatePollMs = 10_000;', app_source)
+        self.assertIn('/api/lords/${backendLordId}/${endpoint}', app_source)
+        self.assertIn('/api/lords/${encodeURIComponent(backendLordId)}/${endpoint}', app_source)
+        self.assertIn('/summary', mp_source)
+        self.assertIn('/summary', battle_source)
+        self.assertIn('const lordMpStatePollMs = 3_000;', mp_source)
+        self.assertIn("witcher_larp_api_base_url", app_source)
+        self.assertIn("witcher_larp_api_base_url", mp_source)
+        self.assertIn("witcher_larp_api_base_url", battle_source)
+        self.assertIn("getLordRuntimeApiBaseUrl(queryParams)", app_source)
+        self.assertIn("window.location.assign(withLordRuntimeQuery(nextPath, apiBaseUrl))", app_source)
+        self.assertIn("withLordRuntimeQuery(\"/lords/map\", apiBaseUrl)", app_source)
+        self.assertIn("withLordBattleRuntimeQuery(\"/lords/home\")", battle_source)
+
+    def test_lord_frontend_maps_current_lord_residence_to_castle_runtime(self) -> None:
+        app_source = (PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "App.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("getLordHomeLocalTerritoryId(territory, isOwned)", app_source)
+        self.assertIn('territoryId.startsWith("territory_res_")', app_source)
+        self.assertIn('if (directId === "castle")', app_source)
+        self.assertIn('return isOwned ? "castle" : undefined;', app_source)
+        self.assertIn('return "castle";', app_source)
+        self.assertIn(
+            "selectedTerritoryRuntime?.backendTerritoryId || selectedTerritory.backendTerritoryId",
+            app_source,
+        )
+        self.assertIn("territory_id: selectedTerritoryBackendId", app_source)
+        self.assertNotIn("territory_id: selectedTerritory.backendTerritoryId", app_source)
+        self.assertIn("territory_views?: LordHomeBackendTerritoryView[]", app_source)
+        self.assertIn("state.territory_views", app_source)
+        self.assertIn("state.resources?.gold", app_source)
+        self.assertIn("selectedActiveArmyLockReason", app_source)
+        self.assertIn("selectedBuildingNodeIdSet", app_source)
+        self.assertIn("territoryIncomeResourceLabel", app_source)
+        self.assertNotIn('demoResourceLabel("17")', app_source)
+        self.assertNotIn('demoResourceLabel("63")', app_source)
+        self.assertNotIn('demoResourceLabel("42")', app_source)
+        self.assertNotIn('demoResourceLabel("37")', app_source)
+        self.assertNotIn('demoResourceLabel("181")', app_source)
+        self.assertNotIn("<b>17</b>", app_source)
+        self.assertNotIn("<b>63</b>", app_source)
+        self.assertNotIn("<b>42</b>", app_source)
+        self.assertNotIn("<b>37</b>", app_source)
+        self.assertNotIn("<b>181</b>", app_source)
 
     def test_admin_overview_reports_real_and_pending_surfaces(self) -> None:
         settings = self._settings("admin_overview")
@@ -135,8 +273,8 @@ class AdminStudioContractTests(unittest.TestCase):
         sections = {section["id"]: section for section in payload["sections"]}
 
         content_metrics = self._metrics(sections["content"])
-        self.assertEqual(content_metrics["Players"], 13)
-        self.assertEqual(content_metrics["Snapshot"], report.snapshot_version)
+        self.assertEqual(content_metrics["Игроки"], 13)
+        self.assertEqual(content_metrics["Снапшот"], report.snapshot_version)
         self.assertEqual(
             self._actions(sections["content"])["import_validation"]["status"],
             "ready",
@@ -176,6 +314,10 @@ class AdminStudioContractTests(unittest.TestCase):
             "/api/master/game-ops/corrections",
         )
         self.assertEqual(
+            self._actions(sections["game-ops"])["manual_lord_tick"]["endpoint"],
+            "/api/master/timers/lord-income-tick",
+        )
+        self.assertEqual(
             self._actions(sections["game-ops"])["potion_trade_corrections"]["endpoint"],
             "/api/master/game-ops/corrections",
         )
@@ -213,20 +355,65 @@ class AdminStudioContractTests(unittest.TestCase):
         missing = client.get("/api/master/state")
         self.assertEqual(missing.status_code, 401)
 
-        start = client.post(
-            "/api/master/acts/act2/start",
+        setup = client.post(
+            "/api/master/game/start-setup",
             headers=MASTER_HEADERS,
-            json={"operator": "gm_ops", "physical_announcement_state": "pending"},
+            json={"operator": "gm_ops"},
         )
-        self.assertEqual(start.status_code, 200, start.text)
-        self.assertFalse(start.json()["unlock_code"]["available"])
-        self.assertIsNone(start.json()["unlock_code"]["code"])
+        self.assertEqual(setup.status_code, 200, setup.text)
+        self.assertEqual(setup.json()["status"], "started")
+        self.assertEqual(
+            setup.json()["master_state"]["acts"]["state"]["current_act_id"],
+            "act1",
+        )
+        self.assertTrue(setup.json()["master_state"]["lord_map"]["domains"])
+
+        restarted = client.post(
+            "/api/master/game/start-setup",
+            headers=MASTER_HEADERS,
+            json={"act_id": "act1", "operator": "gm_ops"},
+        )
+        self.assertEqual(restarted.status_code, 200, restarted.text)
+        self.assertEqual(restarted.json()["status"], "restarted")
+        self.assertEqual(restarted.json()["elapsed_result"]["elapsed_minutes"], 0)
+        self.assertEqual(
+            restarted.json()["master_state"]["acts"]["state"]["current_act_id"],
+            "act1",
+        )
+
+        switched = client.post(
+            "/api/master/game/start-setup",
+            headers=MASTER_HEADERS,
+            json={
+                "act_id": "act2",
+                "operator": "gm_ops",
+                "physical_announcement_state": "pending",
+            },
+        )
+        self.assertEqual(switched.status_code, 200, switched.text)
+        self.assertEqual(switched.json()["status"], "switched")
+        self.assertFalse(switched.json()["start_result"]["unlock_code"]["available"])
+        self.assertIsNone(switched.json()["start_result"]["unlock_code"]["code"])
 
         state = client.get("/api/master/state", headers=MASTER_HEADERS)
         self.assertEqual(state.status_code, 200, state.text)
         payload = state.json()
         self.assertEqual(payload["acts"]["state"]["current_act_id"], "act2")
         self.assertNotIn("UNLOCK-A2-7GQ4", state.text)
+
+        elapsed = client.post(
+            "/api/master/acts/elapsed",
+            headers=MASTER_HEADERS,
+            json={"elapsed_minutes": 45, "operator": "gm_ops"},
+        )
+        self.assertEqual(elapsed.status_code, 200, elapsed.text)
+        self.assertEqual(elapsed.json()["act_id"], "act2")
+        self.assertEqual(elapsed.json()["elapsed_minutes"], 45)
+        self.assertIn("applied_timers", elapsed.json())
+
+        state = client.get("/api/master/state", headers=MASTER_HEADERS)
+        self.assertEqual(state.status_code, 200, state.text)
+        payload = state.json()
         self.assertIn("recent", payload["events"])
         self.assertIn("sync_statuses", payload["events"])
         self.assertIn("economy", payload)
@@ -241,6 +428,26 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertTrue(
             all("anti_snowball" in domain for domain in payload["lord_map"]["domains"])
         )
+        north_before = next(
+            domain for domain in payload["lord_map"]["domains"] if domain["domain_id"] == "domain_north"
+        )
+        manual_tick = client.post(
+            "/api/master/timers/lord-income-tick",
+            headers=MASTER_HEADERS,
+            json={"operator": "gm_ops"},
+        )
+        self.assertEqual(manual_tick.status_code, 200, manual_tick.text)
+        tick_payload = manual_tick.json()["applied_now"][0]
+        self.assertTrue(tick_payload["manual"])
+        self.assertEqual(tick_payload["operator"], "gm_ops")
+        self.assertTrue(tick_payload["domain_updates"])
+        state_after_tick = client.get("/api/master/state", headers=MASTER_HEADERS).json()
+        north_after = next(
+            domain
+            for domain in state_after_tick["lord_map"]["domains"]
+            if domain["domain_id"] == "domain_north"
+        )
+        self.assertGreater(north_after["gold"], north_before["gold"])
 
         announced = client.post(
             "/api/master/acts/act2/physical-announcement",
@@ -546,6 +753,29 @@ class AdminStudioContractTests(unittest.TestCase):
     def test_admin_npc_visibility_and_final_tools_contract(self) -> None:
         settings = self._settings("admin_npc_visibility_final")
         self._import_valid_seed(settings)
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            for building_id in ("b_raid_office", "b_war_council", "b_scrying_room"):
+                connection.execute(
+                    """
+                    INSERT INTO domain_buildings (
+                        domain_id, territory_id, building_id, purchased_at, source
+                    )
+                    VALUES (
+                        'domain_north', 'territory_res_north', ?,
+                        '2026-06-02T09:00:00+00:00', 'test'
+                    )
+                    ON CONFLICT(domain_id, territory_id, building_id) DO NOTHING
+                    """,
+                    (building_id,),
+                )
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET raid_tokens = 3, gold = 500
+                WHERE domain_id = 'domain_north'
+                """
+            )
         client = TestClient(create_app(settings))
 
         king = client.post(
@@ -579,7 +809,10 @@ class AdminStudioContractTests(unittest.TestCase):
         raid = client.post(
             "/api/lords/p_lord_1/raids",
             headers={"X-Role-Token": "LORD-NORTH-R8K4"},
-            json={"target_territory_id": "territory_res_river"},
+            json={
+                "target_territory_id": "territory_res_river",
+                "rule_id": "raid_residence_mark",
+            },
         )
         visibility_missing = client.get("/api/master/visibility-audit")
         visibility_lord = client.get("/api/master/visibility-audit", headers=LORD_HEADERS)

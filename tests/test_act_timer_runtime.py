@@ -12,6 +12,7 @@ from backend.witcher_larp.backup_service import run_backup
 from backend.witcher_larp.config import PROJECT_ROOT, Settings
 from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
+from backend.witcher_larp.lord_runtime import ensure_lord_runtime_state
 from backend.witcher_larp.runtime_schema import log_event
 from backend.witcher_larp.timer_service import apply_due_timers
 
@@ -167,7 +168,7 @@ class ActTimerRuntimeTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(tick_count, 1)
 
-        second_due = started_at + timedelta(minutes=91)
+        second_due = started_at + timedelta(minutes=61)
         with connect(settings) as connection:
             second_applied = apply_due_timers(connection, settings, now=second_due)
             self.assertEqual([tick["effect_type"] for tick in second_applied], ["lord_income_and_mana"])
@@ -189,6 +190,213 @@ class ActTimerRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(north_gold["influence"], 5)
         self.assertEqual(sorceress_mana, 4)
+
+        third_due = started_at + timedelta(minutes=91)
+        with connect(settings) as connection:
+            third_applied = apply_due_timers(connection, settings, now=third_due)
+            self.assertEqual([tick["effect_type"] for tick in third_applied], ["lord_income_and_mana"])
+            third_north_update = next(
+                update
+                for update in third_applied[0]["domain_updates"]
+                if update["domain_id"] == "domain_north"
+            )
+            third_north = connection.execute(
+                """
+                SELECT gold, influence
+                FROM domain_runtime_state
+                WHERE domain_id = 'domain_north'
+                """
+            ).fetchone()
+            third_sorceress_mana = connection.execute(
+                "SELECT mana FROM player_runtime_state WHERE player_id = 'p_sorc_1'"
+            ).fetchone()["mana"]
+
+        self.assertEqual(
+            third_north["gold"],
+            80
+            + north_update["income"]
+            + second_north_update["income"]
+            + third_north_update["income"],
+        )
+        self.assertEqual(third_north["influence"], 6)
+        self.assertEqual(third_sorceress_mana, 6)
+
+    def test_starting_registration_resets_game_to_clean_initial_state(self) -> None:
+        settings = self.make_settings("registration_reset")
+        self.import_seed(settings)
+        act_started_at = datetime(2026, 6, 2, 10, 0, tzinfo=UTC)
+        reset_at = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)
+
+        with connect(settings) as connection:
+            start_act(
+                connection,
+                settings,
+                "act1",
+                operator="gm_dirty",
+                physical_announcement_state="announced",
+                now=act_started_at,
+            )
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                "UPDATE domain_runtime_state SET gold = 999, current_mp = 0 WHERE domain_id = 'domain_north'"
+            )
+            connection.execute(
+                """
+                INSERT INTO domain_buildings (
+                    domain_id, territory_id, building_id, purchased_at, source
+                )
+                VALUES ('domain_north', 'territory_res_north', 'b_training_yard', ?, 'test')
+                """,
+                (act_started_at.isoformat(timespec="seconds"),),
+            )
+            connection.execute(
+                """
+                INSERT INTO army_reserve_runtime (
+                    reserve_id, domain_id, card_id, count, status, updated_at
+                )
+                VALUES ('reserve_dirty', 'domain_north', 'unit_infantry_t1', 9, 'available', ?)
+                """,
+                (act_started_at.isoformat(timespec="seconds"),),
+            )
+            connection.execute(
+                """
+                INSERT INTO active_army_runtime (
+                    army_id, domain_id, card_id, count, location_node_id, status, updated_at
+                )
+                VALUES ('army_dirty', 'domain_north', 'unit_infantry_t1', 3, 'node_res_north', 'active', ?)
+                """,
+                (act_started_at.isoformat(timespec="seconds"),),
+            )
+            connection.execute(
+                """
+                INSERT INTO garrison_runtime_state (
+                    garrison_id, territory_id, domain_id, card_id, count, status, updated_at
+                )
+                VALUES ('garrison_dirty', 'territory_res_north', 'domain_north', 'unit_guard_t1', 2, 'active', ?)
+                """,
+                (act_started_at.isoformat(timespec="seconds"),),
+            )
+            connection.execute(
+                """
+                INSERT INTO order_runtime_state (
+                    order_id, lord_id, target_player_id, object_id, visibility,
+                    status, escrow_reward_id, created_at, updated_at
+                )
+                VALUES (
+                    'order_dirty', 'p_lord_1', 'p_witcher_1', 'qr_a1_006', 'public',
+                    'published', NULL, ?, ?
+                )
+                """,
+                (
+                    act_started_at.isoformat(timespec="seconds"),
+                    act_started_at.isoformat(timespec="seconds"),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO applied_timer_ticks (
+                    timer_id, due_at, act_id, effect_type, applied_at, source, payload_json
+                )
+                VALUES ('timer_dirty', ?, 'act1', 'lord_income_and_mana', ?, 'test', '{}')
+                """,
+                (
+                    act_started_at.isoformat(timespec="seconds"),
+                    act_started_at.isoformat(timespec="seconds"),
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_north', status = 'controlled'
+                WHERE territory_id = 'territory_field_oats'
+                """
+            )
+
+            result = start_act(
+                connection,
+                settings,
+                "registration",
+                operator="gm_reset",
+                physical_announcement_state="announced",
+                now=reset_at,
+            )
+            ensure_lord_runtime_state(connection)
+
+            domain_gold_values = {
+                row["gold"]
+                for row in connection.execute(
+                    "SELECT gold FROM domain_runtime_state ORDER BY domain_id"
+                ).fetchall()
+            }
+            dirty_counts = {
+                table_name: connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                for table_name in [
+                    "domain_buildings",
+                    "army_reserve_runtime",
+                    "active_army_runtime",
+                    "garrison_runtime_state",
+                    "order_runtime_state",
+                    "territory_claim_runtime",
+                    "applied_timer_ticks",
+                    "army_windows",
+                ]
+            }
+            act_history = [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT act_id, status, started_at FROM act_history ORDER BY started_at"
+                ).fetchall()
+            ]
+            field_oats = connection.execute(
+                """
+                SELECT owner_domain_id, status
+                FROM territory_runtime_state
+                WHERE territory_id = 'territory_field_oats'
+                """
+            ).fetchone()
+            river_node = connection.execute(
+                """
+                SELECT current_node_id
+                FROM domain_runtime_state
+                WHERE domain_id = 'domain_river'
+                """
+            ).fetchone()["current_node_id"]
+            witcher = connection.execute(
+                """
+                SELECT gold, challenge_tokens
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+            controlled_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM territory_runtime_state
+                WHERE owner_domain_id IS NOT NULL
+                """
+            ).fetchone()[0]
+
+        self.assertEqual(result["state"]["current_act_id"], "registration")
+        self.assertEqual(
+            result["start_effects"]["registration_reset"]["initial_domain_gold"],
+            [80],
+        )
+        self.assertEqual(domain_gold_values, {80})
+        self.assertEqual(dirty_counts, {table_name: 0 for table_name in dirty_counts})
+        self.assertEqual(
+            act_history,
+            [
+                {
+                    "act_id": "registration",
+                    "status": "active",
+                    "started_at": reset_at.isoformat(timespec="seconds"),
+                }
+            ],
+        )
+        self.assertEqual(dict(field_oats), {"owner_domain_id": None, "status": "neutral"})
+        self.assertEqual(controlled_count, 4)
+        self.assertEqual(river_node, "node_res_river")
+        self.assertEqual(dict(witcher), {"gold": 20, "challenge_tokens": 0})
 
     def test_final_lock_and_pre_final_backup_timer(self) -> None:
         settings = self.make_settings("final_lock")

@@ -137,6 +137,34 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertIn("hero_hp", battle_payload)
         self.assertEqual(wrong_battle.status_code, 403)
         self.assertEqual(wrong_battle.json()["detail"]["code"], "wrong_actor_domain")
+        self._start_battle_after_deployment(client, "lord_panel_battle_contract")
+
+        battle_state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+        )
+        self.assertEqual(battle_state.status_code, 200, battle_state.text)
+        battle_state_payload = battle_state.json()
+        panel_battle = next(
+            item
+            for item in battle_state_payload["active_battles"]
+            if item["battle_id"] == "lord_panel_battle_contract"
+        )
+        self.assertEqual(panel_battle["territory_id"], "territory_fort_east")
+        self.assertEqual(panel_battle["claim_id"], claim["claim_id"])
+        self.assertEqual(panel_battle["cta"]["action"], "open_battle")
+        self.assertTrue(
+            any(
+                alert["battle_id"] == "lord_panel_battle_contract"
+                and alert["type"] == "active_battle"
+                for alert in battle_state_payload["battle_alerts"]
+            )
+        )
+        battle_claim = self._claim(
+            battle_state_payload["claims"], "territory_fort_east"
+        )
+        self.assertIn("cta", battle_claim)
+        self.assertIn("alert_level", battle_claim)
 
         battle_action = client.post(
             "/api/lord-battles/lord_panel_battle_contract/actions",
@@ -162,7 +190,7 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertTrue(state_payload["map_edges"])
         self.assertEqual(
             state_payload["lord_map_layout"]["layout_id"],
-            "venue_map_v3_playable_holes",
+            "venue_map_v3_strict_v6",
         )
         self.assertTrue(state_payload["lord_map_layout"]["visibility"]["graph_visible"])
         self.assertIn("lord_map_intel", state_payload)
@@ -283,20 +311,32 @@ class LordPanelContractTests(unittest.TestCase):
                 "seed": "lord-panel-foreign-capture",
             },
         )
-        resolved = client.post(
-            "/api/lord-battles/lord_panel_foreign_capture/actions",
-            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
-            json={
-                "action_id": "resolve-foreign-capture",
-                "action_type": "auto_resolve",
-                "actor_side": "attacker",
-            },
-        )
-
         self.assertEqual(active.status_code, 200, active.text)
         self.assertEqual(moved.status_code, 200, moved.text)
         self.assertEqual(completed[0]["claim"]["territory_id"], "territory_fort_east")
         self.assertEqual(battle.status_code, 200, battle.text)
+        self._start_battle_after_deployment(client, "lord_panel_foreign_capture")
+        first_vote = client.post(
+            "/api/lord-battles/lord_panel_foreign_capture/actions",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+            json={
+                "action_id": "resolve-foreign-capture-attacker",
+                "action_type": "auto_resolve",
+                "actor_side": "attacker",
+            },
+        )
+        self.assertEqual(first_vote.status_code, 200, first_vote.text)
+        resolved = first_vote
+        if first_vote.json()["status"] == "auto_resolve_vote_pending":
+            resolved = client.post(
+                "/api/lord-battles/lord_panel_foreign_capture/actions",
+                headers={"X-Role-Token": "LORD-RIVER-M2J9"},
+                json={
+                    "action_id": "resolve-foreign-capture-defender",
+                    "action_type": "auto_resolve",
+                    "actor_side": "defender",
+                },
+            )
         self.assertEqual(resolved.status_code, 200, resolved.text)
         self.assertEqual(resolved.json()["battle"]["result"]["winner_side"], "attacker")
         self.assertEqual(
@@ -412,6 +452,30 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertEqual(payload["domain_id"], "domain_north")
         self.assertIn("lord_panel:read", payload["permissions"])
 
+    def test_lord_player_code_auth_returns_lord_identity(self) -> None:
+        settings = self._settings("lord_player_code_auth")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings))
+
+        response = client.post(
+            "/api/auth/role-token",
+            json={"token": "LC-NORTH-7QK2"},
+        )
+        witcher = client.post(
+            "/api/auth/role-token",
+            json={"token": "WC-WOLF-6GF4"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["token_id"], "code_lord_1")
+        self.assertEqual(payload["role_type"], "lord")
+        self.assertEqual(payload["owner_id"], "p_lord_1")
+        self.assertEqual(payload["lord_id"], "p_lord_1")
+        self.assertEqual(payload["domain_id"], "domain_north")
+        self.assertIn("lord_panel:read", payload["permissions"])
+        self.assertEqual(witcher.status_code, 401)
+
     def test_role_token_auth_returns_master_identity(self) -> None:
         settings = self._settings("master_auth")
         self._import_valid_seed(settings)
@@ -438,6 +502,14 @@ class LordPanelContractTests(unittest.TestCase):
             "/api/lords/p_lord_1/state",
             headers={"X-Role-Token": "LORD-NORTH-R8K4"},
         )
+        accepted_summary = client.get(
+            "/api/lords/p_lord_1/summary",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+        )
+        accepted_player_code = client.get(
+            "/api/lords/p_lord_1/state",
+            headers={"X-Role-Token": "LC-NORTH-7QK2"},
+        )
         mismatched = client.get(
             "/api/lords/p_lord_2/state",
             headers={"X-Role-Token": "LORD-NORTH-R8K4"},
@@ -453,6 +525,14 @@ class LordPanelContractTests(unittest.TestCase):
         )
 
         self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(accepted_summary.status_code, 200)
+        summary_payload = accepted_summary.json()
+        self.assertEqual(summary_payload["lord"]["lord_id"], "p_lord_1")
+        self.assertIn("current_mp", summary_payload["movement"])
+        self.assertNotIn("territories", summary_payload)
+        self.assertNotIn("territory_views", summary_payload)
+        self.assertEqual(accepted_player_code.status_code, 200)
+        self.assertEqual(accepted_player_code.json()["lord"]["lord_id"], "p_lord_1")
         payload = accepted.json()
         self.assertEqual(payload["snapshot_version"], report.snapshot_version)
         self.assertEqual(payload["lord"]["lord_id"], "p_lord_1")
@@ -471,21 +551,31 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertNotIn("challenge_tokens", payload["domain"])
         self.assertEqual(payload["summary"]["owned_territories"], 1)
         self.assertEqual(payload["summary"]["active_orders"], 3)
-        self.assertEqual(
-            payload["order_cap"],
-            {
-                "public_active": 2,
-                "public_limit": 2,
-                "addressed_active": 1,
-                "addressed_limit": 1,
-            },
-        )
+        self.assertEqual(payload["order_cap"]["public_active"], 2)
+        self.assertEqual(payload["order_cap"]["public_limit"], 0)
+        self.assertFalse(payload["order_cap"]["public_unlocked"])
+        self.assertEqual(payload["order_cap"]["addressed_active"], 1)
+        self.assertEqual(payload["order_cap"]["addressed_limit"], 0)
+        self.assertFalse(payload["order_cap"]["addressed_unlocked"])
+        self.assertEqual(payload["order_cap"]["raid_public_penalty"], 0)
         self.assertEqual(payload["escrow"]["locked_gold"], 45)
         self.assertEqual(payload["escrow"]["available_gold"], 80)
         self.assertGreaterEqual(payload["escrow"]["locked_asset_count"], 3)
         self.assertTrue(payload["visible_targets"])
         self.assertTrue(
-            any(target["target_type"] == "qr_scene" for target in payload["visible_targets"])
+            any(
+                target["source"] == "order_interest_objects"
+                for target in payload["visible_targets"]
+            )
+        )
+        self.assertTrue(
+            any(target["target_type"] == "card" for target in payload["visible_targets"])
+        )
+        self.assertTrue(
+            any(target["target_type"] == "artifact" for target in payload["visible_targets"])
+        )
+        self.assertTrue(
+            any(target["target_type"] == "treasure" for target in payload["visible_targets"])
         )
         self.assertTrue(
             any(
@@ -542,6 +632,67 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertEqual(missing.status_code, 401)
         self.assertEqual(master.status_code, 403)
 
+    def test_territory_views_scope_owned_fort_without_moving_active_army(self) -> None:
+        settings = self._settings("lord_territory_views")
+        self._import_valid_seed(settings)
+        self._set_reserve_count(settings, "reserve_north_infantry", 4)
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_north',
+                    status = 'controlled',
+                    contested_by_domain_id = NULL
+                WHERE territory_id = 'territory_fort_east'
+                """
+            )
+        client = TestClient(create_app(settings))
+
+        active = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+            json={
+                "operation": "reserve_to_active",
+                "territory_id": "territory_res_north",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+        )
+
+        self.assertEqual(active.status_code, 200, active.text)
+        self.assertEqual(state.status_code, 200, state.text)
+        payload = state.json()
+        castle_view = self._territory(payload["territory_views"], "territory_res_north")
+        fort_view = self._territory(payload["territory_views"], "territory_fort_east")
+        stored_fort = self._territory(payload["territories"], "territory_fort_east")
+
+        self.assertTrue(castle_view["active_army_present"])
+        self.assertEqual(castle_view["active_army_lock_reason"], "")
+        self.assertTrue(fort_view["is_owned"])
+        self.assertTrue(fort_view["is_selectable"])
+        self.assertFalse(fort_view["active_army_present"])
+        self.assertTrue(fort_view["active_army_lock_reason"])
+        self.assertIn(
+            "active_army_not_here",
+            {reason["code"] for reason in fort_view["lock_reasons"]},
+        )
+        self.assertEqual(fort_view["owner_domain_id"], "domain_north")
+        self.assertEqual(stored_fort["owner_domain_id"], "domain_north")
+        self.assertTrue(fort_view["recruit_stock"])
+        self.assertEqual(fort_view["building_tree"]["node_ids"], [])
+        self.assertEqual(fort_view["building_tree"]["nodes"], [])
+        self.assertEqual(fort_view["building_tree"]["status"], "locked")
+        self.assertEqual(fort_view["building_tree"]["scope"], "residence_only")
+        self.assertEqual(
+            fort_view["building_tree_lock_reason"],
+            "Здания строятся в главном замке",
+        )
+
     def test_all_four_lord_panels_can_load_their_own_state(self) -> None:
         settings = self._settings("lord_four_panels")
         self._import_valid_seed(settings)
@@ -563,8 +714,235 @@ class LordPanelContractTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 payload = response.json()
                 self.assertEqual(payload["lord"]["lord_id"], lord_id)
-                self.assertEqual(payload["domain"]["domain_id"], domain_id)
-                self.assertEqual(payload["summary"]["owned_territories"], 1)
+        self.assertEqual(payload["domain"]["domain_id"], domain_id)
+        self.assertEqual(payload["summary"]["owned_territories"], 1)
+
+    def test_lord_state_exposes_ui_ready_territory_views_and_building_effects(self) -> None:
+        settings = self._settings("lord_state_contract")
+        self._import_valid_seed(settings)
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_north',
+                    status = 'controlled',
+                    contested_by_domain_id = NULL
+                WHERE territory_id = 'territory_fort_east'
+                """
+            )
+        client = TestClient(create_app(settings))
+
+        active = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+            json={
+                "operation": "reserve_to_active",
+                "territory_id": "territory_res_north",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+        )
+
+        self.assertEqual(active.status_code, 200, active.text)
+        self.assertEqual(state.status_code, 200, state.text)
+        payload = state.json()
+        self.assertEqual(payload["resources"]["gold"], payload["domain"]["gold"])
+        self.assertEqual(payload["resources"]["current_mp"], payload["domain"]["current_mp"])
+        self.assertEqual(payload["resources"]["raid_tokens"], payload["domain"]["raid_tokens"])
+        self.assertIn("territory_views", payload)
+        self.assertIn("active_army_location", payload)
+        self.assertEqual(
+            payload["active_army_location"]["territory_id"], "territory_res_north"
+        )
+        residence = self._territory(payload["territory_views"], "territory_res_north")
+        self.assertEqual(residence["owner"]["relation"], "self")
+        self.assertEqual(residence["status"], "controlled")
+        self.assertGreater(residence["income_per_hour"], 0)
+        self.assertTrue(residence["hero_here"])
+        self.assertIn("garrison_capacity", residence["fort"])
+        self.assertIn("garrison_stacks", residence)
+        self.assertTrue(residence["recruit_stock"])
+        infantry_stock = next(
+            stock
+            for stock in residence["recruit_stock"]
+            if stock["card_id"] == "unit_infantry_t1"
+        )
+        self.assertGreater(infantry_stock["current_stock"], 0)
+        self.assertGreater(infantry_stock["rate_per_hour"], 0)
+        self.assertGreaterEqual(infantry_stock["max_purchasable"], 1)
+        self.assertEqual(infantry_stock["gold_cost"], infantry_stock["cost"])
+        self.assertEqual(
+            infantry_stock["garrison_capacity"],
+            residence["fort"]["garrison_capacity"],
+        )
+        self.assertEqual(
+            infantry_stock["garrison_slots_used"],
+            residence["fort"]["garrison_slots_used"],
+        )
+        self.assertEqual(infantry_stock["purchase_payload"]["territory_id"], "territory_res_north")
+        self.assertEqual(infantry_stock["purchase_payload"]["action"], "purchase_stock")
+        self.assertEqual(infantry_stock["purchase_payload"]["card_id"], "unit_infantry_t1")
+        self.assertNotIn("offer_id", infantry_stock["purchase_payload"])
+        self.assertIn("can_recruit", infantry_stock)
+        self.assertEqual(residence["building_tree_status"], "available")
+        building_nodes_by_id = {
+            node["building_id"]: node for node in residence["building_tree"]["nodes"]
+        }
+        mage_study = building_nodes_by_id["b_mage_study"]
+        training_yard = building_nodes_by_id["b_training_yard"]
+        raid_office = building_nodes_by_id["b_raid_office"]
+        self.assertTrue(
+            all(node["effect_labels"] for node in residence["building_tree"]["nodes"])
+        )
+        self.assertIn("effect_labels", mage_study)
+        self.assertTrue(mage_study["effect_labels"])
+        self.assertIn("Защита резиденции от рейдов +1", mage_study["effect_labels"])
+        self.assertNotIn(
+            "Магическая ветка: открывает лабораторию и комнату видений",
+            mage_study["effect_labels"],
+        )
+        self.assertIn("Максимум активной армии +1", training_yard["effect_labels"])
+        self.assertIn("Открывает найм мечников", training_yard["effect_labels"])
+        self.assertIn("Кап рейдовых жетонов +2", raid_office["effect_labels"])
+        self.assertIn("Открывает территориальные рейды", raid_office["effect_labels"])
+        forbidden_military_words = ("запас", "прирост", "/час", "HP", "атака", "дальность")
+        for node in residence["building_tree"]["nodes"]:
+            if node["branch"] != "military":
+                continue
+            joined_labels = " ".join(node["effect_labels"])
+            self.assertFalse(
+                any(word in joined_labels for word in forbidden_military_words),
+                joined_labels,
+            )
+        for node in residence["building_tree"]["nodes"]:
+            self.assertFalse(
+                any(str(label).startswith("Unlocks buildings") for label in node["effect_labels"])
+            )
+        self.assertIn("properties", mage_study["effects"])
+        self.assertTrue(mage_study["effects"]["properties"])
+        self.assertIn(
+            "Магическая ветка: защита и разведка владения",
+            mage_study["effects"]["properties"],
+        )
+        self.assertEqual(mage_study["purchase_payload"]["territory_id"], "territory_res_north")
+        self.assertEqual(
+            {item["building_id"] for item in mage_study["effects"]["unlocks"]},
+            {"b_alchemy_lab", "b_scrying_room"},
+        )
+        self.assertIn("capacity_delta", mage_study["effects"])
+        self.assertIn("raid_unlock", mage_study["effects"])
+        self.assertIn("recruit_unlocks", mage_study["effects"])
+
+        remote_owned = self._territory(payload["territory_views"], "territory_fort_east")
+        self.assertFalse(remote_owned["hero_here"])
+        self.assertIn(
+            "active_army_not_here",
+            {reason["reason_code"] for reason in remote_owned["lock_reasons"]},
+        )
+
+    def test_lord_action_errors_return_stable_reason_code(self) -> None:
+        settings = self._settings("lord_action_reason_codes")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings))
+        cases = (
+            (
+                "/api/lords/p_lord_1/move",
+                {},
+                "missing_route",
+            ),
+            (
+                "/api/lords/p_lord_1/buildings",
+                {"building_id": "b_barracks"},
+                "missing_prerequisites",
+            ),
+            (
+                "/api/lords/p_lord_1/recruit",
+                {"action": "purchase"},
+                "missing_offer",
+            ),
+            (
+                "/api/lords/p_lord_1/raids",
+                {"target_territory_id": "territory_res_north"},
+                "invalid_target",
+            ),
+        )
+
+        for url, body, expected_reason_code in cases:
+            with self.subTest(url=url):
+                response = client.post(
+                    url,
+                    headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+                    json=body,
+                )
+
+                self.assertGreaterEqual(response.status_code, 400, response.text)
+                self.assertEqual(response.json()["detail"]["code"], expected_reason_code)
+                self.assertEqual(
+                    response.json()["detail"]["reason_code"], expected_reason_code
+                )
+
+    def test_recruit_stock_read_model_explains_empty_stock_and_contested_lock(self) -> None:
+        settings = self._settings("lord_recruit_stock_read_model_locks")
+        self._import_valid_seed(settings)
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE army_reserve_runtime
+                SET count = 0,
+                    status = 'available'
+                WHERE domain_id = 'domain_north'
+                  AND card_id = 'unit_infantry_t1'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_north',
+                    status = 'contested',
+                    contested_by_domain_id = 'domain_river'
+                WHERE territory_id = 'territory_fort_east'
+                """
+            )
+        client = TestClient(create_app(settings))
+
+        state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+        )
+
+        self.assertEqual(state.status_code, 200, state.text)
+        payload = state.json()
+        residence = self._territory(payload["territory_views"], "territory_res_north")
+        empty_stock = next(
+            stock
+            for stock in residence["recruit_stock"]
+            if stock["card_id"] == "unit_infantry_t1"
+        )
+        self.assertEqual(empty_stock["current_stock"], 0)
+        self.assertEqual(empty_stock["max_purchasable"], 0)
+        empty_reasons = {reason["reason_code"]: reason for reason in empty_stock["lock_reasons"]}
+        self.assertIn("insufficient_stock", empty_reasons)
+        self.assertIn("Нет накопленного найма", empty_reasons["insufficient_stock"]["message"])
+
+        contested = self._territory(payload["territory_views"], "territory_fort_east")
+        contested_reasons = {
+            reason["reason_code"]: reason for reason in contested["lock_reasons"]
+        }
+        self.assertIn("territory_contested", contested_reasons)
+        self.assertIn("Спорная территория", contested_reasons["territory_contested"]["message"])
+        contested_stock = next(
+            stock
+            for stock in contested["recruit_stock"]
+            if stock["card_id"] == "unit_infantry_t1"
+        )
+        self.assertFalse(contested_stock["can_recruit"])
+        self.assertEqual(contested_stock["max_purchasable"], 0)
 
     def _settings(self, name: str) -> Settings:
         return Settings(
@@ -601,6 +979,76 @@ class LordPanelContractTests(unittest.TestCase):
                 domain_id=domain_id,
                 now=datetime.now(UTC) + timedelta(minutes=1),
             )
+
+    def _start_battle_after_deployment(
+        self,
+        client: TestClient,
+        battle_id: str,
+        *,
+        attacker_lord: str = "north",
+        defender_lord: str = "river",
+    ) -> dict[str, object]:
+        battle = client.get(
+            f"/api/lord-battles/{battle_id}",
+            headers={"X-Role-Token": "MASTER-KING-4QZ8"},
+        ).json()
+        board = battle["board"]
+        deployment = battle["deployment"]
+        for side, lord in (("attacker", attacker_lord), ("defender", defender_lord)):
+            if side == "defender" and battle["battle_type"] == "neutral":
+                continue
+            headers = self._lord_headers(lord)
+            for index, item in enumerate(deployment["hand"][side][: int(deployment["deployment_cap"])]):
+                x, y = self._deployment_cell(board, side, index)
+                deployed = client.post(
+                    f"/api/lord-battles/{battle_id}/actions",
+                    headers=headers,
+                    json={
+                        "action_id": f"deploy-{battle_id}-{side}-{index}",
+                        "action_type": "deploy",
+                        "actor_side": side,
+                        "payload": {
+                            "source_id": item["source_id"],
+                            "card_id": item["card_id"],
+                            "to": {"x": x, "y": y},
+                        },
+                    },
+                )
+                self.assertEqual(deployed.status_code, 200, deployed.text)
+            ready = client.post(
+                f"/api/lord-battles/{battle_id}/actions",
+                headers=headers,
+                json={
+                    "action_id": f"ready-{battle_id}-{side}",
+                    "action_type": "ready",
+                    "actor_side": side,
+                },
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            if isinstance(ready.json().get("battle"), dict):
+                battle = ready.json()["battle"]
+        return battle
+
+    @staticmethod
+    def _deployment_cell(board: dict[str, object], side: str, index: int) -> tuple[int, int]:
+        x_order = [0, 1, 3, 4, 2]
+        start_lines = board["start_lines"]
+        start = int(start_lines[side])
+        if side == "attacker":
+            y_order = [start, start, start, start, min(int(board["height"]) - 1, start + 1)]
+        else:
+            y_order = [start, start, start, start, max(0, start - 1)]
+        return x_order[index], y_order[index]
+
+    @staticmethod
+    def _lord_headers(lord: str) -> dict[str, str]:
+        tokens = {
+            "north": "LORD-NORTH-R8K4",
+            "river": "LORD-RIVER-M2J9",
+            "forest": "LORD-FOREST-P6W3",
+            "hill": "LORD-HILL-T5C7",
+        }
+        return {"X-Role-Token": tokens[lord]}
 
     @staticmethod
     def _territory(

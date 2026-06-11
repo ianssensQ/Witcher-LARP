@@ -452,6 +452,103 @@ class EventSyncIntegrityTests(unittest.TestCase):
         self.assertEqual(consumed_count, 1)
         self.assertEqual(approval_count, 1)
 
+    def test_pve_reward_approval_policy_controls_auto_and_pending_outcomes(self) -> None:
+        settings = self._settings("pve_reward_policy")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            auto_payload = resolve_pve_scene(
+                connection,
+                player_id="p_witcher_1",
+                qr_id="qr_a1_001",
+                roll=8,
+                now=datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
+            )
+            order_payload = resolve_pve_scene(
+                connection,
+                player_id="p_witcher_1",
+                qr_id="qr_a1_006",
+                roll=20,
+                now=datetime(2026, 6, 2, 9, 5, tzinfo=UTC),
+            )
+            artifact_payload = resolve_pve_scene(
+                connection,
+                player_id="p_witcher_1",
+                qr_id="qr_a1_007",
+                roll=20,
+                now=datetime(2026, 6, 2, 9, 10, tzinfo=UTC),
+            )
+
+            auto = self._sync_one(connection, event_type="pve_completed", payload=auto_payload)
+            order = self._sync_one(connection, event_type="pve_completed", payload=order_payload)
+            artifact = self._sync_one(connection, event_type="pve_completed", payload=artifact_payload)
+            attempts = {
+                row["qr_id"]: dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT qr_id, reward_id, reward_status
+                    FROM pve_attempts
+                    ORDER BY server_event_id
+                    """
+                ).fetchall()
+            }
+            approvals = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT reward_id, status
+                    FROM reward_approvals
+                    ORDER BY approval_id
+                    """
+                ).fetchall()
+            ]
+            player_state = connection.execute(
+                """
+                SELECT xp, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+
+        self.assertEqual(auto.results[0].status, "accepted")
+        self.assertIsNone(auto.results[0].reason)
+        self.assertEqual(order.results[0].status, "pending_master_approval")
+        self.assertEqual(order.results[0].reason, "reward requires master approval")
+        self.assertEqual(artifact.results[0].status, "pending_master_approval")
+        self.assertEqual(artifact.results[0].reason, "reward requires master approval")
+        self.assertEqual(
+            attempts["qr_a1_001"],
+            {
+                "qr_id": "qr_a1_001",
+                "reward_id": "reward_pve_t1",
+                "reward_status": "auto",
+            },
+        )
+        self.assertEqual(
+            attempts["qr_a1_006"],
+            {
+                "qr_id": "qr_a1_006",
+                "reward_id": "reward_order_success",
+                "reward_status": "pending_master_approval",
+            },
+        )
+        self.assertEqual(
+            attempts["qr_a1_007"],
+            {
+                "qr_id": "qr_a1_007",
+                "reward_id": "reward_artifact_pending",
+                "reward_status": "pending_master_approval",
+            },
+        )
+        self.assertEqual(
+            approvals,
+            [
+                {"reward_id": "reward_order_success", "status": "pending_master_approval"},
+                {"reward_id": "reward_artifact_pending", "status": "pending_master_approval"},
+            ],
+        )
+        self.assertEqual(dict(player_state), {"xp": 4, "gold": 30})
+
     def test_unique_object_side_effect_conflict_does_not_apply_losing_attempt(self) -> None:
         settings = self._settings("unique_side_effect_conflict")
         self._import_valid_seed(settings)

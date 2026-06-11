@@ -155,6 +155,7 @@ REQUIRED_HEADERS = {
         "recruit_unlock_ids",
         "capacity_delta",
         "raid_unlock",
+        "raid_token_delta",
     ],
     "army_unit_cards.csv": [
         "card_id",

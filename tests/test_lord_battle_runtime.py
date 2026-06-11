@@ -77,10 +77,13 @@ class LordBattleRuntimeTests(unittest.TestCase):
         battle = created.json()
         self.assertEqual(battle["battle_type"], "neutral")
         self.assertEqual(battle["defender_control"], "neutral_ai")
+        self.assertEqual(battle["status"], "deployment")
         self.assertEqual(battle["board"]["width"], 5)
         self.assertEqual(battle["board"]["height"], 6)
-        self.assertIn("deployment_recorded", [entry["entry_type"] for entry in battle["battle_log"]])
+        self.assertIn("deployment_started", [entry["entry_type"] for entry in battle["battle_log"]])
         self.assertEqual(battle["deployment"]["hand"]["attacker"][0]["card_id"], "unit_infantry_t1")
+        self.assertEqual(battle["deployment"]["hand"]["defender"], [])
+        self.assertFalse(any(stack["side"] == "defender" for stack in battle["board"]["stacks"]))
 
         invalid_deploy = client.post(
             "/api/lord-battles/battle_neutral_field/actions",
@@ -94,6 +97,19 @@ class LordBattleRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(invalid_deploy.status_code, 400)
         self.assertEqual(invalid_deploy.json()["detail"]["code"], "deployment_card_not_in_hand")
+
+        battle = self._start_battle_after_deployment(client, "battle_neutral_field")
+        if battle["active_side"] == "defender":
+            opening_ai_turn = client.post(
+                "/api/lord-battles/battle_neutral_field/actions",
+                headers=MASTER_HEADERS,
+                json={
+                    "action_id": "neutral-ai-opening",
+                    "action_type": "ai_turn",
+                    "actor_side": "defender",
+                },
+            )
+            self.assertEqual(opening_ai_turn.status_code, 200, opening_ai_turn.text)
 
         defended = client.post(
             "/api/lord-battles/battle_neutral_field/actions",
@@ -118,16 +134,14 @@ class LordBattleRuntimeTests(unittest.TestCase):
         self.assertFalse(defended.json()["duplicate"])
         self.assertTrue(duplicate_defended.json()["duplicate"])
         self.assertEqual(duplicate_defended.json()["status"], defended.json()["status"])
-        ai_turn = client.post(
-            "/api/lord-battles/battle_neutral_field/actions",
+        after_auto_ai = client.get(
+            "/api/lord-battles/battle_neutral_field",
             headers=MASTER_HEADERS,
-            json={
-                "action_id": "neutral-ai-turn",
-                "action_type": "ai_turn",
-                "actor_side": "defender",
-            },
         )
-        self.assertEqual(ai_turn.status_code, 200)
+        self.assertEqual(after_auto_ai.status_code, 200, after_auto_ai.text)
+        self.assertTrue(
+            any(entry["entry_type"].startswith("ai_") for entry in after_auto_ai.json()["battle_log"]),
+        )
         takeover = client.post(
             "/api/lord-battles/battle_neutral_field/actions",
             headers=MASTER_HEADERS,
@@ -181,6 +195,364 @@ class LordBattleRuntimeTests(unittest.TestCase):
             [entry["entry_type"] for entry in payload["battle_log"]],
         )
 
+    def test_deployment_hides_enemy_and_excludes_undeployed_units(self) -> None:
+        settings = self._settings("lord_battle_deployment_hidden")
+        self._import_seed(settings)
+        self._set_active_armies(
+            settings,
+            current_nodes={"domain_north": "node_res_river", "domain_river": "node_res_river"},
+            rows=[
+                ("army_north_hidden_1", "domain_north", "unit_infantry_t1", 1, "node_res_river"),
+                ("army_north_hidden_2", "domain_north", "unit_ranged_t1", 1, "node_res_river"),
+                ("army_river_hidden_1", "domain_river", "unit_guard_t1", 1, "node_res_river"),
+            ],
+            clear_existing=True,
+        )
+        client = TestClient(create_app(settings))
+        created = client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_deployment_hidden",
+                "attacker_domain_id": "domain_north",
+                "defender_domain_id": "domain_river",
+                "territory_id": "territory_res_river",
+                "seed": "deployment-hidden",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        attacker_view = created.json()
+        self.assertEqual(attacker_view["status"], "deployment")
+        self.assertEqual(attacker_view["deployment"]["hand"]["defender"], [])
+        self.assertFalse(any(stack["side"] == "defender" for stack in attacker_view["board"]["stacks"]))
+
+        defender_view = client.get(
+            "/api/lord-battles/battle_deployment_hidden",
+            headers=self._headers("river"),
+        )
+        self.assertEqual(defender_view.status_code, 200, defender_view.text)
+        self.assertEqual(defender_view.json()["deployment"]["hand"]["attacker"], [])
+
+        master_view = client.get("/api/lord-battles/battle_deployment_hidden", headers=MASTER_HEADERS).json()
+        board = master_view["board"]
+        deployment = master_view["deployment"]
+        attacker_item = deployment["hand"]["attacker"][0]
+        defender_item = deployment["hand"]["defender"][0]
+        for side, lord, item, action_index in (
+            ("attacker", "north", attacker_item, 0),
+            ("defender", "river", defender_item, 0),
+        ):
+            x, y = self._deployment_cell(board, side, 0)
+            deployed = client.post(
+                "/api/lord-battles/battle_deployment_hidden/actions",
+                headers=self._headers(lord),
+                json={
+                    "action_id": f"deploy-hidden-{side}",
+                    "action_type": "deploy",
+                    "actor_side": side,
+                    "payload": {
+                        "source_id": item["source_id"],
+                        "card_id": item["card_id"],
+                        "to": {"x": x, "y": y},
+                    },
+                },
+            )
+            self.assertEqual(deployed.status_code, 200, deployed.text)
+            ready = client.post(
+                "/api/lord-battles/battle_deployment_hidden/actions",
+                headers=self._headers(lord),
+                json={
+                    "action_id": f"ready-hidden-{side}-{action_index}",
+                    "action_type": "ready",
+                    "actor_side": side,
+                },
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+
+        battle = client.get("/api/lord-battles/battle_deployment_hidden", headers=MASTER_HEADERS).json()
+        self.assertEqual(battle["status"], "active")
+        self.assertEqual([stack["side"] for stack in battle["board"]["stacks"]], ["attacker", "defender"])
+        self.assertIn(
+            "army_north_hidden_2",
+            {item["source_id"] for item in battle["deployment"]["undeployed"]["attacker"]},
+        )
+
+    def test_deployment_timer_starts_when_lord_first_opens_battle(self) -> None:
+        settings = self._settings("lord_battle_deployment_first_open")
+        self._import_seed(settings)
+        self._set_active_armies(
+            settings,
+            current_nodes={"domain_north": "node_field_oats"},
+            rows=[
+                ("army_north_first_open", "domain_north", "unit_infantry_t1", 1, "node_field_oats"),
+            ],
+            clear_existing=True,
+        )
+        client = TestClient(create_app(settings))
+        created = client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_deployment_first_open",
+                "attacker_domain_id": "domain_north",
+                "territory_id": "territory_field_oats",
+                "seed": "deployment-first-open",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        old_deadline = datetime(2026, 6, 2, 10, 0, tzinfo=UTC).isoformat(timespec="seconds")
+        with connect(settings) as connection:
+            row = connection.execute(
+                "SELECT deployment_json FROM lord_battles WHERE battle_id = 'battle_deployment_first_open'"
+            ).fetchone()
+            deployment = json.loads(row["deployment_json"])
+            deployment["timer_started_at"] = None
+            deployment["deadline_at"] = old_deadline
+            connection.execute(
+                """
+                UPDATE lord_battles
+                SET timeout_at = ?, deployment_json = ?
+                WHERE battle_id = 'battle_deployment_first_open'
+                """,
+                (old_deadline, json.dumps(deployment)),
+            )
+
+        opened = client.get(
+            "/api/lord-battles/battle_deployment_first_open",
+            headers=self._headers("north"),
+        )
+
+        self.assertEqual(opened.status_code, 200, opened.text)
+        payload = opened.json()
+        self.assertEqual(payload["status"], "deployment")
+        self.assertIsNotNone(payload["deployment"]["timer_started_at"])
+        self.assertGreater(
+            datetime.fromisoformat(payload["timeout_at"]),
+            datetime(2026, 6, 2, 10, 0, tzinfo=UTC),
+        )
+
+    def test_get_advances_expired_turn_timeout_without_waiting_for_action(self) -> None:
+        settings = self._settings("lord_battle_get_timeout")
+        self._import_seed(settings)
+        self._set_active_armies(
+            settings,
+            current_nodes={"domain_north": "node_res_river", "domain_river": "node_res_river"},
+            rows=[
+                ("army_north_get_timeout", "domain_north", "unit_infantry_t1", 1, "node_res_river"),
+                ("army_river_get_timeout", "domain_river", "unit_guard_t1", 1, "node_res_river"),
+            ],
+            clear_existing=True,
+        )
+        client = TestClient(create_app(settings))
+        created = client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_get_timeout",
+                "attacker_domain_id": "domain_north",
+                "defender_domain_id": "domain_river",
+                "territory_id": "territory_res_river",
+                "seed": "get-timeout",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        battle = self._start_battle_after_deployment(client, "battle_get_timeout")
+        expired_at = datetime(2026, 6, 2, 10, 0, tzinfo=UTC).isoformat(timespec="seconds")
+        active_side = battle["active_side"]
+        active_stack_id = battle["active_stack_id"]
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE lord_battles
+                SET timeout_at = ?
+                WHERE battle_id = 'battle_get_timeout'
+                """,
+                (expired_at,),
+            )
+
+        refreshed = client.get(
+            "/api/lord-battles/battle_get_timeout",
+            headers=self._headers("north" if active_side == "attacker" else "river"),
+        )
+
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+        payload = refreshed.json()
+        self.assertEqual(payload["timeout_counts"][active_side], 1)
+        self.assertNotEqual(payload["active_stack_id"], active_stack_id)
+
+    def test_get_runs_neutral_ai_until_player_turn(self) -> None:
+        settings = self._settings("lord_battle_get_neutral_ai")
+        self._import_seed(settings)
+        self._set_active_armies(
+            settings,
+            current_nodes={"domain_north": "node_field_oats"},
+            rows=[
+                ("army_north_get_ai", "domain_north", "unit_infantry_t1", 1, "node_field_oats"),
+            ],
+            clear_existing=True,
+        )
+        client = TestClient(create_app(settings))
+        created = client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_get_neutral_ai",
+                "attacker_domain_id": "domain_north",
+                "territory_id": "territory_field_oats",
+                "seed": "get-neutral-ai",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        battle = self._start_battle_after_deployment(client, "battle_get_neutral_ai")
+        defender_stack = next(
+            stack for stack in battle["board"]["stacks"] if stack["side"] == "defender"
+        )
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE lord_battles
+                SET active_side = 'defender', active_stack_id = ?
+                WHERE battle_id = 'battle_get_neutral_ai'
+                """,
+                (defender_stack["stack_id"],),
+            )
+
+        refreshed = client.get(
+            "/api/lord-battles/battle_get_neutral_ai",
+            headers=self._headers("north"),
+        )
+
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+        payload = refreshed.json()
+        self.assertIn(payload["status"], {"active", "finished"})
+        if payload["status"] == "active":
+            self.assertEqual(payload["active_side"], "attacker")
+        self.assertTrue(
+            any(entry["entry_type"].startswith("ai_") for entry in payload["battle_log"]),
+        )
+
+    def test_neutral_defense_scales_by_territory_profile_tier(self) -> None:
+        field_settings = self._settings("lord_battle_neutral_field_profile")
+        self._import_seed(field_settings)
+        self._set_active_armies(
+            field_settings,
+            current_nodes={"domain_north": "node_field_oats"},
+            rows=[
+                ("army_north_field_profile", "domain_north", "unit_infantry_t1", 1, "node_field_oats"),
+            ],
+            clear_existing=True,
+        )
+        field_client = TestClient(create_app(field_settings))
+        field_created = field_client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_neutral_field_profile",
+                "attacker_domain_id": "domain_north",
+                "territory_id": "territory_field_oats",
+                "seed": "field-profile",
+            },
+        )
+        self.assertEqual(field_created.status_code, 200, field_created.text)
+        field_battle = field_client.get(
+            "/api/lord-battles/battle_neutral_field_profile",
+            headers=MASTER_HEADERS,
+        ).json()
+
+        mountain_settings = self._settings("lord_battle_neutral_mountain_profile")
+        self._import_seed(mountain_settings)
+        self._set_active_armies(
+            mountain_settings,
+            current_nodes={"domain_north": "node_mountain_north_alpine"},
+            rows=[
+                (
+                    "army_north_mountain_profile",
+                    "domain_north",
+                    "unit_infantry_t1",
+                    1,
+                    "node_mountain_north_alpine",
+                ),
+            ],
+            clear_existing=True,
+        )
+        mountain_client = TestClient(create_app(mountain_settings))
+        mountain_created = mountain_client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_neutral_mountain_profile",
+                "attacker_domain_id": "domain_north",
+                "territory_id": "territory_mountain_north_alpine",
+                "seed": "mountain-profile",
+            },
+        )
+        self.assertEqual(mountain_created.status_code, 200, mountain_created.text)
+        mountain_battle = mountain_client.get(
+            "/api/lord-battles/battle_neutral_mountain_profile",
+            headers=MASTER_HEADERS,
+        ).json()
+
+        field_defenders = field_battle["deployment"]["hand"]["defender"]
+        mountain_defenders = mountain_battle["deployment"]["hand"]["defender"]
+        self.assertLess(len(field_defenders), len(mountain_defenders))
+        self.assertLess(
+            max(item["tier"] for item in field_defenders),
+            max(item["tier"] for item in mountain_defenders),
+        )
+
+    def test_initiative_one_turn_per_round_and_tied_rotation(self) -> None:
+        settings = self._settings("lord_battle_initiative_rounds")
+        self._import_seed(settings)
+        self._set_active_armies(
+            settings,
+            current_nodes={"domain_north": "node_res_river", "domain_river": "node_res_river"},
+            rows=[
+                ("army_north_round_1", "domain_north", "unit_infantry_t1", 1, "node_res_river"),
+                ("army_north_round_2", "domain_north", "unit_infantry_t1", 1, "node_res_river"),
+                ("army_river_round_1", "domain_river", "unit_infantry_t1", 1, "node_res_river"),
+                ("army_river_round_2", "domain_river", "unit_infantry_t1", 1, "node_res_river"),
+            ],
+            clear_existing=True,
+        )
+        client = TestClient(create_app(settings))
+        created = client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_initiative_rounds",
+                "attacker_domain_id": "domain_north",
+                "defender_domain_id": "domain_river",
+                "seed": "initiative-rounds",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        battle = self._start_battle_after_deployment(client, "battle_initiative_rounds")
+        initial_order = list(battle["initiative_order"])
+        self.assertEqual(len(initial_order), 4)
+
+        seen: list[str] = []
+        current = battle
+        while current["round_number"] == 1:
+            active_side = current["active_side"]
+            active_stack_id = current["active_stack_id"]
+            self.assertNotIn(active_stack_id, seen)
+            seen.append(active_stack_id)
+            defended = client.post(
+                "/api/lord-battles/battle_initiative_rounds/actions",
+                headers=self._headers("north" if active_side == "attacker" else "river"),
+                json={
+                    "action_id": f"round-one-defend-{len(seen)}",
+                    "action_type": "defend",
+                    "actor_side": active_side,
+                },
+            )
+            self.assertEqual(defended.status_code, 200, defended.text)
+            current = defended.json()["battle"]
+
+        self.assertEqual(seen, initial_order)
+        self.assertEqual(current["round_number"], 2)
+        self.assertNotEqual(current["initiative_order"], initial_order)
+
     def test_lord_vs_lord_garrison_active_defense_and_repeated_timeout_auto_resolve(self) -> None:
         settings = self._settings("lord_battle_timeout")
         self._import_seed(settings)
@@ -208,6 +580,9 @@ class LordBattleRuntimeTests(unittest.TestCase):
         self.assertEqual(created.status_code, 200)
         battle = created.json()
         self.assertEqual(battle["battle_type"], "lord_vs_lord")
+        self.assertEqual(battle["status"], "deployment")
+        self.assertEqual(battle["deployment"]["hand"]["defender"], [])
+        battle = self._start_battle_after_deployment(client, "battle_river_timeout")
         defender_sources = {item["source_type"] for item in battle["deployment"]["hand"]["defender"]}
         self.assertIn("garrison", defender_sources)
         self.assertIn("active_army", defender_sources)
@@ -310,6 +685,15 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200)
+        self._start_battle_after_deployment(client, "battle_los_damage")
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE lord_battles
+                SET active_side = 'attacker', active_stack_id = 'A1'
+                WHERE battle_id = 'battle_los_damage'
+                """
+            )
         attack = client.post(
             "/api/lord-battles/battle_los_damage/actions",
             headers=self._headers("north"),
@@ -347,6 +731,15 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200)
+        self._start_battle_after_deployment(client, "battle_retaliation")
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE lord_battles
+                SET active_side = 'attacker', active_stack_id = 'A1'
+                WHERE battle_id = 'battle_retaliation'
+                """
+            )
         move = client.post(
             "/api/lord-battles/battle_retaliation/actions",
             headers=self._headers("north"),
@@ -527,7 +920,7 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        battle = created.json()
+        battle = self._start_battle_after_deployment(client, "battle_illegal_actions")
         active_side = battle["active_side"]
         inactive_side = "defender" if active_side == "attacker" else "attacker"
         active_lord = "north" if active_side == "attacker" else "river"
@@ -699,7 +1092,8 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        active_side = created.json()["active_side"]
+        battle = self._start_battle_after_deployment(client, "battle_surrender")
+        active_side = battle["active_side"]
         active_lord = "north" if active_side == "attacker" else "river"
         expected_winner = "defender" if active_side == "attacker" else "attacker"
 
@@ -748,7 +1142,8 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        active_side = created.json()["active_side"]
+        battle = self._start_battle_after_deployment(client, "battle_hero_attack")
+        active_side = battle["active_side"]
         active_lord = "north" if active_side == "attacker" else "river"
         enemy_side = "defender" if active_side == "attacker" else "attacker"
 
@@ -805,7 +1200,7 @@ class LordBattleRuntimeTests(unittest.TestCase):
         self.assertEqual(hero_attack.json()["target_side"], enemy_side)
         self.assertLess(
             hero_attack.json()["hero_hp"],
-            created.json()["hero_hp"][enemy_side]["current"],
+            battle["hero_hp"][enemy_side]["current"],
         )
 
     def test_lord_battle_rejects_missing_attack_target_and_corrupted_active_stack_state(self) -> None:
@@ -833,7 +1228,8 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        active_side = created.json()["active_side"]
+        battle = self._start_battle_after_deployment(client, "battle_state_corruption")
+        active_side = battle["active_side"]
         active_lord = "north" if active_side == "attacker" else "river"
 
         missing_target = client.post(
@@ -912,12 +1308,13 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
+        battle = self._start_battle_after_deployment(client, "battle_auto_tie")
         self.assertEqual(
-            self._battle_score(created.json(), "attacker"),
-            self._battle_score(created.json(), "defender"),
+            self._battle_score(battle, "attacker"),
+            self._battle_score(battle, "defender"),
         )
 
-        resolved = client.post(
+        first_vote = client.post(
             "/api/lord-battles/battle_auto_tie/actions",
             headers=self._headers("north"),
             json={
@@ -926,13 +1323,26 @@ class LordBattleRuntimeTests(unittest.TestCase):
                 "actor_side": "attacker",
             },
         )
+        self.assertEqual(first_vote.status_code, 200, first_vote.text)
+        self.assertEqual(first_vote.json()["status"], "auto_resolve_vote_pending")
+        self.assertEqual(first_vote.json()["auto_resolve"]["count"], 1)
+
+        resolved = client.post(
+            "/api/lord-battles/battle_auto_tie/actions",
+            headers=self._headers("river"),
+            json={
+                "action_id": "manual-auto-tie-river",
+                "action_type": "auto_resolve",
+                "actor_side": "defender",
+            },
+        )
         payload = resolved.json()
         result = payload["battle"]["result"]
 
         self.assertEqual(resolved.status_code, 200, resolved.text)
         self.assertEqual(payload["status"], "finished")
         self.assertEqual(payload["outcome"], "auto_resolve")
-        self.assertEqual(payload["reason"], "manual_auto_resolve")
+        self.assertEqual(payload["reason"], "manual_auto_resolve_confirmed")
         self.assertIn(payload["winner_side"], {"attacker", "defender"})
         self.assertEqual(result["winner_side"], payload["winner_side"])
         self.assertEqual(result["outcome"], "auto_resolve")
@@ -962,7 +1372,8 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        losing_side = created.json()["active_side"]
+        battle = self._start_battle_after_deployment(client, "battle_no_retreat_node")
+        losing_side = battle["active_side"]
         losing_lord = "north" if losing_side == "attacker" else "river"
         losing_domain = "domain_north" if losing_side == "attacker" else "domain_river"
 
@@ -1038,6 +1449,7 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
+        self._start_battle_after_deployment(client, "battle_ai_move")
 
         with connect(settings) as connection:
             row = connection.execute(
@@ -1123,13 +1535,24 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        resolved = client.post(
+        self._start_battle_after_deployment(client, "battle_pending_defender")
+        first_vote = client.post(
             "/api/lord-battles/battle_pending_defender/actions",
             headers=self._headers("north"),
             json={
                 "action_id": "auto-defender-win",
                 "action_type": "auto_resolve",
                 "actor_side": "attacker",
+            },
+        )
+        self.assertEqual(first_vote.status_code, 200, first_vote.text)
+        resolved = client.post(
+            "/api/lord-battles/battle_pending_defender/actions",
+            headers=self._headers("river"),
+            json={
+                "action_id": "auto-defender-win-confirm",
+                "action_type": "auto_resolve",
+                "actor_side": "defender",
             },
         )
         capture = resolved.json()["battle"]["result"]["capture"]
@@ -1191,6 +1614,7 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(neutral_created.status_code, 200, neutral_created.text)
+        self._start_battle_after_deployment(neutral_client, "battle_pending_neutral")
         neutral_resolved = neutral_client.post(
             "/api/lord-battles/battle_pending_neutral/actions",
             headers=self._headers("north"),
@@ -1240,7 +1664,8 @@ class LordBattleRuntimeTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200, created.text)
-        active_side = created.json()["active_side"]
+        battle = self._start_battle_after_deployment(client, "battle_proactive_timeout")
+        active_side = battle["active_side"]
         active_lord = "north" if active_side == "attacker" else "river"
         with connect(settings) as connection:
             connection.execute(
@@ -1306,7 +1731,8 @@ class LordBattleRuntimeTests(unittest.TestCase):
                     },
                 )
                 self.assertEqual(created.status_code, 200, created.text)
-                hero_hp = created.json()["hero_hp"]
+                battle = self._start_battle_after_deployment(client, f"battle_{name}")
+                hero_hp = battle["hero_hp"]
 
                 self.assertEqual(hero_hp["attacker"]["deployed_army_power"], expected_power)
                 self.assertEqual(hero_hp["attacker"]["max"], expected_hp)
@@ -1359,6 +1785,70 @@ class LordBattleRuntimeTests(unittest.TestCase):
     def _import_seed(self, settings: Settings) -> None:
         report = import_seed_pack(settings, manifest_path=FIXTURE_MANIFEST, snapshot_dir=None)
         self.assertEqual(report.status, "success")
+
+    def _start_battle_after_deployment(
+        self,
+        client: TestClient,
+        battle_id: str,
+        *,
+        attacker_lord: str = "north",
+        defender_lord: str = "river",
+    ) -> dict[str, object]:
+        battle = client.get(f"/api/lord-battles/{battle_id}", headers=MASTER_HEADERS).json()
+        board = battle["board"]
+        assert isinstance(board, dict)
+        deployment = battle["deployment"]
+        assert isinstance(deployment, dict)
+        battle_type = battle["battle_type"]
+        for side, lord in (("attacker", attacker_lord), ("defender", defender_lord)):
+            if side == "defender" and battle_type == "neutral":
+                continue
+            headers = self._headers(lord)
+            hand = deployment["hand"][side]
+            assert isinstance(hand, list)
+            for index, item in enumerate(hand[: int(deployment["deployment_cap"])]):
+                assert isinstance(item, dict)
+                x, y = self._deployment_cell(board, side, index)
+                deployed = client.post(
+                    f"/api/lord-battles/{battle_id}/actions",
+                    headers=headers,
+                    json={
+                        "action_id": f"deploy-{side}-{index}",
+                        "action_type": "deploy",
+                        "actor_side": side,
+                        "payload": {
+                            "source_id": item["source_id"],
+                            "card_id": item["card_id"],
+                            "to": {"x": x, "y": y},
+                        },
+                    },
+                )
+                self.assertEqual(deployed.status_code, 200, deployed.text)
+            ready = client.post(
+                f"/api/lord-battles/{battle_id}/actions",
+                headers=headers,
+                json={
+                    "action_id": f"ready-{side}",
+                    "action_type": "ready",
+                    "actor_side": side,
+                },
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            if isinstance(ready.json().get("battle"), dict):
+                battle = ready.json()["battle"]
+        return client.get(f"/api/lord-battles/{battle_id}", headers=MASTER_HEADERS).json()
+
+    @staticmethod
+    def _deployment_cell(board: dict[str, object], side: str, index: int) -> tuple[int, int]:
+        x_order = [0, 1, 3, 4, 2]
+        start_lines = board["start_lines"]
+        assert isinstance(start_lines, dict)
+        start = int(start_lines[side])
+        if side == "attacker":
+            y_order = [start, start, start, start, min(int(board["height"]) - 1, start + 1)]
+        else:
+            y_order = [start, start, start, start, max(0, start - 1)]
+        return x_order[index], y_order[index]
 
     def _set_reserve_count(self, settings: Settings, reserve_id: str, count: int) -> None:
         with connect(settings) as connection:

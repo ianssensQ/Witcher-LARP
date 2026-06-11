@@ -115,7 +115,8 @@ class LordMapLayoutContractTests(unittest.TestCase):
                 self.assertEqual(points[-1], [to_node["x"], to_node["y"]])
 
     def test_declared_map_art_is_decoupled_from_removed_static_panel(self) -> None:
-        self.assertEqual(self.layout["art_asset"], "assets/lord_map_playable_v1_display.webp")
+        self.assertEqual(self.layout["art_asset"], "assets/lord-map-ai-strict-v6-roadless-base.webp")
+        self.assertEqual(self.layout["road_asset"], "assets/lord-map-ai-strict-v6-baked-roads.webp")
         canvas_width = int(self.layout["canvas"]["width"])
         canvas_height = int(self.layout["canvas"]["height"])
         self.assertGreater(canvas_width, 0)

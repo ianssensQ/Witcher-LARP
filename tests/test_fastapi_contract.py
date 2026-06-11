@@ -74,12 +74,33 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(root.status_code, 307)
         self.assertEqual(root.headers["location"], "/admin")
         self.assertEqual(old_lord_panel.status_code, 404)
-        self.assertEqual(old_lord_login.status_code, 404)
+        self.assertEqual(old_lord_login.status_code, 200)
         self.assertEqual(invalid_role.status_code, 401)
         self.assertEqual(valid_role.status_code, 200)
         self.assertEqual(valid_role.json()["owner_id"], "p_lord_1")
         self.assertEqual(empty_player_code.status_code, 400)
         self.assertEqual(blank_qr.status_code, 400)
+
+    def test_lord_frontend_route_serves_built_app_and_assets_when_available(self) -> None:
+        index_path = PROJECT_ROOT / "prototypes" / "stage2b-v2" / "dist" / "index.html"
+        if not index_path.exists():
+            self.skipTest("Lord frontend dist is not built in this checkout.")
+        settings = self._settings("fastapi_lord_frontend_dist")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings))
+
+        page = client.get("/lords/map?lord=p_lord_1&token=LORD-NORTH-R8K4")
+
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertIn('<div id="root"></div>', page.text)
+        asset_path = page.text.split('src="', 1)[1].split('"', 1)[0]
+        self.assertTrue(asset_path.startswith("/assets/"))
+        asset = client.get(asset_path)
+        self.assertEqual(asset.status_code, 200)
+        app_source = (PROJECT_ROOT / "backend" / "witcher_larp" / "app.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("check_dir=False", app_source)
 
     def test_qr_lookup_reports_missing_imported_qr_content(self) -> None:
         settings = self._settings("fastapi_no_qr_content")
@@ -289,6 +310,11 @@ class FastApiContractTests(unittest.TestCase):
 
         act_state = client.get("/api/master/acts/state", headers=MASTER_HEADERS)
         timers = client.get("/api/master/timers", headers=MASTER_HEADERS)
+        manual_tick = client.post(
+            "/api/master/timers/lord-income-tick",
+            headers=MASTER_HEADERS,
+            json={"operator": "gm_fastapi"},
+        )
         backup = client.post("/api/backups/run", headers=MASTER_HEADERS, json={})
         missing_act_start = client.post(
             "/api/master/acts/no_such_act/start",
@@ -315,6 +341,8 @@ class FastApiContractTests(unittest.TestCase):
         self.assertIn("current_act_id", act_state.json()["state"])
         self.assertEqual(timers.status_code, 200)
         self.assertIn("applied_now", timers.json())
+        self.assertEqual(manual_tick.status_code, 200)
+        self.assertTrue(manual_tick.json()["applied_now"][0]["manual"])
         self.assertEqual(backup.status_code, 200)
         self.assertEqual(backup.json()["trigger_type"], "manual")
         self.assertEqual(missing_act_start.status_code, 404)
@@ -384,7 +412,8 @@ class FastApiContractTests(unittest.TestCase):
         self.assertTrue(matched_payload["allowed"])
         self.assertEqual(matched_payload["qr"]["qr_id"], "qr_a1_006")
         self.assertEqual(matched_payload["order"]["order_id"], "order_north_public_1")
-        self.assertEqual(matched_payload["order"]["object_label"], "Severnaya Zastava")
+        self.assertEqual(matched_payload["order"]["object_label"], "Пехотная грамота")
+        self.assertEqual(matched_payload["order"]["object_type"], "card")
         self.assertEqual(matched_payload["quest"]["scene_type"], "order_object")
         self.assertEqual(matched_payload["quest"]["primary_stat"], "Сила")
 
@@ -940,7 +969,7 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(metadata["auth_boundary"], "master_only_event")
         self.assertTrue(metadata["audit_review"])
 
-    def test_event_sync_auto_applies_pve_reward_without_master_approval(self) -> None:
+    def test_event_sync_pending_pve_reward_creates_master_approval(self) -> None:
         settings = self._settings("event_pending_reward")
         self._import_valid_seed(settings)
         client = TestClient(create_app(settings))
@@ -975,8 +1004,8 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         result = payload["results"][0]
-        self.assertEqual(result["status"], "accepted")
-        self.assertIsNone(result["reason"])
+        self.assertEqual(result["status"], "pending_master_approval")
+        self.assertEqual(result["reason"], "reward requires master approval")
 
         with connect(settings) as connection:
             approval_count = connection.execute(
@@ -1021,14 +1050,14 @@ class FastApiContractTests(unittest.TestCase):
                 """
             ).fetchone()[0]
 
-        self.assertEqual(approval_count, 0)
+        self.assertEqual(approval_count, 1)
         self.assertEqual(attempt["reward_id"], "reward_artifact_pending")
-        self.assertEqual(attempt["reward_status"], "auto")
+        self.assertEqual(attempt["reward_status"], "pending_master_approval")
         self.assertEqual(player_state["xp"], 0)
-        self.assertEqual(player_state["level"], 2)
+        self.assertEqual(player_state["level"], 1)
         self.assertEqual(player_state["gold"], 20)
-        self.assertEqual(artifact_count, 1)
-        self.assertEqual(stored_event["status"], "accepted")
+        self.assertEqual(artifact_count, 0)
+        self.assertEqual(stored_event["status"], "pending_master_approval")
         self.assertIn("reward_artifact_pending", stored_event["payload_json"])
         self.assertIn("reward_approval_policy", stored_event["metadata_json"])
 

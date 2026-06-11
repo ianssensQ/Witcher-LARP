@@ -115,6 +115,100 @@ class GameOpsServiceTests(unittest.TestCase):
         self.assertIn("trade_transfer", recent_types)
         self.assertIn("player", recent_types)
 
+    def test_master_state_exposes_lord_command_center_payloads(self) -> None:
+        settings = self._settings("game_ops_lord_command")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            build_master_state(connection, settings)
+            now = "2026-06-02T10:00:00+00:00"
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO garrison_runtime_state (
+                    garrison_id, territory_id, domain_id, card_id, count, status, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "garrison_ops_watch",
+                    "territory_fort_east",
+                    "domain_north",
+                    "unit_infantry_t1",
+                    4,
+                    "active",
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO pending_lord_moves (
+                    move_id, domain_id, lord_id, from_node_id, to_node_id,
+                    requested_to_node_id, route_node_ids_json, mp_cost, status,
+                    source, started_at, arrival_at, completed_at, result_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "move_ops_watch",
+                    "domain_north",
+                    "p_lord_1",
+                    "node_res_north",
+                    "node_fort_east",
+                    "node_fort_east",
+                    '["node_res_north", "node_fort_east"]',
+                    2,
+                    "pending",
+                    "test_game_ops",
+                    now,
+                    "2026-06-02T10:30:00+00:00",
+                    None,
+                    "{}",
+                ),
+            )
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO order_runtime_state (
+                    order_id, lord_id, target_player_id, object_id, visibility,
+                    status, escrow_reward_id, accepted_by_player_id,
+                    submitted_by_player_id, result_event_id, reason, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "order_ops_watch",
+                    "p_lord_1",
+                    "p_witcher_1",
+                    "territory_fort_east",
+                    "public",
+                    "published",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    now,
+                    now,
+                ),
+            )
+            state = build_master_state(connection, settings)
+
+        domain = next(
+            row for row in state["lord_map"]["domains"] if row["domain_id"] == "domain_north"
+        )
+        territory = next(
+            row
+            for row in state["lord_map"]["territories"]
+            if row["territory_id"] == "territory_fort_east"
+        )
+        self.assertEqual(domain["current_node"]["node_id"], "node_res_north")
+        self.assertTrue(any(row["order_id"] == "order_ops_watch" for row in domain["orders"]))
+        self.assertGreaterEqual(domain["active_order_count"], 1)
+        self.assertTrue(any(row["move_id"] == "move_ops_watch" for row in domain["pending_moves"]))
+        self.assertTrue(any(row["garrison_id"] == "garrison_ops_watch" for row in domain["garrisons"]))
+        self.assertTrue(
+            any(row["garrison_id"] == "garrison_ops_watch" for row in territory["garrisons"])
+        )
+
     def test_correction_requires_operator_reason_and_supported_fields(self) -> None:
         settings = self._settings("game_ops_correction_errors")
         self._import_valid_seed(settings)

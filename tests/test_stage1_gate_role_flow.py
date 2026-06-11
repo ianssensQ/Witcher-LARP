@@ -556,11 +556,47 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         self.assertTrue((PROJECT_ROOT / "mobile" / "scripts" / "main.gd").exists())
 
     def _assert_lord_strategy_flow(self, client: TestClient, settings: Settings) -> None:
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            for building_id in ("b_map_room", "b_stables", "b_raid_office"):
+                connection.execute(
+                    """
+                    INSERT INTO domain_buildings (
+                        domain_id, territory_id, building_id, purchased_at, source
+                    )
+                    VALUES (
+                        'domain_north', 'territory_res_north', ?,
+                        '2026-06-02T12:00:00+00:00', 'stage1_test'
+                    )
+                    ON CONFLICT(domain_id, territory_id, building_id) DO NOTHING
+                    """,
+                    (building_id,),
+                )
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET raid_tokens = 1, raid_token_cap = 3
+                WHERE domain_id = 'domain_north'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_river',
+                    status = 'controlled',
+                    contested_by_domain_id = NULL
+                WHERE territory_id = 'territory_field_oats'
+                """
+            )
         raid = self._post_ok(
             client,
             "/api/lords/p_lord_1/raids",
             headers=self._headers("north"),
-            json={"target_territory_id": "territory_res_river"},
+            json={
+                "target_territory_id": "territory_field_oats",
+                "rule_id": "raid_income_sabotage",
+                "expected_gold_cost": 0,
+            },
         )
         self.assertEqual(raid["status"], "active")
         self.assertEqual(raid["token_spent"], 1)
