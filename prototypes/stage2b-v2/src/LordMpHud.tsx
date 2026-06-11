@@ -22,8 +22,9 @@ type LordMpRuntimePayload = {
 };
 
 export type LordMpRuntimeState = {
-  currentMp: number;
-  mpCap: number;
+  currentMp: number | null;
+  mpCap: number | null;
+  isKnown?: boolean;
 };
 
 type LordMpHudProps = LordMpRuntimeState & {
@@ -41,23 +42,33 @@ const lordMpFillFields = [
   lordHomeMpFillField8
 ];
 
-const lordMpDefaultLordId = "p_lord_1";
-const lordMpDefaultRoleToken = "LORD-NORTH-R8K4";
-const lordMpStatePollMs = 15_000;
+const lordMpStatePollMs = 3_000;
+const lordRuntimeApiStorageKey = "witcher_larp_api_base_url";
+const lordRuntimeProductionPort = "8002";
 const lordMpFallbackState: LordMpRuntimeState = {
-  currentMp: 6,
-  mpCap: 6
+  currentMp: null,
+  mpCap: null,
+  isKnown: false
 };
 
-const clampLordMpMetric = (value: unknown, fallback: number) => {
+const normalizeLordMpApiBaseUrl = (value: string | null | undefined) => (value || "").trim().replace(/\/$/, "");
+
+const isLordMpProductionOrigin = () => window.location.protocol.startsWith("http") && window.location.port === lordRuntimeProductionPort;
+
+const clampLordMpMetric = (value: unknown, fallback: number | null) => {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? Math.max(0, Math.floor(numericValue)) : fallback;
 };
 
 const normalizeLordMpState = (state: LordMpRuntimeState) => {
-  const mpCap = Math.max(1, clampLordMpMetric(state.mpCap, lordMpFallbackState.mpCap));
-  const currentMp = Math.min(mpCap, clampLordMpMetric(state.currentMp, lordMpFallbackState.currentMp));
-  return { currentMp, mpCap };
+  const rawMpCap = clampLordMpMetric(state.mpCap, null);
+  const rawCurrentMp = clampLordMpMetric(state.currentMp, null);
+  if (rawMpCap === null || rawCurrentMp === null) {
+    return { currentMp: null, mpCap: null, isKnown: false };
+  }
+  const mpCap = Math.max(1, rawMpCap);
+  const currentMp = Math.min(mpCap, rawCurrentMp);
+  return { currentMp, mpCap, isKnown: true };
 };
 
 export const extractLordMpRuntimeState = (
@@ -70,17 +81,27 @@ export const extractLordMpRuntimeState = (
 
 const getLordMpRuntimeConnection = () => {
   const routeParams = new URLSearchParams(window.location.search);
-  const apiBaseUrl = (routeParams.get("api") || import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+  if (isLordMpProductionOrigin()) {
+    localStorage.removeItem(lordRuntimeApiStorageKey);
+  }
+  const queryApiBaseUrl = normalizeLordMpApiBaseUrl(routeParams.get("api"));
+  if (queryApiBaseUrl && !isLordMpProductionOrigin()) {
+    localStorage.setItem(lordRuntimeApiStorageKey, queryApiBaseUrl);
+  }
+  const apiBaseUrl = isLordMpProductionOrigin()
+    ? ""
+    : queryApiBaseUrl ||
+      normalizeLordMpApiBaseUrl(localStorage.getItem(lordRuntimeApiStorageKey) || import.meta.env.VITE_API_BASE_URL);
   const lordId =
     routeParams.get("lord_id") ||
     routeParams.get("lordId") ||
     routeParams.get("lord") ||
     localStorage.getItem("witcher_larp_lord_id") ||
-    lordMpDefaultLordId;
+    "";
   const roleToken =
     routeParams.get("token") ||
     localStorage.getItem("witcher_larp_role_token") ||
-    lordMpDefaultRoleToken;
+    "";
 
   return { apiBaseUrl, lordId, roleToken };
 };
@@ -90,7 +111,7 @@ export function useLordMpRuntimeState(initialState: LordMpRuntimeState = lordMpF
 
   const fetchLordMpState = useCallback(async () => {
     const { apiBaseUrl, lordId, roleToken } = getLordMpRuntimeConnection();
-    if (!lordId) {
+    if (!lordId || !roleToken) {
       return;
     }
 
@@ -100,7 +121,7 @@ export function useLordMpRuntimeState(initialState: LordMpRuntimeState = lordMpF
         headers["X-Role-Token"] = roleToken;
       }
 
-      const response = await fetch(`${apiBaseUrl}/api/lords/${lordId}/state`, { headers });
+      const response = await fetch(`${apiBaseUrl}/api/lords/${lordId}/summary`, { headers });
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok) {
         return;
@@ -123,15 +144,17 @@ export function useLordMpRuntimeState(initialState: LordMpRuntimeState = lordMpF
 
 export function LordMpHud({ currentMp, mpCap, className = "" }: LordMpHudProps) {
   const normalizedState = normalizeLordMpState({ currentMp, mpCap });
+  const visibleCurrentMp = normalizedState.currentMp ?? 0;
   const visibleFields = Math.min(
     lordMpFillFields.length,
-    normalizedState.currentMp
+    visibleCurrentMp
   );
+  const caption = normalizedState.isKnown ? `${normalizedState.currentMp}/${normalizedState.mpCap}` : "--/--";
 
   return (
     <section
       className={`lord-mp-hud${className ? ` ${className}` : ""}`}
-      aria-label={`MP ${normalizedState.currentMp}/${normalizedState.mpCap}`}
+      aria-label={`MP ${caption}`}
     >
       <div className="lord-mp-hud-backdrop" aria-hidden="true" />
       <div className="lord-mp-hud-rect-layer" aria-hidden="true">
@@ -144,7 +167,7 @@ export function LordMpHud({ currentMp, mpCap, className = "" }: LordMpHudProps) 
       <img className="lord-mp-hud-frame" src={lordHomeMpWidgetFrame} alt="" draggable={false} />
       <div className="lord-mp-hud-caption">
         <b>MP</b>
-        <span>{normalizedState.currentMp}/{normalizedState.mpCap}</span>
+        <span>{caption}</span>
       </div>
     </section>
   );
