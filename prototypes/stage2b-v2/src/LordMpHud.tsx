@@ -9,6 +9,7 @@ import lordHomeMpFillField6 from "./assets/generated/lords-home/ui/mp-widget-fil
 import lordHomeMpFillField7 from "./assets/generated/lords-home/ui/mp-widget-fill-field-7-v5.png";
 import lordHomeMpFillField8 from "./assets/generated/lords-home/ui/mp-widget-fill-field-8-v5.png";
 import lordHomeMpWidgetFrame from "./assets/generated/lords-home/ui/mp-widget-frame-transparent-v5.png";
+import { getLordRuntimeApiBaseUrl, readLordRuntimeSession } from "./lordRuntime";
 
 type LordMpRuntimePayload = {
   domain?: {
@@ -43,17 +44,11 @@ const lordMpFillFields = [
 ];
 
 const lordMpStatePollMs = 3_000;
-const lordRuntimeApiStorageKey = "witcher_larp_api_base_url";
-const lordRuntimeProductionPort = "8002";
 const lordMpFallbackState: LordMpRuntimeState = {
   currentMp: null,
   mpCap: null,
   isKnown: false
 };
-
-const normalizeLordMpApiBaseUrl = (value: string | null | undefined) => (value || "").trim().replace(/\/$/, "");
-
-const isLordMpProductionOrigin = () => window.location.protocol.startsWith("http") && window.location.port === lordRuntimeProductionPort;
 
 const clampLordMpMetric = (value: unknown, fallback: number | null) => {
   const numericValue = Number(value);
@@ -81,29 +76,13 @@ export const extractLordMpRuntimeState = (
 
 const getLordMpRuntimeConnection = () => {
   const routeParams = new URLSearchParams(window.location.search);
-  if (isLordMpProductionOrigin()) {
-    localStorage.removeItem(lordRuntimeApiStorageKey);
-  }
-  const queryApiBaseUrl = normalizeLordMpApiBaseUrl(routeParams.get("api"));
-  if (queryApiBaseUrl && !isLordMpProductionOrigin()) {
-    localStorage.setItem(lordRuntimeApiStorageKey, queryApiBaseUrl);
-  }
-  const apiBaseUrl = isLordMpProductionOrigin()
-    ? ""
-    : queryApiBaseUrl ||
-      normalizeLordMpApiBaseUrl(localStorage.getItem(lordRuntimeApiStorageKey) || import.meta.env.VITE_API_BASE_URL);
-  const lordId =
-    routeParams.get("lord_id") ||
-    routeParams.get("lordId") ||
-    routeParams.get("lord") ||
-    localStorage.getItem("witcher_larp_lord_id") ||
-    "";
-  const roleToken =
-    routeParams.get("token") ||
-    localStorage.getItem("witcher_larp_role_token") ||
-    "";
+  const session = readLordRuntimeSession(routeParams);
 
-  return { apiBaseUrl, lordId, roleToken };
+  return {
+    apiBaseUrl: getLordRuntimeApiBaseUrl(routeParams),
+    lordId: session?.lordId ?? "",
+    roleToken: session?.roleToken ?? ""
+  };
 };
 
 export function useLordMpRuntimeState(initialState: LordMpRuntimeState = lordMpFallbackState) {

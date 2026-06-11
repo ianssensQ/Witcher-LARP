@@ -38,6 +38,17 @@ import {
   markLordUiStateOffline
 } from "./lordState";
 import type { LordBackendStatePayload, LordUiState } from "./lordState";
+import {
+  clearLordRuntimeSession,
+  getLordRuntimeApiBaseUrl,
+  getLordRuntimeCurrentPathWithoutSensitiveParams,
+  getLordRuntimeLoginPath,
+  isLordRuntimeAuthResponse,
+  isLordRuntimeProductionOrigin,
+  readLordRuntimeSession,
+  stripLordRuntimeSensitiveQueryParams,
+  withLordRuntimeQuery
+} from "./lordRuntime";
 
 type BattlePhase = "deployment" | "turn" | "timeout" | "result" | "garrison";
 type BattleSideId = "north" | "river";
@@ -147,9 +158,6 @@ type LordBattlePayload = Record<string, unknown> & {
 
 const boardRows = 6;
 const boardCols = 5;
-const lordRuntimeApiStorageKey = "witcher_larp_api_base_url";
-const lordRuntimeProductionPort = "8002";
-
 const isRecordValue = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -160,44 +168,11 @@ const toSafeNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(numericValue) ? numericValue : fallback;
 };
 
-const normalizeLordRuntimeApiBaseUrl = (value: string | null | undefined) => (value || "").trim().replace(/\/$/, "");
-
-const isLordRuntimeProductionOrigin = () => window.location.protocol.startsWith("http") && window.location.port === lordRuntimeProductionPort;
-
-const getLordBattleApiBaseUrl = () => {
-  if (isLordRuntimeProductionOrigin()) {
-    localStorage.removeItem(lordRuntimeApiStorageKey);
-    return "";
-  }
-
-  const routeParams = new URLSearchParams(window.location.search);
-  const queryApiBaseUrl = normalizeLordRuntimeApiBaseUrl(routeParams.get("api"));
-  if (queryApiBaseUrl) {
-    localStorage.setItem(lordRuntimeApiStorageKey, queryApiBaseUrl);
-    return queryApiBaseUrl;
-  }
-
-  return normalizeLordRuntimeApiBaseUrl(
-    localStorage.getItem(lordRuntimeApiStorageKey) || import.meta.env.VITE_API_BASE_URL
-  );
-};
-
 const withLordBattleRuntimeQuery = (path: string) => {
-  const apiBaseUrl = getLordBattleApiBaseUrl();
   const routeParams = new URLSearchParams(window.location.search);
-  const url = new URL(path, window.location.origin);
-  if (apiBaseUrl && !isLordRuntimeProductionOrigin()) {
-    url.searchParams.set("api", apiBaseUrl);
-  }
-  const lordId = routeParams.get("lord") || routeParams.get("lord_id") || localStorage.getItem("witcher_larp_lord_id") || "";
-  const roleToken = routeParams.get("token") || localStorage.getItem("witcher_larp_role_token") || "";
-  if (lordId) {
-    url.searchParams.set("lord", lordId);
-  }
-  if (roleToken) {
-    url.searchParams.set("token", roleToken);
-  }
-  return `${url.pathname}${url.search}${url.hash}`;
+  const apiBaseUrl = getLordRuntimeApiBaseUrl(routeParams);
+  const session = readLordRuntimeSession(routeParams);
+  return withLordRuntimeQuery(path, apiBaseUrl, { lordId: session?.lordId });
 };
 
 const getLordBattleReturnPath = (routeParams: URLSearchParams) => {
@@ -213,20 +188,13 @@ const getLordBattleReturnPath = (routeParams: URLSearchParams) => {
 
 const getLordBattleRuntimeConnection = () => {
   const routeParams = new URLSearchParams(window.location.search);
+  const session = readLordRuntimeSession(routeParams);
   return {
     routeParams,
     mode: getLordRuntimeMode(routeParams),
-    apiBaseUrl: getLordBattleApiBaseUrl(),
-    lordId:
-      routeParams.get("lord_id") ||
-      routeParams.get("lordId") ||
-      routeParams.get("lord") ||
-      localStorage.getItem("witcher_larp_lord_id") ||
-      "",
-    roleToken:
-      routeParams.get("token") ||
-      localStorage.getItem("witcher_larp_role_token") ||
-      ""
+    apiBaseUrl: getLordRuntimeApiBaseUrl(routeParams),
+    lordId: session?.lordId ?? "",
+    roleToken: session?.roleToken ?? ""
   };
 };
 
@@ -1045,10 +1013,15 @@ const formatTimer = (seconds: number) => {
 };
 
 function LordBattleScreen() {
+  stripLordRuntimeSensitiveQueryParams();
   const prefersReducedMotion = useReducedMotion();
   const battleConnection = getLordBattleRuntimeConnection();
   const useDemoState = battleConnection.mode !== "production";
   const returnPath = getLordBattleReturnPath(battleConnection.routeParams);
+  const loginRedirectPath = getLordRuntimeLoginPath(
+    battleConnection.apiBaseUrl,
+    getLordRuntimeCurrentPathWithoutSensitiveParams()
+  );
   const requestedBattleId = battleConnection.routeParams.get("battle_id") || battleConnection.routeParams.get("battle") || "";
   const [lordUiState, setLordUiState] = useState<LordUiState>(() =>
     createLordUiState(useDemoState ? "demo" : "loading", { mode: battleConnection.mode })
@@ -1328,6 +1301,8 @@ function LordBattleScreen() {
     const loadProductionBattle = async () => {
       setIsBattleLoading(true);
       if (!battleConnection.lordId || !battleConnection.roleToken) {
+        clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
+        window.location.replace(loginRedirectPath);
         setLordUiState(createLordUiState("offline", { mode: "production" }));
         setBattleGateStatus("Боевой экран открыт только для чтения: нет подтвержденного входа лорда.");
         setServerBattle(null);
@@ -1346,6 +1321,11 @@ function LordBattleScreen() {
         );
         const payload: unknown = await response.json().catch(() => null);
         if (!response.ok) {
+          if (isLordRuntimeAuthResponse(response)) {
+            clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
+            window.location.replace(loginRedirectPath);
+            return;
+          }
           throw new Error(getLordApiErrorMessage(payload, "Боевой экран не получил состояние лорда."));
         }
 
@@ -1371,6 +1351,11 @@ function LordBattleScreen() {
         );
         const battlePayload: unknown = await battleResponse.json().catch(() => null);
         if (!battleResponse.ok) {
+          if (isLordRuntimeAuthResponse(battleResponse)) {
+            clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
+            window.location.replace(loginRedirectPath);
+            return;
+          }
           throw new Error(getLordApiErrorMessage(battlePayload, "Боевой стол сейчас недоступен."));
         }
 
@@ -1393,6 +1378,7 @@ function LordBattleScreen() {
     battleConnection.lordId,
     battleConnection.mode,
     battleConnection.roleToken,
+    loginRedirectPath,
     playerDomainId,
     requestedBattleId,
     useDemoState
@@ -1419,6 +1405,9 @@ function LordBattleScreen() {
         const payload: unknown = await response.json().catch(() => null);
         if (response.ok) {
           applyServerBattlePayload(payload as LordBattlePayload);
+        } else if (isLordRuntimeAuthResponse(response)) {
+          clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
+          window.location.replace(loginRedirectPath);
         }
       } catch {
         // Keep the last rendered battle state if the local server is briefly unreachable.
@@ -1430,6 +1419,7 @@ function LordBattleScreen() {
     battleConnection.roleToken,
     currentBattleId,
     isBattleActionPending,
+    loginRedirectPath,
     useDemoState
   ]);
 

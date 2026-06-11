@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { AnimatePresence, motion, useAnimationControls, useReducedMotion } from "motion/react";
 import {
@@ -81,7 +81,6 @@ import lordLoginMenuFrameLong from "./assets/generated/lords-login/menu-frame-wa
 import lordLoginMenuFrame from "./assets/generated/lords-login/menu-frame-warcraft.png";
 import lordMap from "./assets/generated/lord-map-v2.png";
 import { LordMpHud } from "./LordMpHud";
-import LordBattleScreen from "./LordBattleScreen";
 import {
   adaptLordState,
   createLordUiState,
@@ -91,6 +90,23 @@ import {
   markLordUiStateOffline
 } from "./lordState";
 import type { LordBackendStatePayload, LordUiState } from "./lordState";
+import {
+  clearLordRuntimeSession,
+  getLordRuntimeApiBaseUrl,
+  getLordRuntimeCurrentPathWithoutSensitiveParams,
+  getLordRuntimeLoginPath,
+  isLordRuntimeAuthResponse,
+  isLordRuntimeProductionOrigin,
+  lordRuntimeRequestTimeoutMs,
+  lordRuntimeStateCachePrefix,
+  normalizeLordRuntimeApiBaseUrl,
+  persistLordRuntimeSession,
+  readLordRuntimeSession,
+  stripLordRuntimeSensitiveQueryParams,
+  withLordRuntimeQuery
+} from "./lordRuntime";
+
+const LordBattleScreen = lazy(() => import("./LordBattleScreen"));
 
 type Tone = "gold" | "green" | "blue" | "red" | "violet" | "muted";
 
@@ -735,55 +751,11 @@ type LordMapBattleAlertPayload = {
   cta?: LordMapBattleCta;
 };
 
-const lordHomeDefaultLordId = "p_lord_1";
-const lordHomeDefaultRoleToken = "LORD-NORTH-R8K4";
+const lordHomeDemoLordId = "demo_lord";
+const lordHomeDemoRoleToken = "DEMO-LORD-SESSION";
 const lordHomeClockTickMs = 1000;
 const lordHomeStatePollMs = 10_000;
-const lordRuntimeApiStorageKey = "witcher_larp_api_base_url";
-const lordRuntimeStateCachePrefix = "witcher_larp_lord_state_cache_v1";
 const lordRuntimeStateCacheTtlMs = 12 * 60 * 60 * 1000;
-const lordRuntimeProductionPort = "8002";
-const lordRuntimeRequestTimeoutMs = 6_000;
-
-const normalizeLordRuntimeApiBaseUrl = (value: string | null | undefined) => (value || "").trim().replace(/\/$/, "");
-
-const isLordRuntimeProductionOrigin = () => window.location.protocol.startsWith("http") && window.location.port === lordRuntimeProductionPort;
-
-const getLordRuntimeApiBaseUrl = (routeParams: URLSearchParams) => {
-  if (isLordRuntimeProductionOrigin()) {
-    localStorage.removeItem(lordRuntimeApiStorageKey);
-    return "";
-  }
-
-  const queryApiBaseUrl = normalizeLordRuntimeApiBaseUrl(routeParams.get("api"));
-  if (queryApiBaseUrl) {
-    localStorage.setItem(lordRuntimeApiStorageKey, queryApiBaseUrl);
-    return queryApiBaseUrl;
-  }
-
-  return normalizeLordRuntimeApiBaseUrl(
-    localStorage.getItem(lordRuntimeApiStorageKey) || import.meta.env.VITE_API_BASE_URL
-  );
-};
-
-const withLordRuntimeQuery = (
-  path: string,
-  apiBaseUrl: string,
-  auth?: { lordId?: string; roleToken?: string }
-) => {
-  const normalizedApiBaseUrl = isLordRuntimeProductionOrigin() ? "" : normalizeLordRuntimeApiBaseUrl(apiBaseUrl);
-  const url = new URL(path, window.location.origin);
-  if (normalizedApiBaseUrl) {
-    url.searchParams.set("api", normalizedApiBaseUrl);
-  }
-  if (auth?.lordId) {
-    url.searchParams.set("lord", auth.lordId);
-  }
-  if (auth?.roleToken) {
-    url.searchParams.set("token", auth.roleToken);
-  }
-  return `${url.pathname}${url.search}${url.hash}`;
-};
 
 const getLordRuntimeStateCacheKey = (apiBaseUrl: string, lordId: string) =>
   `${lordRuntimeStateCachePrefix}:${normalizeLordRuntimeApiBaseUrl(apiBaseUrl) || "same-origin"}:${lordId}`;
@@ -3636,7 +3608,11 @@ function App() {
   }
 
   if (path === "/lords/battle") {
-    return <LordBattleScreen />;
+    return (
+      <Suspense fallback={<div className="lord-route-loading" aria-label="Загрузка" />}>
+        <LordBattleScreen />
+      </Suspense>
+    );
   }
 
   if (path === "/lords/map") {
@@ -3664,19 +3640,15 @@ function RedirectTo({ path }: { path: string }) {
 
 function LordMapScreen() {
   const mapRouteParams = new URLSearchParams(window.location.search);
+  stripLordRuntimeSensitiveQueryParams();
   const lordRuntimeMode = getLordRuntimeMode(mapRouteParams);
   const useDemoState = lordRuntimeMode !== "production";
   const apiBaseUrl = getLordRuntimeApiBaseUrl(mapRouteParams);
-  const backendLordId =
-    mapRouteParams.get("lord") ||
-    mapRouteParams.get("lord_id") ||
-    mapRouteParams.get("lordId") ||
-    localStorage.getItem("witcher_larp_lord_id") ||
-    lordHomeDefaultLordId;
-  const backendRoleToken =
-    mapRouteParams.get("token") ||
-    localStorage.getItem("witcher_larp_role_token") ||
-    lordHomeDefaultRoleToken;
+  const runtimeSession = useDemoState ? { lordId: lordHomeDemoLordId, roleToken: lordHomeDemoRoleToken } : readLordRuntimeSession(mapRouteParams);
+  const isMissingLordRuntimeSession = !useDemoState && !runtimeSession;
+  const backendLordId = runtimeSession?.lordId ?? "";
+  const backendRoleToken = runtimeSession?.roleToken ?? "";
+  const loginRedirectPath = getLordRuntimeLoginPath(apiBaseUrl, getLordRuntimeCurrentPathWithoutSensitiveParams());
   const initialMapBackendStateRef = useRef<LordMapBackendState | null>(
     useDemoState ? null : readLordRuntimeCachedState<LordMapBackendState>(apiBaseUrl, backendLordId)
   );
@@ -3716,6 +3688,14 @@ function LordMapScreen() {
   const stateFetchInFlightRef = useRef(false);
   const battleClaimOpenRef = useRef<string | null>(null);
   const lastPendingMoveRef = useRef<LordMapBackendPendingMove | null>(null);
+
+  useEffect(() => {
+    if (!isMissingLordRuntimeSession) {
+      return;
+    }
+    clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
+    window.location.replace(loginRedirectPath);
+  }, [isMissingLordRuntimeSession, loginRedirectPath]);
 
   useEffect(() => {
     backendStateRef.current = backendState;
@@ -3765,6 +3745,10 @@ function LordMapScreen() {
   const isMapReadOnly = lordUiState.mode === "production" && lordUiState.isReadOnly;
 
   const fetchLordMapState = useCallback(async (options?: { silent?: boolean; summaryOnly?: boolean }) => {
+    if (!useDemoState && (!backendLordId || !backendRoleToken)) {
+      return;
+    }
+
     if (stateFetchInFlightRef.current) {
       return;
     }
@@ -3785,6 +3769,11 @@ function LordMapScreen() {
       });
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok) {
+        if (isLordRuntimeAuthResponse(response)) {
+          clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
+          window.location.replace(loginRedirectPath);
+          return;
+        }
         throw new Error(getLordHomeApiErrorMessage(payload, "Приказная не отвечает"));
       }
 
@@ -3833,12 +3822,13 @@ function LordMapScreen() {
       window.clearTimeout(timeoutId);
       stateFetchInFlightRef.current = false;
     }
-  }, [apiBaseUrl, backendLordId, backendRoleToken, lordRuntimeMode]);
+  }, [apiBaseUrl, backendLordId, backendRoleToken, loginRedirectPath, lordRuntimeMode, useDemoState]);
 
   useEffect(() => {
-    localStorage.setItem("witcher_larp_lord_id", backendLordId);
-    localStorage.setItem("witcher_larp_role_token", backendRoleToken);
-  }, [backendLordId, backendRoleToken]);
+    if (!useDemoState && backendLordId && backendRoleToken) {
+      persistLordRuntimeSession({ lordId: backendLordId, roleToken: backendRoleToken });
+    }
+  }, [backendLordId, backendRoleToken, useDemoState]);
 
   useEffect(() => {
     void fetchLordMapState({ silent: true });
@@ -4241,7 +4231,7 @@ function LordMapScreen() {
   const activeBattleId = lordUiState.activeBattle.battleId;
   const mapBattleClaim = useMemo(() => getLordMapPendingBattleClaim(backendState), [backendState]);
   const openLordMapBattle = useCallback(async (source = "stage2b_map_claim") => {
-    const battleRuntimeAuth = { lordId: backendLordId, roleToken: backendRoleToken };
+    const battleRuntimeAuth = { lordId: backendLordId };
     if (activeBattleId) {
       window.location.assign(
         withLordRuntimeQuery(`/lords/battle?battle_id=${encodeURIComponent(activeBattleId)}&return_to=map`, apiBaseUrl, battleRuntimeAuth)
@@ -4925,6 +4915,7 @@ function LordMapScreen() {
 
 function LordHomeScreen() {
   const homeRouteParams = new URLSearchParams(window.location.search);
+  stripLordRuntimeSensitiveQueryParams();
   const lordRuntimeMode = getLordRuntimeMode(homeRouteParams);
   const useDemoState = lordRuntimeMode !== "production";
   const viewParam = homeRouteParams.get("view");
@@ -4947,8 +4938,11 @@ function LordHomeScreen() {
       ? panelParam
       : null;
   const apiBaseUrl = getLordRuntimeApiBaseUrl(homeRouteParams);
-  const backendLordId = homeRouteParams.get("lord") || localStorage.getItem("witcher_larp_lord_id") || lordHomeDefaultLordId;
-  const backendRoleToken = homeRouteParams.get("token") || localStorage.getItem("witcher_larp_role_token") || lordHomeDefaultRoleToken;
+  const runtimeSession = useDemoState ? { lordId: lordHomeDemoLordId, roleToken: lordHomeDemoRoleToken } : readLordRuntimeSession(homeRouteParams);
+  const isMissingLordRuntimeSession = !useDemoState && !runtimeSession;
+  const backendLordId = runtimeSession?.lordId ?? "";
+  const backendRoleToken = runtimeSession?.roleToken ?? "";
+  const loginRedirectPath = getLordRuntimeLoginPath(apiBaseUrl, getLordRuntimeCurrentPathWithoutSensitiveParams());
   const initialHomeBackendStateRef = useRef<LordHomeBackendState | null>(
     useDemoState ? null : readLordRuntimeCachedState<LordHomeBackendState>(apiBaseUrl, backendLordId)
   );
@@ -5034,6 +5028,15 @@ function LordHomeScreen() {
   const [lordRaidStatus, setLordRaidStatus] = useState("");
   const [isLordRaidSubmitting, setIsLordRaidSubmitting] = useState(false);
   const [openPanel, setOpenPanel] = useState<LordHomePanel | null>(initialOpenPanel);
+
+  useEffect(() => {
+    if (!isMissingLordRuntimeSession) {
+      return;
+    }
+    clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
+    window.location.replace(loginRedirectPath);
+  }, [isMissingLordRuntimeSession, loginRedirectPath]);
+
   const prefersReducedMotion = useReducedMotion();
   const selectedTerritory = lordHomeTerritories.find((territory) => territory.id === selectedTerritoryId) ?? lordHomeTerritories[0];
   const selectedTerritoryRuntime = territoryRuntime[selectedTerritory.id];
@@ -5196,6 +5199,10 @@ function LordHomeScreen() {
   });
   const displayedRecruitUnitIds = Array.from({ length: 6 }, (_, index) => recruitUnitIds[index] ?? null);
   const lordMapPath = useDemoState ? "/lords/map?demo=1" : "/lords/map";
+  const handleLordHomeLogout = useCallback(() => {
+    clearLordRuntimeSession({ clearApiBaseUrl: true });
+    window.location.assign(withLordRuntimeQuery("/lords/login", apiBaseUrl));
+  }, [apiBaseUrl]);
 
   const applyBackendState = useCallback((
     state: LordHomeBackendState,
@@ -5528,17 +5535,25 @@ function LordHomeScreen() {
   }, [lordRuntimeMode]);
 
   const reloadLordHomeState = useCallback(async (signal?: AbortSignal) => {
+    if (!useDemoState && (!backendLordId || !backendRoleToken)) {
+      throw new Error("Нужно заново войти как лорд.");
+    }
+
     const response = await fetch(`${apiBaseUrl}/api/lords/${encodeURIComponent(backendLordId)}/state`, {
       headers: { "X-Role-Token": backendRoleToken },
       signal
     });
     const state = (await response.json().catch(() => ({}))) as LordHomeBackendState;
     if (!response.ok) {
+      if (isLordRuntimeAuthResponse(response)) {
+        clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
+        window.location.replace(loginRedirectPath);
+      }
       throw new Error(getLordHomeApiErrorMessage(state, "Канцелярия не отвечает"));
     }
     applyBackendState(state);
     return state;
-  }, [apiBaseUrl, applyBackendState, backendLordId, backendRoleToken]);
+  }, [apiBaseUrl, applyBackendState, backendLordId, backendRoleToken, loginRedirectPath, useDemoState]);
 
   const refreshLordHomeStateInBackground = useCallback((
     source: string,
@@ -5590,9 +5605,10 @@ function LordHomeScreen() {
   }, [applyBackendState]);
 
   useEffect(() => {
-    localStorage.setItem("witcher_larp_lord_id", backendLordId);
-    localStorage.setItem("witcher_larp_role_token", backendRoleToken);
-  }, [backendLordId, backendRoleToken]);
+    if (!useDemoState && backendLordId && backendRoleToken) {
+      persistLordRuntimeSession({ lordId: backendLordId, roleToken: backendRoleToken });
+    }
+  }, [backendLordId, backendRoleToken, useDemoState]);
 
   useEffect(() => {
     if (homeReadOnlyReason) {
@@ -5650,6 +5666,10 @@ function LordHomeScreen() {
     const controller = new AbortController();
 
     const loadBackendState = async (summaryOnly = false) => {
+      if (!useDemoState && (!backendLordId || !backendRoleToken)) {
+        return;
+      }
+
       if (stateFetchInFlightRef.current) {
         return;
       }
@@ -5663,6 +5683,11 @@ function LordHomeScreen() {
         });
         const state = (await response.json().catch(() => ({}))) as LordHomeBackendState;
         if (!response.ok) {
+          if (isLordRuntimeAuthResponse(response)) {
+            clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
+            window.location.replace(loginRedirectPath);
+            return;
+          }
           setLordUiState((current) => markLordUiStateOffline(current));
           setLordOrderReadOnlyReason(getLordHomeApiErrorMessage(state, "Канцелярия не отвечает. Действия временно закрыты."));
           return;
@@ -5690,7 +5715,7 @@ function LordHomeScreen() {
       window.clearInterval(intervalId);
       controller.abort();
     };
-  }, [apiBaseUrl, applyBackendState, applyBackendSummary, backendLordId, backendRoleToken]);
+  }, [apiBaseUrl, applyBackendState, applyBackendSummary, backendLordId, backendRoleToken, loginRedirectPath, useDemoState]);
 
   useEffect(() => {
     if (!recruitUnitId) return;
@@ -6710,7 +6735,7 @@ function LordHomeScreen() {
           <button className="lord-home-top-icon help" type="button" aria-label="Обучение" onClick={() => setOpenPanel("help")}>
             <LordHomeActionIcon src={lordHomeActionHelpIcon} />
           </button>
-          <button className="lord-home-top-icon logout" type="button" aria-label="Выход" onClick={() => window.location.assign(withLordRuntimeQuery("/lords/login", apiBaseUrl))}>
+          <button className="lord-home-top-icon logout" type="button" aria-label="Выход" onClick={handleLordHomeLogout}>
             <LordHomeActionIcon src={lordHomeActionLogoutIcon} />
           </button>
         </header>
@@ -6756,7 +6781,7 @@ function LordHomeScreen() {
                   window.location.assign(withLordRuntimeQuery(
                     `/lords/battle?battle_id=${activeBattleId}&return_to=home`,
                     apiBaseUrl,
-                    { lordId: backendLordId, roleToken: backendRoleToken }
+                    { lordId: backendLordId }
                   ));
                   return;
                 }
@@ -8339,6 +8364,7 @@ const preventLordLoginContextMenu = (event: MouseEvent<HTMLElement>) => {
 
 function AnimatedLordLoginScreen() {
   const queryParams = new URLSearchParams(window.location.search);
+  stripLordRuntimeSensitiveQueryParams();
   const requestedView = queryParams.get("view");
   const apiBaseUrl = getLordRuntimeApiBaseUrl(queryParams);
   const requestedNext = queryParams.get("next");
@@ -8440,11 +8466,11 @@ function AnimatedLordLoginScreen() {
         throw new Error(lordLoginCopy.invalidCode);
       }
 
-      localStorage.setItem("witcher_larp_role_token", normalizedCode);
-      localStorage.setItem("witcher_larp_lord_id", lordId);
-      if (auth.domain_id) {
-        localStorage.setItem("witcher_larp_domain_id", auth.domain_id);
-      }
+      persistLordRuntimeSession({
+        lordId,
+        roleToken: normalizedCode,
+        domainId: auth.domain_id || undefined
+      });
       setLoginError("");
       window.location.assign(withLordRuntimeQuery(nextPath, apiBaseUrl));
     } catch (error) {

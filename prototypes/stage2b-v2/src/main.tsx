@@ -1,13 +1,13 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
 import "./index.css";
-import { WitcherJournalScreen } from "./mobile/witcher/WitcherJournalScreen";
 
-const isWitcherMobileRoute = window.location.pathname.startsWith("/mobile/witcher");
+const App = lazy(() => import("./App"));
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {isWitcherMobileRoute ? <WitcherJournalScreen /> : <App />}
+    <Suspense fallback={null}>
+      <App />
+    </Suspense>
   </React.StrictMode>,
 );
