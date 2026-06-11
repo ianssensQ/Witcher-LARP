@@ -448,7 +448,7 @@ def create_app(settings: Settings | None = None):
     api = FastAPI(title=runtime_settings.app_name)
     api.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=list(runtime_settings.cors_allow_origins),
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -476,7 +476,10 @@ def create_app(settings: Settings | None = None):
         if not LORD_FRONTEND_INDEX.exists():
             raise HTTPException(
                 status_code=503,
-                detail="Lord frontend build is not available. Run the frontend build first.",
+                detail=(
+                    "Lord frontend build is not available. Run "
+                    "`uv run python scripts/build_lord_frontend.py` before starting production."
+                ),
             )
         return FileResponse(LORD_FRONTEND_INDEX)
 

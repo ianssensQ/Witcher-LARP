@@ -177,7 +177,6 @@ def collect_sockets(
 ) -> list[dict[str, int | str]]:
     width, height = size
     canvas_width = int(layout["canvas"]["width"])
-    canvas_height = int(layout["canvas"]["height"])
 
     # The strict OpenRouter image is 3:2 and then preserved inside the wider
     # canonical canvas. This maps v8 socket anchors to the visible generated art.

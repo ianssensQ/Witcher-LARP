@@ -529,6 +529,7 @@ Android/iOS install-launch-auto-connect-code-login-snapshot-restart-sync дол�
 
 ```powershell
 uv sync
+uv run python scripts/build_lord_frontend.py
 $env:WITCHER_LARP_HOST = "0.0.0.0"
 $env:WITCHER_LARP_PORT = "8002"
 uv run python -m backend.witcher_larp
