@@ -89,7 +89,7 @@ class FastApiContractTests(unittest.TestCase):
         self._import_valid_seed(settings)
         client = TestClient(create_app(settings))
 
-        page = client.get("/lords/map?lord=p_lord_1&token=LORD-NORTH-R8K4")
+        page = client.get("/lords/map")
 
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn('<div id="root"></div>', page.text)
@@ -101,6 +101,32 @@ class FastApiContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("check_dir=False", app_source)
+
+    def test_lord_frontend_runtime_avoids_seed_auth_defaults_and_secret_query_tokens(self) -> None:
+        frontend_root = PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src"
+        app_source = (frontend_root / "App.tsx").read_text(encoding="utf-8")
+        battle_source = (frontend_root / "LordBattleScreen.tsx").read_text(encoding="utf-8")
+        mp_source = (frontend_root / "LordMpHud.tsx").read_text(encoding="utf-8")
+        main_source = (frontend_root / "main.tsx").read_text(encoding="utf-8")
+        runtime_source = (frontend_root / "lordRuntime.ts").read_text(encoding="utf-8")
+        build_script = (PROJECT_ROOT / "scripts" / "build_lord_frontend.py").read_text(
+            encoding="utf-8"
+        )
+
+        for source in (app_source, battle_source, mp_source, runtime_source):
+            self.assertNotIn("LORD-NORTH-R8K4", source)
+            self.assertNotIn("lordHomeDefaultRoleToken", source)
+            self.assertNotIn('searchParams.set("token"', source)
+            self.assertNotIn('routeParams.get("token")', source)
+            self.assertNotIn('localStorage.getItem("witcher_larp_role_token")', source)
+
+        self.assertIn("readLordRuntimeSession", app_source)
+        self.assertIn("clearLordRuntimeSession", app_source)
+        self.assertIn("stripLordRuntimeSensitiveQueryParams", runtime_source)
+        self.assertIn('lazy(() => import("./App"))', main_source)
+        self.assertNotIn("mobile/witcher", main_source)
+        self.assertIn("MAX_RUNTIME_ASSET_BYTES", build_script)
+        self.assertIn("vite", build_script)
 
     def test_qr_lookup_reports_missing_imported_qr_content(self) -> None:
         settings = self._settings("fastapi_no_qr_content")

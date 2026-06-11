@@ -199,8 +199,19 @@ class AdminStudioContractTests(unittest.TestCase):
         )
 
         self.assertEqual(preflight.status_code, 200)
-        self.assertEqual(preflight.headers["access-control-allow-origin"], "*")
+        self.assertEqual(preflight.headers["access-control-allow-origin"], "http://127.0.0.1:5174")
         self.assertIn("x-role-token", preflight.headers["access-control-allow-headers"].lower())
+
+        blocked = client.options(
+            "/api/lords/p_lord_1/state",
+            headers={
+                "Origin": "http://example.com",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "x-role-token",
+            },
+        )
+
+        self.assertNotEqual(blocked.headers.get("access-control-allow-origin"), "http://example.com")
 
     def test_lord_frontend_keeps_runtime_api_connection_for_live_master_ops(self) -> None:
         app_source = (PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "App.tsx").read_text(
@@ -212,6 +223,9 @@ class AdminStudioContractTests(unittest.TestCase):
         battle_source = (
             PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "LordBattleScreen.tsx"
         ).read_text(encoding="utf-8")
+        runtime_source = (
+            PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "lordRuntime.ts"
+        ).read_text(encoding="utf-8")
 
         self.assertIn('const lordHomeStatePollMs = 10_000;', app_source)
         self.assertIn('/api/lords/${backendLordId}/${endpoint}', app_source)
@@ -219,9 +233,10 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn('/summary', mp_source)
         self.assertIn('/summary', battle_source)
         self.assertIn('const lordMpStatePollMs = 3_000;', mp_source)
-        self.assertIn("witcher_larp_api_base_url", app_source)
-        self.assertIn("witcher_larp_api_base_url", mp_source)
-        self.assertIn("witcher_larp_api_base_url", battle_source)
+        self.assertIn("witcher_larp_api_base_url", runtime_source)
+        self.assertIn("stripLordRuntimeSensitiveQueryParams", app_source)
+        self.assertIn("stripLordRuntimeSensitiveQueryParams", battle_source)
+        self.assertIn("readLordRuntimeSession", mp_source)
         self.assertIn("getLordRuntimeApiBaseUrl(queryParams)", app_source)
         self.assertIn("window.location.assign(withLordRuntimeQuery(nextPath, apiBaseUrl))", app_source)
         self.assertIn("withLordRuntimeQuery(\"/lords/map\", apiBaseUrl)", app_source)
