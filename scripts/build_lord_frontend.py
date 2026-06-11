@@ -13,6 +13,11 @@ FRONTEND_ROOT = PROJECT_ROOT / "prototypes" / "stage2b-v2"
 SRC_ROOT = FRONTEND_ROOT / "src"
 DIST_ROOT = FRONTEND_ROOT / "dist"
 MAX_RUNTIME_ASSET_BYTES = 20 * 1024 * 1024
+RUNTIME_SOURCE_ENTRYPOINT = SRC_ROOT / "main.tsx"
+FORBIDDEN_RUNTIME_ASSET_SUBPATHS = ("assets/generated/mobile/",)
+SOURCE_IMPORT_RE = re.compile(
+    r"(?:import\s+(?:[\w{}\s,*]+?\s+from\s+)?|import\()\s*[\"'](?P<path>\.[^\"']+)[\"']"
+)
 ASSET_IMPORT_RE = re.compile(
     r"import\s+[\w{}\s,*]+?\s+from\s+[\"'](?P<path>\./assets/[^\"']+)[\"']"
 )
@@ -30,11 +35,47 @@ def _run(command: list[str], *, cwd: Path) -> None:
     subprocess.run(command, cwd=cwd, check=True)
 
 
+def _resolve_runtime_source_import(source_path: Path, import_path: str) -> Path | None:
+    resolved = (source_path.parent / import_path).resolve()
+    try:
+        resolved.relative_to(SRC_ROOT)
+    except ValueError:
+        return None
+
+    if resolved.suffix in {".ts", ".tsx"} and resolved.exists():
+        return resolved
+    if resolved.suffix:
+        return None
+    for suffix in (".tsx", ".ts"):
+        candidate = resolved.with_suffix(suffix)
+        if candidate.exists():
+            return candidate
+    for suffix in (".tsx", ".ts"):
+        candidate = resolved / f"index{suffix}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _runtime_source_files() -> list[Path]:
+    pending = [RUNTIME_SOURCE_ENTRYPOINT.resolve()]
+    seen: set[Path] = set()
+    while pending:
+        source_path = pending.pop()
+        if source_path in seen or not source_path.exists():
+            continue
+        seen.add(source_path)
+        text = source_path.read_text(encoding="utf-8")
+        for match in SOURCE_IMPORT_RE.finditer(text):
+            imported_source = _resolve_runtime_source_import(source_path, match.group("path"))
+            if imported_source and imported_source not in seen:
+                pending.append(imported_source)
+    return sorted(seen)
+
+
 def _runtime_asset_imports() -> list[Path]:
     imports: list[Path] = []
-    for source_path in SRC_ROOT.rglob("*"):
-        if source_path.suffix not in {".ts", ".tsx"}:
-            continue
+    for source_path in _runtime_source_files():
         text = source_path.read_text(encoding="utf-8")
         for match in ASSET_IMPORT_RE.finditer(text):
             asset_path = (source_path.parent / match.group("path")).resolve()
@@ -47,9 +88,25 @@ def _runtime_asset_imports() -> list[Path]:
 
 
 def _audit_runtime_assets() -> None:
+    imported_assets = _runtime_asset_imports()
+    forbidden = []
+    for asset in imported_assets:
+        try:
+            relative_asset = asset.relative_to(SRC_ROOT).as_posix()
+        except ValueError:
+            continue
+        if any(relative_asset.startswith(forbidden_path) for forbidden_path in FORBIDDEN_RUNTIME_ASSET_SUBPATHS):
+            forbidden.append(asset)
+    if forbidden:
+        formatted = "\n".join(f"- {asset.relative_to(PROJECT_ROOT)}" for asset in forbidden)
+        raise SystemExit(
+            "Production lord runtime imports assets from obsolete mobile prototype folders. "
+            f"Move the asset into a lord-owned folder or remove the dependency:\n{formatted}"
+        )
+
     oversized = [
         asset
-        for asset in _runtime_asset_imports()
+        for asset in imported_assets
         if asset.exists() and asset.stat().st_size > MAX_RUNTIME_ASSET_BYTES
     ]
     if not oversized:

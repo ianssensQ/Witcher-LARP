@@ -125,7 +125,14 @@ class FastApiContractTests(unittest.TestCase):
         self.assertIn("stripLordRuntimeSensitiveQueryParams", runtime_source)
         self.assertIn('lazy(() => import("./App"))', main_source)
         self.assertNotIn("mobile/witcher", main_source)
+        self.assertNotIn("assets/generated/mobile", app_source)
+        self.assertNotIn("assets/generated/mobile", battle_source)
+        self.assertIn("Маршрут недоступен", app_source)
+        self.assertIn("Проверяем маршрут.", app_source)
+        self.assertNotIn("РњР°СЂС€СЂСѓС‚", app_source)
+        self.assertNotIn("РџСЂРѕРІРµСЂСЏРµРј", app_source)
         self.assertIn("MAX_RUNTIME_ASSET_BYTES", build_script)
+        self.assertIn("FORBIDDEN_RUNTIME_ASSET_SUBPATHS", build_script)
         self.assertIn("vite", build_script)
 
     def test_qr_lookup_reports_missing_imported_qr_content(self) -> None:

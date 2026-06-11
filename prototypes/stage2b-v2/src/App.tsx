@@ -2877,7 +2877,7 @@ const getLordMapDomainTone = (domainId: string | null | undefined): LordMapSocke
 
 const getLordMapDomainFallbackLabel = (domainId: string | null | undefined) => {
   const lordId = getLordMapLordIdFromValue(domainId);
-  return lordId ? lordMapLordMeta[lordId].name : domainId || "РЅРµР№С‚СЂР°Р»СЊРЅРѕ";
+  return lordId ? lordMapLordMeta[lordId].name : domainId || "нейтрально";
 };
 
 const toLordMapNumber = (value: unknown, fallback = 0) => {
@@ -4000,9 +4000,9 @@ function LordMapScreen() {
           : serverPreviewForDisplay?.status ?? (routePreviewState === "error" ? "blocked" : "ready"),
         canMove: Boolean(serverPreviewForDisplay?.can_move),
         reason: serverPreviewForDisplay
-          ? getLordHomeApiErrorMessage(serverPreviewForDisplay, serverPreviewForDisplay.reason || "РњР°СЂС€СЂСѓС‚ РЅРµРґРѕСЃС‚СѓРїРµРЅ")
+          ? getLordHomeApiErrorMessage(serverPreviewForDisplay, serverPreviewForDisplay.reason || "Маршрут недоступен")
           : routePreviewState === "loading"
-            ? "РџСЂРѕРІРµСЂСЏРµРј РјР°СЂС€СЂСѓС‚."
+            ? "Проверяем маршрут."
             : ""
       };
   const previewTargetSocket = getMapSocket(displayRoutePreview.targetSocketId);

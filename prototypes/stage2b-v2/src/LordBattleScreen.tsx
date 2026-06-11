@@ -20,8 +20,6 @@ import {
 } from "lucide-react";
 import lordBattleBoardCloseup from "./assets/generated/lords-battle/lord-battle-board-closeup-v1.png";
 import lordBattleWarTable from "./assets/generated/lords-battle/lord-battle-war-table-v1.png";
-import lordSealNorth from "./assets/generated/mobile/w7-orders-v1/w7_lord_seal_north_v1.png";
-import lordSealRiver from "./assets/generated/mobile/w7-orders-v1/w7_lord_seal_river_v1.png";
 import unitCavalryIcon from "./assets/generated/lords-home/units/unit-cavalry-v1.png";
 import unitGuardIcon from "./assets/generated/lords-home/units/unit-guard-v1.png";
 import unitHeavySiegeIcon from "./assets/generated/lords-home/units/unit-heavy-siege-v1.png";
@@ -63,7 +61,6 @@ type BattleSide = {
   hp: number;
   maxHp: number;
   accent: "blue" | "red";
-  seal: string;
 };
 
 type BattleUnit = {
@@ -220,8 +217,7 @@ const battleSides: Record<BattleSideId, BattleSide> = {
     domain: "Северный дом",
     hp: 52,
     maxHp: 64,
-    accent: "blue",
-    seal: lordSealNorth
+    accent: "blue"
   },
   river: {
     id: "river",
@@ -229,8 +225,7 @@ const battleSides: Record<BattleSideId, BattleSide> = {
     domain: "Речной дом",
     hp: 41,
     maxHp: 58,
-    accent: "red",
-    seal: lordSealRiver
+    accent: "red"
   }
 };
 
@@ -2070,7 +2065,9 @@ function BattleLordPlate({ side, align }: { side: BattleSide; align: "left" | "r
 
   return (
     <article className={`lord-battle-lord-plate ${side.accent} ${align}`}>
-      <img src={side.seal} alt="" draggable={false} />
+      <span className="lord-battle-side-seal" aria-hidden="true">
+        <Crown size={26} strokeWidth={1.7} />
+      </span>
       <div>
         <span>{side.domain}</span>
         <b>{side.name}</b>
@@ -2086,8 +2083,9 @@ function BattleLordPlate({ side, align }: { side: BattleSide; align: "left" | "r
 function CommanderSeal({ side }: { side: BattleSide }) {
   return (
     <div className={`lord-battle-commander commander-${side.id}`} aria-hidden="true">
-      <img src={side.seal} alt="" draggable={false} />
-      <Crown size={18} />
+      <div className="lord-battle-commander-seal">
+        <Crown size={24} />
+      </div>
     </div>
   );
 }
