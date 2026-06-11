@@ -1,4 +1,4 @@
-"""Read-only Admin Studio overview for the static master shell."""
+"""Обзор мастерской панели для статического мастерского интерфейса."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .repository import latest_snapshot_version, quote_identifier
 def build_admin_overview(connection: sqlite3.Connection) -> dict[str, Any]:
     snapshot_version = latest_snapshot_version(connection)
     return {
-        "stage": "STAGE-2: Admin Studio",
+        "stage": "ЭТАП 2: Мастерская панель",
         "snapshot_version": snapshot_version,
         "navigation": [
             {"id": item["id"], "label": item["label"], "status": item["status"]}
@@ -45,46 +45,46 @@ def _content_section(
 ) -> dict[str, Any]:
     return {
         "id": "content",
-        "label": "Content",
+        "label": "Настройка",
         "status": "ready" if snapshot_version else "not_imported",
         "metrics": [
-            _metric("Snapshot", snapshot_version or "not imported"),
-            _metric("Players", _count_table(connection, "players")),
-            _metric("QR objects", _count_table(connection, "qr_objects")),
-            _metric("Rewards", _count_table(connection, "rewards")),
+            _metric("Снапшот", snapshot_version or "не импортирован"),
+            _metric("Игроки", _count_table(connection, "players")),
+            _metric("QR-объекты", _count_table(connection, "qr_objects")),
+            _metric("Награды", _count_table(connection, "rewards")),
         ],
         "actions": [
             _action(
                 "import_validation",
-                "Import and validation",
+                "Импорт и валидация",
                 "POST",
                 "/api/master/content/import",
                 "ready",
             ),
             _action(
                 "snapshot_export",
-                "Snapshot export",
+                "Экспорт снапшота",
                 "POST",
                 "/api/master/content/snapshot/export",
                 "ready" if snapshot_version else "not_imported",
             ),
             _action(
                 "qr_checklist",
-                "QR/manual checklist",
+                "Чеклист QR/ручных кодов",
                 "GET",
                 "/api/master/content/qr-checklist",
                 "ready" if snapshot_version else "not_imported",
             ),
             _action(
                 "handout_checklist",
-                "Player handout checklist",
+                "Чеклист памяток игрокам",
                 "GET",
                 "/api/master/content/handout-checklist",
                 "ready" if snapshot_version else "not_imported",
             ),
             _action(
                 "player_snapshot",
-                "Player-scoped snapshot",
+                "Игроковый снапшот",
                 "GET",
                 "/api/content/snapshot",
                 "player_code_required",
@@ -97,52 +97,59 @@ def _game_ops_section(connection: sqlite3.Connection) -> dict[str, Any]:
     act_state = _act_state(connection)
     return {
         "id": "game-ops",
-        "label": "Game Ops",
+        "label": "Пульт мастера",
         "status": "ready",
         "metrics": [
-            _metric("Current act", act_state.get("current_act_id") or "not started"),
-            _metric("Act status", act_state.get("status") or "not started"),
-            _metric("Recent events", _count_table(connection, "event_log")),
-            _metric("Sync clients", _count_table(connection, "client_sync_state")),
-            _metric("Timers", _count_table(connection, "auto_timers")),
-            _metric("Lord battles", _count_table(connection, "lord_battles")),
+            _metric("Текущий акт", act_state.get("current_act_id") or "не начат"),
+            _metric("Статус акта", act_state.get("status") or "не начат"),
+            _metric("События", _count_table(connection, "event_log")),
+            _metric("Клиенты синхронизации", _count_table(connection, "client_sync_state")),
+            _metric("Таймеры", _count_table(connection, "auto_timers")),
+            _metric("Битвы лордов", _count_table(connection, "lord_battles")),
         ],
         "actions": [
-            _action("master_state", "Game ops state", "GET", "/api/master/state", "ready"),
-            _action("event_log", "Recent event log", "GET", "/api/master/state", "ready"),
-            _action("sync_status", "Sync status", "GET", "/api/master/state", "ready"),
+            _action("master_state", "Состояние игры", "GET", "/api/master/state", "ready"),
+            _action("event_log", "Последние события", "GET", "/api/master/state", "ready"),
+            _action("sync_status", "Статус синхронизации", "GET", "/api/master/state", "ready"),
             _action(
                 "anti_snowball",
-                "Anti-snowball state",
+                "Антисноуболл",
                 "GET",
                 "/api/master/state",
                 "ready",
             ),
             _action(
                 "visibility_audit",
-                "Visibility audit",
+                "Аудит видимости",
                 "GET",
                 "/api/master/visibility-audit",
                 "ready",
             ),
-            _action("acts_state", "Acts state", "GET", "/api/master/acts/state", "ready"),
-            _action("timers", "Timers", "GET", "/api/master/timers", "ready"),
-            _action("pvp_throttle", "PvP throttle", "POST", "/api/master/pvp-throttle", "ready"),
+            _action("acts_state", "Состояние актов", "GET", "/api/master/acts/state", "ready"),
+            _action("timers", "Таймеры", "GET", "/api/master/timers", "ready"),
+            _action(
+                "manual_lord_tick",
+                "Ручной тик лордов",
+                "POST",
+                "/api/master/timers/lord-income-tick",
+                "ready",
+            ),
+            _action("pvp_throttle", "Ограничение PvP", "POST", "/api/master/pvp-throttle", "ready"),
             _action(
                 "game_ops_correction",
-                "Game ops correction",
+                "Коррекция состояния",
                 "POST",
                 "/api/master/game-ops/corrections",
                 "ready",
             ),
             _action(
                 "potion_trade_corrections",
-                "Potion/trade corrections",
+                "Коррекции зелий/обмена",
                 "POST",
                 "/api/master/game-ops/corrections",
                 "ready",
             ),
-            _action("lord_battles", "Lord battles", "GET", "/api/lord-battles", "ready"),
+            _action("lord_battles", "Битвы лордов", "GET", "/api/lord-battles", "ready"),
         ],
     }
 
@@ -162,22 +169,28 @@ def _events_section(connection: sqlite3.Connection) -> dict[str, Any]:
     status = "needs_attention" if open_review_count or reward_pending_count else "ready"
     return {
         "id": "events",
-        "label": "Events",
+        "label": "Ревью",
         "status": status,
         "metrics": [
-            _metric("Open reviews", open_review_count),
-            _metric("Pending rewards", reward_pending_count),
-            _metric("Synced events", _count_table(connection, "events")),
-            _metric("Corrections", _count_table(connection, "master_corrections")),
+            _metric("Открытые проверки", open_review_count),
+            _metric("Награды на подтверждении", reward_pending_count),
+            _metric("Синхронизированные события", _count_table(connection, "events")),
+            _metric("Коррекции", _count_table(connection, "master_corrections")),
         ],
         "actions": [
-            _action("review_queue", "Review queue", "GET", "/api/master/review-queue", "ready"),
-            _action("event_review", "Review decision", "POST", "/api/events/{event_id}/review", "ready"),
-            _action("corrections", "Corrections", "POST", "/api/master/corrections", "ready"),
-            _action("paper_recovery", "Paper recovery intake", "POST", "/api/events/sync", "ready"),
+            _action("review_queue", "Очередь проверки", "GET", "/api/master/review-queue", "ready"),
+            _action("event_review", "Решение проверки", "POST", "/api/events/{event_id}/review", "ready"),
+            _action("corrections", "Коррекции", "POST", "/api/master/corrections", "ready"),
+            _action(
+                "paper_recovery",
+                "Ввод бумажного восстановления",
+                "POST",
+                "/api/events/sync",
+                "ready",
+            ),
             _action(
                 "reward_approval",
-                "Reward approval",
+                "Подтверждение награды",
                 "POST",
                 "/api/master/reward-approvals/{approval_id}",
                 "ready",
@@ -192,14 +205,14 @@ def _npc_section(connection: sqlite3.Connection) -> dict[str, Any]:
         "label": "NPC",
         "status": "ready",
         "metrics": [
-            _metric("Seed NPC events", _count_table(connection, "npc_events")),
-            _metric("Runtime NPC events", _count_table(connection, "npc_runtime_events")),
-            _metric("Captured deals", _count_table(connection, "npc_deals")),
+            _metric("Сценарные NPC-события", _count_table(connection, "npc_events")),
+            _metric("Игровые NPC-события", _count_table(connection, "npc_runtime_events")),
+            _metric("Сделки", _count_table(connection, "npc_deals")),
         ],
         "actions": [
-            _action("npc_events", "NPC events", "GET", "/api/master/npc/events", "ready"),
-            _action("npc_record", "Record NPC event", "POST", "/api/master/npc/events", "ready"),
-            _action("npc_deals", "NPC deals", "GET", "/api/master/npc/deals", "ready"),
+            _action("npc_events", "NPC-события", "GET", "/api/master/npc/events", "ready"),
+            _action("npc_record", "Записать NPC-событие", "POST", "/api/master/npc/events", "ready"),
+            _action("npc_deals", "NPC-сделки", "GET", "/api/master/npc/deals", "ready"),
         ],
     }
 
@@ -208,17 +221,17 @@ def _backups_section(connection: sqlite3.Connection) -> dict[str, Any]:
     failed_count = _count_where(connection, "backup_runs", "status = ?", ("failed",))
     return {
         "id": "backups",
-        "label": "Backups",
+        "label": "Бэкапы",
         "status": "needs_attention" if failed_count else "ready",
         "metrics": [
-            _metric("Configured jobs", _count_table(connection, "backup_jobs")),
-            _metric("Backup runs", _count_table(connection, "backup_runs")),
-            _metric("Failed runs", failed_count),
+            _metric("Настроенные задачи", _count_table(connection, "backup_jobs")),
+            _metric("Запуски бэкапа", _count_table(connection, "backup_runs")),
+            _metric("Ошибки", failed_count),
         ],
         "actions": [
-            _action("backup_status", "Backup status", "GET", "/api/master/backups/status", "ready"),
-            _action("run_backup", "Run backup", "POST", "/api/backups/run", "ready"),
-            _action("restore_backup", "Restore backup", None, None, "pending_backend"),
+            _action("backup_status", "Статус бэкапов", "GET", "/api/master/backups/status", "ready"),
+            _action("run_backup", "Запустить бэкап", "POST", "/api/backups/run", "ready"),
+            _action("restore_backup", "Восстановить бэкап", None, None, "pending_backend"),
         ],
     }
 
@@ -227,19 +240,19 @@ def _final_section(connection: sqlite3.Connection) -> dict[str, Any]:
     lock = _final_lock_state(connection)
     return {
         "id": "final",
-        "label": "Final",
+        "label": "Финал",
         "status": "ready",
         "metrics": [
-            _metric("Final locked", "yes" if lock.get("locked_at") else "no"),
-            _metric("Evidence fields", _count_table(connection, "final_summary_fields")),
-            _metric("Final notes", _count_table(connection, "final_master_notes")),
-            _metric("Final procedures", _count_table(connection, "final_procedures")),
+            _metric("Финал закрыт", "да" if lock.get("locked_at") else "нет"),
+            _metric("Поля доказательств", _count_table(connection, "final_summary_fields")),
+            _metric("Финальные заметки", _count_table(connection, "final_master_notes")),
+            _metric("Финальные процедуры", _count_table(connection, "final_procedures")),
         ],
         "actions": [
-            _action("final_summary", "Final summary", "GET", "/api/master/final-summary", "ready"),
+            _action("final_summary", "Финальная сводка", "GET", "/api/master/final-summary", "ready"),
             _action(
                 "final_note",
-                "Final note",
+                "Финальная заметка",
                 "POST",
                 "/api/master/final-summary/notes",
                 "ready",

@@ -1,32 +1,36 @@
 """FastAPI application factory for the local game master server."""
 
 from pathlib import Path
+import socket
 import sqlite3
 from typing import Any
 
 from .act_service import ActNotFoundError, UnlockCodeHiddenError
 from .act_service import get_act_state, record_physical_announcement, reveal_unlock_code
-from .act_service import start_act
+from .act_service import set_active_act_elapsed_minutes, start_act
 from .admin_content import build_handout_checklist, build_qr_checklist
 from .admin_content import export_latest_snapshot, latest_import_report
 from .admin_content import list_content_packs, resolve_manifest_path, resolve_snapshot_dir
 from .admin_studio import build_admin_overview
 from .asset_service import AssetContractError
 from .backup_service import run_backup
-from .config import Settings
+from .config import PROJECT_ROOT, Settings
 from .database import healthcheck_database, init_database
 from .database import connect
 from .final_summary_service import build_final_summary, record_final_master_note
 from .game_ops_service import GameOpsCorrectionError
 from .game_ops_service import apply_game_ops_correction, backup_status
 from .game_ops_service import build_master_state, build_visibility_audit
+from .game_ops_service import list_master_player_codes
 from .import_service import DEFAULT_SNAPSHOT_DIR, import_seed_pack
 from .lord_battle_service import LordBattleError
 from .lord_battle_service import create_lord_battle, get_lord_battle, list_lord_battles
 from .lord_battle_service import record_lord_battle_action
-from .lord_panel import RoleTokenRequest, authenticate_role_token, build_lord_state
+from .lord_panel import RoleTokenAuth, RoleTokenRequest, authenticate_role_token
+from .lord_panel import build_lord_state, build_lord_summary_state
 from .lord_runtime import LordRuntimeError
-from .lord_runtime import buy_building, move_lord, order_action
+from .lord_runtime import buy_building, cleanse_raid_effect, move_lord, order_action
+from .lord_runtime import ensure_lord_runtime_state
 from .lord_runtime import preview_lord_route, recruit_action
 from .lord_runtime import reconcile_pending_lord_moves
 from .lord_runtime import start_raid, transfer_garrison
@@ -47,26 +51,34 @@ from .sorceress_service import SorceressError
 from .sorceress_service import accept_favorite, accept_trade_transfer, buy_potion
 from .sorceress_service import cast_spell, create_favorite_request, create_trade_transfer
 from .sorceress_service import decline_trade_transfer, get_sorceress_state
+from .sorceress_service import ensure_sorceress_runtime_state
 from .sorceress_service import record_alignment_evidence, transfer_potion
 from .sorceress_service import use_potion_in_scene
 from .snapshot_exporter import build_snapshot_from_database
-from .timer_service import apply_due_timers, timer_status
+from .timer_service import apply_due_timers, apply_manual_lord_income_tick, timer_status
 
 try:
     from fastapi import FastAPI
     from fastapi import Header
     from fastapi import HTTPException
+    from fastapi import Request
+    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
 except ModuleNotFoundError:  # pragma: no cover - exercised in dependency smoke tests.
     FastAPI = None  # type: ignore[assignment]
     HTTPException = None  # type: ignore[assignment]
+    CORSMiddleware = None  # type: ignore[assignment]
+    Request = object  # type: ignore[assignment,misc]
     BaseModel = object  # type: ignore[assignment,misc]
 
 
 WEB_ROOT = Path(__file__).parent / "web"
 ADMIN_STUDIO_INDEX = WEB_ROOT / "admin" / "index.html"
+LORD_FRONTEND_DIST = PROJECT_ROOT / "prototypes" / "stage2b-v2" / "dist"
+LORD_FRONTEND_INDEX = LORD_FRONTEND_DIST / "index.html"
+LORD_FRONTEND_ASSETS = LORD_FRONTEND_DIST / "assets"
 
 
 class QrLookupPayload(BaseModel):
@@ -100,10 +112,28 @@ class PhysicalAnnouncementPayload(BaseModel):
     state: str = "announced"
 
 
+class GameStartSetupPayload(BaseModel):
+    operator: str = "master"
+    source: str = "master_start_setup"
+    act_id: str = "act1"
+    physical_announcement_state: str = "announced"
+
+
+class ActElapsedPayload(BaseModel):
+    elapsed_minutes: int
+    operator: str = "master"
+    source: str = "master_time_control"
+
+
 class BackupRunPayload(BaseModel):
     operator: str = "master"
     source: str = "master_api"
     trigger_type: str = "manual"
+
+
+class ManualTimerPayload(BaseModel):
+    operator: str = "master"
+    source: str = "master_manual_timer"
 
 
 class ContentImportPayload(BaseModel):
@@ -283,12 +313,14 @@ class GarrisonTransferPayload(BaseModel):
 
 class BuildingPurchasePayload(BaseModel):
     building_id: str
+    territory_id: str | None = None
     source: str = "lord_panel"
 
 
 class RecruitPayload(BaseModel):
     action: str
     offer_id: str | None = None
+    card_id: str | None = None
     quantity: int = 1
     territory_id: str | None = None
     source: str = "lord_panel"
@@ -299,6 +331,11 @@ class RaidPayload(BaseModel):
     rule_id: str | None = None
     expected_token_cost: int | None = None
     expected_gold_cost: int | None = None
+    source: str = "lord_panel"
+
+
+class RaidCleansePayload(BaseModel):
+    raid_effect_id: str
     source: str = "lord_panel"
 
 
@@ -409,7 +446,18 @@ def create_app(settings: Settings | None = None):
     runtime_settings = settings or Settings.from_env()
     init_database(runtime_settings)
     api = FastAPI(title=runtime_settings.app_name)
+    api.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     api.mount("/static", StaticFiles(directory=WEB_ROOT), name="static")
+    api.mount(
+        "/assets",
+        StaticFiles(directory=LORD_FRONTEND_ASSETS, check_dir=False),
+        name="lord-assets",
+    )
     from .event_models import EventSyncRequest, EventSyncResponse
     from .event_service import sync_events
 
@@ -421,6 +469,16 @@ def create_app(settings: Settings | None = None):
     @api.get("/admin/", include_in_schema=False)
     def admin_studio():
         return FileResponse(ADMIN_STUDIO_INDEX)
+
+    @api.get("/lords", include_in_schema=False)
+    @api.get("/lords/{path:path}", include_in_schema=False)
+    def lord_frontend(path: str = ""):
+        if not LORD_FRONTEND_INDEX.exists():
+            raise HTTPException(
+                status_code=503,
+                detail="Lord frontend build is not available. Run the frontend build first.",
+            )
+        return FileResponse(LORD_FRONTEND_INDEX)
 
     @api.get("/health")
     def health() -> dict[str, object]:
@@ -526,7 +584,7 @@ def create_app(settings: Settings | None = None):
     @api.post("/api/auth/role-token")
     def role_token_auth(request: RoleTokenRequest):
         with connect(runtime_settings) as connection:
-            auth = authenticate_role_token(connection, request.token)
+            auth = _authenticate_role_token_or_lord_code(connection, request.token)
         if auth is None:
             raise HTTPException(status_code=401, detail="Invalid role token.")
         return auth.model_dump()
@@ -644,6 +702,67 @@ def create_app(settings: Settings | None = None):
             _require_master_token(connection, x_role_token or role_token)
             return build_master_state(connection, runtime_settings)
 
+    @api.get("/api/master/player-codes")
+    def master_player_codes(
+        request: Request,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            payload = list_master_player_codes(connection)
+        return {
+            **payload,
+            "server_url": _suggested_lan_server_url(request),
+            "player_login_url": _suggested_player_login_url(request),
+        }
+
+    @api.post("/api/master/game/start-setup")
+    def master_game_start_setup(
+        payload: GameStartSetupPayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            ensure_lord_runtime_state(connection)
+            ensure_sorceress_runtime_state(connection)
+            act_state = get_act_state(connection, runtime_settings)
+            current_act_id = act_state["state"].get("current_act_id")
+            start_result = None
+            elapsed_result = None
+            try:
+                start_result = start_act(
+                    connection,
+                    runtime_settings,
+                    payload.act_id,
+                    operator=payload.operator,
+                    source=payload.source,
+                    physical_announcement_state=payload.physical_announcement_state,
+                )
+            except ActNotFoundError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+            if current_act_id == payload.act_id:
+                elapsed_result = set_active_act_elapsed_minutes(
+                    connection,
+                    runtime_settings,
+                    0,
+                    operator=payload.operator,
+                    source=payload.source,
+                )
+                status = "restarted"
+            elif current_act_id:
+                status = "switched"
+            else:
+                status = "started"
+            return {
+                "status": status,
+                "start_result": start_result,
+                "elapsed_result": elapsed_result,
+                "master_state": build_master_state(connection, runtime_settings),
+            }
+
     @api.get("/api/master/visibility-audit")
     def master_visibility_audit(
         x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
@@ -694,16 +813,31 @@ def create_app(settings: Settings | None = None):
             raise HTTPException(status_code=401, detail="Role token is required.")
 
         with connect(runtime_settings) as connection:
-            auth = authenticate_role_token(connection, token)
-            if auth is None:
-                raise HTTPException(status_code=401, detail="Invalid role token.")
-            if auth.role_type != "lord" or auth.owner_id != lord_id:
-                raise HTTPException(status_code=403, detail="Token cannot access this lord.")
+            _require_lord_token(connection, lord_id, token)
             _reconcile_due_timers(connection, runtime_settings)
             state = build_lord_state(connection, lord_id)
 
         if state is None:
             raise HTTPException(status_code=404, detail="Lord state is not available.")
+        return state
+
+    @api.get("/api/lords/{lord_id}/summary")
+    def lord_summary(
+        lord_id: str,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        token = x_role_token or role_token
+        if not token:
+            raise HTTPException(status_code=401, detail="Role token is required.")
+
+        with connect(runtime_settings) as connection:
+            _require_lord_token(connection, lord_id, token)
+            _reconcile_due_timers(connection, runtime_settings)
+            state = build_lord_summary_state(connection, lord_id)
+
+        if state is None:
+            raise HTTPException(status_code=404, detail="Lord summary is not available.")
         return state
 
     @api.post("/api/lords/{lord_id}/move")
@@ -793,6 +927,7 @@ def create_app(settings: Settings | None = None):
                     connection,
                     lord_id,
                     building_id=payload.building_id,
+                    territory_id=payload.territory_id,
                     source=payload.source,
                 )
             except LordRuntimeError as exc:
@@ -814,6 +949,7 @@ def create_app(settings: Settings | None = None):
                     lord_id,
                     action=payload.action,
                     offer_id=payload.offer_id,
+                    card_id=payload.card_id,
                     quantity=payload.quantity,
                     territory_id=payload.territory_id,
                     source=payload.source,
@@ -839,6 +975,26 @@ def create_app(settings: Settings | None = None):
                     rule_id=payload.rule_id,
                     expected_token_cost=payload.expected_token_cost,
                     expected_gold_cost=payload.expected_gold_cost,
+                    source=payload.source,
+                )
+            except LordRuntimeError as exc:
+                raise _lord_http_error(exc) from exc
+
+    @api.post("/api/lords/{lord_id}/raids/cleanse")
+    def lord_raid_cleanse(
+        lord_id: str,
+        payload: RaidCleansePayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_lord_token(connection, lord_id, x_role_token or role_token)
+            _reconcile_due_timers(connection, runtime_settings)
+            try:
+                return cleanse_raid_effect(
+                    connection,
+                    lord_id,
+                    raid_effect_id=payload.raid_effect_id,
                     source=payload.source,
                 )
             except LordRuntimeError as exc:
@@ -898,7 +1054,7 @@ def create_app(settings: Settings | None = None):
                     target_player_id=payload.target_player_id,
                     visibility=payload.visibility,
                     escrow_reward_id=payload.escrow_reward_id
-                    or _order_reward_id(payload.reward),
+                    or _order_reward_id(connection, payload.reward),
                     visible_hook=payload.visible_hook,
                     expires_at=payload.expires_at,
                     player_id=player_id,
@@ -963,6 +1119,25 @@ def create_app(settings: Settings | None = None):
             except UnlockCodeHiddenError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @api.post("/api/master/acts/elapsed")
+    def master_set_act_elapsed(
+        payload: ActElapsedPayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            try:
+                return set_active_act_elapsed_minutes(
+                    connection,
+                    runtime_settings,
+                    payload.elapsed_minutes,
+                    operator=payload.operator,
+                    source=payload.source,
+                )
+            except UnlockCodeHiddenError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @api.get("/api/master/acts/{act_id}/unlock-code")
     def master_unlock_code(
         act_id: str,
@@ -989,6 +1164,22 @@ def create_app(settings: Settings | None = None):
             applied = apply_due_timers(connection, runtime_settings)
             status = timer_status(connection)
         return {**status, "applied_now": applied}
+
+    @api.post("/api/master/timers/lord-income-tick")
+    def master_lord_income_tick(
+        payload: ManualTimerPayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            tick = apply_manual_lord_income_tick(
+                connection,
+                operator=payload.operator,
+                source=payload.source,
+            )
+            status = timer_status(connection)
+        return {**status, "applied_now": [tick]}
 
     @api.post("/api/backups/run")
     def backup_run(
@@ -1834,7 +2025,12 @@ def create_app(settings: Settings | None = None):
                 if domain_id and domain_id != auth.domain_id:
                     raise HTTPException(status_code=403, detail="Token cannot list this lord battle domain.")
                 scoped_domain_id = auth.domain_id
-            return list_lord_battles(connection, domain_id=scoped_domain_id)
+            return list_lord_battles(
+                connection,
+                domain_id=scoped_domain_id,
+                viewer_domain_id=auth.domain_id,
+                viewer_role_type=auth.role_type,
+            )
 
     @api.get("/api/lord-battles/{battle_id}")
     def lord_battle_get(
@@ -1849,7 +2045,12 @@ def create_app(settings: Settings | None = None):
                 domain_id=auth.domain_id if auth.role_type == "lord" else None,
             )
             try:
-                battle = get_lord_battle(connection, battle_id)
+                battle = get_lord_battle(
+                    connection,
+                    battle_id,
+                    viewer_domain_id=auth.domain_id,
+                    viewer_role_type=auth.role_type,
+                )
                 _assert_lord_battle_visible_to_auth(battle, auth)
                 return battle
             except LordBattleError as exc:
@@ -2042,7 +2243,7 @@ def _require_lord_token(
 ) -> None:
     if not token:
         raise HTTPException(status_code=401, detail="Role token is required.")
-    auth = authenticate_role_token(connection, token)
+    auth = _authenticate_role_token_or_lord_code(connection, token)
     if auth is None:
         raise HTTPException(status_code=401, detail="Invalid role token.")
     if auth.role_type != "lord" or auth.owner_id != lord_id:
@@ -2062,7 +2263,7 @@ def _require_master_token(connection, token: str | None) -> None:
 def _require_lord_battle_actor_token(connection, token: str | None):
     if not token:
         raise HTTPException(status_code=401, detail="Role token is required.")
-    auth = authenticate_role_token(connection, token)
+    auth = _authenticate_role_token_or_lord_code(connection, token)
     if auth is None:
         raise HTTPException(status_code=401, detail="Invalid role token.")
     if auth.role_type not in {"lord", "npc_master"}:
@@ -2070,6 +2271,30 @@ def _require_lord_battle_actor_token(connection, token: str | None):
     if auth.role_type == "lord" and not auth.domain_id:
         raise HTTPException(status_code=403, detail="Lord token is not assigned to a domain.")
     return auth
+
+
+def _authenticate_role_token_or_lord_code(
+    connection, token: str
+) -> RoleTokenAuth | None:
+    auth = authenticate_role_token(connection, token)
+    if auth is not None:
+        return auth
+
+    player_auth = _authenticate_player_code(connection, token)
+    if player_auth is None or player_auth["role_type"] != "lord":
+        return None
+
+    player = player_auth.get("player", {})
+    domain_id = str(player.get("lord_id") or "") or None
+    return RoleTokenAuth(
+        token_id=str(player_auth["player_code_id"]),
+        role_type="lord",
+        owner_id=str(player_auth["player_id"]),
+        display_name=str(player_auth["display_name"]),
+        lord_id=str(player_auth["player_id"]),
+        domain_id=domain_id,
+        permissions=["lord_panel:read"],
+    )
 
 
 def _authenticate_player_code(connection, player_code: str) -> dict[str, Any] | None:
@@ -2302,6 +2527,16 @@ def _mobile_order_matches_qr(
     object_id = str(order.get("object_id", "")).strip().upper()
     if not object_id:
         return False
+    interest = _fetch_mobile_row_by_id(
+        connection,
+        "order_interest_objects",
+        "interest_id",
+        str(order.get("object_id", "")).strip(),
+    )
+    if interest is not None:
+        return object_id == str(interest.get("interest_id", "")).strip().upper() and str(
+            interest.get("qr_id", "")
+        ).strip().upper() == str(qr.get("qr_id", "")).strip().upper()
     node_id = str(qr.get("location_node_id", ""))
     values = {
         str(qr.get("qr_id", "")),
@@ -2319,6 +2554,13 @@ def _mobile_order_object_metadata(
     object_id: str,
     qr: dict[str, object],
 ) -> tuple[str, str]:
+    interest = _fetch_mobile_row_by_id(connection, "order_interest_objects", "interest_id", object_id)
+    if interest is not None:
+        return (
+            str(interest.get("display_name") or object_id),
+            str(interest.get("interest_type") or "order_interest"),
+        )
+
     territory = _fetch_mobile_row_by_id(connection, "territories", "territory_id", object_id)
     if territory is not None:
         return str(territory.get("name", object_id)), "territory"
@@ -2449,11 +2691,13 @@ def _mobile_is_announced(value: object) -> bool:
 def _lord_http_error(exc: LordRuntimeError):
     return HTTPException(
         status_code=exc.status_code,
-        detail={"code": exc.code, "message": str(exc)},
+        detail={"code": exc.code, "reason_code": exc.code, "message": str(exc)},
     )
 
 
-def _order_reward_id(reward: str | dict[str, Any] | None) -> str | None:
+def _order_reward_id(
+    connection: sqlite3.Connection, reward: str | dict[str, Any] | None
+) -> str | None:
     if reward is None:
         return None
     if isinstance(reward, str):
@@ -2462,7 +2706,51 @@ def _order_reward_id(reward: str | dict[str, Any] | None) -> str | None:
         value = reward.get(key)
         if value:
             return str(value)
+    gold = _order_reward_gold(reward)
+    if gold:
+        return _ensure_order_gold_reward(connection, gold)
     return None
+
+
+def _order_reward_gold(reward: dict[str, Any]) -> int:
+    for key in ("gold", "gold_amount", "amount"):
+        raw_value = reward.get(key)
+        if raw_value in {None, ""}:
+            continue
+        try:
+            value = int(float(str(raw_value).replace(",", ".")))
+        except (TypeError, ValueError):
+            return 0
+        return max(0, value)
+    return 0
+
+
+def _ensure_order_gold_reward(connection: sqlite3.Connection, gold: int) -> str:
+    reward_id = f"order_gold_{gold}"
+    existing = connection.execute(
+        "SELECT 1 FROM rewards WHERE reward_id = ? LIMIT 1",
+        (reward_id,),
+    ).fetchone()
+    if existing is not None:
+        return reward_id
+
+    try:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO rewards (
+                _import_run_id, _row_number, reward_id, xp, gold, item_ids, card_ids,
+                artifact_ids, rarity, approval_policy
+            )
+            VALUES ('runtime_order_gold', ?, ?, '0', ?, '', '', '', 'Common', 'pending_master_approval')
+            """,
+            (gold, reward_id, str(gold)),
+        )
+    except sqlite3.OperationalError as exc:
+        raise LordRuntimeError(
+            "missing_escrow_reward",
+            "Order gold reward catalog is not available.",
+        ) from exc
+    return reward_id
 
 
 def _with_lord_order_state(
@@ -2504,6 +2792,31 @@ def _game_ops_http_error(exc: GameOpsCorrectionError):
         status_code=exc.status_code,
         detail={"code": exc.code, "message": exc.message},
     )
+
+
+def _suggested_lan_server_url(request: Request) -> str:
+    scheme = request.url.scheme or "http"
+    host = request.url.hostname or "127.0.0.1"
+    port = f":{request.url.port}" if request.url.port else ""
+    if host in {"127.0.0.1", "localhost", "0.0.0.0"}:
+        host = _local_ipv4_address() or host
+    return f"{scheme}://{host}{port}"
+
+
+def _suggested_player_login_url(request: Request) -> str:
+    server_url = _suggested_lan_server_url(request)
+    return f"{server_url}/lords/login"
+
+
+def _local_ipv4_address() -> str | None:
+    try:
+        addresses = socket.gethostbyname_ex(socket.gethostname())[2]
+    except OSError:
+        return None
+    for address in addresses:
+        if address.startswith(("10.", "172.", "192.168.")):
+            return address
+    return addresses[0] if addresses else None
 
 
 app = create_app() if FastAPI is not None else None

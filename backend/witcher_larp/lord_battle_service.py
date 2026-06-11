@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
@@ -10,12 +11,14 @@ from typing import Any
 from uuid import uuid4
 
 from .lord_runtime import active_pending_lord_move, ensure_lord_runtime_state
+from .lord_runtime import raid_defense_penalty_for_territory
 from .runtime_schema import ensure_runtime_schema, log_event
 
 
 BOARD_WIDTH = 5
 BOARD_HEIGHT = 6
 DEPLOYMENT_CAP = 5
+DEPLOYMENT_SECONDS = 60
 HERO_HP_BASE = 30
 HERO_HP_POWER_DIVISOR = 10
 HERO_HP_MIN = 35
@@ -89,7 +92,12 @@ def create_lord_battle(
             actor_domain_id,
             actor_role_type,
         )
-        payload = _battle_payload(connection, existing)
+        payload = _battle_payload(
+            connection,
+            existing,
+            viewer_domain_id=actor_domain_id,
+            viewer_role_type=actor_role_type,
+        )
         payload["duplicate"] = True
         return payload
 
@@ -163,10 +171,21 @@ def create_lord_battle(
         seed=seed,
         rule=rule,
     )
-    initiative = _initiative_order(board, seed, 1)
-    active_stack_id = initiative[0] if initiative else None
-    active_side = _stack_by_id(board, active_stack_id)["side"] if active_stack_id else None
-    timeout_at = current_time + timedelta(seconds=int(rule["turn_timer_seconds"]))
+    deployment["started_at"] = _iso(current_time)
+    deployment["timer_started_at"] = None
+    deployment["deadline_at"] = _iso(current_time + timedelta(seconds=DEPLOYMENT_SECONDS))
+    deployment["ready"] = {
+        "attacker": False,
+        "defender": battle_type == "neutral",
+    }
+    deployment["phase"] = "deployment"
+    if battle_type == "neutral":
+        _auto_deploy_side(board, deployment, "defender")
+        hero_hp = _hero_hp_for_stacks(board["stacks"])
+    initiative: list[str] = []
+    active_stack_id = None
+    active_side = None
+    timeout_at = current_time + timedelta(seconds=DEPLOYMENT_SECONDS)
 
     connection.execute(
         """
@@ -179,7 +198,7 @@ def create_lord_battle(
             target_duration_seconds, auto_resolve_after_seconds, master_takeover_enabled
         )
         VALUES (
-            ?, ?, ?, ?, ?, ?, ?, 'active', ?, 1, ?, ?, ?, ?, '{}', ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?, 'deployment', ?, 1, ?, ?, ?, ?, '{}', ?, ?, ?, ?,
             '[]', '{}', ?, ?, ?, ?, ?
         )
         """,
@@ -230,10 +249,11 @@ def create_lord_battle(
         battle_id,
         round_number=1,
         actor_side=None,
-        entry_type="deployment_recorded",
+        entry_type="deployment_started",
         payload={
             "deployment_hand": deployment["hand"],
             "deployed": deployment["deployed"],
+            "deadline_at": deployment["deadline_at"],
             "hp_formula_inputs": hero_hp["formula_inputs"],
         },
         now=current_time,
@@ -254,18 +274,57 @@ def create_lord_battle(
         source=source,
         created_at=current_time,
     )
-    return _battle_payload(connection, _fetch_battle_required(connection, battle_id))
+    return _battle_payload(
+        connection,
+        _fetch_battle_required(connection, battle_id),
+        viewer_domain_id=actor_domain_id,
+        viewer_role_type=actor_role_type,
+    )
 
 
-def get_lord_battle(connection: sqlite3.Connection, battle_id: str) -> dict[str, Any]:
+def get_lord_battle(
+    connection: sqlite3.Connection,
+    battle_id: str,
+    *,
+    viewer_domain_id: str | None = None,
+    viewer_role_type: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     ensure_lord_battle_runtime_state(connection)
-    return _battle_payload(connection, _fetch_battle_required(connection, battle_id))
+    row = _fetch_battle_required(connection, battle_id)
+    state = _state_from_row(row)
+    current_time = now or datetime.now(UTC)
+    state_changed = _start_deployment_timer_for_viewer(
+        state,
+        current_time,
+        viewer_domain_id=viewer_domain_id,
+        viewer_role_type=viewer_role_type,
+    )
+    state_changed = (
+        _advance_due_state(
+            connection,
+            state,
+            current_time,
+            source="lord_battle_get",
+        )
+        or state_changed
+    )
+    if state_changed:
+        _save_state(connection, state, current_time)
+    return _state_payload(
+        connection,
+        state,
+        viewer_domain_id=viewer_domain_id,
+        viewer_role_type=viewer_role_type,
+    )
 
 
 def list_lord_battles(
     connection: sqlite3.Connection,
     *,
     domain_id: str | None = None,
+    viewer_domain_id: str | None = None,
+    viewer_role_type: str | None = None,
 ) -> dict[str, Any]:
     ensure_lord_battle_runtime_state(connection)
     params: tuple[object, ...] = ()
@@ -282,7 +341,18 @@ def list_lord_battles(
         """,
         params,
     ).fetchall()
-    return {"items": [_battle_payload(connection, row, include_log=False) for row in rows]}
+    return {
+        "items": [
+            _battle_payload(
+                connection,
+                row,
+                include_log=False,
+                viewer_domain_id=viewer_domain_id,
+                viewer_role_type=viewer_role_type,
+            )
+            for row in rows
+        ]
+    }
 
 
 def record_lord_battle_action(
@@ -307,6 +377,12 @@ def record_lord_battle_action(
     action_type = action_type.strip().lower()
     actor_side = _side_name(actor_side)
     _assert_actor_allowed(state, actor_side, actor_domain_id, actor_role_type)
+    _start_deployment_timer_for_actor(
+        state,
+        current_time,
+        actor_side=actor_side,
+        actor_role_type=actor_role_type,
+    )
     existing_action = connection.execute(
         """
         SELECT result_json
@@ -320,8 +396,53 @@ def record_lord_battle_action(
         result["duplicate"] = True
         return result
 
+    if state["status"] == "deployment" and _deployment_timer_due(state, current_time):
+        _finalize_deployment(
+            connection,
+            state,
+            current_time,
+            source=source,
+            reason="deployment_timer",
+        )
+
+    if state["status"] == "active" and action_type in {"move", "attack", "defend", "skip"}:
+        _advance_due_state(
+            connection,
+            state,
+            current_time,
+            source=source,
+            include_timeouts=False,
+            include_neutral_ai=True,
+        )
+
     if state["status"] in FINAL_BATTLE_STATES:
-        result = {"status": state["status"], "battle": _state_payload(connection, state)}
+        result = {
+            "status": state["status"],
+            "battle": _state_payload(
+                connection,
+                state,
+                viewer_domain_id=actor_domain_id,
+                viewer_role_type=actor_role_type,
+            ),
+        }
+    elif state["status"] == "deployment":
+        if action_type == "deploy":
+            result = _apply_deploy_action(connection, state, actor_side, payload, current_time)
+        elif action_type == "ready":
+            result = _apply_deployment_ready(
+                connection,
+                state,
+                actor_side,
+                current_time,
+                source=source,
+            )
+        else:
+            raise LordBattleError(
+                "battle_in_deployment",
+                "Battle is still in deployment. Deploy units or confirm readiness first.",
+            )
+    elif action_type in {"deploy", "ready"}:
+        raise LordBattleError("deployment_closed", "Deployment is already closed for this battle.")
     elif action_type != "timeout" and _turn_timer_due(state, current_time):
         timed_out_side = str(state["active_side"])
         result = _apply_timeout(
@@ -334,8 +455,6 @@ def record_lord_battle_action(
         result["timed_out_before_action"] = True
         result["requested_action_type"] = action_type
         result["requested_actor_side"] = actor_side
-    elif action_type == "deploy":
-        result = _apply_deploy_check(state, actor_side, payload)
     elif action_type == "master_takeover":
         result = _apply_master_takeover(connection, state, actor_side, current_time)
     elif action_type == "ai_turn":
@@ -343,7 +462,14 @@ def record_lord_battle_action(
     elif action_type == "timeout":
         result = _apply_timeout(connection, state, actor_side, current_time, source=source)
     elif action_type == "auto_resolve":
-        result = _apply_auto_resolve(connection, state, current_time, source=source)
+        result = _apply_auto_resolve(
+            connection,
+            state,
+            actor_side,
+            actor_role_type,
+            current_time,
+            source=source,
+        )
     elif action_type == "surrender":
         result = _apply_surrender(connection, state, actor_side, current_time, source=source)
     elif action_type == "move":
@@ -355,8 +481,25 @@ def record_lord_battle_action(
     else:
         raise LordBattleError("unknown_action", f"Unsupported battle action: {action_type}.")
 
+    if action_type != "ai_turn" and _advance_due_state(
+        connection,
+        state,
+        current_time,
+        source=source,
+        include_timeouts=False,
+        include_neutral_ai=True,
+    ):
+        result["auto_advanced"] = True
     _save_state(connection, state, current_time)
-    result.setdefault("battle", _state_payload(connection, state))
+    result.setdefault(
+        "battle",
+        _state_payload(
+            connection,
+            state,
+            viewer_domain_id=actor_domain_id,
+            viewer_role_type=actor_role_type,
+        ),
+    )
     result.setdefault("duplicate", False)
     connection.execute(
         """
@@ -379,25 +522,91 @@ def record_lord_battle_action(
     return result
 
 
-def _apply_deploy_check(
+def _apply_deploy_action(
+    connection: sqlite3.Connection,
     state: dict[str, Any],
     actor_side: str,
     payload: dict[str, Any],
+    now: datetime,
 ) -> dict[str, Any]:
-    card_id = str(payload.get("card_id") or "").strip()
-    if not card_id:
-        raise LordBattleError("missing_card_id", "Deploy action requires card_id.")
-    hand = state["deployment"]["hand"].get(actor_side, [])
-    if card_id not in {item["card_id"] for item in hand}:
-        raise LordBattleError(
-            "deployment_card_not_in_hand",
-            "Cannot deploy a card outside the available deployment hand.",
-        )
+    if bool(state["deployment"].get("ready", {}).get(actor_side)):
+        raise LordBattleError("deployment_side_ready", "Side already confirmed deployment.")
+    item, hand_index = _deployment_item_from_payload(state, actor_side, payload)
+    to_cell = payload.get("to") if isinstance(payload.get("to"), dict) else payload
+    to_x = _to_int(to_cell.get("x"))
+    to_y = _to_int(to_cell.get("y"))
+    _assert_can_deploy_to_cell(state["board"], actor_side, to_x, to_y)
+    existing = _deployment_entry_for_item(state["deployment"], actor_side, item)
+    if existing is None and len(state["deployment"]["deployed"][actor_side]) >= int(state["deployment"]["deployment_cap"]):
+        raise LordBattleError("deployment_cap_reached", "Deployment cap is already reached.")
+    stack_id = str(existing["stack_id"]) if existing else f"{actor_side[0].upper()}{hand_index + 1}"
+    state["board"]["stacks"] = [
+        stack for stack in state["board"]["stacks"] if stack["stack_id"] != stack_id
+    ]
+    stack = _stack_from_source(item, side=actor_side, index=hand_index)
+    stack["stack_id"] = stack_id
+    stack["x"] = to_x
+    stack["y"] = to_y
+    state["board"]["stacks"].append(stack)
+    deployed_entry = _deployment_entry(stack)
+    if existing is None:
+        state["deployment"]["deployed"][actor_side].append(deployed_entry)
+    else:
+        state["deployment"]["deployed"][actor_side] = [
+            deployed_entry if _same_deployment_item(entry, item) else entry
+            for entry in state["deployment"]["deployed"][actor_side]
+        ]
+    _append_log(
+        connection,
+        state["battle_id"],
+        round_number=state["round_number"],
+        actor_side=actor_side,
+        entry_type="unit_deployed",
+        payload=deployed_entry,
+        now=now,
+    )
     return {
-        "status": "already_deployed",
+        "status": "deployed",
         "side": actor_side,
-        "card_id": card_id,
+        "stack_id": stack_id,
+        "card_id": item["card_id"],
+        "source_id": item["source_id"],
+        "to": {"x": to_x, "y": to_y},
         "deployment_cap": state["deployment"]["deployment_cap"],
+    }
+
+
+def _apply_deployment_ready(
+    connection: sqlite3.Connection,
+    state: dict[str, Any],
+    actor_side: str,
+    now: datetime,
+    *,
+    source: str,
+) -> dict[str, Any]:
+    state["deployment"].setdefault("ready", {"attacker": False, "defender": False})
+    state["deployment"]["ready"][actor_side] = True
+    _append_log(
+        connection,
+        state["battle_id"],
+        round_number=state["round_number"],
+        actor_side=actor_side,
+        entry_type="deployment_ready",
+        payload={"ready": deepcopy(state["deployment"]["ready"])},
+        now=now,
+    )
+    if all(bool(state["deployment"]["ready"].get(side)) for side in ("attacker", "defender")):
+        _finalize_deployment(
+            connection,
+            state,
+            now,
+            source=source,
+            reason="all_sides_ready",
+        )
+        return {"status": state["status"], "deployment": "finalized"}
+    return {
+        "status": "deployment_ready",
+        "ready": deepcopy(state["deployment"]["ready"]),
     }
 
 
@@ -506,10 +715,38 @@ def _apply_timeout(
 def _apply_auto_resolve(
     connection: sqlite3.Connection,
     state: dict[str, Any],
+    actor_side: str,
+    actor_role_type: str | None,
     now: datetime,
     *,
     source: str,
 ) -> dict[str, Any]:
+    if state["battle_type"] == "lord_vs_lord" and actor_role_type != "npc_master":
+        votes = _auto_resolve_votes(state)
+        if actor_side not in votes["sides"]:
+            votes["sides"].append(actor_side)
+            votes["sides"].sort()
+        _append_log(
+            connection,
+            state["battle_id"],
+            round_number=state["round_number"],
+            actor_side=actor_side,
+            entry_type="auto_resolve_vote",
+            payload=_auto_resolve_vote_payload(state),
+            now=now,
+        )
+        if len(votes["sides"]) < 2:
+            return {
+                "status": "auto_resolve_vote_pending",
+                "auto_resolve": _auto_resolve_vote_payload(state),
+            }
+        return _finish_by_auto_resolve(
+            connection,
+            state,
+            now,
+            source=source,
+            reason="manual_auto_resolve_confirmed",
+        )
     return _finish_by_auto_resolve(connection, state, now, source=source, reason="manual_auto_resolve")
 
 
@@ -1070,8 +1307,15 @@ def _advance_turn(state: dict[str, Any], now: datetime) -> None:
     winner_side = _winner_from_state(state)
     if winner_side:
         return
-    order = [stack_id for stack_id in state["initiative_order"] if _is_alive(_stack_by_id(state["board"], stack_id))]
     current_id = state["active_stack_id"]
+    if current_id:
+        _stack_by_id(state["board"], current_id)["acted_round"] = state["round_number"]
+    order = [
+        stack_id
+        for stack_id in state["initiative_order"]
+        if _is_alive(_stack_by_id(state["board"], stack_id))
+        and int(_stack_by_id(state["board"], stack_id).get("acted_round", 0)) != state["round_number"]
+    ]
     next_stack_id: str | None = None
     if current_id in order:
         current_index = order.index(current_id)
@@ -1131,49 +1375,18 @@ def _build_initial_board(
     seed: str,
     rule: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    sorted_sources = {
+        side: _sort_sources_for_deploy(sources, seed, side)
+        for side, sources in (("attacker", attacker_sources), ("defender", defender_sources))
+    }
     deployment = {
         "deployment_cap": DEPLOYMENT_CAP,
         "hand": {
-            "attacker": [_hand_item(source) for source in attacker_sources],
-            "defender": [_hand_item(source) for source in defender_sources],
+            "attacker": [_hand_item(source) for source in sorted_sources["attacker"]],
+            "defender": [_hand_item(source) for source in sorted_sources["defender"]],
         },
         "deployed": {"attacker": [], "defender": []},
         "undeployed": {"attacker": [], "defender": []},
-    }
-    stacks = []
-    for side, sources in (("attacker", attacker_sources), ("defender", defender_sources)):
-        sorted_sources = _sort_sources_for_deploy(sources, seed, side)
-        for index, source in enumerate(sorted_sources):
-            if index >= DEPLOYMENT_CAP:
-                deployment["undeployed"][side].append(_hand_item(source))
-                continue
-            stack = _stack_from_source(source, side=side, index=index)
-            stack["x"], stack["y"] = _deployment_position(side, index)
-            stacks.append(stack)
-            deployment["deployed"][side].append(
-                {
-                    "stack_id": stack["stack_id"],
-                    "card_id": stack["card_id"],
-                    "unit_class": stack["unit_class"],
-                    "count": stack["initial_count"],
-                    "x": stack["x"],
-                    "y": stack["y"],
-                    "source_type": stack["source_type"],
-                    "source_id": stack["source_id"],
-                }
-            )
-
-    hero_hp = {
-        "attacker": _hero_hp_payload(stacks, "attacker"),
-        "defender": _hero_hp_payload(stacks, "defender"),
-    }
-    hero_hp["formula_inputs"] = {
-        "base": HERO_HP_BASE,
-        "power_divisor": HERO_HP_POWER_DIVISOR,
-        "min": HERO_HP_MIN,
-        "max": HERO_HP_MAX,
-        "attacker_deployed_army_power": _deployed_army_power(stacks, "attacker"),
-        "defender_deployed_army_power": _deployed_army_power(stacks, "defender"),
     }
     board = {
         "width": int(rule["grid_width"]),
@@ -1186,7 +1399,7 @@ def _build_initial_board(
             "attacker": 1,
             "defender": int(rule["grid_height"]) - 2,
         },
-        "stacks": stacks,
+        "stacks": [],
         "rules": {
             "damage_formula": rule["damage_formula"],
             "initiative_tiebreaker": rule["initiative_tiebreaker"],
@@ -1198,7 +1411,7 @@ def _build_initial_board(
             "retaliation": "once_per_unit_per_round",
         },
     }
-    return board, deployment, hero_hp
+    return board, deployment, _hero_hp_for_stacks(board["stacks"])
 
 
 def _stack_from_source(source: dict[str, Any], *, side: str, index: int) -> dict[str, Any]:
@@ -1223,6 +1436,7 @@ def _stack_from_source(source: dict[str, Any], *, side: str, index: int) -> dict
         "wounds_on_front_unit": 0,
         "x": 0,
         "y": 0,
+        "acted_round": 0,
         "retaliated_this_round": False,
         "defended": False,
     }
@@ -1235,6 +1449,162 @@ def _deployment_position(side: str, index: int) -> tuple[int, int]:
     else:
         y_order = [4, 4, 4, 4, 3]
     return x_order[index], y_order[index]
+
+
+def _deployment_rows(board: dict[str, Any], side: str) -> set[int]:
+    start_line = int(board["start_lines"][side])
+    if side == "attacker":
+        return {start_line, min(int(board["height"]) - 1, start_line + 1)}
+    return {start_line, max(0, start_line - 1)}
+
+
+def _assert_can_deploy_to_cell(board: dict[str, Any], side: str, x: int, y: int) -> None:
+    if not (0 <= x < int(board["width"]) and 0 <= y < int(board["height"])):
+        raise LordBattleError("deploy_off_board", "Deployment cell is outside the 5x6 board.")
+    if y not in _deployment_rows(board, side):
+        raise LordBattleError("deploy_outside_start_zone", "Unit must deploy inside its start zone.")
+    if _is_hero_cell(board, x, y):
+        raise LordBattleError("deploy_to_hero_cell", "Units cannot deploy on hero cells.")
+    if _occupied_stack_at(board, x, y) is not None:
+        raise LordBattleError("deploy_to_occupied_cell", "Deployment cell is occupied.")
+
+
+def _deployment_item_key(item: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(item.get("source_type") or ""),
+        str(item.get("source_id") or ""),
+        str(item.get("card_id") or ""),
+    )
+
+
+def _same_deployment_item(entry: dict[str, Any], item: dict[str, Any]) -> bool:
+    return _deployment_item_key(entry) == _deployment_item_key(item)
+
+
+def _deployment_entry_for_item(
+    deployment: dict[str, Any],
+    side: str,
+    item: dict[str, Any],
+) -> dict[str, Any] | None:
+    for entry in deployment["deployed"].get(side, []):
+        if _same_deployment_item(entry, item):
+            return entry
+    return None
+
+
+def _deployment_entry(stack: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "stack_id": stack["stack_id"],
+        "card_id": stack["card_id"],
+        "unit_class": stack["unit_class"],
+        "count": stack["initial_count"],
+        "x": stack["x"],
+        "y": stack["y"],
+        "source_type": stack["source_type"],
+        "source_id": stack["source_id"],
+        "domain_id": stack.get("domain_id"),
+    }
+
+
+def _deployment_item_from_payload(
+    state: dict[str, Any],
+    side: str,
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any], int]:
+    source_id = str(payload.get("source_id") or "").strip()
+    card_id = str(payload.get("card_id") or "").strip()
+    if not source_id and not card_id:
+        raise LordBattleError("missing_card_id", "Deploy action requires card_id or source_id.")
+    hand = state["deployment"]["hand"].get(side, [])
+    first_card_match: tuple[dict[str, Any], int] | None = None
+    for index, item in enumerate(hand):
+        if source_id and source_id == str(item.get("source_id")):
+            return item, index
+        if card_id and card_id == str(item.get("card_id")) and first_card_match is None:
+            first_card_match = item, index
+            if _deployment_entry_for_item(state["deployment"], side, item) is None:
+                return item, index
+    if first_card_match is not None:
+        return first_card_match
+    raise LordBattleError(
+        "deployment_card_not_in_hand",
+        "Cannot deploy a card outside the available deployment hand.",
+    )
+
+
+def _auto_deploy_side(board: dict[str, Any], deployment: dict[str, Any], side: str) -> None:
+    for hand_index, item in enumerate(deployment["hand"].get(side, [])):
+        if len(deployment["deployed"][side]) >= int(deployment["deployment_cap"]):
+            break
+        deploy_index = len(deployment["deployed"][side])
+        stack = _stack_from_source(item, side=side, index=hand_index)
+        stack["x"], stack["y"] = _deployment_position(side, deploy_index)
+        board["stacks"].append(stack)
+        deployment["deployed"][side].append(_deployment_entry(stack))
+
+
+def _finalize_deployment(
+    connection: sqlite3.Connection,
+    state: dict[str, Any],
+    now: datetime,
+    *,
+    source: str,
+    reason: str,
+) -> None:
+    if state["status"] != "deployment":
+        return
+    deployment = state["deployment"]
+    for side in ("attacker", "defender"):
+        deployed_keys = {
+            _deployment_item_key(entry)
+            for entry in deployment["deployed"].get(side, [])
+        }
+        deployment["undeployed"][side] = [
+            item
+            for item in deployment["hand"].get(side, [])
+            if _deployment_item_key(item) not in deployed_keys
+        ]
+    deployment["ready"] = {"attacker": True, "defender": True}
+    deployment["phase"] = "complete"
+    deployment["completed_at"] = _iso(now)
+    deployment["completed_reason"] = reason
+    state["hero_hp"] = _hero_hp_for_stacks(state["board"]["stacks"])
+    state["status"] = "active"
+    state["round_number"] = 1
+    state["initiative_order"] = _initiative_order(state["board"], state["seed"], 1)
+    state["active_stack_id"] = state["initiative_order"][0] if state["initiative_order"] else None
+    state["active_side"] = (
+        _stack_by_id(state["board"], state["active_stack_id"])["side"]
+        if state["active_stack_id"]
+        else None
+    )
+    state["turn_started_at"] = _iso(now)
+    state["timeout_at"] = _iso(now + timedelta(seconds=int(state["turn_timer_seconds"])))
+    _append_log(
+        connection,
+        state["battle_id"],
+        round_number=state["round_number"],
+        actor_side=None,
+        entry_type="deployment_recorded",
+        payload={
+            "deployed": deployment["deployed"],
+            "undeployed": deployment["undeployed"],
+            "reason": reason,
+            "hp_formula_inputs": state["hero_hp"]["formula_inputs"],
+        },
+        now=now,
+    )
+    winner_side = _winner_from_state(state)
+    if winner_side:
+        _finish_battle(
+            connection,
+            state,
+            winner_side=winner_side,
+            outcome="deployment_no_units",
+            now=now,
+            source=source,
+            reason=reason,
+        )
 
 
 def _hero_hp_payload(stacks: list[dict[str, Any]], side: str) -> dict[str, int]:
@@ -1252,6 +1622,22 @@ def _deployed_army_power(stacks: list[dict[str, Any]], side: str) -> int:
         for stack in stacks
         if stack["side"] == side
     )
+
+
+def _hero_hp_for_stacks(stacks: list[dict[str, Any]]) -> dict[str, Any]:
+    hero_hp = {
+        "attacker": _hero_hp_payload(stacks, "attacker"),
+        "defender": _hero_hp_payload(stacks, "defender"),
+    }
+    hero_hp["formula_inputs"] = {
+        "base": HERO_HP_BASE,
+        "power_divisor": HERO_HP_POWER_DIVISOR,
+        "min": HERO_HP_MIN,
+        "max": HERO_HP_MAX,
+        "attacker_deployed_army_power": _deployed_army_power(stacks, "attacker"),
+        "defender_deployed_army_power": _deployed_army_power(stacks, "defender"),
+    }
+    return hero_hp
 
 
 def _active_army_sources(connection: sqlite3.Connection, domain_id: str) -> list[dict[str, Any]]:
@@ -1291,11 +1677,27 @@ def _defender_sources(
             (defender_domain_id, territory_id),
         ).fetchall()
         sources.extend(_source_from_row(row, "garrison", str(row["garrison_id"])) for row in rows)
+        _apply_raid_defense_penalty(
+            sources,
+            raid_defense_penalty_for_territory(connection, territory_id),
+        )
         if _domain_current_territory(connection, defender_domain_id) == territory_id:
             sources.extend(_active_army_sources(connection, defender_domain_id))
     else:
         sources.extend(_active_army_sources(connection, defender_domain_id))
     return sources
+
+
+def _apply_raid_defense_penalty(
+    sources: list[dict[str, Any]], penalty: int
+) -> None:
+    if penalty <= 0:
+        return
+    for source in sources:
+        if source.get("source_type") != "garrison":
+            continue
+        source["defense"] = max(0, int(source["defense"]) - penalty)
+        source["raid_defense_penalty"] = penalty
 
 
 def _neutral_sources(
@@ -1377,9 +1779,10 @@ def _source_from_row(row: sqlite3.Row, source_type: str, source_id: str) -> dict
 
 
 def _hand_item(source: dict[str, Any]) -> dict[str, Any]:
-    return {
+    item = {
         "source_type": source["source_type"],
         "source_id": source["source_id"],
+        "domain_id": source.get("domain_id"),
         "card_id": source["card_id"],
         "unit_class": source["unit_class"],
         "tier": source["tier"],
@@ -1391,6 +1794,9 @@ def _hand_item(source: dict[str, Any]) -> dict[str, Any]:
         "attack_range": source["attack_range"],
         "count": source["count"],
     }
+    if source.get("neutral_profile_id"):
+        item["neutral_profile_id"] = source["neutral_profile_id"]
+    return item
 
 
 def _sort_sources_for_deploy(
@@ -1410,15 +1816,21 @@ def _sort_sources_for_deploy(
 
 def _initiative_order(board: dict[str, Any], seed: str, round_number: int) -> list[str]:
     alive = [stack for stack in board["stacks"] if _is_alive(stack)]
-    ordered = sorted(
-        alive,
-        key=lambda stack: (
-            -int(stack["initiative"]),
-            -int(stack["tier"]),
-            _deterministic_int(seed, str(round_number), stack["stack_id"]),
-        ),
-    )
-    return [stack["stack_id"] for stack in ordered]
+    ordered_ids: list[str] = []
+    initiative_values = sorted({int(stack["initiative"]) for stack in alive}, reverse=True)
+    for initiative in initiative_values:
+        tied = sorted(
+            [stack for stack in alive if int(stack["initiative"]) == initiative],
+            key=lambda stack: (
+                -int(stack["tier"]),
+                _deterministic_int(seed, "initiative", stack["stack_id"]),
+            ),
+        )
+        if len(tied) > 1:
+            offset = (round_number - 1) % len(tied)
+            tied = tied[offset:] + tied[:offset]
+        ordered_ids.extend(stack["stack_id"] for stack in tied)
+    return ordered_ids
 
 
 def _damage(attacker: dict[str, Any], defender: dict[str, Any]) -> int:
@@ -1705,10 +2117,121 @@ def _state_from_row(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _turn_timer_due(state: dict[str, Any], now: datetime) -> bool:
-    if state["status"] in FINAL_BATTLE_STATES or not state.get("active_side"):
+    if state["status"] != "active" or not state.get("active_side"):
         return False
     timeout_at = _parse_iso(state.get("timeout_at"))
     return now >= timeout_at
+
+
+def _start_deployment_timer_for_viewer(
+    state: dict[str, Any],
+    now: datetime,
+    *,
+    viewer_domain_id: str | None,
+    viewer_role_type: str | None,
+) -> bool:
+    if state["status"] != "deployment" or viewer_role_type != "lord":
+        return False
+    if _viewer_side(
+        state,
+        viewer_domain_id=viewer_domain_id,
+        viewer_role_type=viewer_role_type,
+    ) is None:
+        return False
+    return _start_deployment_timer(state, now)
+
+
+def _start_deployment_timer_for_actor(
+    state: dict[str, Any],
+    now: datetime,
+    *,
+    actor_side: str,
+    actor_role_type: str | None,
+) -> bool:
+    if state["status"] != "deployment" or actor_role_type == "npc_master":
+        return False
+    if actor_side not in {"attacker", "defender"}:
+        return False
+    return _start_deployment_timer(state, now)
+
+
+def _start_deployment_timer(state: dict[str, Any], now: datetime) -> bool:
+    deployment = state.setdefault("deployment", {})
+    if deployment.get("timer_started_at"):
+        return False
+    deadline = now + timedelta(seconds=DEPLOYMENT_SECONDS)
+    deployment["timer_started_at"] = _iso(now)
+    deployment["started_at"] = _iso(now)
+    deployment["deadline_at"] = _iso(deadline)
+    state["timeout_at"] = _iso(deadline)
+    return True
+
+
+def _advance_due_state(
+    connection: sqlite3.Connection,
+    state: dict[str, Any],
+    now: datetime,
+    *,
+    source: str,
+    include_timeouts: bool = True,
+    include_neutral_ai: bool = True,
+) -> bool:
+    changed = False
+    if _deployment_timer_due(state, now):
+        _finalize_deployment(
+            connection,
+            state,
+            now,
+            source=source,
+            reason="deployment_timer",
+        )
+        changed = True
+
+    for _ in range(BOARD_WIDTH * BOARD_HEIGHT):
+        if state["status"] in FINAL_BATTLE_STATES:
+            break
+        winner_side = _winner_from_state(state) if state["status"] == "active" else None
+        if winner_side:
+            _finish_battle(
+                connection,
+                state,
+                winner_side=winner_side,
+                outcome="state_check",
+                now=now,
+                source=source,
+            )
+            changed = True
+            break
+        if (
+            include_neutral_ai
+            and state["status"] == "active"
+            and state.get("defender_control") == "neutral_ai"
+            and state.get("active_side") == "defender"
+        ):
+            _apply_ai_turn(connection, state, "defender", now, source=source)
+            changed = True
+            continue
+        if include_timeouts and _turn_timer_due(state, now):
+            _apply_timeout(
+                connection,
+                state,
+                str(state["active_side"]),
+                now,
+                source=source,
+            )
+            changed = True
+            continue
+        break
+    return changed
+
+
+def _deployment_timer_due(state: dict[str, Any], now: datetime) -> bool:
+    if state["status"] != "deployment":
+        return False
+    if not state.get("deployment", {}).get("timer_started_at"):
+        return False
+    deadline_at = _optional(state.get("deployment", {}).get("deadline_at")) or state.get("timeout_at")
+    return now >= _parse_iso(deadline_at)
 
 
 def _save_state(connection: sqlite3.Connection, state: dict[str, Any], now: datetime) -> None:
@@ -1760,8 +2283,16 @@ def _battle_payload(
     row: sqlite3.Row,
     *,
     include_log: bool = True,
+    viewer_domain_id: str | None = None,
+    viewer_role_type: str | None = None,
 ) -> dict[str, Any]:
-    return _state_payload(connection, _state_from_row(row), include_log=include_log)
+    return _state_payload(
+        connection,
+        _state_from_row(row),
+        include_log=include_log,
+        viewer_domain_id=viewer_domain_id,
+        viewer_role_type=viewer_role_type,
+    )
 
 
 def _state_payload(
@@ -1769,10 +2300,23 @@ def _state_payload(
     state: dict[str, Any],
     *,
     include_log: bool = True,
+    viewer_domain_id: str | None = None,
+    viewer_role_type: str | None = None,
 ) -> dict[str, Any]:
     created_at = _parse_iso(state["created_at"])
     finished_at = _parse_iso(state["finished_at"]) if state.get("finished_at") else datetime.now(UTC)
     elapsed = max(0, int((finished_at - created_at).total_seconds()))
+    board = deepcopy(state["board"])
+    deployment = deepcopy(state["deployment"])
+    initiative_order = list(state["initiative_order"])
+    visibility = _apply_payload_visibility(
+        state,
+        board,
+        deployment,
+        initiative_order,
+        viewer_domain_id=viewer_domain_id,
+        viewer_role_type=viewer_role_type,
+    )
     payload = {
         "battle_id": state["battle_id"],
         "battle_type": state["battle_type"],
@@ -1789,12 +2333,14 @@ def _state_payload(
         "turn_started_at": state["turn_started_at"],
         "timeout_at": state["timeout_at"],
         "timeout_counts": state["timeout_counts"],
-        "board": state["board"],
+        "board": board,
         "hero_hp": state["hero_hp"],
-        "deployment": state["deployment"],
-        "initiative_order": state["initiative_order"],
+        "deployment": deployment,
+        "initiative_order": initiative_order,
         "burned_cards": state["burned_cards"],
         "result": state["result"],
+        "auto_resolve": _auto_resolve_vote_payload(state),
+        "visibility": visibility,
         "created_at": state["created_at"],
         "updated_at": state["updated_at"],
         "finished_at": state["finished_at"],
@@ -1809,6 +2355,81 @@ def _state_payload(
     if include_log:
         payload["battle_log"] = _battle_log(connection, state["battle_id"])
     return payload
+
+
+def _viewer_side(
+    state: dict[str, Any],
+    *,
+    viewer_domain_id: str | None,
+    viewer_role_type: str | None,
+) -> str | None:
+    if viewer_role_type == "npc_master":
+        return None
+    if viewer_domain_id == state["attacker_domain_id"]:
+        return "attacker"
+    if viewer_domain_id and viewer_domain_id == state.get("defender_domain_id"):
+        return "defender"
+    return None
+
+
+def _apply_payload_visibility(
+    state: dict[str, Any],
+    board: dict[str, Any],
+    deployment: dict[str, Any],
+    initiative_order: list[str],
+    *,
+    viewer_domain_id: str | None,
+    viewer_role_type: str | None,
+) -> dict[str, Any]:
+    viewer_side = _viewer_side(
+        state,
+        viewer_domain_id=viewer_domain_id,
+        viewer_role_type=viewer_role_type,
+    )
+    visibility = {
+        "viewer_side": viewer_side,
+        "enemy_deployment_hidden": False,
+    }
+    if state["status"] != "deployment" or viewer_role_type == "npc_master":
+        return visibility
+    visibility["enemy_deployment_hidden"] = True
+    visible_side = viewer_side
+    board["stacks"] = [
+        stack for stack in board.get("stacks", []) if stack.get("side") == visible_side
+    ]
+    initiative_order.clear()
+    for side in ("attacker", "defender"):
+        if side == visible_side:
+            continue
+        deployment.setdefault("hand", {})[side] = []
+        deployment.setdefault("deployed", {})[side] = []
+        deployment.setdefault("undeployed", {})[side] = []
+    return visibility
+
+
+def _auto_resolve_votes(state: dict[str, Any]) -> dict[str, Any]:
+    result = state.setdefault("result", {})
+    votes = result.setdefault("auto_resolve_votes", {"sides": []})
+    if not isinstance(votes, dict):
+        votes = {"sides": []}
+        result["auto_resolve_votes"] = votes
+    sides = votes.setdefault("sides", [])
+    if not isinstance(sides, list):
+        votes["sides"] = []
+    return votes
+
+
+def _auto_resolve_vote_payload(state: dict[str, Any]) -> dict[str, Any]:
+    required = 2 if state.get("battle_type") == "lord_vs_lord" else 1
+    votes = _auto_resolve_votes(state) if state["status"] not in FINAL_BATTLE_STATES else {}
+    sides = sorted(str(side) for side in votes.get("sides", []) if str(side) in {"attacker", "defender"})
+    return {
+        "required": required,
+        "count": len(sides),
+        "sides": sides,
+        "label": f"Авторасчет {len(sides)}/{required}",
+        "confirmed": len(sides) >= required,
+    }
 
 
 def _battle_log(connection: sqlite3.Connection, battle_id: str) -> list[dict[str, Any]]:

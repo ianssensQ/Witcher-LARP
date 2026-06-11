@@ -689,24 +689,7 @@ def _decide_reward(
 def _decide_pve_reward(
     connection: sqlite3.Connection, reward_id: str, metadata: dict[str, Any]
 ) -> EventDecision:
-    metadata["reward_id"] = reward_id
-    row = _fetch_optional_row(
-        connection,
-        "rewards",
-        "SELECT reward_id, rarity, approval_policy FROM rewards WHERE reward_id = ?",
-        (reward_id,),
-    )
-    if row is None:
-        return EventDecision(EventStatus.NEEDS_MASTER_REVIEW, f"unknown reward_id: {reward_id}", metadata)
-
-    metadata.update(
-        {
-            "reward_rarity": row["rarity"],
-            "reward_approval_policy": row["approval_policy"],
-            "reward_status": "auto",
-        }
-    )
-    return EventDecision(EventStatus.ACCEPTED, None, metadata)
+    return _decide_reward(connection, reward_id, metadata)
 
 
 def _decide_qr_runtime_event(

@@ -12,7 +12,11 @@ from .act_service import get_act_state
 from .asset_service import active_reward_approvals, ensure_asset_contract_schema
 from .config import Settings
 from .event_schema import ensure_event_schema
-from .lord_runtime import anti_snowball_cut_for_domain, ensure_lord_runtime_state
+from .lord_runtime import (
+    ACTIVE_ORDER_STATUSES,
+    anti_snowball_cut_for_domain,
+    ensure_lord_runtime_state,
+)
 from .pvp_service import get_pvp_tables
 from .repository import fetch_table, latest_snapshot_version, quote_identifier
 from .runtime_schema import ensure_runtime_schema, log_event
@@ -21,6 +25,26 @@ from .sorceress_service import ensure_sorceress_runtime_state
 
 FINAL_REVIEW_STATUSES = {"approved", "rejected", "corrected"}
 FINAL_REWARD_STATUSES = {"approved", "rejected", "corrected"}
+
+DISPLAY_NAME_OVERRIDES = {
+    "North Watch": "Северный Дозор",
+    "River Gate": "Речные Врата",
+    "Forest March": "Лесной Марш",
+    "Hill Crown": "Холмовая Корона",
+    "Lord Aedirn": "Лорд Аэдирна",
+    "Lord Temeria": "Лорд Темерии",
+    "Lord Redania": "Лорд Редании",
+    "Lord Skellige": "Лорд Скеллиге",
+    "Yennefer Circle": "Чародейка Йеннифэр",
+    "Triss Circle": "Чародейка Трисс",
+    "Philippa Circle": "Чародейка Филиппа",
+    "Fringilla Circle": "Чародейка Фрингилья",
+    "Witcher Wolf": "Ведьмак Волк",
+    "Witcher Cat": "Ведьмак Кот",
+    "Witcher Griffin": "Ведьмак Грифон",
+    "Witcher Bear": "Ведьмак Медведь",
+    "Witcher Viper": "Ведьмак Змея",
+}
 
 
 class GameOpsCorrectionError(ValueError):
@@ -205,6 +229,45 @@ def build_master_state(
             *rewards["blocking_alerts"],
             *backups["blocking_alerts"],
         ],
+    }
+
+
+def list_master_player_codes(connection: sqlite3.Connection) -> dict[str, Any]:
+    rows = _rows(
+        connection,
+        """
+        SELECT
+            pc.code_id,
+            pc.player_id,
+            pc.code,
+            pc.enabled,
+            p.role_type,
+            p.display_name
+        FROM player_codes pc
+        JOIN players p ON p.player_id = pc.player_id
+        ORDER BY
+            CASE p.role_type
+                WHEN 'lord' THEN 1
+                WHEN 'sorceress' THEN 2
+                WHEN 'witcher' THEN 3
+                ELSE 4
+            END,
+            pc.player_id
+        """,
+        table_name="player_codes",
+    )
+    items = [
+        {
+            **row,
+            "display_name": _display_name(row.get("display_name"), fallback=row.get("player_id")),
+            "enabled": _to_bool(row.get("enabled")),
+        }
+        for row in rows
+    ]
+    return {
+        "items": items,
+        "total": len(items),
+        "enabled_count": sum(1 for item in items if item["enabled"]),
     }
 
 
@@ -425,10 +488,15 @@ def _apply_building_correction(
     source: str,
 ) -> dict[str, Any]:
     domain_id = str(patch.get("domain_id") or "").strip()
+    territory_id = str(patch.get("territory_id") or "").strip()
     building_id = str(patch.get("building_id") or "").strip()
     if not domain_id or not building_id:
         if ":" in target_id:
-            domain_id, building_id = [part.strip() for part in target_id.split(":", 1)]
+            parts = [part.strip() for part in target_id.split(":")]
+            if len(parts) >= 3:
+                domain_id, territory_id, building_id = parts[:3]
+            elif len(parts) == 2:
+                domain_id, building_id = parts
     action = str(patch.get("action") or "grant").strip().lower()
     if not domain_id or not building_id:
         raise GameOpsCorrectionError(
@@ -441,35 +509,43 @@ def _apply_building_correction(
             code="unsupported_building_action",
         )
 
-    before = _fetch_domain_building(connection, domain_id, building_id)
+    territory_id = territory_id or _domain_residence_territory(connection, domain_id) or ""
+    before = _fetch_domain_building(connection, domain_id, building_id, territory_id)
     now = _iso()
     if action == "grant":
         connection.execute(
             """
-            INSERT INTO domain_buildings (domain_id, building_id, purchased_at, source)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(domain_id, building_id) DO UPDATE SET
+            INSERT INTO domain_buildings (
+                domain_id, territory_id, building_id, purchased_at, source
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(domain_id, territory_id, building_id) DO UPDATE SET
                 purchased_at = excluded.purchased_at,
                 source = excluded.source
             """,
-            (domain_id, building_id, now, source),
+            (domain_id, territory_id, building_id, now, source),
         )
     else:
         connection.execute(
             """
             DELETE FROM domain_buildings
-            WHERE domain_id = ? AND building_id = ?
+            WHERE domain_id = ? AND territory_id = ? AND building_id = ?
             """,
-            (domain_id, building_id),
+            (domain_id, territory_id, building_id),
         )
-    after = _fetch_domain_building(connection, domain_id, building_id)
+    after = _fetch_domain_building(connection, domain_id, building_id, territory_id)
     return _record_correction(
         connection,
         target_type="domain_building",
-        target_id=f"{domain_id}:{building_id}",
+        target_id=f"{domain_id}:{territory_id}:{building_id}",
         operator=operator,
         reason=reason,
-        patch={"action": action, "domain_id": domain_id, "building_id": building_id},
+        patch={
+            "action": action,
+            "domain_id": domain_id,
+            "territory_id": territory_id,
+            "building_id": building_id,
+        },
         before=before or {},
         after=after or {},
         source=source,
@@ -567,10 +643,39 @@ def _lord_map_state(connection: sqlite3.Connection) -> dict[str, Any]:
             table_name="domain_runtime_state",
         )
     }
+    map_node_rows = _table(connection, "map_nodes")
+    map_nodes_by_id = _group_first(map_node_rows, "node_id")
+    map_nodes_by_territory = _group_first(map_node_rows, "territory_id")
+    garrison_rows = _rows(
+        connection,
+        "SELECT * FROM garrison_runtime_state ORDER BY territory_id, domain_id, garrison_id",
+        table_name="garrison_runtime_state",
+    )
+    garrisons_by_domain = _group_by(garrison_rows, "domain_id")
+    garrisons_by_territory = _group_by(garrison_rows, "territory_id")
+    orders_by_domain = _group_by(_lord_order_rows(connection), "domain_id")
+    pending_moves_by_domain = _group_by(
+        _rows(
+            connection,
+            """
+            SELECT *
+            FROM pending_lord_moves
+            WHERE status NOT IN ('completed', 'cancelled', 'failed')
+            ORDER BY started_at, move_id
+            """,
+            table_name="pending_lord_moves",
+        ),
+        "domain_id",
+    )
     for domain in domain_rows:
         domain_id = str(domain.get("domain_id") or "")
         payload = {**domain, **runtime_domains.get(domain_id, {})}
+        current_node_id = str(payload.get("current_node_id") or "")
+        orders = orders_by_domain.get(domain_id, [])
+        payload["display_name"] = _display_name(payload.get("name"), fallback=domain_id)
+        payload["current_node"] = map_nodes_by_id.get(current_node_id)
         payload["buildings"] = _buildings_for_domain(connection, domain_id)
+        payload["garrisons"] = garrisons_by_domain.get(domain_id, [])
         payload["recruit_offers"] = _rows(
             connection,
             """
@@ -604,6 +709,11 @@ def _lord_map_state(connection: sqlite3.Connection) -> dict[str, Any]:
             (domain_id,),
             table_name="active_army_runtime",
         )
+        payload["orders"] = orders
+        payload["active_order_count"] = sum(
+            1 for row in orders if str(row.get("status") or "") in ACTIVE_ORDER_STATUSES
+        )
+        payload["pending_moves"] = pending_moves_by_domain.get(domain_id, [])
         payload["anti_snowball"] = anti_snowball_cut_for_domain(connection, domain_id)
         domains.append(payload)
 
@@ -616,14 +726,6 @@ def _lord_map_state(connection: sqlite3.Connection) -> dict[str, Any]:
             table_name="territory_runtime_state",
         )
     }
-    garrisons = _group_by(
-        _rows(
-            connection,
-            "SELECT * FROM garrison_runtime_state ORDER BY territory_id, garrison_id",
-            table_name="garrison_runtime_state",
-        ),
-        "territory_id",
-    )
     pending_rewards = _group_by(
         _rows(
             connection,
@@ -636,12 +738,11 @@ def _lord_map_state(connection: sqlite3.Connection) -> dict[str, Any]:
         ),
         "territory_id",
     )
-    map_nodes = _group_first(_table(connection, "map_nodes"), "territory_id")
     territories = []
     for territory in territory_rows:
         territory_id = str(territory.get("territory_id") or "")
         runtime = runtime_territories.get(territory_id, {})
-        node = map_nodes.get(territory_id, {})
+        node = map_nodes_by_territory.get(territory_id, {})
         territories.append(
             {
                 **territory,
@@ -649,7 +750,7 @@ def _lord_map_state(connection: sqlite3.Connection) -> dict[str, Any]:
                 "node_id": node.get("node_id"),
                 "node_name": node.get("name"),
                 "node_type": node.get("node_type"),
-                "garrisons": garrisons.get(territory_id, []),
+                "garrisons": garrisons_by_territory.get(territory_id, []),
                 "pending_rewards": pending_rewards.get(territory_id, []),
             }
         )
@@ -673,6 +774,20 @@ def _lord_map_state(connection: sqlite3.Connection) -> dict[str, Any]:
             table_name="raid_effects",
         ),
     }
+
+
+def _lord_order_rows(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = _rows(
+        connection,
+        """
+        SELECT o.*, d.domain_id
+        FROM order_runtime_state o
+        LEFT JOIN domains d ON d.lord_player_id = o.lord_id
+        ORDER BY o.updated_at DESC, o.order_id
+        """,
+        table_name="order_runtime_state",
+    )
+    return [row for row in rows if row.get("domain_id")]
 
 
 def _economy_recovery_state(connection: sqlite3.Connection) -> dict[str, Any]:
@@ -710,12 +825,20 @@ def _economy_recovery_state(connection: sqlite3.Connection) -> dict[str, Any]:
     players = _rows(
         connection,
         """
-        SELECT player_id, role_type, gold, xp, mana, challenge_tokens, updated_at
-        FROM player_runtime_state
-        ORDER BY player_id
+        SELECT runtime.player_id, players.display_name, runtime.role_type,
+               runtime.level, runtime.gold, runtime.xp, runtime.mana,
+               runtime.max_mana, runtime.challenge_tokens, runtime.updated_at
+        FROM player_runtime_state runtime
+        LEFT JOIN players ON players.player_id = runtime.player_id
+        ORDER BY runtime.player_id
         """,
         table_name="player_runtime_state",
     )
+    for player in players:
+        player["display_name"] = _display_name(
+            player.get("display_name"),
+            fallback=player.get("player_id"),
+        )
     return {
         "potion_markets": markets,
         "potion_inventory": inventory,
@@ -749,6 +872,13 @@ def _domain_ids(connection: sqlite3.Connection) -> list[str]:
         if row.get("domain_id")
     )
     return sorted(ids)
+
+
+def _display_name(value: object, *, fallback: object = "") -> str:
+    name = str(value or "").strip()
+    if not name:
+        name = str(fallback or "").strip()
+    return DISPLAY_NAME_OVERRIDES.get(name, name)
 
 
 def _hidden_garrison_audit(
@@ -1138,19 +1268,49 @@ def _fetch_by_pk(
 
 
 def _fetch_domain_building(
-    connection: sqlite3.Connection, domain_id: str, building_id: str
+    connection: sqlite3.Connection,
+    domain_id: str,
+    building_id: str,
+    territory_id: str | None = None,
 ) -> dict[str, Any] | None:
     if not _table_exists(connection, "domain_buildings"):
         return None
+    scoped_territory_id = str(territory_id or "")
+    territory_clause = "AND territory_id = ?" if scoped_territory_id else ""
+    params: tuple[object, ...] = (
+        (domain_id, building_id, scoped_territory_id)
+        if scoped_territory_id
+        else (domain_id, building_id)
+    )
     row = connection.execute(
-        """
+        f"""
         SELECT *
         FROM domain_buildings
         WHERE domain_id = ? AND building_id = ?
+          {territory_clause}
+        ORDER BY territory_id
+        LIMIT 1
         """,
-        (domain_id, building_id),
+        params,
     ).fetchone()
     return _clean_row(row) if row is not None else None
+
+
+def _domain_residence_territory(connection: sqlite3.Connection, domain_id: str) -> str | None:
+    if not _table_exists(connection, "territories"):
+        return None
+    row = connection.execute(
+        """
+        SELECT territory_id
+        FROM territories
+        WHERE owner_domain_id = ?
+          AND bonus_type = 'residence'
+        ORDER BY _row_number
+        LIMIT 1
+        """,
+        (domain_id,),
+    ).fetchone()
+    return str(row["territory_id"] or "") if row is not None else None
 
 
 def _table(connection: sqlite3.Connection, table_name: str) -> list[dict[str, Any]]:

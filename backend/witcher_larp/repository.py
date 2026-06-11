@@ -99,6 +99,19 @@ def ensure_content_schema(connection: sqlite3.Connection, tables: dict[str, CsvT
             f"CREATE TABLE IF NOT EXISTS {quote_identifier(table.name)} "
             f"({', '.join(columns)})"
         )
+        existing_columns = {
+            str(row["name"])
+            for row in connection.execute(
+                f"PRAGMA table_info({quote_identifier(table.name)})"
+            ).fetchall()
+        }
+        for header in table.headers:
+            if header in existing_columns:
+                continue
+            connection.execute(
+                f"ALTER TABLE {quote_identifier(table.name)} "
+                f"ADD COLUMN {quote_identifier(header)} TEXT NOT NULL DEFAULT ''"
+            )
 
 
 def replace_content(

@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Admin Studio</title>
-    <link rel="stylesheet" href="/static/admin/admin.css">
+    <title>Мастерская панель</title>
+    <link rel="stylesheet" href="/static/admin/admin.css?v=20260611-performance-1">
   </head>
   <body data-app="admin-studio">
     <main class="shell">
@@ -12,12 +12,12 @@
         <div class="brand">
           <span class="mark" aria-hidden="true">AS</span>
           <div>
-            <h1>Admin Studio</h1>
-            <p>Stage 2 master console</p>
+            <h1>Мастерская панель</h1>
+            <p>Пульт управления игрой</p>
           </div>
         </div>
         <form id="token-form" class="token-form">
-          <label for="role-token">Master role token</label>
+          <label for="role-token">Код мастера</label>
           <div class="token-row">
             <input
               id="role-token"
@@ -26,7 +26,7 @@
               placeholder="MASTER-KING-4QZ8"
               required
             >
-            <button type="submit">Enter</button>
+            <button type="submit">Войти</button>
           </div>
         </form>
         <p class="status-line" id="login-status" role="status"></p>
@@ -35,42 +35,42 @@
       <section class="dashboard" id="dashboard" hidden>
         <header class="topbar">
           <div>
-            <p class="eyebrow">Admin Studio</p>
-            <h2 id="master-name">Master</h2>
+            <p class="eyebrow">Мастерская панель</p>
+            <h2 id="master-name">Мастер</h2>
           </div>
           <div class="top-actions">
-            <button type="button" id="refresh-button" title="Refresh overview">Refresh</button>
-            <button type="button" id="logout-button" title="Clear role token">Logout</button>
+            <button type="button" id="refresh-button" title="Обновить обзор">Обновить</button>
+            <button type="button" id="logout-button" title="Очистить код мастера">Выйти</button>
           </div>
         </header>
         <p class="status-line dashboard-status" id="dashboard-status" role="status"></p>
 
-        <section class="summary-grid" aria-label="Admin summary">
+        <section class="summary-grid" aria-label="Сводка мастерской панели">
           <article class="metric">
-            <span>Stage</span>
+            <span>Акт</span>
             <strong id="stage-value">-</strong>
           </article>
           <article class="metric">
-            <span>Snapshot</span>
+            <span>Игроки</span>
             <strong id="snapshot-value">-</strong>
           </article>
           <article class="metric">
-            <span>Sections</span>
+            <span>Лорды</span>
             <strong id="sections-value">-</strong>
           </article>
           <article class="metric">
-            <span>Attention</span>
+            <span>Ревью</span>
             <strong id="attention-value">-</strong>
           </article>
         </section>
 
         <div class="studio-layout">
-          <nav class="section-nav" id="section-nav" aria-label="Admin sections"></nav>
+          <nav class="section-nav" id="section-nav" aria-label="Навигация мастерской панели"></nav>
           <section class="workspace" id="workspace" aria-live="polite"></section>
         </div>
       </section>
     </main>
 
-    <script src="/static/admin/admin.js" defer></script>
+    <script src="/static/admin/admin.js?v=20260611-performance-1" defer></script>
   </body>
 </html>

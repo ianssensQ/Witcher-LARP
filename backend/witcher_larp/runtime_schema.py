@@ -9,6 +9,8 @@ from typing import Any
 
 
 def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
+    _ensure_domain_buildings_schema(connection)
+    _ensure_lord_battles_schema(connection)
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS act_state (
@@ -169,6 +171,10 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             base_income INTEGER NOT NULL DEFAULT 0,
             current_mp INTEGER NOT NULL DEFAULT 0,
             mp_cap INTEGER NOT NULL DEFAULT 0,
+            raid_tokens INTEGER NOT NULL DEFAULT 1,
+            raid_token_cap INTEGER NOT NULL DEFAULT 1,
+            influence INTEGER NOT NULL DEFAULT 0,
+            ritual_cleanse_charges INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL
         );
 
@@ -246,11 +252,15 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
 
         CREATE TABLE IF NOT EXISTS domain_buildings (
             domain_id TEXT NOT NULL,
+            territory_id TEXT NOT NULL DEFAULT '',
             building_id TEXT NOT NULL,
             purchased_at TEXT NOT NULL,
             source TEXT NOT NULL,
-            PRIMARY KEY (domain_id, building_id)
+            PRIMARY KEY (domain_id, territory_id, building_id)
         );
+
+        CREATE INDEX IF NOT EXISTS idx_domain_buildings_domain_building
+        ON domain_buildings(domain_id, building_id);
 
         CREATE TABLE IF NOT EXISTS recruit_offer_runtime (
             offer_id TEXT PRIMARY KEY,
@@ -686,8 +696,16 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             source TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS runtime_flags (
+            flag_id TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL
+        );
         """
     )
+    _ensure_domain_buildings_schema(connection)
+    _ensure_lord_battles_schema(connection)
     _ensure_columns(
         connection,
         "npc_runtime_events",
@@ -722,7 +740,9 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             "current_node_id": "TEXT",
             "active_army_capacity": "INTEGER NOT NULL DEFAULT 5",
             "raid_tokens": "INTEGER NOT NULL DEFAULT 1",
+            "raid_token_cap": "INTEGER NOT NULL DEFAULT 1",
             "influence": "INTEGER NOT NULL DEFAULT 0",
+            "ritual_cleanse_charges": "INTEGER NOT NULL DEFAULT 0",
         },
     )
     _ensure_columns(
@@ -750,6 +770,142 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
         {
             "quantity": "INTEGER NOT NULL DEFAULT 1",
         },
+    )
+
+
+def _ensure_lord_battles_schema(connection: sqlite3.Connection) -> None:
+    _ensure_columns(
+        connection,
+        "lord_battles",
+        {
+            "territory_id": "TEXT",
+            "claim_id": "TEXT",
+            "defender_control": "TEXT NOT NULL DEFAULT 'lord'",
+            "round_number": "INTEGER NOT NULL DEFAULT 1",
+            "active_side": "TEXT",
+            "active_stack_id": "TEXT",
+            "turn_started_at": "TEXT",
+            "timeout_at": "TEXT",
+            "timeout_counts_json": "TEXT NOT NULL DEFAULT '{}'",
+            "board_json": "TEXT NOT NULL DEFAULT '{}'",
+            "hero_hp_json": "TEXT NOT NULL DEFAULT '{}'",
+            "deployment_json": "TEXT NOT NULL DEFAULT '{}'",
+            "initiative_json": "TEXT NOT NULL DEFAULT '[]'",
+            "burned_cards_json": "TEXT NOT NULL DEFAULT '[]'",
+            "result_json": "TEXT NOT NULL DEFAULT '{}'",
+            "finished_at": "TEXT",
+            "target_duration_seconds": "INTEGER NOT NULL DEFAULT 1200",
+            "auto_resolve_after_seconds": "INTEGER NOT NULL DEFAULT 1500",
+            "master_takeover_enabled": "INTEGER NOT NULL DEFAULT 0",
+        },
+    )
+
+
+def _ensure_domain_buildings_schema(connection: sqlite3.Connection) -> None:
+    if (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'domain_buildings'"
+        ).fetchone()
+        is None
+    ):
+        return
+
+    table_info = connection.execute("PRAGMA table_info(domain_buildings)").fetchall()
+    columns = {row["name"] for row in table_info}
+    pk_columns = [
+        row["name"]
+        for row in sorted(table_info, key=lambda item: int(item["pk"] or 0))
+        if int(row["pk"] or 0) > 0
+    ]
+    if "territory_id" in columns and pk_columns == [
+        "domain_id",
+        "territory_id",
+        "building_id",
+    ]:
+        _ensure_domain_buildings_indexes(connection)
+        return
+
+    connection.execute("DROP TABLE IF EXISTS domain_buildings_legacy_migration")
+    connection.execute("ALTER TABLE domain_buildings RENAME TO domain_buildings_legacy_migration")
+    connection.execute(
+        """
+        CREATE TABLE domain_buildings (
+            domain_id TEXT NOT NULL,
+            territory_id TEXT NOT NULL DEFAULT '',
+            building_id TEXT NOT NULL,
+            purchased_at TEXT NOT NULL,
+            source TEXT NOT NULL,
+            PRIMARY KEY (domain_id, territory_id, building_id)
+        )
+        """
+    )
+    territory_column = "territory_id" if "territory_id" in columns else "''"
+    if (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'territories'"
+        ).fetchone()
+        is not None
+    ):
+        connection.execute(
+            f"""
+            INSERT OR IGNORE INTO domain_buildings (
+                domain_id, territory_id, building_id, purchased_at, source
+            )
+            SELECT
+                db.domain_id,
+                COALESCE(NULLIF(db.territory_id, ''), r.territory_id, ''),
+                db.building_id,
+                db.purchased_at,
+                db.source
+            FROM (
+                SELECT
+                    domain_id,
+                    {territory_column} AS territory_id,
+                    building_id,
+                    purchased_at,
+                    source
+                FROM domain_buildings_legacy_migration
+            ) db
+            LEFT JOIN (
+                SELECT owner_domain_id AS domain_id, territory_id
+                FROM territories
+                WHERE bonus_type = 'residence'
+                  AND owner_domain_id IS NOT NULL
+                  AND owner_domain_id != ''
+            ) r ON r.domain_id = db.domain_id
+            """
+        )
+    else:
+        connection.execute(
+            f"""
+            INSERT OR IGNORE INTO domain_buildings (
+                domain_id, territory_id, building_id, purchased_at, source
+            )
+            SELECT
+                domain_id,
+                COALESCE(NULLIF({territory_column}, ''), ''),
+                building_id,
+                purchased_at,
+                source
+            FROM domain_buildings_legacy_migration
+            """
+        )
+    connection.execute("DROP TABLE domain_buildings_legacy_migration")
+    _ensure_domain_buildings_indexes(connection)
+
+
+def _ensure_domain_buildings_indexes(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_domain_buildings_domain_building
+        ON domain_buildings(domain_id, building_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_domain_buildings_domain_territory
+        ON domain_buildings(domain_id, territory_id)
+        """
     )
 
 

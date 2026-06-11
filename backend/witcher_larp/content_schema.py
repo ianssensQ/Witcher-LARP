@@ -43,6 +43,7 @@ TABLE_ID_COLUMNS: dict[str, str] = {
     "ops_checklists.csv": "item_id",
     "order_status_rules.csv": "status_id",
     "orders.csv": "order_id",
+    "order_interest_objects.csv": "interest_id",
     "paper_forms.csv": "form_type",
     "pending_tick_rewards.csv": "pending_reward_id",
     "personal_goals.csv": "goal_id",

@@ -14,6 +14,9 @@ from .timer_service import timer_status
 
 
 ANNOUNCED_STATES = {"announced", "completed", "done", "physical_announced"}
+REGISTRATION_ACT_ID = "registration"
+CLEAN_REGISTRATION_FLAG = "clean_registration_start"
+DEFAULT_ACTIVE_ARMY_STACK_CAPACITY = 5
 
 
 class ActServiceError(RuntimeError):
@@ -45,10 +48,31 @@ def start_act(
         raise ActNotFoundError(f"Unknown act_id: {act_id}")
 
     current_time = now or datetime.now(UTC)
-    applied_before = apply_due_timers(connection, settings, now=current_time)
+    registration_reset = act_id == REGISTRATION_ACT_ID
+    applied_before = [] if registration_reset else apply_due_timers(
+        connection, settings, now=current_time
+    )
     current_state = _current_state(connection)
     backup = None
     final_lock_effect = None
+    registration_reset_effect = None
+    if registration_reset:
+        backup = run_backup(
+            connection,
+            settings,
+            trigger_type="registration_reset",
+            operator=operator,
+            source=source,
+            affects_transition=True,
+            now=current_time,
+        )
+        registration_reset_effect = _reset_game_for_registration(
+            connection,
+            operator=operator,
+            source=source,
+            now=current_time,
+        )
+        current_state = _current_state(connection)
     if str(act_row["act_type"]) == "final":
         final_lock_effect = ensure_final_lock(
             connection,
@@ -138,7 +162,9 @@ def start_act(
     )
 
     start_effects: dict[str, object] = {}
-    if is_new_start:
+    if registration_reset_effect is not None:
+        start_effects["registration_reset"] = registration_reset_effect
+    if is_new_start and not registration_reset:
         start_effects["challenge_tokens"] = _grant_challenge_tokens(
             connection,
             act_id,
@@ -172,7 +198,9 @@ def start_act(
         source=source,
         created_at=current_time,
     )
-    applied_after = apply_due_timers(connection, settings, now=current_time)
+    applied_after = [] if registration_reset else apply_due_timers(
+        connection, settings, now=current_time
+    )
     return {
         "act": _act_payload(act_row),
         "state": _current_state(connection),
@@ -224,6 +252,70 @@ def record_physical_announcement(
         created_at=current_time,
     )
     return _unlock_code_state(connection, act_id)
+
+
+def set_active_act_elapsed_minutes(
+    connection: sqlite3.Connection,
+    settings: Settings,
+    elapsed_minutes: int,
+    *,
+    operator: str = "master",
+    source: str = "master_time_control",
+    now: datetime | None = None,
+) -> dict[str, object]:
+    ensure_runtime_schema(connection)
+    ensure_runtime_content_state(connection)
+    current_time = now or datetime.now(UTC)
+    elapsed_minutes = max(0, int(elapsed_minutes))
+    state = _current_state(connection)
+    act_id = state.get("current_act_id")
+    if not act_id:
+        raise UnlockCodeHiddenError("Act must be started before elapsed time can be changed.")
+
+    started_at = current_time - timedelta(minutes=elapsed_minutes)
+    started_at_text = _iso(started_at)
+    now_text = _iso(current_time)
+    connection.execute(
+        """
+        UPDATE act_history
+        SET started_at = ?,
+            operator = ?,
+            source = ?,
+            server_timestamp = ?
+        WHERE act_id = ?
+        """,
+        (started_at_text, operator, source, now_text, act_id),
+    )
+    connection.execute(
+        """
+        UPDATE act_state
+        SET active_started_at = ?,
+            updated_at = ?
+        WHERE id = 1
+        """,
+        (started_at_text, now_text),
+    )
+    log_event(
+        connection,
+        "act_elapsed_time_set",
+        {
+            "act_id": act_id,
+            "elapsed_minutes": elapsed_minutes,
+            "operator": operator,
+            "source": source,
+            "started_at": started_at_text,
+        },
+        source=source,
+        created_at=current_time,
+    )
+    applied = apply_due_timers(connection, settings, now=current_time, source=source)
+    return {
+        "act_id": act_id,
+        "elapsed_minutes": elapsed_minutes,
+        "active_started_at": started_at_text,
+        "state": _current_state(connection),
+        "applied_timers": applied,
+    }
 
 
 def reveal_unlock_code(
@@ -321,6 +413,152 @@ def get_act_state(
         "applied_timers": applied,
         "resources": _resource_state(connection),
     }
+
+
+def _reset_game_for_registration(
+    connection: sqlite3.Connection,
+    *,
+    operator: str,
+    source: str,
+    now: datetime,
+) -> dict[str, object]:
+    now_text = _iso(now)
+    tables_to_clear = [
+        "reward_approval_audit",
+        "asset_locks",
+        "asset_ownership",
+        "reward_approvals",
+        "npc_deals",
+        "npc_runtime_events",
+        "pve_consumed_objects",
+        "pve_cooldowns",
+        "pve_attempts",
+        "master_corrections",
+        "event_reviews",
+        "events",
+        "reputation_changes",
+        "reputation_state",
+        "lord_battle_actions",
+        "lord_battle_log",
+        "lord_battles",
+        "pending_lord_moves",
+        "territory_claim_runtime",
+        "lord_map_intel",
+        "pending_tick_reward_runtime",
+        "garrison_runtime_state",
+        "domain_buildings",
+        "recruit_offer_runtime",
+        "army_reserve_runtime",
+        "active_army_runtime",
+        "escrow_ledger",
+        "order_runtime_state",
+        "army_windows",
+        "applied_timer_ticks",
+        "pvp_reviews",
+        "pvp_stake_ledger",
+        "gwent_rounds",
+        "gwent_runtime_matches",
+        "pvp_challenges",
+        "pvp_table_runtime",
+        "personal_card_conversions",
+        "potion_scene_usage",
+        "potion_inventory",
+        "potion_market_runtime",
+        "trade_transfer_runtime",
+        "magic_effects",
+        "sorceress_spell_casts",
+        "locked_magical_intent",
+        "favorite_history",
+        "favorite_runtime",
+        "sorceress_alignment_evidence",
+        "final_master_notes",
+        "raid_effects",
+        "client_sync_state",
+        "player_runtime_state",
+        "domain_runtime_state",
+        "territory_runtime_state",
+        "act_history",
+    ]
+    cleared = {
+        table_name: deleted
+        for table_name in tables_to_clear
+        if (deleted := _delete_table_if_exists(connection, table_name)) > 0
+    }
+
+    if _table_exists(connection, "final_lock_state"):
+        connection.execute(
+            """
+            UPDATE final_lock_state
+            SET locked_at = NULL,
+                operator = NULL,
+                source = NULL
+            WHERE id = 1
+            """
+        )
+    if _table_exists(connection, "pvp_throttle_state"):
+        connection.execute(
+            """
+            UPDATE pvp_throttle_state
+            SET mode = 'normal',
+                max_tables = 2,
+                max_started_per_player_per_act = 2,
+                final_lock_behavior = 'no_new_challenges_after_final_lock',
+                updated_at = ?
+            WHERE id = 1
+            """,
+            (now_text,),
+        )
+    connection.execute(
+        """
+        UPDATE act_state
+        SET current_act_id = NULL,
+            status = 'not_started',
+            active_started_at = NULL,
+            final_locked_at = NULL,
+            updated_at = ?
+        WHERE id = 1
+        """,
+        (now_text,),
+    )
+
+    ensure_runtime_content_state(connection)
+    _reset_initial_territory_state(connection, now_text)
+    _reset_initial_domain_locations(connection, now_text)
+    _set_runtime_flag(
+        connection,
+        CLEAN_REGISTRATION_FLAG,
+        {
+            "enabled": True,
+            "act_id": REGISTRATION_ACT_ID,
+            "operator": operator,
+            "source": source,
+            "updated_at": now_text,
+        },
+        now_text,
+    )
+
+    domain_gold_values = [
+        _to_int(row["gold"])
+        for row in connection.execute(
+            "SELECT gold FROM domain_runtime_state ORDER BY domain_id"
+        ).fetchall()
+    ]
+    payload = {
+        "status": "applied",
+        "operator": operator,
+        "cleared_tables": cleared,
+        "domain_count": len(domain_gold_values),
+        "initial_domain_gold": sorted(set(domain_gold_values)),
+        "clean_lord_seed_runtime": True,
+    }
+    log_event(
+        connection,
+        "registration_game_reset",
+        payload,
+        source=source,
+        created_at=now,
+    )
+    return payload
 
 
 def _grant_challenge_tokens(
@@ -629,6 +867,76 @@ def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
         (table_name,),
     ).fetchone()
     return row is not None
+
+
+def _delete_table_if_exists(connection: sqlite3.Connection, table_name: str) -> int:
+    if not _table_exists(connection, table_name):
+        return 0
+    cursor = connection.execute(f"DELETE FROM {table_name}")
+    return max(0, int(cursor.rowcount or 0))
+
+
+def _reset_initial_territory_state(connection: sqlite3.Connection, now_text: str) -> None:
+    if not _table_exists(connection, "territories"):
+        return
+    connection.execute(
+        """
+        INSERT INTO territory_runtime_state (
+            territory_id, owner_domain_id, status, controlled_since, updated_at
+        )
+        SELECT
+            territory_id,
+            NULLIF(owner_domain_id, ''),
+            CASE WHEN NULLIF(owner_domain_id, '') IS NULL THEN 'neutral' ELSE 'controlled' END,
+            CASE WHEN NULLIF(owner_domain_id, '') IS NULL THEN NULL ELSE ? END,
+            ?
+        FROM territories
+        ORDER BY _row_number
+        """,
+        (now_text, now_text),
+    )
+
+
+def _reset_initial_domain_locations(connection: sqlite3.Connection, now_text: str) -> None:
+    if not _table_exists(connection, "map_nodes") or not _table_exists(connection, "territories"):
+        return
+    connection.execute(
+        """
+        UPDATE domain_runtime_state
+        SET current_node_id = (
+                SELECT n.node_id
+                FROM territories t
+                JOIN map_nodes n ON n.territory_id = t.territory_id
+                WHERE t.owner_domain_id = domain_runtime_state.domain_id
+                  AND t.bonus_type = 'residence'
+                ORDER BY t._row_number
+                LIMIT 1
+            ),
+            active_army_capacity = ?,
+            raid_tokens = 1,
+            raid_token_cap = 1,
+            updated_at = ?
+        """,
+        (DEFAULT_ACTIVE_ARMY_STACK_CAPACITY, now_text),
+    )
+
+
+def _set_runtime_flag(
+    connection: sqlite3.Connection,
+    flag_id: str,
+    payload: dict[str, object],
+    now_text: str,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO runtime_flags (flag_id, value_json, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(flag_id) DO UPDATE SET
+            value_json = excluded.value_json,
+            updated_at = excluded.updated_at
+        """,
+        (flag_id, json.dumps(payload, ensure_ascii=False, sort_keys=True), now_text),
+    )
 
 
 def _is_announced(value: str) -> bool:

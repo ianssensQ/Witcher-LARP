@@ -12,6 +12,17 @@ from uuid import uuid4
 from .asset_service import AssetContractError
 from .asset_service import grant_asset_ownership
 from .asset_service import reward_asset_entries, reward_numeric_payload
+from .building_effects import ADDRESSED_ORDER_BUILDING_ID
+from .building_effects import ALCHEMY_LAB_BUILDING_ID
+from .building_effects import ALCHEMY_RAID_DURATION_REDUCTION_MINUTES
+from .building_effects import BANK_BUILDING_ID, BANK_LOOT_REDUCTION_PERCENT
+from .building_effects import MAGE_STUDY_BUILDING_ID
+from .building_effects import MAGE_STUDY_RESIDENCE_DEFENSE_BONUS
+from .building_effects import PUBLIC_ORDER_BUILDING_ID
+from .building_effects import RITUAL_CHAMBER_BUILDING_ID, RITUAL_CLEANSE_CHARGE_CAP
+from .building_effects import flat_income_bonus, stock_cap_percent
+from .building_effects import territory_income_bonus_percent
+from .building_effects import treasury_income_floor_percent
 from .content_schema import split_ids
 from .runtime_schema import ensure_runtime_schema, log_event
 from .stats import CANONICAL_STATS, DEFAULT_STAT_ID
@@ -87,12 +98,35 @@ BLOCKING_ROUTE_STATUSES = {
 }
 LORD_MOVE_SECONDS_PER_EDGE = 1
 DEFAULT_ACTIVE_ARMY_STACK_CAPACITY = 5
+BASE_RAID_TOKEN_CAP = 1
+RAID_TOKEN_REFILL_PER_TICK = 1
+RAID_GARRISON_POWER_WEAK_THRESHOLD = 20
+RAID_GARRISON_POWER_STRONG_THRESHOLD = 55
+RAID_GARRISON_POWER_HARD_THRESHOLD = 95
+RAID_RESIDENCE_BASE_DEFENSE = 1
+RAID_TERRITORY_WARD_DEFENSE = 1
+RAID_RESIDENCE_WARD_DEFENSE = 2
 MAP_INTEL_LEVELS = {
     "presence": 0,
     "owner": 1,
     "domain": 1,
     "rough_strength": 2,
     "composition": 3,
+}
+CLEAN_REGISTRATION_FLAG = "clean_registration_start"
+
+TERRITORY_BUILDING_TREE_IDS = {
+    "defense": ["b_training_yard", "b_barracks", "b_wards"],
+    "gold_income": ["b_market", "b_tax_office", "b_storehouse"],
+    "recruit": ["b_training_yard", "b_barracks", "b_archery_range", "b_stables"],
+    "order": ["b_notice_board", "b_envoy_hall", "b_map_room"],
+    "magic": ["b_mage_study", "b_alchemy_lab", "b_wards"],
+    "resource": ["b_market", "b_storehouse", "b_bank"],
+    "research": ["b_map_room", "b_scrying_room"],
+    "artifact": ["b_scrying_room", "b_alchemy_lab"],
+    "special": ["b_map_room", "b_scrying_room", "b_wards"],
+    "raid_cover": ["b_wards", "b_raid_office"],
+    "visibility": ["b_map_room", "b_scrying_room"],
 }
 
 BUILDING_RECRUIT_INITIAL_STOCK_BY_CLASS = {
@@ -136,6 +170,7 @@ def ensure_lord_runtime_state(connection: sqlite3.Connection) -> None:
     ensure_runtime_schema(connection)
     ensure_runtime_content_state(connection)
     now = _iso()
+    clean_registration_start = _clean_registration_start_enabled(connection)
 
     if _table_exists(connection, "territories"):
         for row in connection.execute(
@@ -163,7 +198,9 @@ def ensure_lord_runtime_state(connection: sqlite3.Connection) -> None:
                 ),
             )
 
-    if _table_exists(connection, "garrisons"):
+    _backfill_domain_building_territories(connection)
+
+    if not clean_registration_start and _table_exists(connection, "garrisons"):
         for row in connection.execute(
             """
             SELECT garrison_id, territory_id, domain_id, card_id, count, status
@@ -190,7 +227,7 @@ def ensure_lord_runtime_state(connection: sqlite3.Connection) -> None:
                 ),
             )
 
-    if _table_exists(connection, "territory_claims"):
+    if not clean_registration_start and _table_exists(connection, "territory_claims"):
         for row in connection.execute(
             """
             SELECT claim_id, territory_id, claimant_domain_id, status, source
@@ -245,7 +282,7 @@ def ensure_lord_runtime_state(connection: sqlite3.Connection) -> None:
                 ),
             )
 
-    if _table_exists(connection, "army_reserves"):
+    if not clean_registration_start and _table_exists(connection, "army_reserves"):
         for row in connection.execute(
             """
             SELECT reserve_id, domain_id, card_id, count, status
@@ -271,7 +308,7 @@ def ensure_lord_runtime_state(connection: sqlite3.Connection) -> None:
                 ),
             )
 
-    if _table_exists(connection, "orders"):
+    if not clean_registration_start and _table_exists(connection, "orders"):
         for row in connection.execute(
             """
             SELECT order_id, lord_id, target_player_id, object_id, visibility, status, escrow_reward_id
@@ -314,6 +351,7 @@ def ensure_lord_runtime_state(connection: sqlite3.Connection) -> None:
 
     _initialize_domain_locations(connection, now)
     _ensure_minimum_active_army_stack_capacity(connection, now)
+    reconcile_raid_token_caps(connection, now=now)
     reconcile_raid_effects(connection)
 
 
@@ -804,18 +842,30 @@ def buy_building(
     lord_id: str,
     *,
     building_id: str,
+    territory_id: str | None = None,
     source: str = "lord_panel",
 ) -> dict[str, Any]:
     ensure_lord_runtime_state(connection)
     domain = _domain_for_lord(connection, lord_id)
+    domain_id = str(domain["domain_id"])
     building = _building(connection, building_id)
-    if _has_building(connection, str(domain["domain_id"]), building_id):
+    scoped_territory_id = _building_purchase_territory_id(
+        connection,
+        domain_id,
+        territory_id,
+    )
+    _assert_building_allowed_for_territory(
+        connection,
+        scoped_territory_id,
+        building_id,
+    )
+    if _has_building_at(connection, domain_id, scoped_territory_id, building_id):
         raise LordRuntimeError("building_already_owned", "Building is already owned.")
 
     missing = [
         prereq
         for prereq in split_ids(str(building["prerequisite_ids"]))
-        if not _has_building(connection, str(domain["domain_id"]), prereq)
+        if not _has_building_at(connection, domain_id, scoped_territory_id, prereq)
     ]
     if missing:
         raise LordRuntimeError(
@@ -831,25 +881,36 @@ def buy_building(
         )
 
     now = _iso()
-    raid_delta = 1 if _truthy(building["raid_unlock"]) else 0
+    raid_delta = _building_raid_token_delta(building)
     capacity_delta = _to_int(building["capacity_delta"])
     connection.execute(
         """
         UPDATE domain_runtime_state
         SET gold = gold - ?,
             active_army_capacity = active_army_capacity + ?,
-            raid_tokens = raid_tokens + ?,
+            raid_token_cap = raid_token_cap + ?,
+            raid_tokens = MIN(raid_tokens + ?, raid_token_cap + ?),
             updated_at = ?
         WHERE domain_id = ?
         """,
-        (cost, capacity_delta, raid_delta, now, domain["domain_id"]),
+        (
+            cost,
+            capacity_delta,
+            raid_delta,
+            raid_delta,
+            raid_delta,
+            now,
+            domain_id,
+        ),
     )
     connection.execute(
         """
-        INSERT INTO domain_buildings (domain_id, building_id, purchased_at, source)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO domain_buildings (
+            domain_id, territory_id, building_id, purchased_at, source
+        )
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (domain["domain_id"], building_id, now, source),
+        (domain_id, scoped_territory_id, building_id, now, source),
     )
 
     unlocked = []
@@ -857,7 +918,7 @@ def buy_building(
     for card_id in split_ids(str(building["recruit_unlock_ids"])):
         offer = _ensure_recruit_offer(
             connection,
-            str(domain["domain_id"]),
+            domain_id,
             card_id,
             source=f"building:{building_id}",
             now=now,
@@ -865,7 +926,7 @@ def buy_building(
         unlocked.append(offer)
         reserve = _ensure_building_recruit_reserve(
             connection,
-            str(domain["domain_id"]),
+            domain_id,
             building_id,
             card_id,
             now,
@@ -876,7 +937,8 @@ def buy_building(
 
     result = {
         "status": "purchased",
-        "domain_id": domain["domain_id"],
+        "domain_id": domain_id,
+        "territory_id": scoped_territory_id,
         "building_id": building_id,
         "gold_spent": cost,
         "capacity_delta": capacity_delta,
@@ -894,6 +956,7 @@ def recruit_action(
     *,
     action: str,
     offer_id: str | None = None,
+    card_id: str | None = None,
     quantity: int = 1,
     territory_id: str | None = None,
     source: str = "lord_panel",
@@ -919,6 +982,34 @@ def recruit_action(
             "unit_classes": sorted({offer["unit_class"] for offer in offers}),
             "spawned_reserves": spawned_reserves,
         }
+
+    if action == "purchase_stock":
+        if not territory_id:
+            raise LordRuntimeError(
+                "missing_territory_id",
+                "Recruit stock purchase requires territory_id.",
+            )
+        if not card_id:
+            raise LordRuntimeError(
+                "missing_card_id",
+                "Recruit stock purchase requires card_id.",
+            )
+        unlocked_cards = _unlocked_recruit_cards(connection, domain_id)
+        if card_id not in unlocked_cards:
+            raise LordRuntimeError(
+                "offer_not_available",
+                "Recruit card is not unlocked for this domain.",
+            )
+        _retire_locked_recruit_offers(connection, domain_id, unlocked_cards, now)
+        ensured_offer = _ensure_recruit_offer(
+            connection,
+            domain_id,
+            card_id,
+            source=source,
+            now=now,
+        )
+        offer_id = str(ensured_offer["offer_id"])
+        action = "purchase"
 
     if not offer_id:
         raise LordRuntimeError("missing_offer", "Recruit action requires offer_id.")
@@ -968,9 +1059,23 @@ def recruit_action(
                     "territory_contested",
                     "Contested territory cannot receive recruited units.",
                 )
+            if raid_recruit_blocked_for_territory(connection, territory_id):
+                raise LordRuntimeError(
+                    "recruit_blocked_by_raid",
+                    "Active raid blocks recruiting into this territory.",
+                    409,
+                )
             _assert_fort_capacity_available(
                 connection, territory_id, str(offer["card_id"])
             )
+            if (
+                _available_reserve_count(connection, domain_id, str(offer["card_id"]))
+                < quantity
+            ):
+                raise LordRuntimeError(
+                    "insufficient_stock",
+                    "No accumulated recruit stock is available.",
+                )
             _consume_reserve(connection, domain_id, str(offer["card_id"]), quantity)
         connection.execute(
             """
@@ -1081,8 +1186,10 @@ def start_raid(
             f"Raid rule cannot target {target_type}.",
         )
 
-    token_cost = _to_int(rule["token_cost"])
-    gold_cost = _to_int(rule["gold_cost"])
+    base_token_cost = _to_int(rule["token_cost"])
+    token_surcharge = raid_token_surcharge_for_domain(connection, domain_id)
+    token_cost = base_token_cost + token_surcharge
+    gold_cost = 0
     if (
         (expected_token_cost is not None and expected_token_cost != token_cost)
         or (expected_gold_cost is not None and expected_gold_cost != gold_cost)
@@ -1107,8 +1214,6 @@ def start_raid(
 
     if _to_int(domain["raid_tokens"]) < token_cost:
         raise LordRuntimeError("insufficient_raid_tokens", "Not enough raid tokens.")
-    if _to_int(domain["gold"]) < gold_cost:
-        raise LordRuntimeError("insufficient_gold", "Not enough gold for raid.")
     if _active_raid_effect_exists(
         connection,
         domain_id=domain_id,
@@ -1121,29 +1226,93 @@ def start_raid(
             409,
         )
 
-    resistance = _territory_resistance(connection, target_territory_id, target_owner)
-    loot_gold = 0 if resistance else min(gold_cost, 5 * max(1, _territory_tier(connection, target_territory_id)))
+    effect_type = _raid_rule_value(rule, "effect_type", "temporary_debuff")
+    resistance = _raid_resistance_result(
+        connection,
+        target_territory_id=target_territory_id,
+        owner_domain_id=target_owner,
+        target_type=target_type,
+        rule=rule,
+    )
+    resistance_score = _to_int(resistance["score"])
+    resistance_outcome = str(resistance["outcome"])
+    effect_applied = resistance_outcome != "blocked"
+    loot_gold = _raid_loot_gold(
+        connection,
+        target_owner,
+        target_territory_id,
+        resistance_outcome,
+    ) if effect_type == "loot_once" else 0
+    target_raid_tokens_lost = (
+        _raid_residence_token_loss(connection, target_owner, resistance_outcome)
+        if effect_type == "residence_pressure" and effect_applied
+        else 0
+    )
     current_time = datetime.now(UTC)
     now = _iso(current_time)
-    duration_min = max(0, _to_int(rule["duration_min"]))
+    base_duration_min = max(0, _to_int(rule["duration_min"]))
+    duration_min = _raid_effect_duration(base_duration_min, resistance_outcome)
+    alchemy_duration_reduction = 0
+    if (
+        effect_applied
+        and duration_min > 0
+        and effect_type != "loot_once"
+        and _has_building(connection, target_owner, ALCHEMY_LAB_BUILDING_ID)
+    ):
+        alchemy_duration_reduction = min(
+            ALCHEMY_RAID_DURATION_REDUCTION_MINUTES,
+            max(0, duration_min - 1),
+        )
+        duration_min = max(1, duration_min - ALCHEMY_RAID_DURATION_REDUCTION_MINUTES)
     expires_at = _iso(current_time + timedelta(minutes=duration_min))
     effect_id = f"raid_{uuid4().hex}"
+    effect_status = "active" if effect_applied and duration_min > 0 and effect_type != "loot_once" else (
+        "resolved" if effect_applied else "blocked"
+    )
     payload = {
-        "resistance": resistance,
+        "resistance": resistance_score,
+        "raid_strength": resistance["raid_strength"],
+        "resistance_outcome": resistance_outcome,
+        "effect_multiplier": resistance["effect_multiplier"],
+        "effect_applied": effect_applied,
         "loot_gold": loot_gold,
-        "loot_policy": rule["loot_policy"],
-        "effect_type": _raid_rule_value(rule, "effect_type", "temporary_debuff"),
-        "counterplay": rule["counterplay"],
-        "visibility": "source_target_and_masters",
+        "target_raid_tokens_lost": target_raid_tokens_lost,
+        "token_surcharge": token_surcharge,
+        "base_token_cost": base_token_cost,
+        "loot_policy": _raid_rule_value(rule, "loot_policy", "no_loot"),
+        "effect_type": effect_type,
+        "base_duration_min": base_duration_min,
+        "duration_min": duration_min,
+        "alchemy_duration_reduction": alchemy_duration_reduction,
+        "counterplay": _raid_rule_value(rule, "counterplay", ""),
+        "visibility": _raid_rule_value(rule, "visibility", "source_target_and_masters"),
     }
     connection.execute(
         """
         UPDATE domain_runtime_state
-        SET raid_tokens = raid_tokens - ?, gold = gold - ? + ?, updated_at = ?
+        SET raid_tokens = raid_tokens - ?, gold = gold + ?, updated_at = ?
         WHERE domain_id = ?
         """,
-        (token_cost, gold_cost, loot_gold, now, domain_id),
+        (token_cost, loot_gold, now, domain_id),
     )
+    if loot_gold:
+        connection.execute(
+            """
+            UPDATE domain_runtime_state
+            SET gold = MAX(0, gold - ?), updated_at = ?
+            WHERE domain_id = ?
+            """,
+            (loot_gold, now, target_owner),
+        )
+    if target_raid_tokens_lost:
+        connection.execute(
+            """
+            UPDATE domain_runtime_state
+            SET raid_tokens = MAX(0, raid_tokens - ?), updated_at = ?
+            WHERE domain_id = ?
+            """,
+            (target_raid_tokens_lost, now, target_owner),
+        )
     connection.execute(
         """
         INSERT INTO raid_effects (
@@ -1151,7 +1320,7 @@ def start_raid(
             target_territory_id, status, starts_at_offset_min, ends_at_offset_min,
             started_at, expires_at, payload_json
         )
-        VALUES (?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
         """,
         (
             effect_id,
@@ -1159,6 +1328,7 @@ def start_raid(
             domain_id,
             target_owner,
             target_territory_id,
+            effect_status,
             duration_min,
             now,
             expires_at,
@@ -1166,7 +1336,7 @@ def start_raid(
         ),
     )
     result = {
-        "status": "active",
+        "status": effect_status,
         "raid_effect_id": effect_id,
         "source_domain_id": domain_id,
         "target_domain_id": target_owner,
@@ -1176,7 +1346,8 @@ def start_raid(
         "token_spent": token_cost,
         "gold_spent": gold_cost,
         "started": True,
-        "resisted": resistance > 0,
+        "resisted": resistance_outcome != "full",
+        "blocked": resistance_outcome == "blocked",
         "loot_applied": loot_gold > 0,
         "validation_error": None,
         "needs_master_review": False,
@@ -1195,10 +1366,10 @@ def start_raid(
             "effect_type": result["effect_type"],
             "target_territory_id": target_territory_id,
             "target_domain_id": target_owner,
-            "status": "active",
+            "status": effect_status,
             "started_at": now,
             "expires_at": expires_at,
-            "resisted": resistance > 0,
+            "resisted": resistance_outcome != "full",
             "loot_applied": loot_gold > 0,
         }
     ]
@@ -1253,6 +1424,343 @@ def reconcile_raid_effects(
     return expired
 
 
+def reconcile_raid_token_caps(
+    connection: sqlite3.Connection, *, now: str | None = None
+) -> list[dict[str, Any]]:
+    ensure_runtime_schema(connection)
+    if not _table_exists(connection, "domain_runtime_state"):
+        return []
+    now_text = now or _iso()
+    updates: list[dict[str, Any]] = []
+    for row in connection.execute(
+        "SELECT domain_id, raid_tokens, raid_token_cap FROM domain_runtime_state ORDER BY domain_id"
+    ).fetchall():
+        domain_id = str(row["domain_id"])
+        cap = _raid_token_cap_for_domain(connection, domain_id)
+        before_cap = _to_int(row["raid_token_cap"])
+        before_tokens = _to_int(row["raid_tokens"])
+        next_tokens = min(before_tokens, cap)
+        if before_cap == cap and before_tokens == next_tokens:
+            continue
+        connection.execute(
+            """
+            UPDATE domain_runtime_state
+            SET raid_token_cap = ?,
+                raid_tokens = ?,
+                updated_at = ?
+            WHERE domain_id = ?
+            """,
+            (cap, next_tokens, now_text, domain_id),
+        )
+        updates.append(
+            {
+                "domain_id": domain_id,
+                "before_cap": before_cap,
+                "after_cap": cap,
+                "before_tokens": before_tokens,
+                "after_tokens": next_tokens,
+            }
+        )
+    return updates
+
+
+def refill_raid_tokens_for_tick(
+    connection: sqlite3.Connection, *, now: str
+) -> list[dict[str, Any]]:
+    reconcile_raid_token_caps(connection, now=now)
+    updates: list[dict[str, Any]] = []
+    for row in connection.execute(
+        """
+        SELECT domain_id, raid_tokens, raid_token_cap
+        FROM domain_runtime_state
+        ORDER BY domain_id
+        """
+    ).fetchall():
+        before = _to_int(row["raid_tokens"])
+        cap = max(BASE_RAID_TOKEN_CAP, _to_int(row["raid_token_cap"]))
+        after = min(cap, before + RAID_TOKEN_REFILL_PER_TICK)
+        if after == before:
+            continue
+        connection.execute(
+            """
+            UPDATE domain_runtime_state
+            SET raid_tokens = ?, updated_at = ?
+            WHERE domain_id = ?
+            """,
+            (after, now, row["domain_id"]),
+        )
+        updates.append(
+            {
+                "domain_id": row["domain_id"],
+                "before": before,
+                "after": after,
+                "cap": cap,
+                "refill": after - before,
+            }
+        )
+    return updates
+
+
+def refill_ritual_cleanse_charges_for_tick(
+    connection: sqlite3.Connection, *, now: str
+) -> list[dict[str, Any]]:
+    if not _table_exists(connection, "domain_runtime_state"):
+        return []
+    updates: list[dict[str, Any]] = []
+    for row in connection.execute(
+        """
+        SELECT domain_id, ritual_cleanse_charges
+        FROM domain_runtime_state
+        ORDER BY domain_id
+        """
+    ).fetchall():
+        domain_id = str(row["domain_id"])
+        if not _has_building(connection, domain_id, RITUAL_CHAMBER_BUILDING_ID):
+            continue
+        before = _to_int(row["ritual_cleanse_charges"])
+        after = min(RITUAL_CLEANSE_CHARGE_CAP, before + 1)
+        if after == before:
+            continue
+        connection.execute(
+            """
+            UPDATE domain_runtime_state
+            SET ritual_cleanse_charges = ?, updated_at = ?
+            WHERE domain_id = ?
+            """,
+            (after, now, domain_id),
+        )
+        updates.append(
+            {
+                "domain_id": domain_id,
+                "before": before,
+                "after": after,
+                "refill": after - before,
+                "cap": RITUAL_CLEANSE_CHARGE_CAP,
+            }
+        )
+    return updates
+
+
+def cleanse_raid_effect(
+    connection: sqlite3.Connection,
+    lord_id: str,
+    *,
+    raid_effect_id: str,
+    source: str = "lord_panel",
+) -> dict[str, Any]:
+    ensure_lord_runtime_state(connection)
+    domain = _domain_for_lord(connection, lord_id)
+    domain_id = str(domain["domain_id"])
+    if not _has_building(connection, domain_id, RITUAL_CHAMBER_BUILDING_ID):
+        raise LordRuntimeError(
+            "ritual_chamber_required",
+            "Ritual cleanse requires Ritual Chamber in the residence.",
+        )
+    charges = _to_int(_row_value(domain, "ritual_cleanse_charges", 0))
+    if charges <= 0:
+        raise LordRuntimeError(
+            "ritual_cleanse_unavailable",
+            "No ritual cleanse charge is available.",
+        )
+    effect = connection.execute(
+        """
+        SELECT *
+        FROM raid_effects
+        WHERE raid_effect_id = ?
+        """,
+        (raid_effect_id,),
+    ).fetchone()
+    if effect is None:
+        raise LordRuntimeError("raid_effect_not_found", "Raid effect is not available.", 404)
+    if str(effect["status"]) != "active":
+        raise LordRuntimeError(
+            "raid_effect_not_active",
+            "Only active raid effects can be cleansed.",
+            409,
+        )
+    if str(effect["target_domain_id"]) != domain_id:
+        raise LordRuntimeError(
+            "raid_effect_not_owned",
+            "Ritual cleanse can target only this house holdings.",
+            403,
+        )
+    now = _iso()
+    payload = _json_loads(effect["payload_json"], {})
+    payload.update(
+        {
+            "cleansed": True,
+            "cleansed_at": now,
+            "cleansed_by_domain_id": domain_id,
+            "cleanse_source": source,
+        }
+    )
+    connection.execute(
+        """
+        UPDATE raid_effects
+        SET status = 'cleansed',
+            expired_at = ?,
+            payload_json = ?
+        WHERE raid_effect_id = ? AND status = 'active'
+        """,
+        (
+            now,
+            json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            raid_effect_id,
+        ),
+    )
+    connection.execute(
+        """
+        UPDATE domain_runtime_state
+        SET ritual_cleanse_charges = MAX(0, ritual_cleanse_charges - 1),
+            updated_at = ?
+        WHERE domain_id = ?
+        """,
+        (now, domain_id),
+    )
+    refreshed = _domain_by_id(connection, domain_id)
+    result = {
+        "status": "cleansed",
+        "raid_effect_id": raid_effect_id,
+        "domain_id": domain_id,
+        "ritual_cleanse_charges": _to_int(refreshed["ritual_cleanse_charges"]),
+        "cleansed_at": now,
+    }
+    log_event(connection, "lord_ritual_cleanse_used", result, source=source)
+    return result
+
+
+def active_raid_effects_for_territory(
+    connection: sqlite3.Connection,
+    territory_id: str,
+    *,
+    effect_type: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        effect
+        for effect in _active_raid_effect_payloads(
+            connection,
+            "target_territory_id = ?",
+            (territory_id,),
+        )
+        if effect_type is None or effect.get("effect_type") == effect_type
+    ]
+
+
+def active_raid_effects_for_domain(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    *,
+    effect_type: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        effect
+        for effect in _active_raid_effect_payloads(
+            connection,
+            "target_domain_id = ?",
+            (domain_id,),
+        )
+        if effect_type is None or effect.get("effect_type") == effect_type
+    ]
+
+
+def raid_income_multiplier_for_territory(
+    connection: sqlite3.Connection, territory_id: str
+) -> int:
+    effects = active_raid_effects_for_territory(
+        connection,
+        territory_id,
+        effect_type="income_down",
+    )
+    if not effects:
+        return 100
+    return min(_to_int(effect.get("effect_multiplier")) or 100 for effect in effects)
+
+
+def raid_defense_penalty_for_territory(
+    connection: sqlite3.Connection, territory_id: str
+) -> int:
+    effects = active_raid_effects_for_territory(
+        connection,
+        territory_id,
+        effect_type="defense_down",
+    )
+    if not effects:
+        return 0
+    if any(str(effect.get("resistance_outcome")) == "full" for effect in effects):
+        return 2
+    return 1
+
+
+def raid_recruit_blocked_for_territory(
+    connection: sqlite3.Connection, territory_id: str
+) -> bool:
+    return bool(
+        active_raid_effects_for_territory(
+            connection,
+            territory_id,
+            effect_type="recruit_block",
+        )
+    )
+
+
+def raid_order_public_cap_penalty_for_domain(
+    connection: sqlite3.Connection, domain_id: str
+) -> int:
+    return 1 if active_raid_effects_for_domain(
+        connection,
+        domain_id,
+        effect_type="order_visibility_disrupt",
+    ) else 0
+
+
+def raid_token_surcharge_for_domain(
+    connection: sqlite3.Connection, domain_id: str
+) -> int:
+    return 1 if active_raid_effects_for_domain(
+        connection,
+        domain_id,
+        effect_type="residence_pressure",
+    ) else 0
+
+
+def raid_defense_summary(
+    connection: sqlite3.Connection,
+    *,
+    target_territory_id: str,
+    owner_domain_id: str,
+    target_type: str,
+) -> dict[str, Any]:
+    garrison_power = (
+        0
+        if target_type == "residence"
+        else _territory_garrison_power(connection, target_territory_id, owner_domain_id)
+    )
+    score = _raid_defense_score(
+        connection,
+        target_territory_id=target_territory_id,
+        owner_domain_id=owner_domain_id,
+        target_type=target_type,
+    )
+    if score <= 0:
+        risk = "низкий"
+    elif score == 1:
+        risk = "средний"
+    elif score == 2:
+        risk = "высокий"
+    else:
+        risk = "очень высокий"
+    return {
+        "raid_defense_score": score,
+        "garrison_power": garrison_power,
+        "risk_label": risk,
+        "has_wards": _has_building(connection, owner_domain_id, "b_wards"),
+        "active_army_present": (
+            target_type != "residence"
+            and _domain_current_territory(connection, owner_domain_id) == target_territory_id
+        ),
+    }
+
+
 def order_action(
     connection: sqlite3.Connection,
     lord_id: str,
@@ -1273,6 +1781,7 @@ def order_action(
 ) -> dict[str, Any]:
     ensure_lord_runtime_state(connection)
     domain = _domain_for_lord(connection, lord_id)
+    domain_id = str(domain["domain_id"])
     now = _iso()
     actor_role = actor_role.strip().lower()
 
@@ -1289,12 +1798,20 @@ def order_action(
         visibility = _normalize_visibility(visibility)
         if visibility == "addressed" and not target_player_id:
             raise LordRuntimeError("missing_target", "Addressed order requires target_player_id.")
+        if target_player_id:
+            _assert_order_recipient_exists(connection, target_player_id)
+        _assert_order_building_unlocked(
+            connection,
+            domain_id,
+            visibility,
+            source=source,
+            actor_role=actor_role,
+        )
         if not escrow_reward_id:
             raise LordRuntimeError("missing_escrow_reward", "Order requires an escrow_reward_id.")
         _assert_order_object_exists(connection, object_id)
         _assert_order_cap(connection, lord_id, visibility)
         if target_player_id:
-            _assert_order_recipient_exists(connection, target_player_id)
             _assert_player_object_available(connection, target_player_id, object_id)
         new_order_id = order_id or f"order_{uuid4().hex}"
         status = "addressed_pending" if visibility == "addressed" else "published"
@@ -2556,6 +3073,167 @@ def _territory_state(connection: sqlite3.Connection, territory_id: str) -> sqlit
     return row
 
 
+def _backfill_domain_building_territories(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "domain_buildings") or not _table_exists(
+        connection,
+        "territories",
+    ):
+        return
+    rows = connection.execute(
+        """
+        SELECT rowid AS building_rowid, domain_id, territory_id, building_id, purchased_at
+        FROM domain_buildings
+        ORDER BY domain_id, building_id, purchased_at
+        """
+    ).fetchall()
+    for row in rows:
+        residence_id = _residence_territory(connection, str(row["domain_id"]))
+        if not residence_id:
+            continue
+        current_territory_id = _optional(row["territory_id"])
+        current_content = (
+            _territory_content_row(connection, current_territory_id)
+            if current_territory_id
+            else None
+        )
+        if (
+            current_territory_id == residence_id
+            and current_content is not None
+            and _is_residence_territory_row(current_content)
+        ):
+            continue
+        try:
+            connection.execute(
+                """
+                UPDATE domain_buildings
+                SET territory_id = ?
+                WHERE rowid = ?
+                """,
+                (
+                    residence_id,
+                    row["building_rowid"],
+                ),
+            )
+        except sqlite3.IntegrityError:
+            connection.execute(
+                """
+                DELETE FROM domain_buildings
+                WHERE rowid = ?
+                """,
+                (row["building_rowid"],),
+            )
+
+
+def _territory_content_row(
+    connection: sqlite3.Connection, territory_id: str
+) -> sqlite3.Row | None:
+    return connection.execute(
+        "SELECT * FROM territories WHERE territory_id = ?",
+        (territory_id,),
+    ).fetchone()
+
+
+def _residence_territory(connection: sqlite3.Connection, domain_id: str) -> str | None:
+    row = connection.execute(
+        """
+        SELECT t.territory_id
+        FROM territories t
+        LEFT JOIN territory_runtime_state rt ON rt.territory_id = t.territory_id
+        WHERE COALESCE(rt.owner_domain_id, t.owner_domain_id) = ?
+          AND t.bonus_type = 'residence'
+        ORDER BY t._row_number
+        LIMIT 1
+        """,
+        (domain_id,),
+    ).fetchone()
+    return _optional(row["territory_id"]) if row else None
+
+
+def _building_purchase_territory_id(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    territory_id: str | None,
+) -> str:
+    residence_id = _residence_territory(connection, domain_id)
+    scoped_territory_id = _optional(territory_id) or residence_id
+    if not scoped_territory_id or not residence_id:
+        raise LordRuntimeError(
+            "missing_building_territory",
+            "Building purchase requires the lord residence.",
+        )
+    territory = _territory_state(connection, scoped_territory_id)
+    content = _territory_content_row(connection, scoped_territory_id)
+    owner_domain_id = _optional(territory["owner_domain_id"]) or _optional(
+        content["owner_domain_id"] if content is not None else None
+    )
+    if owner_domain_id != domain_id:
+        raise LordRuntimeError(
+            "territory_not_owned",
+            "Building purchase is available only in controlled territories.",
+            403,
+        )
+    if scoped_territory_id != residence_id or content is None or not _is_residence_territory_row(content):
+        raise LordRuntimeError(
+            "building_tree_residence_only",
+            "Buildings can be constructed only in the lord residence.",
+        )
+    return scoped_territory_id
+
+
+def _assert_building_allowed_for_territory(
+    connection: sqlite3.Connection,
+    territory_id: str,
+    building_id: str,
+) -> None:
+    territory = _territory_content_row(connection, territory_id)
+    if territory is None:
+        raise LordRuntimeError("territory_not_found", "Territory is not available.", 404)
+    if _is_residence_territory_row(territory):
+        return
+    raise LordRuntimeError(
+        "building_tree_residence_only",
+        "Buildings can be constructed only in the lord residence.",
+    )
+
+
+def _territory_building_ids(
+    connection: sqlite3.Connection,
+    territory: sqlite3.Row,
+) -> list[str]:
+    bonus_type = str(territory["bonus_type"] or "")
+    base_ids = TERRITORY_BUILDING_TREE_IDS.get(
+        bonus_type,
+        ["b_training_yard", "b_market", "b_wards"],
+    )
+    buildings = {
+        str(row["building_id"]): row
+        for row in connection.execute("SELECT * FROM buildings").fetchall()
+    }
+    visible: set[str] = set()
+    stack = list(base_ids)
+    while stack:
+        current_id = stack.pop()
+        if current_id in visible:
+            continue
+        visible.add(current_id)
+        building = buildings.get(current_id)
+        if building is None:
+            continue
+        stack.extend(split_ids(str(building["prerequisite_ids"])))
+    return [
+        str(row["building_id"])
+        for row in connection.execute("SELECT building_id FROM buildings ORDER BY _row_number").fetchall()
+        if str(row["building_id"]) in visible
+    ]
+
+
+def _is_residence_territory_row(territory: sqlite3.Row) -> bool:
+    territory_id = str(territory["territory_id"] or "")
+    return str(territory["bonus_type"] or "") == "residence" or territory_id.startswith(
+        "territory_res_"
+    )
+
+
 def _building(connection: sqlite3.Connection, building_id: str) -> sqlite3.Row:
     row = connection.execute(
         "SELECT * FROM buildings WHERE building_id = ?",
@@ -2574,6 +3252,23 @@ def _has_building(connection: sqlite3.Connection, domain_id: str, building_id: s
         WHERE domain_id = ? AND building_id = ?
         """,
         (domain_id, building_id),
+    ).fetchone()
+    return row is not None
+
+
+def _has_building_at(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    territory_id: str,
+    building_id: str,
+) -> bool:
+    row = connection.execute(
+        """
+        SELECT 1
+        FROM domain_buildings
+        WHERE domain_id = ? AND territory_id = ? AND building_id = ?
+        """,
+        (domain_id, territory_id, building_id),
     ).fetchone()
     return row is not None
 
@@ -2613,6 +3308,118 @@ def _raid_rule_value(rule: sqlite3.Row, column_name: str, fallback: str = "") ->
     if column_name not in rule.keys():
         return fallback
     return str(rule[column_name] or fallback)
+
+
+def _row_value(row: sqlite3.Row, column_name: str, fallback: object = None) -> object:
+    if column_name not in row.keys():
+        return fallback
+    return row[column_name]
+
+
+def _building_raid_token_delta(building: sqlite3.Row) -> int:
+    explicit_delta = _row_value(building, "raid_token_delta")
+    if explicit_delta is not None and str(explicit_delta) != "":
+        return max(0, _to_int(explicit_delta))
+    return 1 if _truthy(_row_value(building, "raid_unlock", False)) else 0
+
+
+def _owned_building_ids(connection: sqlite3.Connection, domain_id: str) -> set[str]:
+    if not _table_exists(connection, "domain_buildings"):
+        return set()
+    return {
+        str(row["building_id"])
+        for row in connection.execute(
+            """
+            SELECT DISTINCT building_id
+            FROM domain_buildings
+            WHERE domain_id = ?
+            """,
+            (domain_id,),
+        ).fetchall()
+    }
+
+
+def building_flat_income_bonus_for_domain(
+    connection: sqlite3.Connection, domain_id: str
+) -> int:
+    return flat_income_bonus(_owned_building_ids(connection, domain_id))
+
+
+def building_territory_income_bonus_percent_for_domain(
+    connection: sqlite3.Connection, domain_id: str
+) -> int:
+    return territory_income_bonus_percent(_owned_building_ids(connection, domain_id))
+
+
+def building_treasury_income_floor_percent_for_domain(
+    connection: sqlite3.Connection, domain_id: str
+) -> int:
+    return treasury_income_floor_percent(_owned_building_ids(connection, domain_id))
+
+
+def _recruit_stock_cap_for_domain(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    unit_class: str,
+    fallback: int,
+) -> int:
+    cap = BUILDING_RECRUIT_STOCK_CAP_BY_CLASS.get(unit_class, fallback)
+    percent = stock_cap_percent(_owned_building_ids(connection, domain_id))
+    return max(1, (cap * percent) // 100)
+
+
+def _raid_token_cap_for_domain(connection: sqlite3.Connection, domain_id: str) -> int:
+    cap = BASE_RAID_TOKEN_CAP
+    if not _table_exists(connection, "domain_buildings") or not _table_exists(connection, "buildings"):
+        return cap
+    for building in connection.execute(
+        """
+        SELECT b.*
+        FROM domain_buildings db
+        JOIN buildings b ON b.building_id = db.building_id
+        WHERE db.domain_id = ?
+        ORDER BY db.purchased_at, db.building_id
+        """,
+        (domain_id,),
+    ).fetchall():
+        cap += _building_raid_token_delta(building)
+    return max(BASE_RAID_TOKEN_CAP, cap)
+
+
+def _active_raid_effect_payloads(
+    connection: sqlite3.Connection,
+    where_sql: str,
+    params: tuple[object, ...],
+) -> list[dict[str, Any]]:
+    if not _table_exists(connection, "raid_effects"):
+        return []
+    effects: list[dict[str, Any]] = []
+    for row in connection.execute(
+        f"""
+        SELECT *
+        FROM raid_effects
+        WHERE status = 'active' AND {where_sql}
+        ORDER BY started_at, raid_effect_id
+        """,
+        params,
+    ).fetchall():
+        payload = _json_loads(row["payload_json"], {})
+        if payload.get("effect_applied") is False:
+            continue
+        effects.append(
+            {
+                "raid_effect_id": row["raid_effect_id"],
+                "rule_id": row["rule_id"],
+                "source_domain_id": row["source_domain_id"],
+                "target_domain_id": row["target_domain_id"],
+                "target_territory_id": row["target_territory_id"],
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "expires_at": row["expires_at"],
+                **payload,
+            }
+        )
+    return effects
 
 
 def _territory_content(
@@ -2737,6 +3544,42 @@ def _assert_master_recovery_reason(
     )
 
 
+def _order_building_gate_bypassed(source: str, actor_role: str) -> bool:
+    return actor_role == "master" or source in (
+        FINAL_LOCK_ORDER_OVERRIDE_SOURCES | ORDER_MASTER_RECOVERY_SOURCES
+    )
+
+
+def _assert_order_building_unlocked(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    visibility: str,
+    *,
+    source: str,
+    actor_role: str,
+) -> None:
+    if _order_building_gate_bypassed(source, actor_role):
+        return
+    if visibility == "public" and not _has_building(
+        connection,
+        domain_id,
+        PUBLIC_ORDER_BUILDING_ID,
+    ):
+        raise LordRuntimeError(
+            "public_orders_locked",
+            "Public orders require Notice Board in the residence.",
+        )
+    if visibility == "addressed" and not _has_building(
+        connection,
+        domain_id,
+        ADDRESSED_ORDER_BUILDING_ID,
+    ):
+        raise LordRuntimeError(
+            "addressed_orders_locked",
+            "Addressed orders require Envoy Hall in the residence.",
+        )
+
+
 def _close_competing_orders(
     connection: sqlite3.Connection,
     *,
@@ -2782,7 +3625,14 @@ def _close_competing_orders(
 
 
 def _assert_order_cap(connection: sqlite3.Connection, lord_id: str, visibility: str) -> None:
-    cap = 2 if visibility == "public" else 1
+    domain = _domain_for_lord(connection, lord_id)
+    domain_id = str(domain["domain_id"])
+    if visibility == "public":
+        cap = 2 if _has_building(connection, domain_id, PUBLIC_ORDER_BUILDING_ID) else 0
+    else:
+        cap = 1 if _has_building(connection, domain_id, ADDRESSED_ORDER_BUILDING_ID) else 0
+    if visibility == "public":
+        cap = max(0, cap - raid_order_public_cap_penalty_for_domain(connection, domain_id))
     count_statuses = _order_statuses_counting_against_cap(connection)
     if not count_statuses:
         return
@@ -2855,9 +3705,11 @@ def _assert_order_recipient_exists(connection: sqlite3.Connection, player_id: st
 
 def _assert_order_object_exists(connection: sqlite3.Connection, object_id: str) -> None:
     checks = (
+        ("order_interest_objects", "interest_id"),
         ("qr_objects", "qr_id"),
         ("territories", "territory_id"),
         ("items", "item_id"),
+        ("cards", "card_id"),
         ("artifacts", "artifact_id"),
     )
     for table_name, column_name in checks:
@@ -3227,7 +4079,7 @@ def apply_recruit_growth_tick(
         ).fetchone()
         if reserve is None:
             reserve_id = _stable_id("reserve", domain_id, card_id, "tick")
-            cap = BUILDING_RECRUIT_STOCK_CAP_BY_CLASS.get(unit_class, growth)
+            cap = _recruit_stock_cap_for_domain(connection, domain_id, unit_class, growth)
             next_count = min(cap, growth)
             connection.execute(
                 """
@@ -3253,8 +4105,11 @@ def apply_recruit_growth_tick(
             continue
 
         current_count = _to_int(reserve["count"])
-        cap = BUILDING_RECRUIT_STOCK_CAP_BY_CLASS.get(
-            unit_class, current_count + growth
+        cap = _recruit_stock_cap_for_domain(
+            connection,
+            domain_id,
+            unit_class,
+            current_count + growth,
         )
         next_count = min(cap, current_count + growth)
         connection.execute(
@@ -3374,7 +4229,12 @@ def _grow_building_recruit_reserve(
     if elapsed_hours <= 0:
         return None
     current_count = _to_int(reserve["count"])
-    cap = BUILDING_RECRUIT_STOCK_CAP_BY_CLASS.get(unit_class, current_count + rate)
+    cap = _recruit_stock_cap_for_domain(
+        connection,
+        str(reserve["domain_id"]),
+        unit_class,
+        current_count + rate,
+    )
     next_count = min(cap, current_count + rate * elapsed_hours)
     if next_count <= current_count:
         connection.execute(
@@ -3592,6 +4452,23 @@ def _consume_reserve(
             ),
         )
         remaining_to_consume -= consumed
+
+
+def _available_reserve_count(
+    connection: sqlite3.Connection, domain_id: str, card_id: str
+) -> int:
+    row = connection.execute(
+        """
+        SELECT COALESCE(SUM(count), 0) AS count
+        FROM army_reserve_runtime
+        WHERE domain_id = ?
+          AND card_id = ?
+          AND status = 'available'
+          AND count > 0
+        """,
+        (domain_id, card_id),
+    ).fetchone()
+    return _to_int(row["count"] if row is not None else 0)
 
 
 def _split_active_army_stack(
@@ -4497,19 +5374,143 @@ def _active_raid_counts(connection: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
+def _raid_resistance_result(
+    connection: sqlite3.Connection,
+    *,
+    target_territory_id: str,
+    owner_domain_id: str,
+    target_type: str,
+    rule: sqlite3.Row,
+) -> dict[str, Any]:
+    raid_strength = max(1, _to_int(_raid_rule_value(rule, "tier", "1")))
+    score = _raid_defense_score(
+        connection,
+        target_territory_id=target_territory_id,
+        owner_domain_id=owner_domain_id,
+        target_type=target_type,
+    )
+    if score <= 0:
+        outcome = "full"
+        multiplier = 100
+    elif score > raid_strength:
+        outcome = "blocked"
+        multiplier = 0
+    else:
+        outcome = "weakened"
+        multiplier = 50
+    return {
+        "score": score,
+        "raid_strength": raid_strength,
+        "outcome": outcome,
+        "effect_multiplier": multiplier,
+    }
+
+
+def _raid_defense_score(
+    connection: sqlite3.Connection,
+    *,
+    target_territory_id: str,
+    owner_domain_id: str,
+    target_type: str,
+) -> int:
+    if target_type == "residence":
+        score = RAID_RESIDENCE_BASE_DEFENSE
+        if _has_building(connection, owner_domain_id, MAGE_STUDY_BUILDING_ID):
+            score += MAGE_STUDY_RESIDENCE_DEFENSE_BONUS
+        if _has_building(connection, owner_domain_id, "b_wards"):
+            score += RAID_RESIDENCE_WARD_DEFENSE
+        return score
+
+    score = _raid_garrison_defense_points(
+        _territory_garrison_power(connection, target_territory_id, owner_domain_id)
+    )
+    if _domain_current_territory(connection, owner_domain_id) == target_territory_id:
+        score += 1
+    if _has_building(connection, owner_domain_id, "b_wards"):
+        score += RAID_TERRITORY_WARD_DEFENSE
+    return score
+
+
+def _raid_garrison_defense_points(garrison_power: int) -> int:
+    if garrison_power >= RAID_GARRISON_POWER_HARD_THRESHOLD:
+        return 3
+    if garrison_power >= RAID_GARRISON_POWER_STRONG_THRESHOLD:
+        return 2
+    if garrison_power >= RAID_GARRISON_POWER_WEAK_THRESHOLD:
+        return 1
+    return 0
+
+
+def _territory_garrison_power(
+    connection: sqlite3.Connection, territory_id: str, owner_domain_id: str
+) -> int:
+    if not _table_exists(connection, "army_unit_cards"):
+        return 0
+    total = 0
+    for row in connection.execute(
+        """
+        SELECT g.count, c.attack, c.defense, c.hp, c.tier
+        FROM garrison_runtime_state g
+        JOIN army_unit_cards c ON c.card_id = g.card_id
+        WHERE g.territory_id = ?
+          AND g.domain_id = ?
+          AND g.status = 'active'
+          AND g.count > 0
+        """,
+        (territory_id, owner_domain_id),
+    ).fetchall():
+        total += (
+            _to_int(row["attack"])
+            + _to_int(row["defense"])
+            + _to_int(row["hp"])
+            + _to_int(row["tier"])
+        ) * _to_int(row["count"])
+    return total
+
+
 def _territory_resistance(
     connection: sqlite3.Connection, territory_id: str, owner_domain_id: str
 ) -> int:
-    garrison_count = connection.execute(
-        """
-        SELECT COALESCE(SUM(count), 0)
-        FROM garrison_runtime_state
-        WHERE territory_id = ? AND domain_id = ? AND status = 'active'
-        """,
-        (territory_id, owner_domain_id),
-    ).fetchone()[0]
-    ward_bonus = 2 if _has_building(connection, owner_domain_id, "b_wards") else 0
-    return int(garrison_count) + ward_bonus
+    return _raid_defense_score(
+        connection,
+        target_territory_id=territory_id,
+        owner_domain_id=owner_domain_id,
+        target_type="territory",
+    )
+
+
+def _raid_effect_duration(base_duration_min: int, resistance_outcome: str) -> int:
+    if resistance_outcome == "blocked":
+        return 0
+    if resistance_outcome == "weakened" and base_duration_min > 1:
+        return max(1, base_duration_min // 2)
+    return base_duration_min
+
+
+def _raid_loot_gold(
+    connection: sqlite3.Connection,
+    target_domain_id: str,
+    target_territory_id: str,
+    resistance_outcome: str,
+) -> int:
+    if resistance_outcome == "blocked":
+        return 0
+    base_loot = 8 * max(1, _territory_tier(connection, target_territory_id))
+    if resistance_outcome == "weakened":
+        base_loot = max(1, base_loot // 2)
+    if _has_building(connection, target_domain_id, BANK_BUILDING_ID):
+        base_loot = max(1, base_loot * (100 - BANK_LOOT_REDUCTION_PERCENT) // 100)
+    target = _domain_by_id(connection, target_domain_id)
+    return min(_to_int(target["gold"]), base_loot)
+
+
+def _raid_residence_token_loss(
+    connection: sqlite3.Connection, target_domain_id: str, resistance_outcome: str
+) -> int:
+    if resistance_outcome != "full":
+        return 0
+    target = _domain_by_id(connection, target_domain_id)
+    return min(1, _to_int(target["raid_tokens"]))
 
 
 def _territory_tier(connection: sqlite3.Connection, territory_id: str) -> int:
@@ -4535,6 +5536,24 @@ def _residence_node(connection: sqlite3.Connection, domain_id: str) -> str | Non
     return _optional(row["node_id"]) if row else None
 
 
+def _domain_current_territory(
+    connection: sqlite3.Connection, domain_id: str
+) -> str | None:
+    if not _table_exists(connection, "map_nodes"):
+        return None
+    row = connection.execute(
+        """
+        SELECT n.territory_id
+        FROM domain_runtime_state d
+        JOIN map_nodes n ON n.node_id = d.current_node_id
+        WHERE d.domain_id = ?
+        LIMIT 1
+        """,
+        (domain_id,),
+    ).fetchone()
+    return _optional(row["territory_id"]) if row else None
+
+
 def _rows(
     connection: sqlite3.Connection, sql: str, params: tuple[object, ...] = ()
 ) -> list[sqlite3.Row]:
@@ -4551,6 +5570,26 @@ def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
         (table_name,),
     ).fetchone()
     return row is not None
+
+
+def _clean_registration_start_enabled(connection: sqlite3.Connection) -> bool:
+    if not _table_exists(connection, "runtime_flags"):
+        return False
+    row = connection.execute(
+        """
+        SELECT value_json
+        FROM runtime_flags
+        WHERE flag_id = ?
+        """,
+        (CLEAN_REGISTRATION_FLAG,),
+    ).fetchone()
+    if row is None:
+        return False
+    try:
+        payload = json.loads(str(row["value_json"] or "{}"))
+    except json.JSONDecodeError:
+        return False
+    return bool(payload.get("enabled"))
 
 
 def _optional(value: object) -> str | None:

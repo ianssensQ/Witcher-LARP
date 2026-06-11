@@ -1,5 +1,5 @@
 domain_id,lord_player_id,name,starting_gold,base_income
-domain_north,p_lord_1,North Watch,80,25
-domain_river,p_lord_2,River Gate,80,25
-domain_forest,p_lord_3,Forest March,80,25
-domain_hill,p_lord_4,Hill Crown,80,25
+domain_north,p_lord_1,Северный Дозор,80,25
+domain_river,p_lord_2,Речные Врата,80,25
+domain_forest,p_lord_3,Лесной Марш,80,25
+domain_hill,p_lord_4,Холмовая Корона,80,25

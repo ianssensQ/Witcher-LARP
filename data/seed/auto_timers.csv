@@ -1,6 +1,6 @@
 timer_id,act_id,timer_type,offset_min,interval_min,effect_type
-timer_income_act1,act1,hourly_tick,60,60,lord_income_and_mana
-timer_income_act2,act2,hourly_tick,180,60,lord_income_and_mana
-timer_income_act3,act3,hourly_tick,330,60,lord_income_and_mana
+timer_income_act1,act1,half_hour_tick,60,30,lord_income_and_mana
+timer_income_act2,act2,half_hour_tick,180,30,lord_income_and_mana
+timer_income_act3,act3,half_hour_tick,330,30,lord_income_and_mana
 timer_final_lock,final_lock,one_shot,435,0,lock_new_pvp_challenges
 timer_backup_final,final_act,one_shot,450,0,backup_before_final

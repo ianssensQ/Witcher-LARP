@@ -1,0 +1,13 @@
+interest_id,interest_type,display_name,asset_id,act_id,tier,scenario_id,qr_id,location_node_id,status,suggested_payment_gold
+interest_artifact_mirror_shard_a1,artifact,Осколок Зеркала,artifact_mirror_shard,act1,1,scn_a1_007,qr_a1_007,node_science_barn,available,15
+interest_artifact_silver_chain_a2,artifact,Серебряная Цепь,artifact_silver_chain,act2,2,scn_a2_019,qr_a2_019,node_science_barn,available,25
+interest_artifact_oath_stone_a2,artifact,Камень Клятвы,artifact_oath_stone,act2,2,scn_a2_025,qr_a2_025,node_mountain_gray,available,25
+interest_artifact_black_seal_a3,artifact,Черная Печать,artifact_black_seal,act3,3,scn_a3_033,qr_a3_033,node_mountain_gray,available,40
+interest_card_infantry_favor_a1,card,Пехотная грамота,pc_infantry_t1,act1,1,scn_a1_006,qr_a1_006,node_fort_east,available,15
+interest_card_guard_contract_a1,card,Дозорный контракт,pc_guard_t1,act1,1,scn_a1_011,qr_a1_011,node_fort_west,available,15
+interest_card_cavalry_writ_a2,card,Кавалерийский вексель,pc_cavalry_t2,act2,2,scn_a2_018,qr_a2_018,node_fort_east,available,25
+interest_card_siege_scheme_a3,card,Осадная схема,pc_siege_t3,act3,3,scn_a3_032,qr_a3_032,node_fort_east,available,40
+interest_treasure_tax_cache_a1,treasure,Тайник сборщика податей,,act1,1,scn_a1_008,qr_a1_008,node_field_oats,available,15
+interest_treasure_well_market_box_a1,treasure,Шкатулка Колодезного Торга,,act1,1,scn_a1_010,qr_a1_010,node_well_city,available,15
+interest_treasure_lake_cache_a2,treasure,Озерный тайник,,act2,2,scn_a2_022,qr_a2_022,node_lake_mist,available,25
+interest_treasure_black_swamp_hoard_a3,treasure,Чернотопский клад,,act3,3,scn_a3_035,qr_a3_035,node_swamp_black,available,40

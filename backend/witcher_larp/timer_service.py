@@ -6,6 +6,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 from .backup_service import run_backup
 from .config import Settings
@@ -122,6 +123,59 @@ def timer_status(
     }
 
 
+def apply_manual_lord_income_tick(
+    connection: sqlite3.Connection,
+    *,
+    operator: str = "master",
+    now: datetime | None = None,
+    source: str = "master_manual_timer",
+) -> dict[str, object]:
+    """Apply the lord economy timer immediately for master-led testing."""
+
+    ensure_runtime_schema(connection)
+    ensure_runtime_content_state(connection)
+    operator = str(operator or "master").strip() or "master"
+    source = str(source or "master_manual_timer").strip() or "master_manual_timer"
+    current_time = now or datetime.now(UTC)
+    timer_id = f"manual_lord_income_{uuid4().hex[:12]}"
+    payload: dict[str, object] = {
+        "timer_id": timer_id,
+        "act_id": _current_act_id(connection) or "manual",
+        "effect_type": "lord_income_and_mana",
+        "due_at": current_time.isoformat(timespec="seconds"),
+        "applied_at": current_time.isoformat(timespec="seconds"),
+        "source": source,
+        "operator": operator,
+        "manual": True,
+    }
+    payload.update(_apply_lord_income_mana_and_mp(connection, current_time))
+    connection.execute(
+        """
+        INSERT INTO applied_timer_ticks (
+            timer_id, due_at, act_id, effect_type, applied_at, source, payload_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            timer_id,
+            payload["due_at"],
+            payload["act_id"],
+            payload["effect_type"],
+            payload["applied_at"],
+            source,
+            json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        ),
+    )
+    log_event(
+        connection,
+        "timer_tick_applied",
+        payload,
+        source=source,
+        created_at=current_time,
+    )
+    return payload
+
+
 def ensure_final_lock(
     connection: sqlite3.Connection,
     *,
@@ -196,9 +250,9 @@ def ensure_runtime_content_state(connection: sqlite3.Connection) -> None:
                 """
                 INSERT INTO domain_runtime_state (
                     domain_id, lord_player_id, gold, base_income, current_mp,
-                    mp_cap, influence, updated_at
+                    mp_cap, raid_tokens, raid_token_cap, influence, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
                 ON CONFLICT(domain_id) DO NOTHING
                 """,
                 (
@@ -267,12 +321,25 @@ def _apply_lord_income_mana_and_mp(
     from .lord_runtime import (
         anti_snowball_cut_for_domain,
         apply_recruit_growth_tick,
+        building_flat_income_bonus_for_domain,
+        building_territory_income_bonus_percent_for_domain,
+        building_treasury_income_floor_percent_for_domain,
         ensure_lord_runtime_state,
+        refill_raid_tokens_for_tick,
+        refill_ritual_cleanse_charges_for_tick,
     )
 
     ensure_lord_runtime_state(connection)
     pending_rewards = _create_contested_pending_tick_rewards(connection, applied_at)
     recruit_growth = apply_recruit_growth_tick(
+        connection,
+        now=_iso(applied_at),
+    )
+    raid_token_refill = refill_raid_tokens_for_tick(
+        connection,
+        now=_iso(applied_at),
+    )
+    ritual_cleanse_refill = refill_ritual_cleanse_charges_for_tick(
         connection,
         now=_iso(applied_at),
     )
@@ -284,12 +351,41 @@ def _apply_lord_income_mana_and_mp(
         ORDER BY domain_id
         """
     ).fetchall():
-        territory_income = _territory_income(connection, str(row["domain_id"]))
-        raw_income = _to_int(row["base_income"]) + territory_income
-        influence_gain = _influence_gain(connection, str(row["domain_id"]))
-        anti_snowball = anti_snowball_cut_for_domain(connection, str(row["domain_id"]))
+        domain_id = str(row["domain_id"])
+        flat_building_income = building_flat_income_bonus_for_domain(
+            connection,
+            domain_id,
+        )
+        territory_bonus_percent = building_territory_income_bonus_percent_for_domain(
+            connection,
+            domain_id,
+        )
+        territory_income = _territory_income(
+            connection,
+            domain_id,
+            bonus_percent=territory_bonus_percent,
+            apply_raid_effects=True,
+        )
+        territory_income_before_penalties = _territory_income(
+            connection,
+            domain_id,
+            bonus_percent=territory_bonus_percent,
+            apply_raid_effects=False,
+        )
+        base_income = _to_int(row["base_income"]) + flat_building_income
+        raw_income = base_income + territory_income
+        pre_penalty_income = base_income + territory_income_before_penalties
+        influence_gain = _influence_gain(connection, domain_id)
+        anti_snowball = anti_snowball_cut_for_domain(connection, domain_id)
         cut_percent = _to_int(anti_snowball["income_cut_percent"])
         income = (raw_income * (100 - cut_percent)) // 100
+        floor_percent = building_treasury_income_floor_percent_for_domain(
+            connection,
+            domain_id,
+        )
+        income_floor = (pre_penalty_income * floor_percent) // 100 if floor_percent else 0
+        if income_floor:
+            income = max(income, income_floor)
         current_mp = min(_to_int(row["mp_cap"]), _to_int(row["current_mp"]) + _mp_refill_amount(connection))
         influence = _to_int(row["influence"]) + influence_gain
         connection.execute(
@@ -305,7 +401,13 @@ def _apply_lord_income_mana_and_mp(
                 "domain_id": row["domain_id"],
                 "income": income,
                 "raw_income": raw_income,
+                "pre_penalty_income": pre_penalty_income,
+                "base_income": base_income,
+                "flat_building_income": flat_building_income,
                 "territory_income": territory_income,
+                "territory_income_before_penalties": territory_income_before_penalties,
+                "territory_income_bonus_percent": territory_bonus_percent,
+                "treasury_income_floor": income_floor,
                 "influence_gain": influence_gain,
                 "influence": influence,
                 "current_mp": current_mp,
@@ -351,6 +453,8 @@ def _apply_lord_income_mana_and_mp(
         "status": "applied",
         "domain_updates": domain_updates,
         "recruit_growth": recruit_growth,
+        "raid_token_refill": raid_token_refill,
+        "ritual_cleanse_refill": ritual_cleanse_refill,
         "sorceress_updates": sorceress_updates,
         "pending_tick_rewards": pending_rewards,
     }
@@ -445,6 +549,17 @@ def _timer_tick_exists(
     return row is not None
 
 
+def _current_act_id(connection: sqlite3.Connection) -> str | None:
+    if not _table_exists(connection, "act_state"):
+        return None
+    row = connection.execute(
+        "SELECT current_act_id FROM act_state WHERE id = 1"
+    ).fetchone()
+    if row is None:
+        return None
+    return str(row["current_act_id"] or "").strip() or None
+
+
 def _movement_defaults_by_domain(
     connection: sqlite3.Connection,
 ) -> dict[str, dict[str, int]]:
@@ -465,7 +580,16 @@ def _movement_defaults_by_domain(
     }
 
 
-def _territory_income(connection: sqlite3.Connection, domain_id: str) -> int:
+def _territory_income(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    *,
+    bonus_percent: int = 0,
+    apply_raid_effects: bool = True,
+) -> int:
+    if apply_raid_effects:
+        from .lord_runtime import raid_income_multiplier_for_territory
+
     if not _table_exists(connection, "territories"):
         return 0
     income_by_tier = {1: 8, 2: 14, 3: 22}
@@ -473,7 +597,7 @@ def _territory_income(connection: sqlite3.Connection, domain_id: str) -> int:
     if _table_exists(connection, "territory_runtime_state"):
         rows = connection.execute(
             """
-            SELECT t.bonus_type, t.tier
+            SELECT t.territory_id, t.bonus_type, t.tier
             FROM territories t
             JOIN territory_runtime_state rt ON rt.territory_id = t.territory_id
             WHERE rt.owner_domain_id = ? AND rt.status = 'controlled'
@@ -483,14 +607,25 @@ def _territory_income(connection: sqlite3.Connection, domain_id: str) -> int:
     else:
         rows = connection.execute(
             """
-            SELECT bonus_type, tier
+            SELECT territory_id, bonus_type, tier
             FROM territories
             WHERE owner_domain_id = ?
             """,
             (domain_id,),
         ).fetchall()
     for row in rows:
-        total += income_by_tier.get(_to_int(row["tier"]), 0)
+        base_income = income_by_tier.get(_to_int(row["tier"]), 0)
+        if bonus_percent:
+            base_income += (base_income * bonus_percent) // 100
+        multiplier = (
+            raid_income_multiplier_for_territory(
+                connection,
+                str(row["territory_id"]),
+            )
+            if apply_raid_effects
+            else 100
+        )
+        total += (base_income * multiplier) // 100
     return total
 
 

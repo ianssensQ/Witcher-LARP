@@ -47,13 +47,35 @@ UNIT_BATTLE_RANGES = {
     "attack_range": (1, 5),
     "cost": (1, 500),
 }
-VALID_TIMER_TYPES = {"hourly_tick", "one_shot"}
+REPEATING_TIMER_TYPES = {"half_hour_tick", "hourly_tick"}
+VALID_TIMER_TYPES = REPEATING_TIMER_TYPES | {"one_shot"}
 VALID_TIMER_EFFECTS = {
     "lord_income_and_mana",
     "lock_new_pvp_challenges",
     "backup_before_final",
 }
 REQUIRED_CANONICAL_TIMERS = {
+    "act1_income_tick": {
+        "act_id": "act1",
+        "timer_type": "half_hour_tick",
+        "offset_min": 60,
+        "interval_min": 30,
+        "effect_type": "lord_income_and_mana",
+    },
+    "act2_income_tick": {
+        "act_id": "act2",
+        "timer_type": "half_hour_tick",
+        "offset_min": 180,
+        "interval_min": 30,
+        "effect_type": "lord_income_and_mana",
+    },
+    "act3_income_tick": {
+        "act_id": "act3",
+        "timer_type": "half_hour_tick",
+        "offset_min": 330,
+        "interval_min": 30,
+        "effect_type": "lord_income_and_mana",
+    },
     "final_lock": {
         "act_id": "final_lock",
         "timer_type": "one_shot",
@@ -326,6 +348,10 @@ def _validate_references(
         ("orders.csv", "lord_id", "players.csv", True),
         ("orders.csv", "target_player_id", "players.csv", True),
         ("orders.csv", "escrow_reward_id", "rewards.csv", False),
+        ("order_interest_objects.csv", "act_id", "acts.csv", True),
+        ("order_interest_objects.csv", "scenario_id", "pve_scenarios.csv", True),
+        ("order_interest_objects.csv", "qr_id", "qr_objects.csv", True),
+        ("order_interest_objects.csv", "location_node_id", "map_nodes.csv", True),
         ("potion_markets.csv", "potion_id", "potions.csv", True),
         ("personal_goals.csv", "player_id", "players.csv", True),
         ("personal_goals.csv", "act_id", "acts.csv", True),
@@ -356,7 +382,14 @@ def _validate_references(
     errors.extend(_list_reference_errors(tables["rewards.csv"], "artifact_ids", ids["artifacts.csv"]))
     errors.extend(_list_reference_errors(tables["gwent_decks.csv"], "card_ids", ids["gwent_cards.csv"]))
 
-    order_object_ids = ids["qr_objects.csv"] | ids["territories.csv"] | ids["items.csv"] | ids["artifacts.csv"]
+    order_object_ids = (
+        ids["order_interest_objects.csv"]
+        | ids["qr_objects.csv"]
+        | ids["territories.csv"]
+        | ids["items.csv"]
+        | ids["cards.csv"]
+        | ids["artifacts.csv"]
+    )
     for record in tables["orders.csv"].rows:
         object_id = record.values["object_id"]
         if object_id not in order_object_ids:
@@ -369,6 +402,8 @@ def _validate_references(
                     message=f"orders.csv object_id references unknown order object {object_id}.",
                 )
             )
+
+    errors.extend(_validate_order_interest_objects(tables, ids))
 
     node_ids = ids["map_nodes.csv"]
     excluded_nodes = {
@@ -453,8 +488,156 @@ def _list_reference_errors(
                         row=record.row_number,
                         record_id=record.values.get(id_column),
                         message=f"{table.file_name} {column} references unknown id {value}.",
+                )
+            )
+    return errors
+
+
+def _validate_order_interest_objects(
+    tables: dict[str, CsvTable], ids: dict[str, set[str]]
+) -> list[ImportErrorDetail]:
+    errors: list[ImportErrorDetail] = []
+    table = tables["order_interest_objects.csv"]
+    valid_types = {"artifact", "card", "treasure"}
+    qr_rows = {
+        record.values["qr_id"]: record
+        for record in tables["qr_objects.csv"].rows
+        if record.values.get("qr_id")
+    }
+    scenarios = {
+        record.values["scenario_id"]: record
+        for record in tables["pve_scenarios.csv"].rows
+        if record.values.get("scenario_id")
+    }
+
+    for record in table.rows:
+        interest_id = record.values["interest_id"]
+        interest_type = record.values.get("interest_type", "")
+        asset_id = record.values.get("asset_id", "")
+        scenario_id = record.values.get("scenario_id", "")
+        qr_id = record.values.get("qr_id", "")
+        act_id = record.values.get("act_id", "")
+        location_node_id = record.values.get("location_node_id", "")
+        status = record.values.get("status", "")
+
+        if interest_type not in valid_types:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_order_interest_type",
+                    file=table.file_name,
+                    row=record.row_number,
+                    record_id=interest_id,
+                    message=f"Order interest type must be one of {sorted(valid_types)}, got {interest_type}.",
+                )
+            )
+
+        if interest_type == "artifact" and asset_id not in ids["artifacts.csv"]:
+            errors.append(
+                ImportErrorDetail(
+                    code="missing_reference",
+                    file=table.file_name,
+                    row=record.row_number,
+                    record_id=interest_id,
+                    message=f"Artifact order interest references unknown artifact {asset_id}.",
+                )
+            )
+        if interest_type == "card" and asset_id not in ids["cards.csv"]:
+            errors.append(
+                ImportErrorDetail(
+                    code="missing_reference",
+                    file=table.file_name,
+                    row=record.row_number,
+                    record_id=interest_id,
+                    message=f"Card order interest references unknown card {asset_id}.",
+                )
+            )
+        if interest_type == "treasure" and asset_id:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_order_interest_asset",
+                    file=table.file_name,
+                    row=record.row_number,
+                    record_id=interest_id,
+                    message="Treasure order interests must leave asset_id empty until the loot is revealed.",
+                )
+            )
+
+        qr = qr_rows.get(qr_id)
+        scenario = scenarios.get(scenario_id)
+        if qr is not None:
+            if qr.values.get("scenario_id") != scenario_id:
+                errors.append(
+                    ImportErrorDetail(
+                        code="order_interest_qr_mismatch",
+                        file=table.file_name,
+                        row=record.row_number,
+                        record_id=interest_id,
+                        message=(
+                            "Order interest qr_id must point to the same scenario_id: "
+                            f"{qr.values.get('scenario_id')} != {scenario_id}."
+                        ),
                     )
                 )
+            if qr.values.get("act_id") != act_id:
+                errors.append(
+                    ImportErrorDetail(
+                        code="order_interest_act_mismatch",
+                        file=table.file_name,
+                        row=record.row_number,
+                        record_id=interest_id,
+                        message=(
+                            "Order interest act_id must match linked QR act_id: "
+                            f"{act_id} != {qr.values.get('act_id')}."
+                        ),
+                    )
+                )
+            if qr.values.get("location_node_id") != location_node_id:
+                errors.append(
+                    ImportErrorDetail(
+                        code="order_interest_location_mismatch",
+                        file=table.file_name,
+                        row=record.row_number,
+                        record_id=interest_id,
+                        message=(
+                            "Order interest location_node_id must match linked QR location_node_id: "
+                            f"{location_node_id} != {qr.values.get('location_node_id')}."
+                        ),
+                    )
+                )
+            if qr.values.get("qr_mode") != "unique_object":
+                errors.append(
+                    ImportErrorDetail(
+                        code="order_interest_qr_mode",
+                        file=table.file_name,
+                        row=record.row_number,
+                        record_id=interest_id,
+                        message="Order interests must link to unique_object QR scenes.",
+                    )
+                )
+        if scenario is not None and scenario.values.get("act_id") != act_id:
+            errors.append(
+                ImportErrorDetail(
+                    code="order_interest_scenario_act_mismatch",
+                    file=table.file_name,
+                    row=record.row_number,
+                    record_id=interest_id,
+                    message=(
+                        "Order interest act_id must match linked scenario act_id: "
+                        f"{act_id} != {scenario.values.get('act_id')}."
+                    ),
+                )
+            )
+        if status not in {"available", "locked", "retired"}:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_order_interest_status",
+                    file=table.file_name,
+                    row=record.row_number,
+                    record_id=interest_id,
+                    message=f"Order interest status must be available, locked, or retired, got {status}.",
+                )
+            )
+
     return errors
 
 
@@ -1053,7 +1236,7 @@ def _validate_map_and_timer_invariants(tables: dict[str, CsvTable]) -> list[Impo
                     message="One-shot auto timers must use interval_min=0.",
                 )
             )
-        if timer_type == "hourly_tick" and interval_min <= 0:
+        if timer_type in REPEATING_TIMER_TYPES and interval_min <= 0:
             errors.append(
                 ImportErrorDetail(
                     code="invalid_auto_timer",
@@ -1061,6 +1244,16 @@ def _validate_map_and_timer_invariants(tables: dict[str, CsvTable]) -> list[Impo
                     row=record.row_number,
                     record_id=timer_id,
                     message="Repeating auto timers must use a positive interval_min.",
+                )
+            )
+        if timer_type == "half_hour_tick" and interval_min != 30:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_auto_timer",
+                    file="auto_timers.csv",
+                    row=record.row_number,
+                    record_id=timer_id,
+                    message="Half-hour auto timers must use interval_min=30.",
                 )
             )
 
@@ -1449,6 +1642,16 @@ def _validate_signed_economy_resources(tables: dict[str, CsvTable]) -> list[Impo
                     message="Building capacity_delta must be non-negative.",
                 )
             )
+        if _to_int(record.values.get("raid_token_delta", "0"), default=-1) < 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="buildings.csv",
+                    row=record.row_number,
+                    record_id=record.values["building_id"],
+                    message="Building raid_token_delta must be non-negative.",
+                )
+            )
 
     for record in tables["recruit_markets.csv"].rows:
         if _to_int(record.values["cost"], default=0) <= 0:
@@ -1490,15 +1693,25 @@ def _validate_signed_economy_resources(tables: dict[str, CsvTable]) -> list[Impo
 
     for record in tables["raid_rules.csv"].rows:
         rule_id = record.values["rule_id"]
-        for column in ("token_cost", "gold_cost", "duration_min"):
-            if _to_int(record.values[column], default=0) <= 0:
+        if _to_int(record.values["token_cost"], default=0) <= 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="raid_rules.csv",
+                    row=record.row_number,
+                    record_id=rule_id,
+                    message="Raid rule token_cost must be positive.",
+                )
+            )
+        for column in ("gold_cost", "duration_min"):
+            if _to_int(record.values[column], default=-1) < 0:
                 errors.append(
                     ImportErrorDetail(
                         code="invalid_resource_value",
                         file="raid_rules.csv",
                         row=record.row_number,
                         record_id=rule_id,
-                        message=f"Raid rule {column} must be positive.",
+                        message=f"Raid rule {column} must be non-negative.",
                     )
                 )
 

@@ -1,5 +1,4 @@
 const TOKEN_KEY = "witcher_larp_admin_token";
-const VISIBILITY_AUDIT_ENDPOINT = "/api/master/visibility-audit";
 
 const els = {
   loginPanel: document.querySelector("#login-panel"),
@@ -19,28 +18,34 @@ const els = {
   workspace: document.querySelector("#workspace"),
 };
 
+const VIEWS = [
+  { id: "lords", label: "Пульт лордов", status: "watch" },
+  { id: "game", label: "Пульт игры", status: "live" },
+  { id: "players", label: "Игроки", status: "watch" },
+  { id: "codes", label: "Коды", status: "setup" },
+  { id: "review", label: "Ревью", status: "attention" },
+  { id: "content", label: "Контент", status: "setup" },
+];
+
+const ADMIN_AUTO_REFRESH_MS = 10_000;
+const LORD_PATCH_LABELS = {
+  gold: "Золото",
+  current_mp: "MP сейчас",
+  mp_cap: "Лимит MP",
+  raid_tokens: "Жетоны рейда",
+};
+
 let session = null;
 let overview = null;
 let masterState = null;
-let finalSummary = null;
-let activeSectionId = "content";
-let contentRenderId = 0;
-
-const PAPER_FORM_TYPES = [
-  ["paper_pve_result", "Paper PvE result"],
-  ["paper_pvp_stake", "Paper PvP stake"],
-  ["paper_lord_action", "Paper lord action"],
-  ["paper_lord_battle", "Paper lord battle"],
-  ["paper_order_resolution", "Paper order resolution"],
-  ["paper_npc_deal", "Paper NPC deal"],
-  ["paper_final_evidence", "Paper final evidence"],
-];
-
-const PAPER_CONFLICT_STATUSES = [
-  ["clean", "clean"],
-  ["needs_review", "needs review"],
-  ["duplicate_conflict_needs_review", "duplicate/conflict review"],
-];
+let lordBattles = { items: [] };
+let playerCodes = { items: [], total: 0, enabled_count: 0 };
+let contentState = null;
+let activeViewId = "lords";
+let autoRefreshId = null;
+let refreshInFlight = false;
+let queuedManualRefresh = false;
+let pendingAutoRender = false;
 
 els.form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -51,27 +56,37 @@ els.form.addEventListener("submit", async (event) => {
 
 els.refreshButton.addEventListener("click", async () => {
   if (!session) return;
-  try {
-    await loadOverview();
-  } catch (error) {
-    setDashboardStatus(error.message);
-  }
+  await refreshAll({ source: "manual" });
 });
 
 els.logoutButton.addEventListener("click", () => {
+  stopAutoRefresh();
   localStorage.removeItem(TOKEN_KEY);
   session = null;
   overview = null;
   masterState = null;
-  finalSummary = null;
-  activeSectionId = "content";
+  lordBattles = { items: [] };
+  playerCodes = { items: [], total: 0, enabled_count: 0 };
+  contentState = null;
+  activeViewId = "lords";
+  queuedManualRefresh = false;
+  pendingAutoRender = false;
   els.dashboard.hidden = true;
   els.loginPanel.hidden = false;
   els.tokenInput.value = "";
-  renderNav([]);
+  els.nav.replaceChildren();
   els.workspace.replaceChildren();
-  setStatus("");
+  setLoginStatus("");
   setDashboardStatus("");
+});
+
+document.addEventListener("focusout", () => {
+  window.setTimeout(renderPendingAutoRefresh, 0);
+}, true);
+
+document.addEventListener("visibilitychange", () => {
+  if (!session || document.visibilityState !== "visible") return;
+  refreshAll({ source: "auto", scope: "overview" });
 });
 
 const savedToken = localStorage.getItem(TOKEN_KEY);
@@ -81,1800 +96,969 @@ if (savedToken) {
 }
 
 async function login(token) {
-  setStatus("Checking token");
+  setLoginStatus("Проверяю код");
   try {
     const response = await fetch("/api/auth/role-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
     });
-    if (!response.ok) throw new Error("Token rejected");
+    if (!response.ok) throw new Error("Код не принят");
     const auth = await response.json();
-    if (auth.role_type !== "npc_master") {
-      throw new Error("Master role token required");
-    }
+    if (auth.role_type !== "npc_master") throw new Error("Нужен код мастера");
     session = { token, auth };
     localStorage.setItem(TOKEN_KEY, token);
-    els.masterName.textContent = auth.display_name || auth.owner_id || "Master";
+    els.masterName.textContent = auth.display_name || "Мастер игры";
     els.loginPanel.hidden = true;
     els.dashboard.hidden = false;
-    await loadOverview();
+    await refreshAll({ source: "manual" });
+    startAutoRefresh();
   } catch (error) {
+    stopAutoRefresh();
     localStorage.removeItem(TOKEN_KEY);
     session = null;
-    overview = null;
-    masterState = null;
-    finalSummary = null;
     els.dashboard.hidden = true;
     els.loginPanel.hidden = false;
-    setStatus(error.message);
+    setLoginStatus(error.message);
   }
 }
 
-async function loadOverview() {
-  setStatus("Loading overview");
-  const data = await apiJson("/api/master/admin/overview");
-  overview = data;
+async function refreshAll(options = {}) {
+  const isAuto = options.source === "auto";
+  const overviewOnly = options.scope === "overview";
+  if (!session) return null;
+  if (refreshInFlight) {
+    if (!isAuto) queuedManualRefresh = true;
+    return null;
+  }
+  refreshInFlight = true;
+  if (!isAuto) setDashboardStatus("Обновляю состояние игры");
   try {
-    masterState = await apiJson("/api/master/state");
+    if (overviewOnly) {
+      overview = await apiJson("/api/master/admin/overview");
+      return masterState;
+    }
+
+    const [overviewPayload, statePayload, battlesPayload, codesPayload] = await Promise.all([
+      apiJson("/api/master/admin/overview"),
+      apiJson("/api/master/state"),
+      apiJson("/api/lord-battles").catch(() => ({ items: [] })),
+      apiJson("/api/master/player-codes").catch(() => ({ items: [], total: 0, enabled_count: 0 })),
+    ]);
+    overview = overviewPayload;
+    masterState = statePayload;
+    lordBattles = battlesPayload || { items: [] };
+    playerCodes = codesPayload || { items: [], total: 0, enabled_count: 0 };
+    renderFreshState({ deferActiveView: isAuto && isMasterEditing() });
+    if (!isAuto) setDashboardStatus("Состояние игры обновлено");
   } catch (error) {
-    masterState = null;
-    setDashboardStatus(`Master state failed: ${error.message}`);
+    if (!isAuto) setDashboardStatus(error.message);
+    return null;
+  } finally {
+    refreshInFlight = false;
+    if (queuedManualRefresh) {
+      queuedManualRefresh = false;
+      await refreshAll({ source: "manual" });
+    }
   }
-  if (!overview.sections.some((section) => section.id === activeSectionId)) {
-    activeSectionId = overview.sections[0]?.id || "content";
-  }
-  renderOverview(overview);
-  const alertCount = masterState?.blocking_alerts?.length || 0;
-  setDashboardStatus(
-    alertCount
-      ? `Overview loaded with ${alertCount} blocking alert(s)`
-      : `Overview loaded: ${overview.snapshot_version || "not imported"}`
-  );
+  return masterState;
 }
 
-function renderOverview(data) {
-  const attention = data.sections.filter((section) => section.status === "needs_attention").length;
-  els.stageValue.textContent = data.stage || "Stage 2";
-  els.snapshotValue.textContent = data.snapshot_version || "not imported";
-  els.sectionsValue.textContent = `${data.sections.length}`;
-  els.attentionValue.textContent = `${attention}`;
-  renderNav(data.sections);
-  renderSection(data.sections.find((section) => section.id === activeSectionId) || data.sections[0]);
+function startAutoRefresh() {
+  stopAutoRefresh();
+  autoRefreshId = window.setInterval(() => {
+    if (!session || document.visibilityState === "hidden") return;
+    refreshAll({ source: "auto", scope: "overview" });
+  }, ADMIN_AUTO_REFRESH_MS);
 }
 
-function renderNav(sections) {
+function stopAutoRefresh() {
+  if (!autoRefreshId) return;
+  window.clearInterval(autoRefreshId);
+  autoRefreshId = null;
+}
+
+function renderFreshState({ deferActiveView = false } = {}) {
+  renderTopSummary();
+  renderNav();
+  if (deferActiveView) {
+    pendingAutoRender = true;
+    setDashboardStatus("Новые данные получены, форма не сброшена");
+    return;
+  }
+  pendingAutoRender = false;
+  renderActiveView();
+}
+
+function renderPendingAutoRefresh() {
+  if (!pendingAutoRender || isMasterEditing()) return;
+  pendingAutoRender = false;
+  renderShell();
+}
+
+function renderShell() {
+  renderTopSummary();
+  renderNav();
+  renderActiveView();
+}
+
+function isMasterEditing() {
+  if (document.querySelector(".modal-backdrop")) return true;
+  const active = document.activeElement;
+  if (!active || active === document.body || !(active instanceof HTMLElement)) return false;
+  if (active.isContentEditable) return true;
+  return Boolean(active.closest("input, select, textarea, form"));
+}
+
+function renderTopSummary() {
+  const act = masterState?.acts?.state || {};
+  const players = playersList();
+  const lords = lordDomains();
+  const reviewCount = reviewItems().length
+    + rewardItems().length
+    + activeBattles().length
+    + lords.filter((domain) => lordAttention(domain).length).length;
+  els.stageValue.textContent = actLabel(act.current_act_id || "not_started");
+  els.snapshotValue.textContent = String(players.length);
+  els.sectionsValue.textContent = String(lords.length);
+  els.attentionValue.textContent = String(reviewCount);
+}
+
+function renderNav() {
   els.nav.replaceChildren();
-  for (const section of sections) {
+  for (const view of VIEWS) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "nav-button";
-    button.dataset.sectionId = section.id;
-    button.setAttribute("aria-pressed", String(section.id === activeSectionId));
-    button.textContent = section.label;
-    const badge = document.createElement("span");
-    badge.className = `status-badge ${statusClass(section.status)}`;
-    badge.textContent = statusLabel(section.status);
-    button.append(badge);
+    button.dataset.viewId = view.id;
+    button.setAttribute("aria-pressed", String(view.id === activeViewId));
+    button.innerHTML = `
+      <span>${escapeHtml(view.label)}</span>
+      <span class="status-badge ${viewBadgeClass(view.id)}">${escapeHtml(viewBadgeText(view.id))}</span>
+    `;
     button.addEventListener("click", () => {
-      activeSectionId = section.id;
-      renderOverview(overview);
+      activeViewId = view.id;
+      renderShell();
     });
     els.nav.append(button);
   }
 }
 
-function renderSection(section) {
+function renderActiveView() {
   els.workspace.replaceChildren();
-  if (!section) return;
-
-  const header = document.createElement("div");
-  header.className = "workspace-heading";
-  header.innerHTML = `
-    <div>
-      <p class="eyebrow">${escapeHtml(section.id)}</p>
-      <h3>${escapeHtml(section.label)}</h3>
-    </div>
-    <span class="status-badge ${statusClass(section.status)}">${escapeHtml(statusLabel(section.status))}</span>
-  `;
-  els.workspace.append(header);
-
-  renderMetrics(section);
-
-  if (section.id === "content") {
-    renderContentPanel(section);
+  if (!masterState) {
+    els.workspace.append(emptyLine("Состояние игры пока не загружено"));
     return;
   }
-  if (section.id === "game-ops") {
-    renderGameOpsPanel(section);
-    return;
-  }
-  if (section.id === "events") {
-    renderEventsPanel(section);
-    return;
-  }
-  if (section.id === "npc") {
-    renderNpcPanel(section);
-    return;
-  }
-  if (section.id === "backups") {
-    renderBackupsPanel(section);
-    return;
-  }
-  if (section.id === "final") {
-    renderFinalPanel(section);
-    return;
-  }
-
-  renderActions(section);
+  const view = VIEWS.find((item) => item.id === activeViewId) || VIEWS[0];
+  els.workspace.append(pageHeader(view.label, viewIntro(view.id)));
+  if (view.id === "game") renderGameView();
+  if (view.id === "lords") renderLordsView();
+  if (view.id === "players") renderPlayersView();
+  if (view.id === "codes") renderPlayerCodesView();
+  if (view.id === "review") renderReviewView();
+  if (view.id === "content") renderContentView();
 }
 
-function renderMetrics(section) {
-  const metrics = document.createElement("section");
-  metrics.className = "metric-strip";
-  metrics.setAttribute("aria-label", `${section.label} metrics`);
-  for (const metric of section.metrics || []) {
-    const item = document.createElement("article");
-    item.className = "mini-metric";
-    item.innerHTML = `
-      <span>${escapeHtml(metric.label)}</span>
-      <strong>${escapeHtml(metric.value)}</strong>
-    `;
-    metrics.append(item);
-  }
-  els.workspace.append(metrics);
-}
-
-function renderActions(section) {
-  const actions = document.createElement("section");
-  actions.className = "action-list";
-  actions.setAttribute("aria-label", `${section.label} endpoints`);
-  for (const action of section.actions || []) {
-    const item = document.createElement("article");
-    item.className = "action-row";
-    if (action.status !== "ready") item.classList.add("disabled");
-    item.innerHTML = `
-      <div>
-        <strong>${escapeHtml(action.label)}</strong>
-        <span>${escapeHtml(endpointLabel(action))}</span>
-      </div>
-      <span class="status-badge ${statusClass(action.status)}">${escapeHtml(statusLabel(action.status))}</span>
-    `;
-    actions.append(item);
-  }
-  els.workspace.append(actions);
-}
-
-function renderContentPanel(section) {
-  renderActions(section);
-
-  const panel = document.createElement("section");
-  panel.className = "content-panel";
-  panel.innerHTML = `
-    <div class="content-controls">
-      <form id="content-import-form" class="content-form">
-        <label for="content-pack-select">Content pack</label>
-        <select id="content-pack-select"></select>
-        <label for="content-manifest-path">Manifest path</label>
-        <input id="content-manifest-path" autocomplete="off" placeholder="data/seed default">
-        <label class="check-row" for="content-export-snapshot">
-          <input id="content-export-snapshot" type="checkbox" checked>
-          <span>Export snapshot file</span>
-        </label>
-        <button type="submit">Import</button>
-      </form>
-      <form id="snapshot-export-form" class="content-form">
-        <label for="snapshot-dir">Snapshot dir</label>
-        <input id="snapshot-dir" autocomplete="off" placeholder="data/snapshots">
-        <button type="submit">Export snapshot</button>
-      </form>
-    </div>
-    <p class="status-line content-status" id="content-status" role="status"></p>
-    <div class="content-results">
-      <section class="report-block" id="import-report"></section>
-      <section class="report-block" id="qr-checklist"></section>
-      <section class="report-block" id="handout-checklist"></section>
-    </div>
-  `;
+function renderGameView() {
+  const act = masterState.acts?.state || {};
+  const timers = masterState.timers || {};
+  const elapsed = elapsedMinutes(act.active_started_at);
+  const panel = sectionPanel("Ход игры", "main-panel");
+  panel.append(
+    heroBlock([
+      ["Текущий акт", actLabel(act.current_act_id || "not_started")],
+      ["Статус", humanStatus(act.status || "pending")],
+      ["Прошло", formatMinutes(elapsed)],
+      ["Тиков", timers.applied_tick_count || 0],
+    ])
+  );
+  panel.append(startGameForm());
+  panel.append(timeControlForm(elapsed));
+  panel.append(actionBar([
+    actionButton("Начислить тик лордам", () => applyLordTick()),
+    actionButton("Обновить", () => refreshAll(), "secondary"),
+    actionButton("Перейти в ревью", () => {
+      activeViewId = "review";
+      renderShell();
+    }, "secondary"),
+  ]));
+  panel.append(simpleTable(
+    ["Акт", "Статус", "Старт", "Объявление"],
+    (masterState.acts?.history || []).map((row) => [
+      actLabel(row.act_id),
+      humanStatus(row.status),
+      shortDate(row.started_at),
+      humanStatus(row.physical_announcement_state),
+    ]),
+    "Акты ещё не запускались"
+  ));
   els.workspace.append(panel);
-  setupContentPanel(panel);
+
+  const overviewPanel = sectionPanel("Оперативная картина");
+  overviewPanel.append(summaryCards([
+    ["Лорды", lordDomains().length],
+    ["Игроки", playersList().length],
+    ["Активные бои", activeBattles().length],
+    ["Проверки", reviewItems().length + rewardItems().length],
+  ]));
+  els.workspace.append(overviewPanel);
 }
 
-function renderGameOpsPanel(section) {
-  renderActions(section);
-  if (!masterState) {
-    els.workspace.append(emptyLine("Master state is not available"));
-    return;
-  }
-  const grid = document.createElement("section");
-  grid.className = "ops-grid";
-  grid.append(
-    renderActOpsPanel(),
-    renderPvpOpsPanel(),
-    renderEventSyncPanel(),
-    renderAntiSnowballPanel(),
-    renderLordMapPanel(),
-    renderEconomyRecoveryPanel(),
-    renderVisibilityAuditPanel(),
-    renderCorrectionPanel()
-  );
-  els.workspace.append(grid);
-}
-
-function renderActOpsPanel() {
-  const panel = opsPanel("Act controls");
-  const acts = masterState.acts?.acts || [];
-  const state = masterState.acts?.state || {};
-  const history = masterState.acts?.history || [];
-  panel.innerHTML += `
-    <p>Current: ${escapeHtml(state.current_act_id || "not started")} / ${escapeHtml(state.status || "not_started")}</p>
-    <div class="form-grid">
-      <label class="field">
-        <span>Act</span>
-        <select id="ops-act-id">${actOptions(acts, state.current_act_id)}</select>
-      </label>
-      <label class="field">
-        <span>Operator</span>
-        <input id="ops-act-operator" autocomplete="off" value="master">
-      </label>
-      <label class="field">
-        <span>Announcement</span>
-        <select id="ops-act-announcement">
-          <option value="pending">pending</option>
-          <option value="announced">announced</option>
-        </select>
-      </label>
-    </div>
-    <div class="inline-actions">
-      <button type="button" id="ops-start-act">Start</button>
-      <button type="button" class="secondary" id="ops-announce-act">Announce</button>
-      <button type="button" class="secondary" id="ops-reveal-unlock">Reveal code</button>
-    </div>
-  `;
-  panel.querySelector("#ops-start-act").addEventListener("click", async () => {
-    const actId = panel.querySelector("#ops-act-id").value;
-    const operator = panel.querySelector("#ops-act-operator").value.trim() || "master";
-    const physical = panel.querySelector("#ops-act-announcement").value;
-    await runOpsAction(
-      "Start act",
-      () =>
-        apiJson(`/api/master/acts/${encodeURIComponent(actId)}/start`, {
-          method: "POST",
-          body: { operator, physical_announcement_state: physical },
-        }),
-      (result) => `Act started: ${result.state?.current_act_id || actId}`
-    );
-  });
-  panel.querySelector("#ops-announce-act").addEventListener("click", async () => {
-    const actId = panel.querySelector("#ops-act-id").value;
-    const operator = panel.querySelector("#ops-act-operator").value.trim() || "master";
-    await runOpsAction(
-      "Record announcement",
-      () =>
-        apiJson(`/api/master/acts/${encodeURIComponent(actId)}/physical-announcement`, {
-          method: "POST",
-          body: { operator, state: "announced" },
-        }),
-      (result) => `Announcement recorded: ${result.act_id || actId}`
-    );
-  });
-  panel.querySelector("#ops-reveal-unlock").addEventListener("click", async () => {
-    const actId = panel.querySelector("#ops-act-id").value;
-    const operator = encodeURIComponent(panel.querySelector("#ops-act-operator").value.trim() || "master");
-    await runOpsAction(
-      "Reveal unlock code",
-      () => apiJson(`/api/master/acts/${encodeURIComponent(actId)}/unlock-code?operator=${operator}`),
-      (result) => `Unlock code for ${result.act_id || actId}: ${result.code || "hidden"}`
-    );
-  });
-  panel.append(
-    objectTable(
-      ["act_id", "status", "physical_announcement_state", "unlock_revealed_at", "operator"],
-      history,
-      ["Act", "Status", "Announcement", "Unlock", "Operator"]
-    )
-  );
-  return panel;
-}
-
-function renderPvpOpsPanel() {
-  const panel = opsPanel("PvP throttle");
-  const pvp = masterState.pvp || {};
-  const throttle = pvp.throttle || {};
-  panel.innerHTML += `
-    <p>Mode: ${escapeHtml(throttle.mode || "normal")} / tables ${escapeHtml(throttle.max_tables ?? "-")}</p>
+function startGameForm() {
+  const form = document.createElement("form");
+  form.className = "form-grid quick-form";
+  form.innerHTML = `
     <label class="field">
-      <span>Operator</span>
-      <input id="ops-pvp-operator" autocomplete="off" value="master">
+      <span>Акт для запуска</span>
+      <select id="start-act">${actOptions()}</select>
     </label>
-    <div class="inline-actions">
-      <button type="button" id="pvp-normal">Normal</button>
-      <button type="button" class="secondary" id="pvp-limited">Limited</button>
-      <button type="button" class="danger" id="pvp-paused">Paused</button>
-    </div>
+    <label class="field">
+      <span>Оператор</span>
+      <input id="start-operator" autocomplete="off" value="master">
+    </label>
+    <button type="submit">Запустить акт</button>
   `;
-  for (const [id, mode] of [
-    ["#pvp-normal", "normal"],
-    ["#pvp-limited", "limited"],
-    ["#pvp-paused", "paused"],
-  ]) {
-    panel.querySelector(id).addEventListener("click", async () => {
-      const operator = panel.querySelector("#ops-pvp-operator").value.trim() || "master";
-      await runOpsAction(
-        "Set PvP throttle",
-        () =>
-          apiJson("/api/master/pvp-throttle", {
-            method: "POST",
-            body: { mode, operator },
-          }),
-        (result) => `PvP throttle: ${result.throttle?.mode || mode}`
-      );
-    });
-  }
-  panel.append(
-    objectTable(
-      ["challenge_id", "challenger_id", "target_id", "status", "review_reason"],
-      pvp.queued_challenges || [],
-      ["Challenge", "From", "To", "Status", "Review"]
-    )
-  );
-  return panel;
-}
-
-function renderEventSyncPanel() {
-  const panel = opsPanel("Recent event log and sync status");
-  const events = masterState.events || {};
-  const recent = recentEventRows(events.recent || []);
-  const syncStatuses = events.sync_statuses || [];
-  panel.append(
-    summaryGrid([
-      ["Recent events", recent.length],
-      ["Sync clients", syncStatuses.length],
-      ["Open reviews", events.review?.open_count || 0],
-      ["Critical", events.review?.critical_open_count || 0],
-    ])
-  );
-  panel.append(blockTitle("Recent event log"));
-  panel.append(
-    objectTable(
-      ["id", "event_type", "source", "actor", "paper_form_id", "created_at"],
-      recent.slice(0, 12),
-      ["ID", "Type", "Source", "Actor", "Paper form", "Created"]
-    )
-  );
-  panel.append(blockTitle("Sync status"));
-  panel.append(
-    objectTable(
-      ["client_id", "player_id", "snapshot_version", "last_seen_at", "last_event_sequence"],
-      syncStatuses,
-      ["Client", "Player", "Snapshot", "Last seen", "Seq"]
-    )
-  );
-  return panel;
-}
-
-function renderAntiSnowballPanel() {
-  const panel = opsPanel("Anti-snowball state");
-  const rows = (masterState.lord_map?.domains || []).map((domain) => {
-    const state = domain.anti_snowball || {};
-    return {
-      domain_id: domain.domain_id,
-      gold: domain.gold,
-      army_power: state.army_power ?? 0,
-      average_army_power: roundNumber(state.average_army_power),
-      army_power_ratio: `${state.army_power_ratio ?? 0}%`,
-      income_cut_percent: `${state.income_cut_percent ?? 0}%`,
-    };
-  });
-  panel.append(
-    summaryGrid([
-      ["Domains", rows.length],
-      ["With cut", rows.filter((row) => row.income_cut_percent !== "0%").length],
-      ["Max ratio", maxPercent(rows.map((row) => row.army_power_ratio))],
-      ["Max cut", maxPercent(rows.map((row) => row.income_cut_percent))],
-    ])
-  );
-  panel.append(
-    objectTable(
-      ["domain_id", "gold", "army_power", "average_army_power", "army_power_ratio", "income_cut_percent"],
-      rows,
-      ["Domain", "Gold", "Army", "Avg army", "Ratio", "Income cut"]
-    )
-  );
-  return panel;
-}
-
-function renderLordMapPanel() {
-  const panel = opsPanel("Lord map state");
-  const map = masterState.lord_map || {};
-  const domains = map.domains || [];
-  const territories = map.territories || [];
-  const contested = map.contested_claims || [];
-  panel.append(
-    summaryGrid([
-      ["Domains", domains.length],
-      ["Territories", territories.length],
-      ["Contested", contested.length],
-      ["Raids", (map.raid_effects || []).length],
-    ])
-  );
-  panel.append(
-    objectTable(
-      ["territory_id", "name", "owner_domain_id", "status", "contested_by_domain_id"],
-      territories.slice(0, 10),
-      ["Territory", "Name", "Owner", "Status", "Contested by"]
-    )
-  );
-  panel.append(
-    objectTable(
-      ["domain_id", "gold", "current_mp", "mp_cap", "raid_tokens"],
-      domains,
-      ["Domain", "Gold", "MP", "Cap", "Raids"]
-    )
-  );
-  return panel;
-}
-
-function renderEconomyRecoveryPanel() {
-  const panel = opsPanel("Potion and trade recovery");
-  const economy = masterState.economy || {};
-  const markets = economy.potion_markets || [];
-  const transfers = economy.trade_transfers || [];
-  const players = economy.player_economy || [];
-  panel.append(
-    summaryGrid([
-      ["Potion markets", markets.length],
-      ["Potion inventory", economy.summary?.potion_inventory_rows || 0],
-      ["Trade transfers", transfers.length],
-      ["Pending trades", economy.summary?.pending_trade_transfers || 0],
-    ])
-  );
-  panel.innerHTML += `
-    <div class="form-grid">
-      <label class="field">
-        <span>Operator</span>
-        <input id="economy-correction-operator" autocomplete="off" value="master">
-      </label>
-      <label class="field">
-        <span>Reason</span>
-        <input id="economy-correction-reason" autocomplete="off" placeholder="paper trade or potion log checked">
-      </label>
-    </div>
-
-    <form id="potion-market-correction-form" class="form-grid typed-correction">
-      <label class="field wide">
-        <span>Potion market correction</span>
-        <select id="potion-market-id">${optionTags(markets.map((row) => [
-          row.market_id,
-          `${row.market_id} / ${row.potion_id} / stock ${row.stock}`,
-        ]))}</select>
-      </label>
-      <label class="field">
-        <span>Stock</span>
-        <input id="potion-market-stock" type="number" min="0" step="1" placeholder="12">
-      </label>
-      <label class="field">
-        <span>Refresh rule</span>
-        <input id="potion-market-refresh" autocomplete="off" placeholder="per_act">
-      </label>
-      <button type="submit">Apply potion correction</button>
-    </form>
-
-    <form id="trade-transfer-correction-form" class="form-grid typed-correction">
-      <label class="field wide">
-        <span>Trade transfer correction</span>
-        <select id="trade-transfer-id">${optionTags(transfers.map((row) => [
-          row.transfer_id,
-          `${row.transfer_id} / ${row.asset_type}:${row.asset_id} / ${row.status}`,
-        ]))}</select>
-      </label>
-      <label class="field">
-        <span>Status</span>
-        <select id="trade-transfer-status">
-          <option value="">keep</option>
-          <option value="pending_locked">pending locked</option>
-          <option value="accepted">accepted</option>
-          <option value="declined">declined</option>
-          <option value="contested_review">contested review</option>
-          <option value="cancelled">cancelled</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Quantity</span>
-        <input id="trade-transfer-quantity" type="number" min="1" step="1" placeholder="1">
-      </label>
-      <label class="field">
-        <span>Price gold</span>
-        <input id="trade-transfer-price" type="number" min="0" step="1" placeholder="0">
-      </label>
-      <label class="field">
-        <span>Mode</span>
-        <select id="trade-transfer-mode">
-          <option value="">keep</option>
-          <option value="gift">gift</option>
-          <option value="sell">sell</option>
-          <option value="exchange">exchange</option>
-          <option value="paper_recovered">paper recovered</option>
-        </select>
-      </label>
-      <button type="submit">Apply trade correction</button>
-    </form>
-
-    <form id="player-economy-correction-form" class="form-grid typed-correction">
-      <label class="field wide">
-        <span>Player economy correction</span>
-        <select id="player-economy-id">${optionTags(players.map((row) => [
-          row.player_id,
-          `${row.player_id} / gold ${row.gold} / xp ${row.xp}`,
-        ]))}</select>
-      </label>
-      <label class="field">
-        <span>Gold</span>
-        <input id="player-economy-gold" type="number" min="0" step="1" placeholder="30">
-      </label>
-      <label class="field">
-        <span>XP</span>
-        <input id="player-economy-xp" type="number" min="0" step="1" placeholder="4">
-      </label>
-      <label class="field">
-        <span>Challenge tokens</span>
-        <input id="player-economy-tokens" type="number" min="0" step="1" placeholder="1">
-      </label>
-      <button type="submit">Apply economy correction</button>
-    </form>
-  `;
-  attachEconomyCorrectionHandlers(panel);
-  panel.append(blockTitle("Potion markets"));
-  panel.append(
-    objectTable(
-      ["market_id", "seller_role", "potion_id", "stock", "refresh_rule"],
-      markets,
-      ["Market", "Seller", "Potion", "Stock", "Refresh"]
-    )
-  );
-  panel.append(blockTitle("Trade transfers"));
-  panel.append(
-    objectTable(
-      ["transfer_id", "from_player_id", "to_player_id", "asset_type", "asset_id", "quantity", "price_gold", "status"],
-      transfers,
-      ["Transfer", "From", "To", "Type", "Asset", "Qty", "Gold", "Status"]
-    )
-  );
-  return panel;
-}
-
-function attachEconomyCorrectionHandlers(panel) {
-  panel.querySelector("#potion-market-correction-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const patch = {};
-    setPatchNumber(patch, "stock", panel.querySelector("#potion-market-stock").value);
-    setPatchText(patch, "refresh_rule", panel.querySelector("#potion-market-refresh").value);
-    await submitCorrectionFromPanel(
-      panel,
-      "Potion market correction",
-      {
-        target_type: "potion_market",
-        target_id: panel.querySelector("#potion-market-id").value,
-        patch,
-      },
-      (result) => `Potion market corrected: ${result.target_id}`
-    );
-  });
-
-  panel.querySelector("#trade-transfer-correction-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const patch = {};
-    setPatchText(patch, "status", panel.querySelector("#trade-transfer-status").value);
-    setPatchNumber(patch, "quantity", panel.querySelector("#trade-transfer-quantity").value);
-    setPatchNumber(patch, "price_gold", panel.querySelector("#trade-transfer-price").value);
-    setPatchText(patch, "mode", panel.querySelector("#trade-transfer-mode").value);
-    await submitCorrectionFromPanel(
-      panel,
-      "Trade transfer correction",
-      {
-        target_type: "trade_transfer",
-        target_id: panel.querySelector("#trade-transfer-id").value,
-        patch,
-      },
-      (result) => `Trade transfer corrected: ${result.target_id}`
-    );
-  });
-
-  panel.querySelector("#player-economy-correction-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const patch = {};
-    setPatchNumber(patch, "gold", panel.querySelector("#player-economy-gold").value);
-    setPatchNumber(patch, "xp", panel.querySelector("#player-economy-xp").value);
-    setPatchNumber(patch, "challenge_tokens", panel.querySelector("#player-economy-tokens").value);
-    await submitCorrectionFromPanel(
-      panel,
-      "Player economy correction",
-      {
-        target_type: "player",
-        target_id: panel.querySelector("#player-economy-id").value,
-        patch,
-      },
-      (result) => `Player economy corrected: ${result.target_id}`
-    );
-  });
-}
-
-async function submitCorrectionFromPanel(panel, label, request, formatter) {
-  if (!request.target_id) {
-    setDashboardStatus("Correction target is required");
-    return null;
-  }
-  if (!Object.keys(request.patch || {}).length) {
-    setDashboardStatus("Correction field is required");
-    return null;
-  }
-  return runOpsAction(
-    label,
-    () =>
-      apiJson("/api/master/game-ops/corrections", {
-        method: "POST",
-        body: {
-          target_type: request.target_type,
-          target_id: request.target_id,
-          operator: panel.querySelector("#economy-correction-operator").value.trim(),
-          reason: panel.querySelector("#economy-correction-reason").value.trim(),
-          patch: request.patch,
-        },
-      }),
-    formatter
-  );
-}
-
-function renderVisibilityAuditPanel() {
-  const panel = opsPanel("Visibility audit");
-  const audit = masterState.visibility_audit || {};
-  const summary = audit.summary || {};
-  const actions = document.createElement("div");
-  actions.className = "inline-actions";
-  const refresh = document.createElement("button");
-  refresh.type = "button";
-  refresh.className = "secondary";
-  refresh.textContent = "Refresh visibility audit";
-  refresh.addEventListener("click", refreshVisibilityAudit);
-  actions.append(refresh);
-  panel.append(actions);
-  panel.append(
-    summaryGrid([
-      ["Hidden garrisons", summary.hidden_garrisons || 0],
-      ["Raid effects", summary.raid_effects || 0],
-      ["Artifacts", summary.artifacts || 0],
-      ["Revealed", summary.revealed_artifacts || 0],
-    ])
-  );
-  panel.append(blockTitle("Lord visibility audit"));
-  panel.append(
-    objectTable(
-      ["domain_id", "foreign_garrisons", "raid_effects", "artifact_numbers"],
-      audit.lord_view_boundaries || [],
-      ["Domain", "Garrisons", "Raids", "Artifacts"]
-    )
-  );
-  panel.append(blockTitle("Hidden garrison audit"));
-  panel.append(
-    objectTable(
-      ["garrison_id", "territory_id", "domain_id", "card_id", "count", "lord_redaction"],
-      audit.hidden_garrisons || [],
-      ["Garrison", "Territory", "Owner", "Card", "Count", "Lord view"]
-    )
-  );
-  panel.append(blockTitle("Raid effect visibility"));
-  panel.append(
-    objectTable(
-      ["raid_effect_id", "source_domain_id", "target_domain_id", "target_territory_id", "status"],
-      audit.raid_effects || [],
-      ["Raid", "Source", "Target", "Territory", "Status"]
-    )
-  );
-  panel.append(blockTitle("Artifact visibility audit"));
-  panel.append(
-    objectTable(
-      ["artifact_id", "visibility", "player_visibility", "revealed", "owner_count"],
-      artifactAuditRows(audit.artifacts || []),
-      ["Artifact", "Seed visibility", "Player view", "Revealed", "Owners"]
-    )
-  );
-  return panel;
-}
-
-async function refreshVisibilityAudit() {
-  setDashboardStatus("Loading visibility audit");
-  try {
-    const audit = await apiJson(VISIBILITY_AUDIT_ENDPOINT);
-    masterState = {
-      ...(masterState || {}),
-      visibility_audit: audit,
-    };
-    renderOverview(overview);
-    setDashboardStatus("Visibility audit loaded");
-  } catch (error) {
-    setDashboardStatus(error.message);
-  }
-}
-
-function renderCorrectionPanel() {
-  const panel = opsPanel("Audited correction");
-  panel.innerHTML += `
-    <form id="ops-correction-form" class="form-grid">
-      <label class="field">
-        <span>Target type</span>
-        <select id="ops-correction-type">
-          <option value="territory">territory</option>
-          <option value="domain">domain</option>
-          <option value="player">player economy</option>
-          <option value="garrison">garrison</option>
-          <option value="pending_reward">pending reward</option>
-          <option value="domain_building">building</option>
-          <option value="recruit_offer">recruit offer</option>
-          <option value="reserve">reserve</option>
-          <option value="raid">raid</option>
-          <option value="potion_market">potion market</option>
-          <option value="potion_inventory">potion inventory</option>
-          <option value="trade_transfer">trade transfer</option>
-          <option value="pvp_review">pvp timeout/review</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Target id</span>
-        <input id="ops-correction-id" autocomplete="off" placeholder="territory_fort_east">
-      </label>
-      <label class="field">
-        <span>Operator</span>
-        <input id="ops-correction-operator" autocomplete="off" value="master">
-      </label>
-      <label class="field">
-        <span>Reason</span>
-        <input id="ops-correction-reason" autocomplete="off" placeholder="paper fallback checked">
-      </label>
-      <label class="field wide">
-        <span>Patch JSON</span>
-        <textarea id="ops-correction-patch">{"owner_domain_id":"domain_north","status":"controlled"}</textarea>
-      </label>
-      <button type="submit">Apply correction</button>
-    </form>
-  `;
-  panel.querySelector("#ops-correction-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const targetType = panel.querySelector("#ops-correction-type").value;
-    const targetId = panel.querySelector("#ops-correction-id").value.trim();
-    const operator = panel.querySelector("#ops-correction-operator").value.trim();
-    const reason = panel.querySelector("#ops-correction-reason").value.trim();
-    let patch;
-    try {
-      patch = parseJsonObject(panel.querySelector("#ops-correction-patch").value);
-    } catch (error) {
-      setDashboardStatus(error.message);
-      return;
-    }
-    await runOpsAction(
-      "Apply correction",
-      () =>
-        apiJson("/api/master/game-ops/corrections", {
-          method: "POST",
-          body: { target_type: targetType, target_id: targetId, operator, reason, patch },
-        }),
-      (result) => `Correction recorded: ${result.correction_id}`
-    );
-  });
-  panel.append(
-    objectTable(
-      ["correction_id", "target_type", "target_id", "operator", "reason"],
-      masterState.corrections || [],
-      ["Correction", "Type", "Target", "Operator", "Reason"]
-    )
-  );
-  return panel;
-}
-
-function renderEventsPanel(section) {
-  renderActions(section);
-  if (!masterState) {
-    els.workspace.append(emptyLine("Master state is not available"));
-    return;
-  }
-  const grid = document.createElement("section");
-  grid.className = "ops-grid";
-  grid.append(renderPaperRecoveryPanel(), renderReviewPanel(), renderRewardPanel());
-  els.workspace.append(grid);
-}
-
-function renderPaperRecoveryPanel() {
-  const panel = opsPanel("Paper recovery intake");
-  const recentPaper = recentEventRows(masterState.events?.recent || []).filter(
-    (row) => row.event_type === "paper_recovered"
-  );
-  panel.innerHTML += `
-    <form id="paper-recovery-form" class="form-grid paper-recovery-form">
-      <label class="field">
-        <span>Form type</span>
-        <select id="paper-source-form-type">${optionTags(PAPER_FORM_TYPES)}</select>
-      </label>
-      <label class="field">
-        <span>Paper form id</span>
-        <input id="paper-form-id" autocomplete="off" placeholder="paper-pve-001" required>
-      </label>
-      <label class="field">
-        <span>Operator</span>
-        <input id="paper-operator" autocomplete="off" value="master" required>
-      </label>
-      <label class="field">
-        <span>Timestamp</span>
-        <input id="paper-timestamp" type="datetime-local" required>
-      </label>
-      <label class="field">
-        <span>Conflict status</span>
-        <select id="paper-conflict-status">${optionTags(PAPER_CONFLICT_STATUSES, "clean")}</select>
-      </label>
-      <label class="field wide">
-        <span>Reason</span>
-        <input id="paper-reason" autocomplete="off" placeholder="phone outage during scene" required>
-      </label>
-
-      <div class="paper-fieldset wide" data-paper-type="paper_pve_result">
-        <label class="field">
-          <span>Player id</span>
-          <input id="paper-pve-player-id" autocomplete="off" placeholder="p_witcher_1">
-        </label>
-        <label class="field">
-          <span>QR id</span>
-          <input id="paper-pve-qr-id" autocomplete="off" placeholder="qr_a1_001">
-        </label>
-        <label class="field">
-          <span>Result</span>
-          <select id="paper-pve-result">
-            <option value="success">success</option>
-            <option value="failure">failure</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="paper-fieldset wide" data-paper-type="paper_pvp_stake" hidden>
-        <label class="field">
-          <span>Match id</span>
-          <input id="paper-pvp-match-id" autocomplete="off" placeholder="match-paper-1">
-        </label>
-        <label class="field">
-          <span>Stake asset type</span>
-          <select id="paper-pvp-stake-type">
-            <option value="item">item</option>
-            <option value="card">card</option>
-            <option value="artifact">artifact</option>
-            <option value="potion">potion</option>
-            <option value="gold">gold</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>Stake asset id</span>
-          <input id="paper-pvp-stake-id" autocomplete="off" placeholder="item_order_seal">
-        </label>
-        <label class="field">
-          <span>Quantity</span>
-          <input id="paper-pvp-stake-quantity" type="number" min="1" step="1" placeholder="1">
-        </label>
-      </div>
-
-      <div class="paper-fieldset wide" data-paper-type="paper_lord_action" hidden>
-        <label class="field">
-          <span>Lord id</span>
-          <input id="paper-lord-action-lord-id" autocomplete="off" placeholder="p_lord_1">
-        </label>
-        <label class="field">
-          <span>Territory id</span>
-          <input id="paper-lord-action-territory-id" autocomplete="off" placeholder="territory_north_keep">
-        </label>
-        <label class="field">
-          <span>Action</span>
-          <select id="paper-lord-action">
-            <option value="garrison">garrison</option>
-            <option value="move">move</option>
-            <option value="raid">raid</option>
-            <option value="battle">battle</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="paper-fieldset wide" data-paper-type="paper_lord_battle" hidden>
-        <label class="field">
-          <span>Battle id</span>
-          <input id="paper-battle-id" autocomplete="off" placeholder="battle-paper-1">
-        </label>
-        <label class="field">
-          <span>Result</span>
-          <select id="paper-battle-result">
-            <option value="attacker_won">attacker won</option>
-            <option value="defender_won">defender won</option>
-            <option value="draw">draw</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>Attacker losses</span>
-          <input id="paper-battle-attacker-losses" type="number" min="0" step="1" placeholder="0">
-        </label>
-        <label class="field">
-          <span>Defender losses</span>
-          <input id="paper-battle-defender-losses" type="number" min="0" step="1" placeholder="0">
-        </label>
-      </div>
-
-      <div class="paper-fieldset wide" data-paper-type="paper_order_resolution" hidden>
-        <label class="field">
-          <span>Order id</span>
-          <input id="paper-order-id" autocomplete="off" placeholder="order_river_review">
-        </label>
-        <label class="field">
-          <span>Result</span>
-          <select id="paper-order-result">
-            <option value="completed">completed</option>
-            <option value="failed">failed</option>
-            <option value="cancelled">cancelled</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="paper-fieldset wide" data-paper-type="paper_npc_deal" hidden>
-        <label class="field">
-          <span>NPC role</span>
-          <select id="paper-npc-role">
-            <option value="king">king</option>
-            <option value="wanderer">wanderer</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>Target id</span>
-          <input id="paper-npc-target-id" autocomplete="off" placeholder="p_sorc_1">
-        </label>
-        <label class="field">
-          <span>Price gold</span>
-          <input id="paper-npc-price-gold" type="number" min="0" step="1" placeholder="2">
-        </label>
-        <label class="field">
-          <span>Hidden price</span>
-          <input id="paper-npc-hidden-price" autocomplete="off" placeholder="owed_at_final">
-        </label>
-      </div>
-
-      <div class="paper-fieldset wide" data-paper-type="paper_final_evidence" hidden>
-        <label class="field">
-          <span>Evidence category</span>
-          <input id="paper-final-category" autocomplete="off" placeholder="artifact">
-        </label>
-        <label class="field">
-          <span>Target id</span>
-          <input id="paper-final-target-id" autocomplete="off" placeholder="p_witcher_1">
-        </label>
-        <label class="field wide">
-          <span>Summary text</span>
-          <input id="paper-final-summary" autocomplete="off" placeholder="Recovered final evidence from paper.">
-        </label>
-      </div>
-
-      <button type="submit">Submit paper recovery</button>
-    </form>
-  `;
-  const form = panel.querySelector("#paper-recovery-form");
-  panel.querySelector("#paper-timestamp").value = localDateTimeValue();
-  panel.querySelector("#paper-source-form-type").addEventListener("change", () => {
-    updatePaperFieldsets(panel);
-  });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const payload = buildPaperRecoveryPayload(panel);
-    await runOpsAction(
-      "Submit paper recovery",
-      () =>
-        apiJson("/api/events/sync", {
-          method: "POST",
-          body: {
-            device_id: "admin-studio-paper-terminal",
-            actor_id: session.auth?.owner_id || "master",
-            actor_type: "master",
-            events: [
-              {
-                event_id: `paper_admin_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-                client_sequence: Date.now(),
-                created_at: new Date().toISOString(),
-                event_type: "paper_recovered",
-                payload,
-              },
-            ],
-          },
-        }),
-      (result) => `Paper recovery: ${result.results?.[0]?.status || "submitted"}`
-    );
-  });
-  panel.append(blockTitle("Recent paper recovery"));
-  panel.append(
-    objectTable(
-      ["id", "paper_form_id", "source", "created_at"],
-      recentPaper,
-      ["Event", "Paper form", "Source", "Created"]
-    )
-  );
-  return panel;
-}
-
-function updatePaperFieldsets(panel) {
-  const selected = panel.querySelector("#paper-source-form-type").value;
-  for (const fieldset of panel.querySelectorAll(".paper-fieldset")) {
-    fieldset.hidden = fieldset.dataset.paperType !== selected;
-  }
-}
-
-function buildPaperRecoveryPayload(panel) {
-  const type = fieldValue(panel, "#paper-source-form-type");
-  const payload = {
-    paper_form_id: fieldValue(panel, "#paper-form-id"),
-    source_form_type: type,
-    operator: fieldValue(panel, "#paper-operator"),
-    timestamp: fieldValue(panel, "#paper-timestamp"),
-    reason: fieldValue(panel, "#paper-reason"),
-    conflict_status: fieldValue(panel, "#paper-conflict-status"),
-  };
-
-  if (type === "paper_pve_result") {
-    payload.player_id = fieldValue(panel, "#paper-pve-player-id");
-    payload.qr_id = fieldValue(panel, "#paper-pve-qr-id");
-    payload.result = fieldValue(panel, "#paper-pve-result");
-  }
-  if (type === "paper_pvp_stake") {
-    payload.match_id = fieldValue(panel, "#paper-pvp-match-id");
-    payload.stake_json = compactObject({
-      asset_type: fieldValue(panel, "#paper-pvp-stake-type"),
-      asset_id: fieldValue(panel, "#paper-pvp-stake-id"),
-      quantity: numberOrNull(panel.querySelector("#paper-pvp-stake-quantity").value) || 1,
+    const actId = form.querySelector("#start-act").value || "act1";
+    const operator = form.querySelector("#start-operator").value.trim() || "master";
+    const confirmed = await confirmAction({
+      title: "Запустить акт?",
+      body: `Будет запущен ${actLabel(actId)}. Если это текущий акт, отсчет начнется заново с 0 минут.`,
+      details: [
+        ["Акт", actLabel(actId)],
+        ["Оператор", operator],
+      ],
+      confirmLabel: "Запустить акт",
+      danger: true,
     });
-  }
-  if (type === "paper_lord_action") {
-    payload.lord_id = fieldValue(panel, "#paper-lord-action-lord-id");
-    payload.territory_id = fieldValue(panel, "#paper-lord-action-territory-id");
-    payload.action = fieldValue(panel, "#paper-lord-action");
-  }
-  if (type === "paper_lord_battle") {
-    payload.battle_id = fieldValue(panel, "#paper-battle-id");
-    payload.result = fieldValue(panel, "#paper-battle-result");
-    payload.losses = compactObject({
-      attacker: numberOrNull(panel.querySelector("#paper-battle-attacker-losses").value) || 0,
-      defender: numberOrNull(panel.querySelector("#paper-battle-defender-losses").value) || 0,
-    });
-  }
-  if (type === "paper_order_resolution") {
-    payload.order_id = fieldValue(panel, "#paper-order-id");
-    payload.result = fieldValue(panel, "#paper-order-result");
-  }
-  if (type === "paper_npc_deal") {
-    payload.npc_role = fieldValue(panel, "#paper-npc-role");
-    payload.target_id = fieldValue(panel, "#paper-npc-target-id");
-    payload.price_json = compactObject({
-      gold: numberOrNull(panel.querySelector("#paper-npc-price-gold").value),
-      hidden_price: fieldValue(panel, "#paper-npc-hidden-price"),
-    });
-  }
-  if (type === "paper_final_evidence") {
-    payload.evidence_category = fieldValue(panel, "#paper-final-category");
-    payload.target_id = fieldValue(panel, "#paper-final-target-id");
-    payload.summary_text = fieldValue(panel, "#paper-final-summary");
-  }
-  return payload;
-}
-
-function renderReviewPanel() {
-  const panel = opsPanel("Review queue");
-  const review = masterState.events?.review || {};
-  panel.innerHTML += `
-    <p>Open: ${escapeHtml(review.open_count || 0)} / critical ${escapeHtml(review.critical_open_count || 0)}</p>
-    <div class="form-grid">
-      <label class="field">
-        <span>Operator</span>
-        <input id="review-operator" autocomplete="off" value="master">
-      </label>
-      <label class="field">
-        <span>Reason</span>
-        <input id="review-reason" autocomplete="off" placeholder="checked at master table">
-      </label>
-      <label class="field wide">
-        <span>Correction JSON</span>
-        <textarea id="review-correction">{}</textarea>
-      </label>
-    </div>
-  `;
-  panel.append(reviewActionTable(panel, review.open_items || []));
-  return panel;
-}
-
-function reviewActionTable(panel, rows) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "table-wrap";
-  const table = document.createElement("table");
-  table.innerHTML = `
-    <thead>
-      <tr><th>Event</th><th>Severity</th><th>Status</th><th>Reason</th><th>Action</th></tr>
-    </thead>
-  `;
-  const tbody = document.createElement("tbody");
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="5">No open reviews</td></tr>`;
-  }
-  for (const row of rows) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${escapeHtml(row.event_id)}</td>
-      <td>${escapeHtml(row.severity)}</td>
-      <td>${escapeHtml(row.status)}</td>
-      <td>${escapeHtml(row.reason)}</td>
-      <td><div class="inline-actions"></div></td>
-    `;
-    const actions = tr.querySelector(".inline-actions");
-    for (const action of ["approve", "reject", "correct"]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = action === "reject" ? "danger" : "secondary";
-      button.textContent = action;
-      button.addEventListener("click", async () => {
-        let correction = {};
-        try {
-          correction = parseJsonObject(panel.querySelector("#review-correction").value);
-        } catch (error) {
-          setDashboardStatus(error.message);
-          return;
-        }
-        await runOpsAction(
-          "Resolve review",
-          () =>
-            apiJson(`/api/events/${encodeURIComponent(row.event_id)}/review`, {
-              method: "POST",
-              body: {
-                action,
-                operator: panel.querySelector("#review-operator").value.trim() || "master",
-                reason: panel.querySelector("#review-reason").value.trim(),
-                severity: row.severity,
-                correction,
-              },
-            }),
-          (result) => `Review ${result.review?.event_id || row.event_id}: ${result.review?.status || action}`
-        );
-      });
-      actions.append(button);
-    }
-    tbody.append(tr);
-  }
-  table.append(tbody);
-  wrapper.append(table);
-  return wrapper;
-}
-
-function renderRewardPanel() {
-  const panel = opsPanel("Reward approvals");
-  const rewards = masterState.reward_approvals || {};
-  panel.innerHTML += `
-    <p>Pending: ${escapeHtml(rewards.pending_count || 0)}</p>
-    <div class="form-grid">
-      <label class="field">
-        <span>Operator</span>
-        <input id="reward-operator" autocomplete="off" value="master">
-      </label>
-      <label class="field">
-        <span>Reason</span>
-        <input id="reward-reason" autocomplete="off" placeholder="roll log checked">
-      </label>
-      <label class="field wide">
-        <span>Correction JSON</span>
-        <textarea id="reward-correction">{}</textarea>
-      </label>
-    </div>
-  `;
-  panel.append(rewardActionTable(panel, rewards.pending || []));
-  return panel;
-}
-
-function rewardActionTable(panel, rows) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "table-wrap";
-  const table = document.createElement("table");
-  table.innerHTML = `
-    <thead>
-      <tr><th>Approval</th><th>Reward</th><th>Player</th><th>Severity</th><th>Action</th></tr>
-    </thead>
-  `;
-  const tbody = document.createElement("tbody");
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="5">No pending rewards</td></tr>`;
-  }
-  for (const row of rows) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${escapeHtml(row.approval_id)}</td>
-      <td>${escapeHtml(row.reward_id)}</td>
-      <td>${escapeHtml(row.player_id)}</td>
-      <td>${escapeHtml(row.severity)}</td>
-      <td><div class="inline-actions"></div></td>
-    `;
-    const actions = tr.querySelector(".inline-actions");
-    for (const action of ["approve", "reject", "correct"]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = action === "reject" ? "danger" : "secondary";
-      button.textContent = action;
-      button.addEventListener("click", async () => {
-        let correction = {};
-        try {
-          correction = parseJsonObject(panel.querySelector("#reward-correction").value);
-        } catch (error) {
-          setDashboardStatus(error.message);
-          return;
-        }
-        await runOpsAction(
-          "Resolve reward",
-          () =>
-            apiJson(`/api/master/reward-approvals/${encodeURIComponent(row.approval_id)}`, {
-              method: "POST",
-              body: {
-                action,
-                operator: panel.querySelector("#reward-operator").value.trim() || "master",
-                reason: panel.querySelector("#reward-reason").value.trim(),
-                correction,
-              },
-            }),
-          (result) => `Reward ${result.approval_id || row.approval_id}: ${result.status || action}`
-        );
-      });
-      actions.append(button);
-    }
-    tbody.append(tr);
-  }
-  table.append(tbody);
-  wrapper.append(table);
-  return wrapper;
-}
-
-function renderNpcPanel(section) {
-  renderActions(section);
-  const grid = document.createElement("section");
-  grid.className = "ops-grid";
-  grid.append(renderKingNpcPanel(), renderWandererNpcPanel(), renderReputationPanel(), renderNpcListsPanel());
-  els.workspace.append(grid);
-  loadNpcPanelData();
-}
-
-function renderKingNpcPanel() {
-  const panel = opsPanel("King rulings");
-  panel.innerHTML += `
-    <form id="king-event-form" class="form-grid">
-      <label class="field">
-        <span>Event</span>
-        <select id="king-event-type">
-          <option value="king_ruling">king ruling</option>
-          <option value="influence_grant">influence grant</option>
-          <option value="dispute_judgment">dispute judgment</option>
-          <option value="major_order">major order</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Targets</span>
-        <input id="king-targets" autocomplete="off" placeholder="domain_north, p_lord_1">
-      </label>
-      <label class="field">
-        <span>Reputation delta</span>
-        <input id="king-reputation-delta" type="number" value="0">
-      </label>
-      <label class="field">
-        <span>Severity</span>
-        <select id="king-severity">
-          <option value="P1">P1</option>
-          <option value="P0">P0</option>
-          <option value="P2">P2</option>
-          <option value="P3">P3</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Operator</span>
-        <input id="king-operator" autocomplete="off" value="master">
-      </label>
-      <label class="field check-row" for="king-final-flag">
-        <input id="king-final-flag" type="checkbox">
-        <span>Final flag</span>
-      </label>
-      <label class="field wide">
-        <span>Consequence JSON</span>
-        <textarea id="king-consequence">{"influence_delta":1}</textarea>
-      </label>
-      <button type="submit">Record King event</button>
-    </form>
-  `;
-  panel.querySelector("#king-event-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    let consequence;
-    try {
-      consequence = parseJsonObject(panel.querySelector("#king-consequence").value);
-    } catch (error) {
-      setDashboardStatus(error.message);
-      return;
-    }
-    await submitNpcEvent({
-      npc_role: "npc_king",
-      event_type: panel.querySelector("#king-event-type").value,
-      target_ids: splitIds(panel.querySelector("#king-targets").value),
-      reputation_delta: Number(panel.querySelector("#king-reputation-delta").value || 0),
-      severity: panel.querySelector("#king-severity").value,
-      consequence,
-      final_flag: panel.querySelector("#king-final-flag").checked,
-      operator: panel.querySelector("#king-operator").value.trim() || "master",
-    });
-  });
-  return panel;
-}
-
-function renderWandererNpcPanel() {
-  const panel = opsPanel("Wanderer hidden price");
-  panel.innerHTML += `
-    <form id="wanderer-event-form" class="form-grid">
-      <label class="field">
-        <span>Event</span>
-        <select id="wanderer-event-type">
-          <option value="stranger_deal">stranger deal</option>
-          <option value="wanderer_deal">wanderer deal</option>
-          <option value="dark_artifact">dark artifact</option>
-          <option value="alternate_victory_hook">alternate victory hook</option>
-          <option value="field_intervention">field intervention</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Targets</span>
-        <input id="wanderer-targets" autocomplete="off" placeholder="p_witcher_4">
-      </label>
-      <label class="field">
-        <span>Hidden price</span>
-        <input id="wanderer-hidden-price" autocomplete="off" placeholder="owed_at_final">
-      </label>
-      <label class="field">
-        <span>Reputation delta</span>
-        <input id="wanderer-reputation-delta" type="number" value="-1">
-      </label>
-      <label class="field">
-        <span>Severity</span>
-        <select id="wanderer-severity">
-          <option value="P1">P1</option>
-          <option value="P0">P0</option>
-          <option value="P2">P2</option>
-          <option value="P3">P3</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Operator</span>
-        <input id="wanderer-operator" autocomplete="off" value="master">
-      </label>
-      <label class="field check-row" for="wanderer-final-flag">
-        <input id="wanderer-final-flag" type="checkbox" checked>
-        <span>Final flag</span>
-      </label>
-      <label class="field wide">
-        <span>Condition JSON</span>
-        <textarea id="wanderer-condition">{"accepted_mark":true}</textarea>
-      </label>
-      <label class="field wide">
-        <span>Consequence JSON</span>
-        <textarea id="wanderer-consequence">{"effect":"alternate_victory_hook","artifact":"dark_token"}</textarea>
-      </label>
-      <button type="submit">Capture NPC deal</button>
-    </form>
-  `;
-  panel.querySelector("#wanderer-event-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    let condition;
-    let consequence;
-    try {
-      condition = parseJsonObject(panel.querySelector("#wanderer-condition").value);
-      consequence = parseJsonObject(panel.querySelector("#wanderer-consequence").value);
-    } catch (error) {
-      setDashboardStatus(error.message);
-      return;
-    }
-    const hiddenPrice = panel.querySelector("#wanderer-hidden-price").value.trim();
-    await submitNpcEvent({
-      npc_role: "npc_wanderer",
-      event_type: panel.querySelector("#wanderer-event-type").value,
-      target_ids: splitIds(panel.querySelector("#wanderer-targets").value),
-      price: hiddenPrice ? { hidden_price: hiddenPrice } : {},
-      condition,
-      consequence,
-      reputation_delta: Number(panel.querySelector("#wanderer-reputation-delta").value || 0),
-      severity: panel.querySelector("#wanderer-severity").value,
-      final_flag: panel.querySelector("#wanderer-final-flag").checked,
-      operator: panel.querySelector("#wanderer-operator").value.trim() || "master",
-    });
-  });
-  return panel;
-}
-
-function renderReputationPanel() {
-  const panel = opsPanel("Master reputation");
-  panel.innerHTML += `
-    <form id="reputation-form" class="form-grid">
-      <label class="field">
-        <span>Player</span>
-        <input id="reputation-player-id" autocomplete="off" placeholder="p_witcher_1">
-      </label>
-      <label class="field">
-        <span>Delta</span>
-        <input id="reputation-delta" type="number" value="0">
-      </label>
-      <label class="field wide">
-        <span>Reason</span>
-        <input id="reputation-reason" autocomplete="off" placeholder="public contract accepted">
-      </label>
-      <button type="button" class="secondary" id="reputation-load">Load exact value</button>
-      <button type="submit">Apply reputation</button>
-    </form>
-    <section id="reputation-result" class="report-block"></section>
-  `;
-  panel.querySelector("#reputation-load").addEventListener("click", async () => {
-    const playerId = panel.querySelector("#reputation-player-id").value.trim();
-    if (!playerId) {
-      setDashboardStatus("Player id is required");
-      return;
-    }
-    await loadReputation(panel, playerId);
-  });
-  panel.querySelector("#reputation-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const playerId = panel.querySelector("#reputation-player-id").value.trim();
-    if (!playerId) {
-      setDashboardStatus("Player id is required");
-      return;
-    }
-    await runOpsAction(
-      "Apply reputation",
-      () =>
-        apiJson(`/api/master/reputation/${encodeURIComponent(playerId)}/change`, {
-          method: "POST",
-          body: {
-            delta: Number(panel.querySelector("#reputation-delta").value || 0),
-            reason: panel.querySelector("#reputation-reason").value.trim(),
-          },
-        }),
-      (result) => `Reputation ${playerId}: ${result.change?.value_after}`
-    );
-    await loadReputation(panel, playerId);
-  });
-  renderReputationResult(panel.querySelector("#reputation-result"), null);
-  return panel;
-}
-
-function renderNpcListsPanel() {
-  const panel = opsPanel("NPC runtime log");
-  panel.innerHTML += `
-    <div class="inline-actions">
-      <button type="button" class="secondary" id="npc-refresh">Refresh NPC log</button>
-    </div>
-    <section id="npc-events-log" class="report-block"></section>
-    <section id="npc-deals-log" class="report-block"></section>
-  `;
-  panel.querySelector("#npc-refresh").addEventListener("click", loadNpcPanelData);
-  return panel;
-}
-
-async function submitNpcEvent(body) {
-  await runOpsAction(
-    "Record NPC event",
-    () =>
-      apiJson("/api/master/npc/events", {
+    if (!confirmed) return;
+    await runAction(
+      "Запускаю акт",
+      () => apiJson("/api/master/game/start-setup", {
         method: "POST",
-        body,
+        body: {
+          act_id: actId,
+          operator,
+          physical_announcement_state: "announced",
+        },
       }),
-    (result) => `NPC event ${result.npc_runtime_event_id} recorded`
-  );
-  await loadNpcPanelData();
-}
-
-async function loadReputation(panel, playerId) {
-  setDashboardStatus(`Loading reputation: ${playerId}`);
-  try {
-    const reputation = await apiJson(`/api/master/reputation/${encodeURIComponent(playerId)}`);
-    renderReputationResult(panel.querySelector("#reputation-result"), reputation);
-    setDashboardStatus(`Reputation ${playerId}: ${reputation.value}`);
-  } catch (error) {
-    setDashboardStatus(error.message);
-  }
-}
-
-function renderReputationResult(root, reputation) {
-  root.replaceChildren();
-  root.append(blockTitle("Exact reputation view"));
-  if (!reputation) {
-    root.append(emptyLine("No player loaded"));
-    return;
-  }
-  root.append(
-    summaryGrid([
-      ["Player", reputation.player_id],
-      ["Value", reputation.value],
-      ["State", reputation.canonical_label],
-      ["Descriptor", reputation.player_descriptor],
-    ])
-  );
-  root.append(
-    objectTable(
-      ["change_id", "delta", "value_before", "value_after", "reason", "created_at"],
-      reputation.change_log || [],
-      ["Change", "Delta", "Before", "After", "Reason", "Created"]
-    )
-  );
-}
-
-async function loadNpcPanelData() {
-  const eventsRoot = els.workspace.querySelector("#npc-events-log");
-  const dealsRoot = els.workspace.querySelector("#npc-deals-log");
-  if (!eventsRoot || !dealsRoot) return;
-  eventsRoot.replaceChildren(emptyLine("Loading NPC events"));
-  dealsRoot.replaceChildren(emptyLine("Loading NPC deals"));
-  try {
-    const [events, deals] = await Promise.all([
-      apiJson("/api/master/npc/events"),
-      apiJson("/api/master/npc/deals"),
-    ]);
-    eventsRoot.replaceChildren(
-      blockTitle("King/Wanderer events"),
-      objectTable(
-        ["npc_runtime_event_id", "npc_role", "event_type", "target_scope", "severity", "review_route", "final_flag"],
-        events.items || [],
-        ["ID", "NPC", "Event", "Scope", "Severity", "Route", "Final"]
-      )
+      (result) => {
+        if (result.status === "restarted") return `${actLabel(actId)} перезапущен, отсчет идет с 0 минут`;
+        if (result.status === "switched") return `Игра переведена на ${actLabel(actId)}`;
+        return `Игра запущена: ${actLabel(actId)}`;
+      }
     );
-    dealsRoot.replaceChildren(
-      blockTitle("NPC deals"),
-      objectTable(
-        ["deal_id", "npc_role", "target_ids", "hidden_price", "final_flag", "status"],
-        deals.items || [],
-        ["Deal", "NPC", "Targets", "Hidden price", "Final", "Status"]
-      )
-    );
-  } catch (error) {
-    eventsRoot.replaceChildren(emptyLine(error.message));
-    dealsRoot.replaceChildren(emptyLine(error.message));
-  }
+  });
+  return form;
 }
 
-function renderBackupsPanel(section) {
-  renderActions(section);
-  const backups = masterState?.backups || {};
-  const panel = opsPanel("Manual backup");
-  panel.innerHTML += `
-    <form id="backup-form" class="form-grid">
-      <label class="field">
-        <span>Operator</span>
-        <input id="backup-operator" autocomplete="off" value="master">
-      </label>
-      <label class="field">
-        <span>Trigger</span>
-        <select id="backup-trigger">
-          <option value="manual">manual</option>
-          <option value="pre_act_transition">pre act transition</option>
-          <option value="pre_final_lock">pre final lock</option>
-        </select>
-      </label>
-      <button type="submit">Run backup</button>
-      <button type="button" class="secondary" id="backup-refresh">Refresh status</button>
-    </form>
+function timeControlForm(elapsed) {
+  const form = document.createElement("form");
+  form.className = "form-grid quick-form";
+  form.innerHTML = `
+    <label class="field">
+      <span>Прошло минут акта</span>
+      <input id="elapsed-minutes" type="number" min="0" step="1" value="${escapeHtml(elapsed)}">
+    </label>
+    <label class="field">
+      <span>Оператор</span>
+      <input id="elapsed-operator" autocomplete="off" value="master">
+    </label>
+    <button type="submit">Поставить время акта</button>
   `;
-  panel.querySelector("#backup-refresh").addEventListener("click", async () => {
-    setDashboardStatus("Loading backup status");
-    try {
-      const status = await apiJson("/api/master/backups/status");
-      masterState = { ...(masterState || {}), backups: status };
-      renderOverview(overview);
-      setDashboardStatus("Backup status loaded");
-    } catch (error) {
-      setDashboardStatus(error.message);
-    }
-  });
-  panel.querySelector("#backup-form").addEventListener("submit", async (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await runOpsAction(
-      "Run backup",
-      () =>
-        apiJson("/api/backups/run", {
-          method: "POST",
-          body: {
-            operator: panel.querySelector("#backup-operator").value.trim() || "master",
-            trigger_type: panel.querySelector("#backup-trigger").value,
-          },
-        }),
-      (result) => `Backup ${result.status}: ${result.backup_id}`
+    const minutes = Number(form.querySelector("#elapsed-minutes").value || 0);
+    const operator = form.querySelector("#elapsed-operator").value.trim() || "master";
+    const confirmed = await confirmAction({
+      title: "Поставить время акта?",
+      body: "Текущее время активного акта будет сдвинуто, а подходящие таймеры могут сработать сразу.",
+      details: [
+        ["Новое время", formatMinutes(minutes)],
+        ["Оператор", operator],
+      ],
+      confirmLabel: "Поставить время",
+      danger: true,
+    });
+    if (!confirmed) return;
+    await runAction(
+      "Ставлю время акта",
+      () => apiJson("/api/master/acts/elapsed", {
+        method: "POST",
+        body: {
+          elapsed_minutes: minutes,
+          operator,
+        },
+      }),
+      (result) => `Время акта: ${formatMinutes(result.elapsed_minutes)}`
     );
   });
-  panel.append(
-    summaryGrid([
-      ["Jobs", backups.configured_jobs || 0],
-      ["Runs", backups.run_count || 0],
-      ["Last", backups.last_run?.status || "none"],
-      ["Alerts", backups.blocking_alerts?.length || 0],
-    ])
+  return form;
+}
+
+function renderLordsView() {
+  const domains = lordDomains();
+  const attentionDomains = domains.filter((domain) => lordAttention(domain).length);
+  const panel = sectionPanel("Пульт наблюдения за лордами", "main-panel lord-command-panel");
+  panel.append(heroBlock([
+    ["Лордов", domains.length],
+    ["Требуют внимания", attentionDomains.length],
+    ["Активные бои", activeBattles().length],
+    ["Всего войск", domains.reduce((sum, domain) => sum + domainArmyTotal(domain), 0)],
+  ]));
+  panel.append(actionBar([
+    actionButton("Обновить", () => refreshAll(), "secondary"),
+    actionButton("Начислить тик", () => applyLordTick()),
+    actionButton("Коды игроков", () => switchView("codes"), "secondary"),
+    actionButton("Пульт игры", () => switchView("game"), "secondary"),
+  ]));
+  panel.append(lordAttentionPanel(domains));
+  const grid = document.createElement("div");
+  grid.className = "lord-command-grid";
+  grid.append(...domains.map((domain) => lordCommandCard(domain)));
+  panel.append(grid);
+  els.workspace.append(panel);
+
+  const editPanel = sectionPanel("Точная правка выбранного лорда", "lord-edit-panel");
+  editPanel.append(lordEditForm(domains));
+  els.workspace.append(editPanel);
+}
+
+function lordAttentionPanel(domains) {
+  const wrap = document.createElement("section");
+  wrap.className = "lord-attention-board";
+  const rows = domains.flatMap((domain) => lordAttention(domain).map((reason) => [
+    domainTitle(domain),
+    playerTitleById(domain.lord_player_id),
+    reason,
+  ]));
+  wrap.innerHTML = `
+    <div>
+      <p class="eyebrow">Где смотреть сейчас</p>
+      <h4>${rows.length ? "Есть точки внимания" : "Критичных проблем нет"}</h4>
+    </div>
+  `;
+  wrap.append(simpleTable(
+    ["Лорд", "Игрок", "Что проверить"],
+    rows,
+    "Сейчас нет лордов, которые требуют вмешательства"
+  ));
+  return wrap;
+}
+
+function lordCommandCard(domain) {
+  const status = lordStatus(domain);
+  const alerts = lordAttention(domain);
+  const ownedTerritories = territoriesForDomain(domain);
+  const card = document.createElement("article");
+  card.className = `lord-command-card ${alerts.length ? "attention" : ""}`.trim();
+  card.innerHTML = `
+    <header class="lord-card-header">
+      <div>
+        <p class="eyebrow">${escapeHtml(playerTitleById(domain.lord_player_id))}</p>
+        <h4>${escapeHtml(domainTitle(domain))}</h4>
+      </div>
+      <span class="status-badge ${escapeHtml(status.className)}">${escapeHtml(status.label)}</span>
+    </header>
+    <div class="lord-stat-grid">
+      <span><b>${escapeHtml(domain.gold ?? 0)}</b>Золото</span>
+      <span><b>${escapeHtml(`${domain.current_mp ?? 0}/${domain.mp_cap ?? 0}`)}</b>MP</span>
+      <span><b>${escapeHtml(domainArmyTotal(domain))}</b>Войско</span>
+      <span><b>${escapeHtml(ownedBuildings(domain).length)}</b>Здания</span>
+      <span><b>${escapeHtml(domain.active_order_count ?? activeOrders(domain).length)}</b>Активные заказы</span>
+      <span><b>${escapeHtml(ownedTerritories.length)}</b>Территории</span>
+    </div>
+    <div class="lord-location-line">
+      <b>Локация</b>
+      <span>${escapeHtml(domainLocation(domain))}</span>
+    </div>
+    <div class="lord-alerts ${alerts.length ? "" : "clear"}">
+      ${alerts.length
+        ? alerts.map((alert) => `<span>${escapeHtml(alert)}</span>`).join("")
+        : "<span>состояние стабильное</span>"}
+    </div>
+    <div class="lord-roster">
+      <span><b>Армия</b>${escapeHtml(domainArmySummary(domain))}</span>
+      <span><b>Здания</b>${escapeHtml(domainBuildingsSummary(domain))}</span>
+      <span><b>Заказы</b>${escapeHtml(domainOrdersSummary(domain))}</span>
+      <span><b>Перемещения</b>${escapeHtml(domainMovesSummary(domain))}</span>
+    </div>
+  `;
+  card.append(actionBar([
+    actionButton("+50 золота", () => quickPatchDomain(
+      domain,
+      { gold: Number(domain.gold || 0) + 50 },
+      "+50 золота"
+    )),
+    actionButton("MP максимум", () => quickPatchDomain(
+      domain,
+      { current_mp: Number(domain.mp_cap || 0) },
+      "MP максимум"
+    ), "secondary"),
+    actionButton("+1 рейд", () => quickPatchDomain(
+      domain,
+      { raid_tokens: Number(domain.raid_tokens || 0) + 1 },
+      "+1 рейд"
+    ), "secondary"),
+    actionButton("Править", () => focusLordEdit(domain.domain_id), "secondary"),
+  ]));
+  return card;
+}
+
+function switchView(viewId) {
+  activeViewId = viewId;
+  renderShell();
+}
+
+async function quickPatchDomain(domain, patch, label) {
+  await saveCorrection(
+    "domain",
+    domain.domain_id,
+    patch,
+    `быстрая правка лорда: ${label}`,
+    `${domainTitle(domain)}: ${label}`,
+    {
+      title: `${label}: ${domainTitle(domain)}?`,
+      details: changeDetails(patch, domain, LORD_PATCH_LABELS),
+    }
   );
-  panel.append(
-    objectTable(
-      ["backup_id", "trigger_type", "status", "operator", "error"],
-      backups.runs || [],
-      ["Backup", "Trigger", "Status", "Operator", "Error"]
-    )
-  );
+}
+
+function focusLordEdit(domainId) {
+  const select = els.workspace.querySelector("#lord-id");
+  if (!select) return;
+  select.value = domainId;
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  select.scrollIntoView({ behavior: "smooth", block: "center" });
+  select.focus();
+}
+
+function lordEditForm(domains) {
+  const form = document.createElement("form");
+  form.id = "lord-edit-form";
+  form.className = "form-grid quick-form";
+  form.innerHTML = `
+    <label class="field wide">
+      <span>Выбрать лорда</span>
+      <select id="lord-id">${options(domains.map((domain) => [
+        domain.domain_id,
+        `${domainTitle(domain)} · золото ${domain.gold ?? 0}`,
+      ]))}</select>
+    </label>
+    <label class="field">
+      <span>Золото</span>
+      <input id="lord-gold" type="number" min="0" step="1">
+    </label>
+    <label class="field">
+      <span>MP сейчас</span>
+      <input id="lord-current-mp" type="number" min="0" step="1">
+    </label>
+    <label class="field">
+      <span>Лимит MP</span>
+      <input id="lord-mp-cap" type="number" min="0" step="1">
+    </label>
+    <label class="field">
+      <span>Жетоны рейда</span>
+      <input id="lord-raid-tokens" type="number" min="0" step="1">
+    </label>
+    <button type="submit">Сохранить лорда</button>
+  `;
+  const select = form.querySelector("#lord-id");
+  const fill = () => {
+    const domain = domains.find((item) => item.domain_id === select.value);
+    if (!domain) return;
+    form.querySelector("#lord-gold").value = domain.gold ?? 0;
+    form.querySelector("#lord-current-mp").value = domain.current_mp ?? 0;
+    form.querySelector("#lord-mp-cap").value = domain.mp_cap ?? 0;
+    form.querySelector("#lord-raid-tokens").value = domain.raid_tokens ?? 0;
+  };
+  select.addEventListener("change", fill);
+  fill();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const domain = domains.find((item) => item.domain_id === select.value);
+    const patch = numericPatch(form, {
+      gold: "#lord-gold",
+      current_mp: "#lord-current-mp",
+      mp_cap: "#lord-mp-cap",
+      raid_tokens: "#lord-raid-tokens",
+    }, domain);
+    await saveCorrection(
+      "domain",
+      select.value,
+      patch,
+      "ручная правка лорда",
+      "Лорд сохранён",
+      {
+        title: `Сохранить правку лорда: ${domainTitle(domain || {})}?`,
+        details: changeDetails(patch, domain, LORD_PATCH_LABELS),
+      }
+    );
+  });
+  return form;
+}
+
+function renderPlayersView() {
+  const players = playersList();
+  const panel = sectionPanel("Игроки", "main-panel");
+  panel.append(filterTabs("player-role-filter", [
+    ["all", "Все"],
+    ["witcher", "Ведьмаки"],
+    ["sorceress", "Чародейки"],
+    ["lord", "Лорды"],
+  ]));
+  const grid = entityGrid(players.map((player) => playerCard(player)));
+  grid.id = "players-grid";
+  panel.append(grid);
+  panel.append(playerEditForm(players));
+  els.workspace.append(panel);
+  setupPlayerFilter(panel, players);
+}
+
+function playerCard(player) {
+  return entityCard(playerTitle(player), [
+    ["Роль", roleLabel(player.role_type)],
+    ["Уровень", player.level ?? 1],
+    ["Золото", player.gold ?? 0],
+    ["XP", player.xp ?? 0],
+    ["Мана", `${player.mana ?? 0}/${player.max_mana ?? 0}`],
+    ["Вызовы", player.challenge_tokens ?? 0],
+  ], { role: player.role_type });
+}
+
+function playerEditForm(players) {
+  const form = document.createElement("form");
+  form.className = "form-grid quick-form";
+  form.innerHTML = `
+    <label class="field wide">
+      <span>Выбрать игрока</span>
+      <select id="player-id">${options(players.map((player) => [
+        player.player_id,
+        `${playerTitle(player)} · ${roleLabel(player.role_type)} · золото ${player.gold ?? 0}`,
+      ]))}</select>
+    </label>
+    <label class="field">
+      <span>Золото</span>
+      <input id="player-gold" type="number" min="0" step="1">
+    </label>
+    <label class="field">
+      <span>Уровень</span>
+      <input id="player-level" type="number" min="1" step="1">
+    </label>
+    <label class="field">
+      <span>XP</span>
+      <input id="player-xp" type="number" min="0" step="1">
+    </label>
+    <label class="field">
+      <span>Мана</span>
+      <input id="player-mana" type="number" min="0" step="1">
+    </label>
+    <button type="submit">Сохранить игрока</button>
+  `;
+  const select = form.querySelector("#player-id");
+  const fill = () => {
+    const player = players.find((item) => item.player_id === select.value);
+    if (!player) return;
+    form.querySelector("#player-gold").value = player.gold ?? 0;
+    form.querySelector("#player-level").value = player.level ?? 1;
+    form.querySelector("#player-xp").value = player.xp ?? 0;
+    form.querySelector("#player-mana").value = player.mana ?? 0;
+  };
+  select.addEventListener("change", fill);
+  fill();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const player = players.find((item) => item.player_id === select.value);
+    const patch = numericPatch(form, {
+      gold: "#player-gold",
+      level: "#player-level",
+      xp: "#player-xp",
+      mana: "#player-mana",
+    }, player);
+    await saveCorrection(
+      "player",
+      select.value,
+      patch,
+      "ручная правка игрока",
+      "Игрок сохранён",
+      {
+        title: `Сохранить правку игрока: ${playerTitle(player)}?`,
+        details: changeDetails(patch, player, {
+          gold: "Золото",
+          level: "Уровень",
+          xp: "XP",
+          mana: "Мана",
+        }),
+      }
+    );
+  });
+  return form;
+}
+
+function setupPlayerFilter(panel, players) {
+  for (const button of panel.querySelectorAll("[data-filter]")) {
+    button.addEventListener("click", () => {
+      for (const item of panel.querySelectorAll("[data-filter]")) {
+        item.setAttribute("aria-pressed", String(item === button));
+      }
+      const role = button.dataset.filter;
+      const filtered = role === "all" ? players : players.filter((player) => player.role_type === role);
+      const grid = panel.querySelector("#players-grid");
+      grid.replaceChildren(...filtered.map((player) => playerCard(player)));
+    });
+  }
+}
+
+function renderPlayerCodesView() {
+  const panel = sectionPanel("Коды игроков", "main-panel");
+  panel.append(heroBlock([
+    ["Продакшен-сервер", playerServerUrl()],
+    ["Вход лордов", playerLoginUrl()],
+    ["Всего кодов", playerCodes.total || 0],
+    ["Активные", playerCodes.enabled_count || 0],
+  ]));
+  panel.append(actionBar([
+    actionButton("Скопировать все коды", () => copyAllPlayerCodes()),
+    actionButton("Обновить", () => refreshAll(), "secondary"),
+  ]));
+  const grid = document.createElement("div");
+  grid.className = "code-grid";
+  grid.append(...(playerCodes.items || []).map((item) => playerCodeCard(item)));
+  panel.append(grid);
   els.workspace.append(panel);
 }
 
-function renderFinalPanel(section) {
-  renderActions(section);
-  const grid = document.createElement("section");
-  grid.className = "ops-grid";
-  grid.append(renderFinalToolsPanel(), renderFinalNotePanel());
-  els.workspace.append(grid);
-
-  const result = document.createElement("section");
-  result.id = "final-summary-result";
-  result.className = "report-block";
-  els.workspace.append(result);
-  if (finalSummary) {
-    renderFinalSummary(result, finalSummary);
-  } else {
-    result.append(emptyLine("Final summary is not loaded"));
-  }
-}
-
-function renderFinalToolsPanel() {
-  const panel = opsPanel("Final summary tools");
-  panel.innerHTML += `
-    <div class="inline-actions">
-      <button type="button" id="final-load">Open final summary</button>
-      <button type="button" class="secondary" id="final-export">Export final summary</button>
+function playerCodeCard(item) {
+  const card = document.createElement("article");
+  card.className = "code-card";
+  card.innerHTML = `
+    <div>
+      <h5>${escapeHtml(item.display_name || item.player_id)}</h5>
+      <p>${escapeHtml(roleLabel(item.role_type))}</p>
     </div>
+    <code>${escapeHtml(item.code)}</code>
+    <span class="status-badge ${item.enabled ? "ready" : "warn"}">${item.enabled ? "активен" : "выключен"}</span>
   `;
-  panel.querySelector("#final-load").addEventListener("click", loadFinalSummary);
-  panel.querySelector("#final-export").addEventListener("click", async () => {
-    const summary = finalSummary || (await loadFinalSummary());
-    if (summary) downloadJson(`final-summary-${summary.snapshot_version || "latest"}.json`, summary);
-  });
-  return panel;
+  card.append(actionBar([
+    actionButton("Копировать код", () => copyText(item.code, "Код скопирован"), "secondary"),
+    actionButton("Скопировать сообщение", () => copyText(playerCodeMessage(item), "Сообщение скопировано")),
+  ]));
+  return card;
 }
 
-function renderFinalNotePanel() {
-  const panel = opsPanel("Final master note");
-  panel.innerHTML += `
-    <form id="final-note-form" class="form-grid">
-      <label class="field">
-        <span>Category</span>
-        <select id="final-note-category">
-          <option value="ruling">ruling</option>
-          <option value="trial">trial</option>
-          <option value="personal_hook">personal hook</option>
-          <option value="epilogue">epilogue</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Target</span>
-        <input id="final-note-target" autocomplete="off" placeholder="p_witcher_5">
-      </label>
-      <label class="field">
-        <span>Operator</span>
-        <input id="final-note-operator" autocomplete="off" value="master">
-      </label>
-      <label class="field wide">
-        <span>Note</span>
-        <textarea id="final-note-text" placeholder="Manual ruling input"></textarea>
-      </label>
-      <button type="submit">Record final note</button>
-    </form>
-  `;
-  panel.querySelector("#final-note-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await runOpsAction(
-      "Record final note",
-      () =>
-        apiJson("/api/master/final-summary/notes", {
-          method: "POST",
-          body: {
-            category: panel.querySelector("#final-note-category").value,
-            target_id: valueOrNull(panel.querySelector("#final-note-target").value),
-            note_text: panel.querySelector("#final-note-text").value,
-            operator: panel.querySelector("#final-note-operator").value.trim() || "master",
-          },
-        }),
-      (result) => `Final note recorded: ${result.note_id}`
-    );
-    await loadFinalSummary();
-  });
-  return panel;
+function playerCodeMessage(item) {
+  return [
+    `${item.display_name || item.player_id}, твой код входа: ${item.code}`,
+    `Вход лордов на продакшен-сервере: ${playerLoginUrl()}`,
+    "Открой ссылку и введи этот код.",
+  ].join("\n");
 }
 
-async function loadFinalSummary() {
-  setDashboardStatus("Loading final summary");
-  try {
-    finalSummary = await apiJson("/api/master/final-summary");
-    const root = els.workspace.querySelector("#final-summary-result");
-    if (root) renderFinalSummary(root, finalSummary);
-    setDashboardStatus(`Final summary loaded: ${finalSummary.snapshot_version || "no snapshot"}`);
-    return finalSummary;
-  } catch (error) {
-    setDashboardStatus(error.message);
-    return null;
+function playerServerUrl() {
+  return playerCodes.server_url || location.origin;
+}
+
+function playerLoginUrl() {
+  return playerCodes.player_login_url || `${location.origin}/lords/login`;
+}
+
+function copyAllPlayerCodes() {
+  const lines = [
+    `Продакшен-сервер: ${playerServerUrl()}`,
+    `Вход лордов: ${playerLoginUrl()}`,
+    "",
+    ...(playerCodes.items || []).map((item) => {
+    return `${item.display_name || item.player_id} — ${roleLabel(item.role_type)} — ${item.code}`;
+    }),
+  ];
+  copyText(lines.join("\n"), "Все коды скопированы");
+}
+
+function renderReviewView() {
+  const panel = sectionPanel("Ревью и бои", "main-panel");
+  panel.append(summaryCards([
+    ["Активные бои", activeBattles().length],
+    ["События", reviewItems().length],
+    ["Награды", rewardItems().length],
+    ["Критичные", masterState.events?.review?.critical_open_count || 0],
+  ]));
+  panel.append(blockTitle("Бои лордов"));
+  panel.append(simpleTable(
+    ["Бой", "Территория", "Атакует", "Защищает", "Статус"],
+    activeBattles().map((battle) => [
+      battle.battle_id,
+      battle.territory_id || "-",
+      domainTitleById(battle.attacker_domain_id),
+      battle.defender_domain_id ? domainTitleById(battle.defender_domain_id) : "нейтрально",
+      humanStatus(battle.status),
+    ]),
+    "Активных боёв нет"
+  ));
+  panel.append(blockTitle("События на проверке"));
+  panel.append(reviewTable(reviewItems()));
+  panel.append(blockTitle("Награды на подтверждении"));
+  panel.append(rewardTable(rewardItems()));
+  els.workspace.append(panel);
+}
+
+function reviewTable(rows) {
+  const table = actionTable(
+    ["Событие", "Важность", "Причина", "Действие"],
+    rows,
+    (row) => [
+      row.event_id,
+      row.severity,
+      row.reason || "-",
+      actionBar([
+        actionButton("Одобрить", () => decideEvent(row, "approve"), "secondary"),
+        actionButton("Отклонить", () => decideEvent(row, "reject"), "danger"),
+      ]),
+    ],
+    "Событий на проверке нет"
+  );
+  return table;
+}
+
+function rewardTable(rows) {
+  return actionTable(
+    ["Награда", "Игрок", "Важность", "Действие"],
+    rows,
+    (row) => [
+      row.reward_id,
+      playerTitleById(row.player_id),
+      row.severity,
+      actionBar([
+        actionButton("Одобрить", () => decideReward(row, "approve"), "secondary"),
+        actionButton("Отклонить", () => decideReward(row, "reject"), "danger"),
+      ]),
+    ],
+    "Наград на подтверждении нет"
+  );
+}
+
+function renderContentView() {
+  const panel = sectionPanel("Генерация и подготовка контента", "main-panel");
+  panel.append(heroBlock([
+    ["Статус контента", overview?.snapshot_version ? "готов" : "не загружен"],
+    ["QR", contentState?.qr?.total ?? "-"],
+    ["Памятки", contentState?.handouts?.items?.length ?? "-"],
+    ["Ошибки", contentState?.report?.error_count ?? "-"],
+  ]));
+  panel.append(actionBar([
+    actionButton("Обновить игровой контент", () => importDefaultContent()),
+    actionButton("Проверить готовность", () => loadContentState(), "secondary"),
+  ]));
+  const result = document.createElement("section");
+  result.id = "content-result";
+  result.className = "content-result";
+  panel.append(result);
+  els.workspace.append(panel);
+  renderContentResult(result);
+  if (!contentState) loadContentState();
+}
+
+async function loadContentState() {
+  await runAction(
+    "Проверяю контент",
+    async () => {
+      const [report, qr, handouts] = await Promise.all([
+        apiJson("/api/master/content/import-report/latest"),
+        apiJson("/api/master/content/qr-checklist"),
+        apiJson("/api/master/content/handout-checklist"),
+      ]);
+      contentState = { report, qr, handouts };
+      return contentState;
+    },
+    "Контент проверен",
+    { rerender: false }
+  );
+  const result = els.workspace.querySelector("#content-result");
+  if (result) renderContentResult(result);
+  renderTopSummary();
+}
+
+async function importDefaultContent() {
+  const confirmed = await confirmAction({
+    title: "Обновить игровой контент?",
+    body: "Будет загружен основной набор контента и создан свежий игровой снимок.",
+    details: [
+      ["Текущий статус", overview?.snapshot_version ? "контент уже загружен" : "контент не загружен"],
+      ["После действия", "контент будет перечитан"],
+    ],
+    confirmLabel: "Обновить контент",
+    danger: true,
+  });
+  if (!confirmed) return;
+  await runAction(
+    "Обновляю контент",
+    () => apiJson("/api/master/content/import", {
+      method: "POST",
+      body: { manifest_path: null, export_snapshot: true },
+    }),
+    (result) => result.error_count ? `Есть ошибки: ${result.error_count}` : "Контент обновлён"
+  );
+  await loadContentState();
+}
+
+function renderContentResult(root) {
+  root.replaceChildren();
+  if (!contentState) {
+    root.append(emptyLine("Нажмите «Проверить готовность», чтобы увидеть состояние контента."));
+    return;
+  }
+  root.append(summaryCards([
+    ["Статус", humanStatus(contentState.report?.status || "not_imported")],
+    ["Ошибки", contentState.report?.error_count || 0],
+    ["QR готовы", contentState.qr?.total || 0],
+    ["Памятки", contentState.handouts?.items?.length || 0],
+  ]));
+  root.append(simpleTable(
+    ["Проверка", "Состояние"],
+    [
+      ["QR и ручные коды", contentState.qr?.status === "ready" ? "готово" : "нужно внимание"],
+      ["Памятки игрокам", contentState.handouts?.status === "ready" ? "готово" : "нужно внимание"],
+      ["Последнее обновление", shortDate(contentState.report?.finished_at || contentState.report?.started_at)],
+    ],
+    "Проверок пока нет"
+  ));
+  if (contentState.report?.errors?.length) {
+    root.append(blockTitle("Что исправить"));
+    root.append(simpleTable(
+      ["Раздел", "Запись", "Проблема"],
+      contentState.report.errors.slice(0, 8).map((error) => [
+        contentSourceName(error.file),
+        error.record_id || "-",
+        error.message || error.code,
+      ]),
+      "Ошибок нет"
+    ));
   }
 }
 
-function renderFinalSummary(root, summary) {
-  root.replaceChildren();
-  root.append(blockTitle("Final summary"));
-  root.append(
-    summaryGrid([
-      ["Snapshot", summary.snapshot_version || "not imported"],
-      ["Missing locks", (summary.missing_locks || []).length],
-      ["Pending disputes", (summary.pending_disputes || []).length],
-      ["Personal hooks", (summary.personal_hooks || []).length],
-    ])
-  );
-  root.append(
-    policyStrip([
-      ["No auto winner", !summary.decision_policy?.automatic_winner_calculation],
-      ["JSON export", summary.export?.json_ready],
-      ["Post-game review", summary.export?.post_game_review],
-    ])
-  );
-  root.append(blockTitle("Bracket/trials/personal final inputs"));
-  root.append(
-    objectTable(
-      ["procedure_id", "final_act_window", "start_offset_min", "end_offset_min", "master_role"],
-      summary.final_procedures || [],
-      ["Procedure", "Window", "Start", "End", "Master"]
-    )
-  );
-  root.append(blockTitle("Missing or disputed evidence"));
-  root.append(
-    objectTable(
-      ["evidence_category", "source_type", "reason", "record_id", "severity"],
-      summary.missing_locks || [],
-      ["Category", "Source", "Reason", "Record", "Severity"]
-    )
-  );
-  root.append(blockTitle("Sorceress evidence"));
-  root.append(
-    objectTable(
-      ["player_id", "locked_intent", "alignment", "favorites"],
-      sorceressEvidenceRows(summary.evidence_by_role?.sorceresses || []),
-      ["Sorceress", "Intent", "Alignment", "Favorites"]
-    )
-  );
-  root.append(blockTitle("Personal hooks"));
-  root.append(
-    objectTable(
-      ["goal_id", "player_id", "evidence_category", "public_flag_count"],
-      summary.personal_hooks || [],
-      ["Goal", "Player", "Category", "Public flags"]
-    )
-  );
-  root.append(blockTitle("Master final notes"));
-  root.append(
-    objectTable(
-      ["note_id", "category", "target_id", "note_text", "operator"],
-      summary.master_final_notes || [],
-      ["Note", "Category", "Target", "Text", "Operator"]
-    )
+async function applyLordTick() {
+  const confirmed = await confirmAction({
+    title: "Начислить тик лордам?",
+    body: "Доход, мана и MP лордов будут начислены прямо сейчас.",
+    details: [
+      ["Лордов", lordDomains().length],
+      ["Текущий акт", actLabel(masterState?.acts?.state?.current_act_id || "not_started")],
+    ],
+    confirmLabel: "Начислить тик",
+    danger: true,
+  });
+  if (!confirmed) return;
+  await runAction(
+    "Начисляю доход лордам",
+    () => apiJson("/api/master/timers/lord-income-tick", {
+      method: "POST",
+      body: { operator: "master" },
+    }),
+    (result) => {
+      const tick = (result.applied_now || [])[0] || {};
+      return `Доход начислен: ${(tick.domain_updates || []).length} лордов`;
+    }
   );
 }
 
-function opsPanel(title) {
-  const panel = document.createElement("section");
-  panel.className = "ops-panel";
-  const heading = document.createElement("h4");
-  heading.textContent = title;
-  panel.append(heading);
-  return panel;
+async function saveCorrection(targetType, targetId, patch, reason, successText, confirmation = {}) {
+  if (!targetId) {
+    setDashboardStatus("Выберите запись для правки");
+    return;
+  }
+  if (!Object.keys(patch).length) {
+    setDashboardStatus("Нет изменений для сохранения");
+    return;
+  }
+  const confirmed = await confirmAction({
+    title: confirmation.title || "Сохранить правку?",
+    body: "Будут изменены только перечисленные поля.",
+    details: confirmation.details || Object.entries(patch),
+    confirmLabel: "Сохранить",
+    danger: true,
+  });
+  if (!confirmed) return;
+  await runAction(
+    "Сохраняю правку",
+    () => apiJson("/api/master/game-ops/corrections", {
+      method: "POST",
+      body: {
+        target_type: targetType,
+        target_id: targetId,
+        patch,
+        operator: "master",
+        reason,
+      },
+    }),
+    successText
+  );
 }
 
-async function runOpsAction(label, task, formatter = null) {
-  setDashboardStatus(`${label} running`);
+async function decideEvent(row, action) {
+  const confirmed = await confirmAction({
+    title: action === "approve" ? "Одобрить событие?" : "Отклонить событие?",
+    body: "Решение уйдёт в журнал ревью и обновит состояние очереди.",
+    details: [
+      ["Событие", row.event_id],
+      ["Важность", row.severity],
+      ["Причина", row.reason || "-"],
+    ],
+    confirmLabel: action === "approve" ? "Одобрить" : "Отклонить",
+    danger: action !== "approve",
+  });
+  if (!confirmed) return;
+  await runAction(
+    action === "approve" ? "Одобряю событие" : "Отклоняю событие",
+    () => apiJson(`/api/events/${encodeURIComponent(row.event_id)}/review`, {
+      method: "POST",
+      body: {
+        action,
+        operator: "master",
+        reason: action === "approve" ? "проверено мастером" : "отклонено мастером",
+        severity: row.severity,
+        correction: {},
+      },
+    }),
+    "Ревью события обновлено"
+  );
+}
+
+async function decideReward(row, action) {
+  const confirmed = await confirmAction({
+    title: action === "approve" ? "Одобрить награду?" : "Отклонить награду?",
+    body: "Решение изменит статус награды игрока.",
+    details: [
+      ["Награда", row.reward_id],
+      ["Игрок", playerTitleById(row.player_id)],
+      ["Важность", row.severity],
+    ],
+    confirmLabel: action === "approve" ? "Одобрить" : "Отклонить",
+    danger: action !== "approve",
+  });
+  if (!confirmed) return;
+  await runAction(
+    action === "approve" ? "Одобряю награду" : "Отклоняю награду",
+    () => apiJson(`/api/master/reward-approvals/${encodeURIComponent(row.approval_id)}`, {
+      method: "POST",
+      body: {
+        action,
+        operator: "master",
+        reason: action === "approve" ? "проверено мастером" : "отклонено мастером",
+        correction: {},
+      },
+    }),
+    "Решение по награде сохранено"
+  );
+}
+
+async function runAction(label, task, formatter = null, options = {}) {
+  setDashboardStatus(label);
   try {
     const result = await task();
-    await loadOverview();
-    setDashboardStatus(formatter ? formatter(result) : `${label} done`);
+    if (options.rerender !== false) await refreshAll();
+    const message = typeof formatter === "function" ? formatter(result) : formatter;
+    setDashboardStatus(message || "Готово");
     return result;
   } catch (error) {
     setDashboardStatus(error.message);
@@ -1882,202 +1066,39 @@ async function runOpsAction(label, task, formatter = null) {
   }
 }
 
-function actOptions(acts, selectedId) {
-  return acts
-    .map((act) => {
-      const selected = act.act_id === selectedId ? " selected" : "";
-      return `<option value="${escapeHtml(act.act_id)}"${selected}>${escapeHtml(act.name || act.act_id)}</option>`;
-    })
-    .join("");
+function pageHeader(title, subtitle) {
+  const header = document.createElement("div");
+  header.className = "workspace-heading";
+  header.innerHTML = `
+    <div>
+      <p class="eyebrow">${escapeHtml(subtitle)}</p>
+      <h3>${escapeHtml(title)}</h3>
+    </div>
+  `;
+  return header;
 }
 
-function parseJsonObject(value) {
-  const text = String(value || "").trim();
-  if (!text) return {};
-  const parsed = JSON.parse(text);
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-    throw new Error("JSON patch must be an object");
-  }
-  return parsed;
+function sectionPanel(title, extraClass = "") {
+  const panel = document.createElement("section");
+  panel.className = `ops-panel ${extraClass}`.trim();
+  const heading = document.createElement("h4");
+  heading.textContent = title;
+  panel.append(heading);
+  return panel;
 }
 
-function setupContentPanel(panel) {
-  const renderId = ++contentRenderId;
-  const packSelect = panel.querySelector("#content-pack-select");
-  const manifestInput = panel.querySelector("#content-manifest-path");
-  const importForm = panel.querySelector("#content-import-form");
-  const exportForm = panel.querySelector("#snapshot-export-form");
-  const status = panel.querySelector("#content-status");
-
-  packSelect.addEventListener("change", () => {
-    manifestInput.value = packSelect.value;
-  });
-  importForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await runContentImport(panel);
-  });
-  exportForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await runSnapshotExport(panel);
-  });
-
-  status.textContent = "Loading content tools";
-  loadContentPanelData(panel, renderId);
+function heroBlock(items) {
+  const hero = document.createElement("div");
+  hero.className = "control-hero";
+  hero.append(...items.map(([label, value]) => {
+    const item = document.createElement("span");
+    item.innerHTML = `<b>${escapeHtml(value)}</b>${escapeHtml(label)}`;
+    return item;
+  }));
+  return hero;
 }
 
-async function loadContentPanelData(panel, renderId) {
-  try {
-    const [packs, report, qrChecklist, handoutChecklist] = await Promise.all([
-      apiJson("/api/master/content/packs"),
-      apiJson("/api/master/content/import-report/latest"),
-      apiJson("/api/master/content/qr-checklist"),
-      apiJson("/api/master/content/handout-checklist"),
-    ]);
-    if (!panel.isConnected || renderId !== contentRenderId) return;
-    renderPackOptions(panel.querySelector("#content-pack-select"), packs);
-    renderImportReport(panel.querySelector("#import-report"), report);
-    renderQrChecklist(panel.querySelector("#qr-checklist"), qrChecklist);
-    renderHandoutChecklist(panel.querySelector("#handout-checklist"), handoutChecklist);
-    panel.querySelector("#content-status").textContent = "Content tools loaded";
-  } catch (error) {
-    if (!panel.isConnected || renderId !== contentRenderId) return;
-    panel.querySelector("#content-status").textContent = error.message;
-  }
-}
-
-async function runContentImport(panel) {
-  const status = panel.querySelector("#content-status");
-  const manifestPath = panel.querySelector("#content-manifest-path").value.trim();
-  const exportSnapshot = panel.querySelector("#content-export-snapshot").checked;
-  status.textContent = "Importing content";
-  try {
-    const report = await apiJson("/api/master/content/import", {
-      method: "POST",
-      body: {
-        manifest_path: manifestPath || null,
-        export_snapshot: exportSnapshot,
-      },
-    });
-    status.textContent = `Import ${report.status}: ${report.error_count || 0} errors`;
-    await loadOverview();
-  } catch (error) {
-    status.textContent = error.message;
-  }
-}
-
-async function runSnapshotExport(panel) {
-  const status = panel.querySelector("#content-status");
-  const targetDir = panel.querySelector("#snapshot-dir").value.trim();
-  status.textContent = "Exporting snapshot";
-  try {
-    const result = await apiJson("/api/master/content/snapshot/export", {
-      method: "POST",
-      body: { target_dir: targetDir || null },
-    });
-    status.textContent = `Snapshot exported: ${result.path}`;
-  } catch (error) {
-    status.textContent = error.message;
-  }
-}
-
-function renderPackOptions(select, data) {
-  select.replaceChildren();
-  for (const pack of data.packs || []) {
-    const option = document.createElement("option");
-    option.value = pack.manifest_path || "";
-    option.textContent = `${pack.label} (${pack.expected_result || pack.kind})`;
-    select.append(option);
-  }
-}
-
-function renderImportReport(root, report) {
-  root.replaceChildren();
-  const title = report.status === "not_imported" ? "Import report" : `Import report: ${report.status}`;
-  root.append(blockTitle(title));
-  root.append(
-    summaryGrid([
-      ["Run", report.run_id || "none"],
-      ["Snapshot", report.snapshot_version || "not imported"],
-      ["Files", (report.files || []).length],
-      ["Errors", report.error_count || 0],
-    ])
-  );
-  if (!report.errors || !report.errors.length) {
-    root.append(emptyLine("No validation errors"));
-    return;
-  }
-  root.append(
-    objectTable(
-      ["file", "row", "record_id", "code", "message"],
-      report.errors,
-      ["File", "Row", "ID", "Code", "Message"]
-    )
-  );
-}
-
-function renderQrChecklist(root, checklist) {
-  root.replaceChildren();
-  root.append(blockTitle("QR/manual checklist"));
-  root.append(
-    summaryGrid([
-      ["Snapshot", checklist.snapshot_version || "not imported"],
-      ["Total QR", checklist.total || 0],
-      ["Repeatable", (checklist.by_mode || {}).repeatable_scene || 0],
-      ["Unique", (checklist.by_mode || {}).unique_object || 0],
-    ])
-  );
-  root.append(
-    policyStrip([
-      ["QR honesty", checklist.policy?.qr_honesty],
-      ["Single d20", checklist.policy?.single_d20_no_reroll],
-    ])
-  );
-  root.append(
-    objectTable(
-      ["qr_id", "manual_code", "mode", "act_id", "location_node_id", "print_ready"],
-      checklist.items || [],
-      ["QR", "Manual", "Mode", "Act", "Location", "Print"]
-    )
-  );
-}
-
-function renderHandoutChecklist(root, checklist) {
-  root.replaceChildren();
-  root.append(blockTitle("Handout checklist"));
-  root.append(
-    summaryGrid([
-      ["Snapshot", checklist.snapshot_version || "not imported"],
-      ["Handouts", (checklist.items || []).length],
-      ["Policy checks", (checklist.policy_checks || []).length],
-      ["Ops items", (checklist.ops_items || []).length],
-    ])
-  );
-  root.append(
-    policyStrip((checklist.policy_checks || []).map((check) => [check.label, check.ready]))
-  );
-  root.append(
-    objectTable(
-      ["handout_id", "audience", "topics", "missing_topics", "ready"],
-      checklist.items || [],
-      ["Handout", "Audience", "Topics", "Missing", "Ready"]
-    )
-  );
-}
-
-function blockTitle(text) {
-  const title = document.createElement("h4");
-  title.textContent = text;
-  return title;
-}
-
-function emptyLine(text) {
-  const line = document.createElement("p");
-  line.className = "muted-line";
-  line.textContent = text;
-  return line;
-}
-
-function summaryGrid(items) {
+function summaryCards(items) {
   const grid = document.createElement("div");
   grid.className = "compact-summary";
   for (const [label, value] of items) {
@@ -2088,176 +1109,537 @@ function summaryGrid(items) {
   return grid;
 }
 
-function policyStrip(items) {
-  const strip = document.createElement("div");
-  strip.className = "policy-strip";
-  for (const [label, ready] of items) {
-    const badge = document.createElement("span");
-    badge.className = `status-badge ${ready ? "ready" : "warn"}`;
-    badge.textContent = `${label}: ${ready ? "ready" : "missing"}`;
-    strip.append(badge);
-  }
-  return strip;
+function entityGrid(cards) {
+  const grid = document.createElement("div");
+  grid.className = "entity-grid";
+  grid.append(...cards);
+  return grid;
 }
 
-function objectTable(keys, rows, labels) {
+function entityCard(title, rows, dataset = {}) {
+  const card = document.createElement("article");
+  card.className = "entity-card";
+  for (const [key, value] of Object.entries(dataset)) {
+    card.dataset[key] = value;
+  }
+  card.innerHTML = `
+    <h5>${escapeHtml(title)}</h5>
+    <div class="entity-facts">
+      ${rows.map(([label, value]) => `
+        <span><b>${escapeHtml(label)}</b>${escapeHtml(value)}</span>
+      `).join("")}
+    </div>
+  `;
+  return card;
+}
+
+function filterTabs(name, items) {
   const wrapper = document.createElement("div");
-  wrapper.className = "table-wrap";
+  wrapper.className = "filter-tabs";
+  for (const [id, label] of items) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.dataset.filter = id;
+    button.setAttribute("aria-pressed", String(id === "all"));
+    button.textContent = label;
+    wrapper.append(button);
+  }
+  return wrapper;
+}
+
+function actionBar(buttons) {
+  const bar = document.createElement("div");
+  bar.className = "inline-actions";
+  bar.append(...buttons);
+  return bar;
+}
+
+function actionButton(label, handler, variant = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  if (variant) button.className = variant;
+  button.addEventListener("click", handler);
+  return button;
+}
+
+async function copyText(text, successMessage) {
+  let copied = false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+  }
+  if (!copied) copied = copyTextFallback(text);
+  setDashboardStatus(copied ? successMessage : text);
+}
+
+function copyTextFallback(text) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.append(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
+function confirmAction({ title, body, details = [], confirmLabel = "Подтвердить", danger = false }) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-backdrop";
+    overlay.innerHTML = `
+      <section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div>
+          <p class="eyebrow">Подтверждение</p>
+          <h3 id="confirm-title">${escapeHtml(title)}</h3>
+        </div>
+        <p>${escapeHtml(body || "Подтвердите действие.")}</p>
+        ${details.length ? `
+          <dl class="confirm-details">
+            ${details.map(([label, value]) => `
+              <div>
+                <dt>${escapeHtml(label)}</dt>
+                <dd>${escapeHtml(value)}</dd>
+              </div>
+            `).join("")}
+          </dl>
+        ` : ""}
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-confirm="cancel">Отмена</button>
+          <button type="button" class="${danger ? "danger" : ""}" data-confirm="ok">${escapeHtml(confirmLabel)}</button>
+        </div>
+      </section>
+    `;
+    const finish = (value) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKeydown);
+      resolve(value);
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") finish(false);
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) finish(false);
+      const action = event.target?.dataset?.confirm;
+      if (action === "cancel") finish(false);
+      if (action === "ok") finish(true);
+    });
+    document.addEventListener("keydown", onKeydown);
+    document.body.append(overlay);
+    overlay.querySelector("[data-confirm='cancel']").focus();
+  });
+}
+
+function blockTitle(title) {
+  const heading = document.createElement("h4");
+  heading.textContent = title;
+  return heading;
+}
+
+function simpleTable(headers, rows, emptyText) {
+  return actionTable(headers, rows, (row) => row, emptyText);
+}
+
+function actionTable(headers, rows, mapper, emptyText) {
+  const wrap = document.createElement("div");
+  wrap.className = "table-wrap";
   const table = document.createElement("table");
   const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
-  for (const label of labels) {
-    const cell = document.createElement("th");
-    cell.textContent = label;
-    headRow.append(cell);
-  }
-  thead.append(headRow);
-  table.append(thead);
-
+  thead.innerHTML = `<tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>`;
   const tbody = document.createElement("tbody");
   if (!rows.length) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = keys.length;
-    cell.textContent = "No rows";
+    cell.colSpan = headers.length;
+    cell.textContent = emptyText;
     row.append(cell);
     tbody.append(row);
-  }
-  for (const row of rows) {
-    const tr = document.createElement("tr");
-    for (const key of keys) {
-      const cell = document.createElement("td");
-      const value = row[key];
-      cell.textContent = Array.isArray(value) ? value.join(", ") : String(value ?? "");
-      tr.append(cell);
+  } else {
+    for (const sourceRow of rows) {
+      const tr = document.createElement("tr");
+      for (const value of mapper(sourceRow)) {
+        const td = document.createElement("td");
+        if (value instanceof Node) {
+          td.append(value);
+        } else {
+          td.textContent = value ?? "-";
+        }
+        tr.append(td);
+      }
+      tbody.append(tr);
     }
-    tbody.append(tr);
   }
-  table.append(tbody);
-  wrapper.append(table);
-  return wrapper;
+  table.append(thead, tbody);
+  wrap.append(table);
+  return wrap;
 }
 
-function artifactAuditRows(artifacts) {
-  return artifacts.map((item) => ({
-    ...item,
-    owner_count: (item.owners || []).length,
-  }));
+function emptyLine(text) {
+  const line = document.createElement("p");
+  line.className = "muted-line";
+  line.textContent = text;
+  return line;
 }
 
-function sorceressEvidenceRows(rows) {
-  return rows.map((item) => ({
-    player_id: item.player?.player_id || "",
-    locked_intent: (item.locked_magical_intent || [])
-      .map((intent) => intent.status)
-      .join(", "),
-    alignment: (item.alignment_evidence || []).length,
-    favorites: (item.favorites || []).length,
-  }));
+function playersList() {
+  return masterState?.economy?.player_economy || [];
 }
 
-function recentEventRows(rows) {
-  return rows.map((item) => {
-    const payload = item.payload || {};
-    return {
-      ...item,
-      actor: payload.actor_id || payload.player_id || payload.operator || "",
-      paper_form_id: payload.paper_form_id || "",
-    };
+function lordDomains() {
+  return masterState?.lord_map?.domains || [];
+}
+
+function activeBattles() {
+  return (lordBattles?.items || []).filter((battle) => !["finished", "cancelled"].includes(String(battle.status)));
+}
+
+function activeBattlesForDomain(domain) {
+  return activeBattles().filter((battle) => {
+    return battle.attacker_domain_id === domain.domain_id || battle.defender_domain_id === domain.domain_id;
   });
 }
 
-function optionTags(pairs, selected = "") {
-  if (!pairs.length) {
-    return '<option value="">No rows</option>';
+function territoriesList() {
+  return masterState?.lord_map?.territories || [];
+}
+
+function territoriesForDomain(domain) {
+  return territoriesList().filter((territory) => territory.owner_domain_id === domain.domain_id);
+}
+
+function territoryByNode(nodeId) {
+  return territoriesList().find((territory) => territory.node_id === nodeId);
+}
+
+function contestedClaimsForDomain(domain) {
+  return (masterState?.lord_map?.contested_claims || []).filter((claim) => {
+    return claim.claimant_domain_id === domain.domain_id || claim.defender_domain_id === domain.domain_id;
+  });
+}
+
+function pendingMoves(domain) {
+  return (domain.pending_moves || []).filter((move) => {
+    return !["completed", "cancelled", "failed"].includes(String(move.status || ""));
+  });
+}
+
+function stalledMoves(domain) {
+  const now = Date.now();
+  return pendingMoves(domain).filter((move) => {
+    const arrival = Date.parse(move.arrival_at);
+    return Number.isFinite(arrival) && arrival < now;
+  });
+}
+
+function activeOrders(domain) {
+  const activeStatuses = new Set([
+    "published",
+    "addressed_pending",
+    "accepted",
+    "in_progress",
+    "claimed_at_prop",
+    "submitted_pending_sync",
+    "pending_master_approval",
+    "failed_retryable",
+    "contested_review",
+  ]);
+  return (domain.orders || []).filter((order) => activeStatuses.has(String(order.status || "")));
+}
+
+function lordAttention(domain) {
+  const alerts = [];
+  if (stalledMoves(domain).length) alerts.push("переход просрочен, проверьте локацию армии");
+  if (activeBattlesForDomain(domain).length) alerts.push("идёт бой");
+  if (contestedClaimsForDomain(domain).length) alerts.push("есть спорная территория");
+  if (!domain.current_node_id) alerts.push("не задана текущая локация");
+  if (Number(domain.current_mp || 0) <= 0 && Number(domain.mp_cap || 0) > 0) alerts.push("MP закончились");
+  if (domainArmyTotal(domain) <= 0 && masterState?.acts?.state?.current_act_id !== "registration") {
+    alerts.push("нет войск на карте и в резерве");
   }
-  return pairs
-    .map(([value, label]) => {
-      const stringValue = String(value ?? "");
-      const selectedAttr = stringValue === String(selected) ? " selected" : "";
-      return `<option value="${escapeHtml(stringValue)}"${selectedAttr}>${escapeHtml(label ?? value)}</option>`;
-    })
+  if (Number(domain.gold || 0) < 0) alerts.push("золото ушло в минус");
+  return alerts;
+}
+
+function lordStatus(domain) {
+  if (lordAttention(domain).length) return { label: "внимание", className: "warn" };
+  if (pendingMoves(domain).length) return { label: "в пути", className: "pending" };
+  return { label: "стабильно", className: "ready" };
+}
+
+function ownedBuildings(domain) {
+  return domain.buildings?.owned || [];
+}
+
+function buildingCatalogById(domain) {
+  return new Map((domain.buildings?.catalog || []).map((building) => [building.building_id, building]));
+}
+
+function buildingTitle(building) {
+  return building?.name || building?.building_id || "-";
+}
+
+function unitTitle(row) {
+  return row?.card_name || row?.name || row?.card_id || "-";
+}
+
+function domainLocation(domain) {
+  if (domain.current_node?.name) return domain.current_node.name;
+  const territory = territoryByNode(domain.current_node_id);
+  return territory?.node_name || domain.current_node_id || "локация не задана";
+}
+
+function domainArmySummary(domain) {
+  const rows = [
+    ...(domain.active_army || []).map((row) => `${unitTitle(row)} x${row.count || 0} в поле`),
+    ...(domain.reserve || []).map((row) => `${unitTitle(row)} x${row.count || 0} в резерве`),
+    ...(domain.garrisons || []).map((row) => `${unitTitle(row)} x${row.count || 0} гарнизон`),
+  ].filter(Boolean);
+  return previewText(rows, "войск нет");
+}
+
+function domainBuildingsSummary(domain) {
+  const catalog = buildingCatalogById(domain);
+  const rows = ownedBuildings(domain).map((row) => buildingTitle(catalog.get(row.building_id) || row));
+  return previewText(rows, "зданий нет");
+}
+
+function domainOrdersSummary(domain) {
+  const active = activeOrders(domain);
+  const rows = active.map((order) => `${order.object_id || order.order_id}: ${humanStatus(order.status)}`);
+  if (!rows.length) return "активных заказов нет";
+  return `${active.length} активных; ${previewText(rows, "")}`;
+}
+
+function domainMovesSummary(domain) {
+  const moves = pendingMoves(domain);
+  const rows = moves.map((move) => {
+    const from = nodeTitle(move.from_node_id);
+    const to = nodeTitle(move.to_node_id);
+    return `${from} -> ${to}`;
+  });
+  return previewText(rows, "на месте");
+}
+
+function nodeTitle(nodeId) {
+  const territory = territoryByNode(nodeId);
+  return territory?.node_name || nodeId || "-";
+}
+
+function previewText(rows, emptyText) {
+  if (!rows.length) return emptyText;
+  const visible = rows.slice(0, 3);
+  const rest = rows.length - visible.length;
+  return rest > 0 ? `${visible.join(", ")} +${rest}` : visible.join(", ");
+}
+
+function reviewItems() {
+  return masterState?.events?.review?.open_items || [];
+}
+
+function rewardItems() {
+  return masterState?.reward_approvals?.pending || [];
+}
+
+function actOptions() {
+  const current = masterState?.acts?.state?.current_act_id || "act1";
+  return (masterState?.acts?.acts || [])
+    .map((act) => `<option value="${escapeHtml(act.act_id)}"${act.act_id === current ? " selected" : ""}>${escapeHtml(actLabel(act.act_id))}</option>`)
     .join("");
 }
 
-function fieldValue(root, selector) {
-  return String(root.querySelector(selector)?.value || "").trim();
+function options(items) {
+  if (!items.length) return `<option value="">Нет записей</option>`;
+  return items.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
 }
 
-function setPatchText(patch, field, value) {
-  const text = String(value || "").trim();
-  if (text) patch[field] = text;
+function numericPatch(root, fields, source = {}) {
+  const patch = {};
+  for (const [field, selector] of Object.entries(fields)) {
+    const raw = root.querySelector(selector).value;
+    if (raw === "") continue;
+    const next = Number(raw);
+    const previous = Number(source?.[field] ?? 0);
+    if (Number.isFinite(next) && next !== previous) patch[field] = next;
+  }
+  return patch;
 }
 
-function setPatchNumber(patch, field, value) {
-  const parsed = numberOrNull(value);
-  if (parsed !== null) patch[field] = parsed;
+function changeDetails(patch, source, labels) {
+  return Object.entries(patch).map(([field, value]) => [
+    labels[field] || field,
+    `${source?.[field] ?? "-"} -> ${value}`,
+  ]);
 }
 
-function numberOrNull(value) {
-  const text = String(value || "").trim();
-  if (!text) return null;
-  const parsed = Number.parseInt(text, 10);
-  return Number.isNaN(parsed) ? null : parsed;
+function elapsedMinutes(startedAt) {
+  if (!startedAt) return 0;
+  const started = Date.parse(startedAt);
+  if (!Number.isFinite(started)) return 0;
+  return Math.max(0, Math.floor((Date.now() - started) / 60000));
 }
 
-function compactObject(payload) {
-  return Object.fromEntries(
-    Object.entries(payload).filter(([, value]) => value !== null && value !== "")
-  );
+function formatMinutes(value) {
+  const minutes = Math.max(0, Number(value || 0));
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return hours ? `${hours} ч ${rest} мин` : `${rest} мин`;
 }
 
-function roundNumber(value) {
-  const numeric = Number(value || 0);
-  return Number.isInteger(numeric) ? numeric : numeric.toFixed(1);
+function domainTitle(domain) {
+  return domain.display_name || domain.name || domain.domain_id || "Домен";
 }
 
-function maxPercent(values) {
-  const max = values.reduce((highest, value) => {
-    const parsed = Number.parseInt(String(value || "0").replace("%", ""), 10);
-    return Number.isNaN(parsed) ? highest : Math.max(highest, parsed);
-  }, 0);
-  return `${max}%`;
+function domainTitleById(domainId) {
+  const domain = lordDomains().find((item) => item.domain_id === domainId);
+  return domain ? domainTitle(domain) : domainId || "-";
 }
 
-function localDateTimeValue() {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  return now.toISOString().slice(0, 16);
+function playerTitle(player) {
+  if (!player) return "-";
+  return playerTitleById(player.player_id, player.display_name);
 }
 
-function splitIds(value) {
-  return String(value || "")
-    .split(/[;,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+function playerTitleById(playerId, displayName = "") {
+  const player = playersList().find((item) => item.player_id === playerId);
+  return player?.display_name || displayName || playerId || "-";
 }
 
-function valueOrNull(value) {
-  const text = String(value || "").trim();
-  return text || null;
+function armyTotal(domain) {
+  return domainArmyTotal(domain);
 }
 
-function downloadJson(filename, payload) {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json",
+function domainArmyTotal(domain) {
+  return sumRows(domain.reserve) + sumRows(domain.active_army) + sumRows(domain.garrisons);
+}
+
+function sumRows(rows) {
+  return (rows || []).reduce((sum, row) => sum + Number(row.count || 0), 0);
+}
+
+function roleLabel(role) {
+  const labels = {
+    lord: "лорд",
+    sorceress: "чародейка",
+    witcher: "ведьмак",
+    npc_master: "мастер",
+  };
+  return labels[role] || role || "-";
+}
+
+function humanStatus(status) {
+  const labels = {
+    active: "активно",
+    pending: "ожидает",
+    announced: "объявлено",
+    ready: "готово",
+    success: "готово",
+    not_imported: "не загружено",
+    pending_master_approval: "ждёт мастера",
+    needs_attention: "нужно внимание",
+    needs_master_review: "нужен мастер",
+    not_started: "игра не начата",
+  };
+  return labels[status] || status || "-";
+}
+
+function actLabel(actId) {
+  const labels = {
+    not_started: "не начата",
+    registration: "Регистрация",
+    act1: "Акт 1",
+    act2: "Акт 2",
+    act3: "Акт 3",
+    final_lock: "Подготовка финала",
+    final_act: "Финал",
+    debrief: "Разбор игры",
+  };
+  return labels[actId] || actId || "не начата";
+}
+
+function shortDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
   });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+}
+
+function contentSourceName(value) {
+  if (!value) return "-";
+  const normalized = String(value).replaceAll("\\", "/");
+  const name = normalized.split("/").pop() || normalized;
+  return name.replace(/\.[^.]+$/, "") || name;
+}
+
+function viewIntro(viewId) {
+  const intros = {
+    game: "запуск, время и общий ход игры",
+    lords: "наблюдение и быстрые правки лордов",
+    players: "наблюдение и быстрые правки игроков",
+    codes: "коды входа для отправки игрокам",
+    review: "бои, спорные события и награды",
+    content: "подготовка игрового контента",
+  };
+  return intros[viewId] || "мастерский раздел";
+}
+
+function viewBadgeText(viewId) {
+  if (viewId === "review") {
+    const total = reviewItems().length + rewardItems().length + activeBattles().length;
+    return total ? String(total) : "чисто";
+  }
+  if (viewId === "lords") {
+    const attention = lordDomains().filter((domain) => lordAttention(domain).length).length;
+    return attention ? `${attention}!` : String(lordDomains().length || 0);
+  }
+  if (viewId === "players") return String(playersList().length || 0);
+  if (viewId === "codes") return String(playerCodes.enabled_count || playerCodes.total || playersList().length || 0);
+  if (viewId === "content") return overview?.snapshot_version ? "готово" : "нет";
+  return actLabel(masterState?.acts?.state?.current_act_id || "not_started");
+}
+
+function viewBadgeClass(viewId) {
+  if (viewId === "review") {
+    return reviewItems().length + rewardItems().length + activeBattles().length ? "warn" : "ready";
+  }
+  if (viewId === "lords") {
+    return lordDomains().some((domain) => lordAttention(domain).length) ? "warn" : "ready";
+  }
+  if (viewId === "content" && !overview?.snapshot_version) return "warn";
+  return "ready";
+}
+
+function setLoginStatus(message) {
+  els.loginStatus.textContent = message || "";
+}
+
+function setDashboardStatus(message) {
+  els.dashboardStatus.textContent = message || "";
 }
 
 async function apiJson(url, options = {}) {
   const requestOptions = {
     method: options.method || "GET",
     headers: {
-      "X-Role-Token": session.token,
-      ...(options.headers || {}),
+      "X-Role-Token": session?.token || "",
     },
   };
   if (options.body !== undefined) {
@@ -2270,41 +1652,12 @@ async function apiJson(url, options = {}) {
   return data;
 }
 
-function endpointLabel(action) {
-  if (!action.endpoint) return "Pending backend endpoint";
-  return `${action.method || "GET"} ${action.endpoint}`;
-}
-
-function setStatus(message) {
-  els.loginStatus.textContent = message;
-  if (!els.dashboard.hidden) {
-    setDashboardStatus(message);
-  }
-}
-
-function setDashboardStatus(message) {
-  if (els.dashboardStatus) {
-    els.dashboardStatus.textContent = message;
-  }
-}
-
-function statusLabel(status) {
-  return String(status || "unknown").replaceAll("_", " ");
-}
-
-function statusClass(status) {
-  if (status === "ready") return "ready";
-  if (status === "needs_attention") return "warn";
-  if (status === "not_imported") return "warn";
-  return "pending";
-}
-
 function errorMessage(data, status) {
   const detail = data.detail;
   if (detail && typeof detail === "object") {
-    return `${detail.code || status}: ${detail.message || "Request failed"}`;
+    return detail.message || detail.code || `Ошибка запроса: ${status}`;
   }
-  return detail || `Request failed: ${status}`;
+  return detail || `Ошибка запроса: ${status}`;
 }
 
 function escapeHtml(value) {
@@ -2313,5 +1666,5 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    .replaceAll("'", "&#39;");
 }

@@ -204,7 +204,7 @@ def resolve_pve_scene(
     reward = card["reward"] if isinstance(card["reward"], dict) else {}
     reward_id = str(reward.get("reward_id", card["scenario"].get("reward_id", "")))
     reward_approval_policy = str(reward.get("approval_policy", "auto"))
-    reward_status = "auto" if result == "success" and reward_id else "none"
+    reward_status = _reward_status_for_payload(card, result, reward_id)
 
     payload = {
         "scenario_id": card["scenario"]["scenario_id"],
@@ -733,6 +733,12 @@ def _reward_status_for_payload(
 ) -> str:
     if result != "success" or not reward_id:
         return "none"
+    reward = card.get("reward")
+    if (
+        isinstance(reward, dict)
+        and str(reward.get("approval_policy", "")) == "pending_master_approval"
+    ):
+        return "pending_master_approval"
     return "auto"
 
 
