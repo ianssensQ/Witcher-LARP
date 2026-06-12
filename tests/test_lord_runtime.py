@@ -1260,6 +1260,13 @@ class LordRuntimeTests(unittest.TestCase):
             ensure_lord_runtime_state(connection)
             connection.execute(
                 """
+                UPDATE domain_runtime_state
+                SET current_node_id = 'node_fort_east'
+                WHERE domain_id = 'domain_river'
+                """
+            )
+            connection.execute(
+                """
                 INSERT INTO active_army_runtime (
                     army_id, domain_id, card_id, count,
                     location_node_id, status, updated_at
@@ -1347,6 +1354,80 @@ class LordRuntimeTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_lord_map_intel_uses_current_domain_node_for_one_road_visibility(self) -> None:
+        settings = self._settings("lord_map_enemy_intel_current_node")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute("DELETE FROM active_army_runtime")
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET current_node_id = 'node_fort_east'
+                WHERE domain_id = 'domain_north'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET current_node_id = 'node_well_city'
+                WHERE domain_id = 'domain_river'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET current_node_id = 'node_fort_east'
+                WHERE domain_id = 'domain_forest'
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO active_army_runtime (
+                    army_id, domain_id, card_id, count,
+                    location_node_id, status, updated_at
+                )
+                VALUES (
+                    'army_north_stale_location',
+                    'domain_north',
+                    'unit_infantry_t1',
+                    3,
+                    'node_res_north',
+                    'active',
+                    CURRENT_TIMESTAMP
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO active_army_runtime (
+                    army_id, domain_id, card_id, count,
+                    location_node_id, status, updated_at
+                )
+                VALUES (
+                    'army_forest_same_node',
+                    'domain_forest',
+                    'unit_ranged_t1',
+                    2,
+                    'node_res_forest',
+                    'active',
+                    CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+        state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers=self._headers("north"),
+        )
+
+        self.assertEqual(state.status_code, 200, state.text)
+        intel = state.json()["lord_map_intel"]["enemy_armies"]
+        visible_nodes = {item["node_id"] for item in intel}
+        self.assertIn("node_well_city", visible_nodes)
+        self.assertIn("node_fort_east", visible_nodes)
 
     def test_local_active_army_fort_transfers_reject_remote_reserve_and_contested_state(self) -> None:
         settings = self._settings("lord_local_fort_transfers")

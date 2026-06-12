@@ -2209,45 +2209,46 @@ def _visible_enemy_army_intel(
 ) -> list[dict[str, Any]]:
     if viewer_node_id is None:
         return []
-    neighbor_node_ids = sorted(_adjacent_map_node_ids(connection, viewer_node_id))
-    if not neighbor_node_ids:
-        return []
+    visible_node_ids = sorted({viewer_node_id, *_adjacent_map_node_ids(connection, viewer_node_id)})
 
-    placeholders = ", ".join("?" for _ in neighbor_node_ids)
+    placeholders = ", ".join("?" for _ in visible_node_ids)
     rows = connection.execute(
         f"""
         SELECT
             army.army_id,
-            army.domain_id,
+            domain_state.domain_id,
             army.card_id,
             army.count,
-            army.location_node_id,
+            COALESCE(NULLIF(domain_state.current_node_id, ''), army.location_node_id) AS effective_location_node_id,
             domains.name AS domain_name,
             nodes.territory_id,
             territories.name AS territory_name
-        FROM active_army_runtime army
-        LEFT JOIN domains ON domains.domain_id = army.domain_id
-        LEFT JOIN map_nodes nodes ON nodes.node_id = army.location_node_id
+        FROM domain_runtime_state domain_state
+        LEFT JOIN active_army_runtime army
+          ON army.domain_id = domain_state.domain_id
+         AND army.status = 'active'
+         AND army.count > 0
+        LEFT JOIN domains ON domains.domain_id = domain_state.domain_id
+        LEFT JOIN map_nodes nodes ON nodes.node_id = COALESCE(NULLIF(domain_state.current_node_id, ''), army.location_node_id)
         LEFT JOIN territories ON territories.territory_id = nodes.territory_id
-        WHERE army.domain_id != ?
-          AND army.status = 'active'
-          AND army.count > 0
-          AND army.location_node_id IN ({placeholders})
-        ORDER BY army.location_node_id, army.domain_id, army.army_id
+        WHERE domain_state.domain_id != ?
+          AND COALESCE(NULLIF(domain_state.current_node_id, ''), army.location_node_id) IN ({placeholders})
+        ORDER BY effective_location_node_id, domain_state.domain_id, army.army_id
         """,
-        (viewer_domain_id, *neighbor_node_ids),
+        (viewer_domain_id, *visible_node_ids),
     ).fetchall()
 
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
-        key = (str(row["domain_id"]), str(row["location_node_id"]))
+        location_node_id = str(row["effective_location_node_id"])
+        key = (str(row["domain_id"]), location_node_id)
         group = grouped.setdefault(
             key,
             {
-                "target_id": f"{row['domain_id']}:{row['location_node_id']}",
+                "target_id": f"{row['domain_id']}:{location_node_id}",
                 "domain_id": str(row["domain_id"]),
                 "domain_name": row["domain_name"],
-                "node_id": str(row["location_node_id"]),
+                "node_id": location_node_id,
                 "territory_id": _optional(row["territory_id"]),
                 "territory_name": row["territory_name"],
                 "adjacent_to_node_id": viewer_node_id,
@@ -2257,13 +2258,14 @@ def _visible_enemy_army_intel(
         )
         count = _to_int(row["count"])
         group["total_count"] += count
-        group["stacks"].append(
-            {
-                "army_id": row["army_id"],
-                "card_id": row["card_id"],
-                "count": count,
-            }
-        )
+        if row["army_id"] and count > 0:
+            group["stacks"].append(
+                {
+                    "army_id": row["army_id"],
+                    "card_id": row["card_id"],
+                    "count": count,
+                }
+            )
 
     payloads = []
     for group in grouped.values():
@@ -2302,6 +2304,20 @@ def _visible_enemy_army_intel(
 def _active_army_location_node(
     connection: sqlite3.Connection, domain_id: str
 ) -> str | None:
+    domain_row = connection.execute(
+        """
+        SELECT current_node_id
+        FROM domain_runtime_state
+        WHERE domain_id = ?
+        LIMIT 1
+        """,
+        (domain_id,),
+    ).fetchone()
+    if domain_row is not None:
+        node_id = _optional(domain_row["current_node_id"])
+        if node_id is not None:
+            return node_id
+
     row = connection.execute(
         """
         SELECT location_node_id
