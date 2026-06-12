@@ -6,11 +6,9 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
-    "assets:lords-login": "node scripts/generate-lords-login-assets.mjs",
     "assets:lord-building-icons": "node scripts/generate-lord-building-icons.mjs",
     "assets:lord-building-icon:postprocess": "node scripts/postprocess-lord-building-icon.mjs",
     "assets:lords-login:panel-variants": "node scripts/build-lords-login-panel-variants.mjs",
-    "assets:lords-login:training-button": "node scripts/edit-lords-login-button.mjs",
     "assets:lords-login:redesign": "node scripts/generate-lords-login-redesign-openrouter.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
