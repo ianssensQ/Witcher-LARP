@@ -1,0 +1,3 @@
+favorite_id,sorceress_id,favored_player_id,slot,status,changed_in_act
+fav_sorc1_witcher1,p_sorc_1,p_witcher_1,primary,accepted,act1
+fav_sorc2_witcher1,p_sorc_2,p_witcher_1,secondary,pending,act1

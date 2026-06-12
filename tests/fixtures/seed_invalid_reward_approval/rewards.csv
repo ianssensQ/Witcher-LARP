@@ -1,0 +1,2 @@
+reward_id,xp,gold,item_ids,card_ids,artifact_ids,rarity,approval_policy
+reward_cascade_bad,12,35,item_monster_trophy,pc_cavalry_t2,artifact_mirror_shard,Rare,auto

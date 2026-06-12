@@ -1,0 +1,5 @@
+pool_id,domain_id,act_id,current_mp,mp_cap,last_refill_offset_min
+mp_north_a1,domain_north,act1,6,6,30
+mp_river_a1,domain_river,act1,6,6,30
+mp_forest_a1,domain_forest,act1,6,6,30
+mp_hill_a1,domain_hill,act1,6,6,30

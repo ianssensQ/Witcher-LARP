@@ -1,0 +1,5 @@
+unlock_id,act_id,code,revealed_after_start
+unlock_act1,act1,UNLOCK-A1-START,true
+unlock_act2,act2,UNLOCK-A2-7GQ4,true
+unlock_act3,act3,UNLOCK-A3-2KVM,true
+unlock_final,final_act,UNLOCK-FINAL-9XCE,true

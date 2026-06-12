@@ -1,0 +1,4 @@
+market_id,seller_role,potion_id,stock,refresh_rule
+market_sorc_common,sorceress,potion_common_swallow,8,act_refresh
+market_sorc_uncommon,sorceress,potion_uncommon_thunderbolt,4,act_refresh
+market_sorc_rare,sorceress,potion_rare_oriole,2,act_refresh

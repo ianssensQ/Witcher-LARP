@@ -1,0 +1,5 @@
+job_id,trigger_type,include_sqlite,include_event_log
+backup_morning_snapshot,manual_morning,true,true
+backup_before_act,pre_act_transition,true,true
+backup_before_final,pre_final_lock,true,true
+backup_manual,manual,true,true

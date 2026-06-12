@@ -1,0 +1,22 @@
+building_id,branch,name,tier,gold_cost,prerequisite_ids,recruit_unlock_ids,capacity_delta,raid_unlock,raid_token_delta
+b_training_yard,military,Учебный двор,1,40,,unit_infantry_t1,1,false,0
+b_barracks,military,Казармы,2,75,b_training_yard,unit_guard_t1,0,false,0
+b_archery_range,military,Стрельбище,2,75,b_training_yard,unit_ranged_t1,0,false,0
+b_stables,military,Конюшни,3,120,b_barracks,unit_cavalry_t2,1,false,0
+b_siege_yard,military,Осадный двор,3,120,b_archery_range,unit_heavy_siege_t3,0,false,0
+b_war_academy,military,Военная академия,4,180,b_siege_yard; b_war_council,unit_specialist_t3,1,true,2
+b_market,economy,Рынок,1,40,,,0,false,0
+b_tax_office,economy,Налоговая палата,2,75,b_market,,0,false,0
+b_storehouse,economy,Склад,2,75,b_market,,0,false,0
+b_bank,economy,Банк,3,120,b_tax_office; b_storehouse,,0,false,0
+b_treasury_hall,economy,Казначейский зал,4,180,b_bank,,0,false,0
+b_notice_board,order,Доска объявлений,1,40,,,0,false,0
+b_envoy_hall,order,Посольский зал,2,75,b_notice_board,,0,false,0
+b_map_room,order,Картографическая,2,75,b_notice_board,,0,false,0
+b_raid_office,order,Рейдовая ставка,3,120,b_map_room; b_stables,,0,true,2
+b_war_council,order,Военный совет,4,180,b_raid_office; b_envoy_hall,,1,true,1
+b_mage_study,magic,Кабинет мага,1,40,,,0,false,0
+b_alchemy_lab,magic,Алхимическая лаборатория,2,75,b_mage_study,,0,false,0
+b_scrying_room,magic,Комната видений,2,75,b_mage_study,,0,false,0
+b_wards,magic,Обереги,3,120,b_scrying_room; b_alchemy_lab,,0,false,0
+b_ritual_chamber,magic,Ритуальная палата,4,180,b_wards; b_treasury_hall,,0,false,0

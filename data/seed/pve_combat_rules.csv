@@ -1,0 +1,2 @@
+rule_id,player_scene_hp,base_damage,no_persistent_player_hp,timeout_outcome,failure_cooldown_min
+pve_combat_default,10,1,true,fail_and_cooldown,30

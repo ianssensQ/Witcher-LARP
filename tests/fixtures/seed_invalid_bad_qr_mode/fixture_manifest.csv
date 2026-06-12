@@ -1,0 +1,2 @@
+fixture_id,fixture_type,base_path,override_files,expected_result
+seed_invalid_bad_qr_mode,invalid_overlay,../../../data/seed,qr_objects.csv,bad_qr_mode

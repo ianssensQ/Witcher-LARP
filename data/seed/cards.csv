@@ -1,0 +1,7 @@
+card_id,card_type,tier,name,army_unit_card_id,conversion_rule
+pc_infantry_t1,personal_to_army,1,Infantry Favor,unit_infantry_t1,may_transfer_to_lord_once
+pc_guard_t1,personal_to_army,1,Guard Contract,unit_guard_t1,may_transfer_to_lord_once
+pc_ranged_t1,personal_to_army,1,Ranged Scout,unit_ranged_t1,may_transfer_to_lord_once
+pc_cavalry_t2,personal_to_army,2,Cavalry Writ,unit_cavalry_t2,may_transfer_to_lord_once
+pc_siege_t3,personal_to_army,3,Siege Engineer,unit_heavy_siege_t3,may_transfer_to_lord_once
+pc_specialist_t3,personal_to_army,3,Specialist Agent,unit_specialist_t3,may_transfer_to_lord_once

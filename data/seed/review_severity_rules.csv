@@ -1,0 +1,5 @@
+severity,meaning,response_window,default_owner
+P0,stop_and_resolve_now,immediate,npc_master
+P1,resolve_before_next_act_or_final,next_buffer,npc_master
+P2,review_in_buffer,buffer,npc_master
+P3,log_only,post_game,master

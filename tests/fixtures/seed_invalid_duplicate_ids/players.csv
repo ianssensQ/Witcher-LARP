@@ -1,0 +1,3 @@
+player_id,role_type,display_name,lord_id,sorceress_start_lord_id,level,xp,gold,reputation,stats_json,player_code_id
+p_lord_1,lord,Lord Aedirn,domain_north,,1,0,0,0,"{}",code_lord_1
+p_lord_1,lord,Lord Duplicate,domain_river,,1,0,0,0,"{}",code_lord_2

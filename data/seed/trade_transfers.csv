@@ -1,0 +1,3 @@
+transfer_id,from_player_id,to_player_id,asset_type,asset_id,status
+trade_pending_trophy,p_witcher_1,p_lord_1,item,item_monster_trophy,contested_review
+trade_accepted_potion,p_sorc_1,p_witcher_1,potion,potion_common_swallow,contested_review

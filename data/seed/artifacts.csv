@@ -1,0 +1,9 @@
+artifact_id,rarity,act_cap,visibility,power_budget,counterplay
+artifact_mirror_shard,Rare,2_per_act,master_and_owner,2,can_be_revealed_by_spell
+artifact_oath_stone,Rare,2_per_act,master_and_owner,2,requires_public_oath
+artifact_crow_feather,Rare,2_per_act,hidden_until_used,2,npc_price
+artifact_silver_chain,Rare,2_per_act,owner_visible,2,can_be_stolen_by_order
+artifact_black_seal,Rare,2_per_act,master_only,3,needs_final_review
+artifact_sun_coin,Rare,2_per_act,owner_visible,2,trade_lock_required
+artifact_legend_crown,Legendary,act2_plus,master_only,4,final_counter_evidence
+artifact_legend_lantern,Legendary,act2_plus,master_only,4,final_counter_evidence

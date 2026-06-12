@@ -1,0 +1,2 @@
+qr_id,manual_code,scenario_id,qr_mode,act_id,location_node_id,physical_presence_required,rate_limit,consumption_rule
+qr_empty_required_ref,QR-EMPTY-REF,,repeatable_scene,act1,node_forest_dark,true,5_per_minute,repeatable

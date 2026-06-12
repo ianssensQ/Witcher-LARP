@@ -1,0 +1,916 @@
+[gd_scene format=3 uid="uid://cktpr5mmbo7au"]
+
+[ext_resource type="Script" uid="uid://dbhm7uxcvtf4k" path="res://scripts/witcher_journal_view.gd" id="1_witcher_journal"]
+[ext_resource type="Texture2D" uid="uid://r36e5l1klv7e" path="res://assets/ui/witcher/m1_journal/journal-bg-v2.png" id="2_bg"]
+[ext_resource type="Texture2D" uid="uid://bi0cmmf54ew8i" path="res://assets/ui/witcher/m1_journal/parchment-card-v1.png" id="3_parchment"]
+[ext_resource type="Texture2D" uid="uid://cf8t7fd4yad5" path="res://assets/ui/witcher/m1_journal/metal-plaque-v1.png" id="4_plaque"]
+[ext_resource type="Texture2D" uid="uid://bdmq5xvc3ghlv" path="res://assets/ui/witcher/m1_journal/action-button-v1.png" id="5_action"]
+[ext_resource type="Texture2D" uid="uid://bj8cya4va3fuj" path="res://assets/ui/witcher/m1_journal/nav-tab-v1.png" id="6_nav"]
+[ext_resource type="Texture2D" uid="uid://b7xmvx6wuqbpq" path="res://assets/ui/witcher/m1_journal/portrait-frame-cutout-v1.png" id="7_frame"]
+[ext_resource type="Texture2D" uid="uid://dy45vyi51pjm1" path="res://assets/ui/witcher/m1_journal/witcher-portrait-v1.png" id="8_portrait"]
+[ext_resource type="Texture2D" uid="uid://b12ohhrck531q" path="res://assets/ui/witcher/m1_journal/command-panel-v1.png" id="9_command_panel"]
+[ext_resource type="Texture2D" uid="uid://ckf6rl2ua5ir2" path="res://assets/ui/witcher/m1_journal/command-button-qr-v1.png" id="10_btn_qr"]
+[ext_resource type="Texture2D" uid="uid://doqvfjjchqbla" path="res://assets/ui/witcher/m1_journal/command-button-orders-v1.png" id="11_btn_orders"]
+[ext_resource type="Texture2D" uid="uid://cgli0ilumri5j" path="res://assets/ui/witcher/m1_journal/command-button-trade-v1.png" id="12_btn_trade"]
+[ext_resource type="Texture2D" uid="uid://ce7yti33ikfb" path="res://assets/ui/witcher/m1_journal/command-button-bag-v1.png" id="13_btn_bag"]
+[ext_resource type="Texture2D" uid="uid://db0ryptcoyqq3" path="res://assets/ui/witcher/m1_journal/command-button-gwent-v1.png" id="14_btn_gwent"]
+[ext_resource type="Texture2D" uid="uid://kk25evwwpjm7" path="res://assets/ui/witcher/m1_journal/command-button-pvp-v1.png" id="15_btn_pvp"]
+[ext_resource type="Texture2D" uid="uid://bdy52m623smsc" path="res://assets/ui/witcher/m1_journal/command-button-sync-v1.png" id="16_btn_sync"]
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_transparent"]
+
+[node name="WitcherJournalView" type="Control" unique_id=1460581063]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_witcher_journal")
+
+[node name="JournalStage" type="Control" parent="." unique_id=1384801101]
+anchors_preset = 0
+offset_right = 390.0
+offset_bottom = 844.0
+
+[node name="Background" type="TextureRect" parent="JournalStage" unique_id=1639631082]
+layout_mode = 0
+offset_right = 390.0
+offset_bottom = 844.0
+texture = ExtResource("2_bg")
+expand_mode = 1
+
+[node name="TitlePlaque" type="TextureRect" parent="JournalStage" unique_id=443430109]
+layout_mode = 0
+offset_left = 98.0
+offset_top = 36.0
+offset_right = 292.0
+offset_bottom = 98.0
+texture = ExtResource("4_plaque")
+expand_mode = 1
+
+[node name="ActBadgeTexture" type="TextureRect" parent="JournalStage"]
+layout_mode = 0
+offset_left = 16.0
+offset_top = 50.0
+offset_right = 96.0
+offset_bottom = 86.0
+texture = ExtResource("4_plaque")
+expand_mode = 1
+
+[node name="ActLabel" type="Label" parent="JournalStage" unique_id=1443373849]
+layout_mode = 0
+offset_left = 25.0
+offset_top = 57.0
+offset_right = 88.0
+offset_bottom = 80.0
+theme_override_colors/font_color = Color(0.960784, 0.862745, 0.670588, 1)
+theme_override_colors/font_shadow_color = Color(0.0156863, 0.0117647, 0.00784314, 0.9)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 12
+text = "Акт I"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TitleLabel" type="Label" parent="JournalStage" unique_id=1980709149]
+layout_mode = 0
+offset_left = 120.0
+offset_top = 49.0
+offset_right = 270.0
+offset_bottom = 79.0
+theme_override_colors/font_color = Color(0.968627, 0.901961, 0.768627, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 22
+text = "Журнал"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="SyncBadgeTexture" type="TextureRect" parent="JournalStage"]
+layout_mode = 0
+offset_left = 294.0
+offset_top = 50.0
+offset_right = 374.0
+offset_bottom = 86.0
+texture = ExtResource("4_plaque")
+expand_mode = 1
+
+[node name="SyncBadgeLabel" type="Label" parent="JournalStage" unique_id=563935556]
+layout_mode = 0
+offset_left = 303.0
+offset_top = 57.0
+offset_right = 365.0
+offset_bottom = 80.0
+theme_override_colors/font_color = Color(0.733333, 0.960784, 0.92549, 1)
+theme_override_colors/font_shadow_color = Color(0.0156863, 0.0117647, 0.00784314, 0.9)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 11
+text = "offline"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="CharacterCard" type="TextureRect" parent="JournalStage" unique_id=1905235216]
+layout_mode = 0
+offset_left = 29.0
+offset_top = 141.0
+offset_right = 361.0
+offset_bottom = 334.0
+texture = ExtResource("3_parchment")
+expand_mode = 1
+
+[node name="PortraitImage" type="TextureRect" parent="JournalStage" unique_id=300477836]
+layout_mode = 0
+offset_left = 58.0
+offset_top = 176.0
+offset_right = 146.0
+offset_bottom = 300.0
+texture = ExtResource("8_portrait")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="PortraitFrame" type="TextureRect" parent="JournalStage" unique_id=1117779311]
+layout_mode = 0
+offset_left = 38.0
+offset_top = 145.0
+offset_right = 166.0
+offset_bottom = 330.0
+texture = ExtResource("7_frame")
+expand_mode = 1
+
+[node name="PortraitMarkLabel" type="Label" parent="JournalStage" unique_id=732854151]
+visible = false
+layout_mode = 0
+offset_left = 113.0
+offset_top = 276.0
+offset_right = 144.0
+offset_bottom = 305.0
+theme_override_colors/font_color = Color(0.843137, 0.647059, 0.282353, 1)
+theme_override_font_sizes/font_size = 16
+text = "X"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="RoleLabel" type="Label" parent="JournalStage" unique_id=788064906]
+layout_mode = 0
+offset_left = 174.0
+offset_top = 184.0
+offset_right = 244.0
+offset_bottom = 201.0
+theme_override_colors/font_color = Color(0.482353, 0.227451, 0.133333, 1)
+theme_override_font_sizes/font_size = 11
+text = "НЕТ ВХОДА"
+
+[node name="GoldBadgeBg" type="ColorRect" parent="JournalStage"]
+layout_mode = 0
+offset_left = 244.0
+offset_top = 178.0
+offset_right = 340.0
+offset_bottom = 204.0
+color = Color(0.0588235, 0.0352941, 0.0156863, 0.82)
+
+[node name="GoldLabel" type="Label" parent="JournalStage"]
+layout_mode = 0
+offset_left = 250.0
+offset_top = 182.0
+offset_right = 334.0
+offset_bottom = 200.0
+theme_override_colors/font_color = Color(1, 0.827451, 0.407843, 1)
+theme_override_colors/font_shadow_color = Color(0.0156863, 0.0117647, 0.00784314, 0.96)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 12
+text = "◉ -- зол."
+horizontal_alignment = 1
+
+[node name="CharacterNameLabel" type="Label" parent="JournalStage" unique_id=351399120]
+layout_mode = 0
+offset_left = 173.0
+offset_top = 205.0
+offset_right = 340.0
+offset_bottom = 239.0
+theme_override_colors/font_color = Color(0.145098, 0.0745098, 0.0235294, 1)
+theme_override_font_sizes/font_size = 28
+text = "Нет игрока"
+
+[node name="CharacterMetaLabel" type="Label" parent="JournalStage" unique_id=881875530]
+layout_mode = 0
+offset_left = 174.0
+offset_top = 247.0
+offset_right = 218.0
+offset_bottom = 264.0
+theme_override_colors/font_color = Color(0.196078, 0.109804, 0.0470588, 1)
+theme_override_font_sizes/font_size = 12
+text = "Вход"
+
+[node name="XpBarTrack" type="ColorRect" parent="JournalStage"]
+layout_mode = 0
+offset_left = 222.0
+offset_top = 249.0
+offset_right = 337.0
+offset_bottom = 260.0
+color = Color(0.137255, 0.0745098, 0.027451, 0.72)
+
+[node name="XpBarFill" type="ColorRect" parent="JournalStage"]
+layout_mode = 0
+offset_left = 224.0
+offset_top = 251.0
+offset_right = 224.0
+offset_bottom = 258.0
+color = Color(0.658824, 0.156863, 0.0588235, 0.92)
+
+[node name="XpLabel" type="Label" parent="JournalStage"]
+layout_mode = 0
+offset_left = 222.0
+offset_top = 262.0
+offset_right = 337.0
+offset_bottom = 278.0
+theme_override_colors/font_color = Color(0.196078, 0.109804, 0.0470588, 1)
+theme_override_font_sizes/font_size = 10
+text = "XP --/--"
+horizontal_alignment = 1
+
+[node name="CharacterRepLabel" type="Label" parent="JournalStage" unique_id=1457438814]
+layout_mode = 0
+offset_left = 174.0
+offset_top = 286.0
+offset_right = 338.0
+offset_bottom = 303.0
+theme_override_colors/font_color = Color(0.196078, 0.109804, 0.0470588, 1)
+theme_override_font_sizes/font_size = 12
+text = "Репутация: --"
+
+[node name="CharacterStatusLabel" type="Label" parent="JournalStage" unique_id=741160417]
+visible = false
+layout_mode = 0
+offset_left = 174.0
+offset_top = 290.0
+offset_right = 338.0
+offset_bottom = 309.0
+theme_override_colors/font_color = Color(0.462745, 0.313726, 0.145098, 1)
+theme_override_font_sizes/font_size = 11
+text = "Нужен вход"
+
+[node name="OrderCard" type="TextureRect" parent="JournalStage" unique_id=1979947607]
+layout_mode = 0
+offset_left = 29.0
+offset_top = 350.0
+offset_right = 361.0
+offset_bottom = 483.0
+texture = ExtResource("3_parchment")
+expand_mode = 1
+
+[node name="OrderKickerLabel" type="Label" parent="JournalStage" unique_id=1951793547]
+layout_mode = 0
+offset_left = 62.0
+offset_top = 387.0
+offset_right = 220.0
+offset_bottom = 403.0
+theme_override_colors/font_color = Color(0.0588235, 0.0235294, 0.00784314, 1)
+theme_override_font_sizes/font_size = 10
+text = "АКТИВНЫЙ ЗАКАЗ"
+
+[node name="OrderTitleLabel" type="Label" parent="JournalStage" unique_id=2004960907]
+layout_mode = 0
+offset_left = 61.0
+offset_top = 407.0
+offset_right = 333.0
+offset_bottom = 433.0
+theme_override_colors/font_color = Color(0.0313725, 0.0156863, 0.00392157, 1)
+theme_override_font_sizes/font_size = 18
+text = "Войдите по коду"
+autowrap_mode = 3
+
+[node name="OrderBodyLabel" type="Label" parent="JournalStage" unique_id=1042005821]
+layout_mode = 0
+offset_left = 61.0
+offset_top = 438.0
+offset_right = 329.0
+offset_bottom = 453.0
+theme_override_colors/font_color = Color(0.0313725, 0.0156863, 0.00392157, 1)
+theme_override_font_sizes/font_size = 10
+text = "После входа появятся заказы игрока."
+
+[node name="OrderFooterLabel" type="Label" parent="JournalStage" unique_id=969398764]
+layout_mode = 0
+offset_left = 244.0
+offset_top = 387.0
+offset_right = 330.0
+offset_bottom = 403.0
+theme_override_colors/font_color = Color(0.0588235, 0.0235294, 0.00784314, 1)
+theme_override_font_sizes/font_size = 10
+text = "Нет данных"
+horizontal_alignment = 2
+
+[node name="GoalCard" type="TextureRect" parent="JournalStage" unique_id=264984384]
+layout_mode = 0
+offset_left = 29.0
+offset_top = 503.0
+offset_right = 361.0
+offset_bottom = 623.0
+texture = ExtResource("3_parchment")
+expand_mode = 1
+
+[node name="GoalKickerLabel" type="Label" parent="JournalStage" unique_id=1857839566]
+layout_mode = 0
+offset_left = 61.0
+offset_top = 532.0
+offset_right = 235.0
+offset_bottom = 548.0
+theme_override_colors/font_color = Color(0.0588235, 0.0235294, 0.00784314, 1)
+theme_override_font_sizes/font_size = 10
+text = "ЛИЧНАЯ ЦЕЛЬ"
+
+[node name="GoalTitleLabel" type="Label" parent="JournalStage" unique_id=587579085]
+layout_mode = 0
+offset_left = 61.0
+offset_top = 552.0
+offset_right = 334.0
+offset_bottom = 580.0
+theme_override_colors/font_color = Color(0.0313725, 0.0156863, 0.00392157, 1)
+theme_override_font_sizes/font_size = 18
+text = "Войдите по коду"
+autowrap_mode = 3
+
+[node name="GoalBodyLabel" type="Label" parent="JournalStage" unique_id=125135595]
+layout_mode = 0
+offset_left = 61.0
+offset_top = 585.0
+offset_right = 329.0
+offset_bottom = 603.0
+theme_override_colors/font_color = Color(0.0313725, 0.0156863, 0.00392157, 1)
+theme_override_font_sizes/font_size = 11
+text = "Личная цель появится после загрузки игрока."
+
+[node name="CommandTrayShadow" type="ColorRect" parent="JournalStage"]
+visible = false
+layout_mode = 0
+offset_left = 22.0
+offset_top = 626.0
+offset_right = 368.0
+offset_bottom = 833.0
+color = Color(0.0196078, 0.0156863, 0.0117647, 0.82)
+
+[node name="CommandTrayInner" type="ColorRect" parent="JournalStage"]
+visible = false
+layout_mode = 0
+offset_left = 30.0
+offset_top = 634.0
+offset_right = 360.0
+offset_bottom = 824.0
+color = Color(0.0862745, 0.0627451, 0.0392157, 0.5)
+
+[node name="CommandPanelArt" type="TextureRect" parent="JournalStage"]
+layout_mode = 0
+offset_left = 22.0
+offset_top = 626.0
+offset_right = 368.0
+offset_bottom = 833.0
+texture = ExtResource("9_command_panel")
+expand_mode = 1
+
+[node name="QrActionTexture" type="TextureRect" parent="JournalStage" unique_id=1455070698]
+layout_mode = 0
+offset_left = 50.2
+offset_top = 668.6
+offset_right = 137.5
+offset_bottom = 727.5
+texture = ExtResource("10_btn_qr")
+expand_mode = 1
+
+[node name="QrActionIcon" type="Label" parent="JournalStage"]
+visible = false
+layout_mode = 0
+offset_left = 63.0
+offset_top = 653.0
+offset_right = 103.0
+offset_bottom = 678.0
+theme_override_colors/font_color = Color(0.94902, 0.756863, 0.384314, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 20
+text = "⌗"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="QrActionTitle" type="Label" parent="JournalStage" unique_id=1750797824]
+layout_mode = 0
+offset_left = 50.2
+offset_top = 701.5
+offset_right = 137.5
+offset_bottom = 724.5
+theme_override_colors/font_color = Color(0.968627, 0.909804, 0.788235, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 11
+text = "Скан QR"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="QrActionMeta" type="Label" parent="JournalStage" unique_id=352517031]
+visible = false
+layout_mode = 0
+offset_left = 49.0
+offset_top = 699.0
+offset_right = 125.0
+offset_bottom = 713.0
+theme_override_colors/font_color = Color(0.929412, 0.827451, 0.619608, 1)
+theme_override_font_sizes/font_size = 8
+text = "PvE offline"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="OrdersActionTexture" type="TextureRect" parent="JournalStage" unique_id=286361358]
+layout_mode = 0
+offset_left = 148.0
+offset_top = 667.4
+offset_right = 241.5
+offset_bottom = 726.9
+texture = ExtResource("11_btn_orders")
+expand_mode = 1
+
+[node name="OrdersActionIcon" type="Label" parent="JournalStage"]
+visible = false
+layout_mode = 0
+offset_left = 175.0
+offset_top = 653.0
+offset_right = 215.0
+offset_bottom = 678.0
+theme_override_colors/font_color = Color(0.94902, 0.756863, 0.384314, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 19
+text = "☰"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="OrdersActionTitle" type="Label" parent="JournalStage" unique_id=889784346]
+layout_mode = 0
+offset_left = 148.0
+offset_top = 701.0
+offset_right = 241.5
+offset_bottom = 724.0
+theme_override_colors/font_color = Color(0.968627, 0.909804, 0.788235, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 11
+text = "Заказ"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="OrdersActionMeta" type="Label" parent="JournalStage" unique_id=431672598]
+visible = false
+layout_mode = 0
+offset_left = 157.0
+offset_top = 699.0
+offset_right = 233.0
+offset_bottom = 713.0
+theme_override_colors/font_color = Color(0.929412, 0.827451, 0.619608, 1)
+theme_override_font_sizes/font_size = 8
+text = "след открыт"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TradeActionTexture" type="TextureRect" parent="JournalStage" unique_id=298873170]
+layout_mode = 0
+offset_left = 252.3
+offset_top = 669.1
+offset_right = 339.3
+offset_bottom = 727.2
+texture = ExtResource("12_btn_trade")
+expand_mode = 1
+
+[node name="TradeActionIcon" type="Label" parent="JournalStage"]
+visible = false
+layout_mode = 0
+offset_left = 287.0
+offset_top = 653.0
+offset_right = 327.0
+offset_bottom = 678.0
+theme_override_colors/font_color = Color(0.94902, 0.756863, 0.384314, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 18
+text = "⇄"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TradeActionTitle" type="Label" parent="JournalStage" unique_id=551147462]
+layout_mode = 0
+offset_left = 252.3
+offset_top = 701.5
+offset_right = 339.3
+offset_bottom = 724.5
+theme_override_colors/font_color = Color(0.968627, 0.909804, 0.788235, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 11
+text = "Обмен"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TradeActionMeta" type="Label" parent="JournalStage" unique_id=562943430]
+visible = false
+layout_mode = 0
+offset_left = 265.0
+offset_top = 699.0
+offset_right = 341.0
+offset_bottom = 713.0
+theme_override_colors/font_color = Color(0.929412, 0.827451, 0.619608, 1)
+theme_override_font_sizes/font_size = 8
+text = "1 ответ"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="JournalTabTexture" type="TextureRect" parent="JournalStage" unique_id=2065067842]
+visible = false
+layout_mode = 0
+offset_left = 10.0
+offset_top = 779.0
+offset_right = 78.0
+offset_bottom = 832.0
+texture = ExtResource("6_nav")
+expand_mode = 1
+
+[node name="PvpTabTexture" type="TextureRect" parent="JournalStage" unique_id=1374531172]
+layout_mode = 0
+offset_left = 199.8
+offset_top = 737.2
+offset_right = 266.1
+offset_bottom = 788.6
+texture = ExtResource("15_btn_pvp")
+expand_mode = 1
+
+[node name="BagTabTexture" type="TextureRect" parent="JournalStage" unique_id=746849965]
+layout_mode = 0
+offset_left = 46.3
+offset_top = 737.2
+offset_right = 115.5
+offset_bottom = 788.6
+texture = ExtResource("13_btn_bag")
+expand_mode = 1
+
+[node name="GwentTabTexture" type="TextureRect" parent="JournalStage" unique_id=2095819945]
+layout_mode = 0
+offset_left = 123.3
+offset_top = 736.9
+offset_right = 190.1
+offset_bottom = 788.4
+texture = ExtResource("14_btn_gwent")
+expand_mode = 1
+
+[node name="MoreTabTexture" type="TextureRect" parent="JournalStage" unique_id=1494021622]
+layout_mode = 0
+offset_left = 276.1
+offset_top = 737.2
+offset_right = 342.0
+offset_bottom = 788.6
+texture = ExtResource("16_btn_sync")
+expand_mode = 1
+
+[node name="PvpTabIcon" type="Label" parent="JournalStage"]
+visible = false
+layout_mode = 0
+offset_left = 207.0
+offset_top = 753.0
+offset_right = 271.0
+offset_bottom = 777.0
+theme_override_colors/font_color = Color(0.94902, 0.756863, 0.384314, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "⚔"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="BagTabIcon" type="Label" parent="JournalStage"]
+visible = false
+layout_mode = 0
+offset_left = 43.0
+offset_top = 753.0
+offset_right = 107.0
+offset_bottom = 777.0
+theme_override_colors/font_color = Color(0.94902, 0.756863, 0.384314, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "▣"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="GwentTabIcon" type="Label" parent="JournalStage"]
+visible = false
+layout_mode = 0
+offset_left = 125.0
+offset_top = 753.0
+offset_right = 189.0
+offset_bottom = 777.0
+theme_override_colors/font_color = Color(0.94902, 0.756863, 0.384314, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "♠"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="MoreTabIcon" type="Label" parent="JournalStage"]
+visible = false
+layout_mode = 0
+offset_left = 289.0
+offset_top = 753.0
+offset_right = 353.0
+offset_bottom = 777.0
+theme_override_colors/font_color = Color(0.94902, 0.756863, 0.384314, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "↻"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="JournalTabLabel" type="Label" parent="JournalStage" unique_id=1430112824]
+visible = false
+layout_mode = 0
+offset_left = 13.0
+offset_top = 806.0
+offset_right = 75.0
+offset_bottom = 824.0
+theme_override_colors/font_color = Color(0.94902, 0.87451, 0.678431, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 8
+text = "Журнал"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="PvpTabLabel" type="Label" parent="JournalStage" unique_id=2107043705]
+layout_mode = 0
+offset_left = 199.8
+offset_top = 768.5
+offset_right = 266.1
+offset_bottom = 787.5
+theme_override_colors/font_color = Color(0.94902, 0.87451, 0.678431, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 9
+text = "PVP"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="BagTabLabel" type="Label" parent="JournalStage" unique_id=778120768]
+layout_mode = 0
+offset_left = 46.3
+offset_top = 768.5
+offset_right = 115.5
+offset_bottom = 787.5
+theme_override_colors/font_color = Color(0.94902, 0.87451, 0.678431, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 9
+text = "Сумка"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="GwentTabLabel" type="Label" parent="JournalStage" unique_id=1731924204]
+layout_mode = 0
+offset_left = 123.3
+offset_top = 768.5
+offset_right = 190.1
+offset_bottom = 787.5
+theme_override_colors/font_color = Color(0.94902, 0.87451, 0.678431, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 9
+text = "Гвинт"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="MoreTabLabel" type="Label" parent="JournalStage" unique_id=1845196289]
+layout_mode = 0
+offset_left = 276.1
+offset_top = 768.5
+offset_right = 342.0
+offset_bottom = 787.5
+theme_override_colors/font_color = Color(0.94902, 0.87451, 0.678431, 1)
+theme_override_colors/font_shadow_color = Color(0.0235294, 0.0156863, 0.00784314, 0.95)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 9
+text = "Связь"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ActButton" type="Button" parent="JournalStage" unique_id=1111797471]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 52.0
+offset_right = 94.0
+offset_bottom = 86.0
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="SyncButton" type="Button" parent="JournalStage" unique_id=2019248705]
+layout_mode = 0
+offset_left = 304.0
+offset_top = 52.0
+offset_right = 372.0
+offset_bottom = 86.0
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="CharacterButton" type="Button" parent="JournalStage" unique_id=632829203]
+layout_mode = 0
+offset_left = 29.0
+offset_top = 141.0
+offset_right = 361.0
+offset_bottom = 334.0
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="OrderButton" type="Button" parent="JournalStage" unique_id=190889333]
+layout_mode = 0
+offset_left = 29.0
+offset_top = 350.0
+offset_right = 361.0
+offset_bottom = 483.0
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="GoalButton" type="Button" parent="JournalStage" unique_id=773037499]
+layout_mode = 0
+offset_left = 29.0
+offset_top = 503.0
+offset_right = 361.0
+offset_bottom = 623.0
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="QrActionButton" type="Button" parent="JournalStage" unique_id=569446861]
+layout_mode = 0
+offset_left = 50.2
+offset_top = 668.6
+offset_right = 137.5
+offset_bottom = 727.5
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="OrdersActionButton" type="Button" parent="JournalStage" unique_id=1908861902]
+layout_mode = 0
+offset_left = 148.0
+offset_top = 667.4
+offset_right = 241.5
+offset_bottom = 726.9
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="TradeActionButton" type="Button" parent="JournalStage" unique_id=2108226517]
+layout_mode = 0
+offset_left = 252.3
+offset_top = 669.1
+offset_right = 339.3
+offset_bottom = 727.2
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="JournalTabButton" type="Button" parent="JournalStage" unique_id=1296839983]
+visible = false
+layout_mode = 0
+offset_left = 10.0
+offset_top = 779.0
+offset_right = 78.0
+offset_bottom = 832.0
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="PvpTabButton" type="Button" parent="JournalStage" unique_id=1691289001]
+layout_mode = 0
+offset_left = 199.8
+offset_top = 737.2
+offset_right = 266.1
+offset_bottom = 788.6
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="BagTabButton" type="Button" parent="JournalStage" unique_id=947268782]
+layout_mode = 0
+offset_left = 46.3
+offset_top = 737.2
+offset_right = 115.5
+offset_bottom = 788.6
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="GwentTabButton" type="Button" parent="JournalStage" unique_id=1027036133]
+layout_mode = 0
+offset_left = 123.3
+offset_top = 736.9
+offset_right = 190.1
+offset_bottom = 788.4
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="MoreTabButton" type="Button" parent="JournalStage" unique_id=854621229]
+layout_mode = 0
+offset_left = 276.1
+offset_top = 737.2
+offset_right = 342.0
+offset_bottom = 788.6
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_transparent")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_transparent")
+
+[node name="JournalSheet" type="Control" parent="JournalStage" unique_id=1829230421]
+visible = false
+anchors_preset = 0
+offset_left = 28.0
+offset_top = 514.0
+offset_right = 362.0
+offset_bottom = 710.0
+
+[node name="SheetArt" type="TextureRect" parent="JournalStage/JournalSheet" unique_id=370852232]
+layout_mode = 0
+offset_right = 334.0
+offset_bottom = 196.0
+texture = ExtResource("3_parchment")
+expand_mode = 1
+
+[node name="SheetEyebrow" type="Label" parent="JournalStage/JournalSheet" unique_id=1095268163]
+layout_mode = 0
+offset_left = 30.0
+offset_top = 40.0
+offset_right = 220.0
+offset_bottom = 57.0
+theme_override_colors/font_color = Color(0.482353, 0.227451, 0.133333, 1)
+theme_override_font_sizes/font_size = 10
+text = "персонаж"
+
+[node name="SheetTitle" type="Label" parent="JournalStage/JournalSheet" unique_id=941200252]
+layout_mode = 0
+offset_left = 30.0
+offset_top = 59.0
+offset_right = 275.0
+offset_bottom = 90.0
+theme_override_colors/font_color = Color(0.156863, 0.0784314, 0.0235294, 1)
+theme_override_font_sizes/font_size = 22
+text = "Карточка ведьмака"
+
+[node name="SheetBody" type="Label" parent="JournalStage/JournalSheet" unique_id=437180528]
+layout_mode = 0
+offset_left = 30.0
+offset_top = 95.0
+offset_right = 298.0
+offset_bottom = 147.0
+theme_override_colors/font_color = Color(0.27451, 0.188235, 0.105882, 1)
+theme_override_font_sizes/font_size = 12
+text = "Уровень, опыт, золото, репутация, травмы и известные сюжетные метки."
+autowrap_mode = 3
+
+[node name="SheetCloseButton" type="Button" parent="JournalStage/JournalSheet" unique_id=1860484649]
+layout_mode = 0
+offset_left = 30.0
+offset_top = 148.0
+offset_right = 146.0
+offset_bottom = 182.0
+theme_override_font_sizes/font_size = 11
+text = "Вернуться"

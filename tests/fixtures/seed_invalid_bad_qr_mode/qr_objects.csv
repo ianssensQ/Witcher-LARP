@@ -1,0 +1,2 @@
+qr_id,manual_code,scenario_id,qr_mode,act_id,location_node_id,physical_presence_required,rate_limit,consumption_rule
+qr_bad_mode,QR-BAD-MODE,scn_a1_001,secret_scene,act1,node_forest_dark,true,5_per_minute,repeatable

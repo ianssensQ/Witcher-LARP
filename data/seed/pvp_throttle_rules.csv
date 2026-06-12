@@ -1,0 +1,4 @@
+rule_id,mode,max_tables,max_started_per_player_per_act,final_lock_behavior
+throttle_normal,normal,2,2,no_new_challenges_after_final_lock
+throttle_limited,limited,1,1,no_new_challenges_after_final_lock
+throttle_paused,paused,0,0,no_new_challenges_after_final_lock

@@ -1,0 +1,2 @@
+summary_id,final_act_id,tournament_mode,winner_policy,includes_missing_locks,includes_pending_disputes,includes_npc_prices,includes_locked_magical_intent,export_snapshot_required,automatic_winner_calculation
+final_summary_seed,final_act,npc_led_tournament,masters_decide_from_evidence,true,true,true,true,true,false

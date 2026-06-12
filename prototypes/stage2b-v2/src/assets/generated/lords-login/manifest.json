@@ -1,0 +1,14 @@
+{
+  "screen": "lords-login",
+  "generatedAt": "2026-06-05T11:49:16.064Z",
+  "sourceEnv": "C:\\ianssens\\projects\\AI_OS-1\\.env",
+  "assets": [
+    {
+      "id": "input-frame",
+      "provider": "recraft",
+      "file": "input-frame.png",
+      "skipped": false
+    }
+  ],
+  "notes": "Runtime React should position these as image layers; CSS should not paint the metal, chains, logo, or button surfaces."
+}

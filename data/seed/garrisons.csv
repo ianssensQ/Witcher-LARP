@@ -1,0 +1,5 @@
+garrison_id,territory_id,domain_id,card_id,count,status
+garrison_north_home,territory_res_north,domain_north,unit_guard_t1,1,active
+garrison_river_home,territory_res_river,domain_river,unit_guard_t1,1,active
+garrison_forest_home,territory_res_forest,domain_forest,unit_guard_t1,1,active
+garrison_hill_home,territory_res_hill,domain_hill,unit_guard_t1,1,active

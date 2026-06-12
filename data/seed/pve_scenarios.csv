@@ -1,0 +1,41 @@
+scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome
+scn_a1_001,act1,1,monster_hunt,Сила,11,single_d20,mob_neutral_patrol_t1,reward_pve_t1,Tracks secured,Trail goes cold,fail_and_cooldown
+scn_a1_002,act1,1,investigation,Разум,10,single_d20,mob_neutral_patrol_t1,reward_pve_t1,Clue logged,False lead,fail_and_cooldown
+scn_a1_003,act1,1,moral_choice,Харизма,11,single_d20,mob_neutral_patrol_t1,reward_pve_t1,Witness persuaded,Witness refuses,fail_and_cooldown
+scn_a1_004,act1,1,puzzle_check,Разум,12,single_d20,mob_neutral_patrol_t1,reward_pve_t1,Rune solved,Rune remains sealed,fail_and_cooldown
+scn_a1_005,act1,1,sorceress_hook,Воля,12,single_d20,mob_neutral_mage_t2,reward_pve_t2,Signal stabilized,Signal distorts,fail_and_cooldown
+scn_a1_006,act1,1,order_object,Сила,12,single_d20,mob_neutral_patrol_t1,reward_order_success,Order proof taken,Order delayed,fail_and_cooldown
+scn_a1_007,act1,1,artifact,Разум,12,single_d20,mob_neutral_guard_t2,reward_artifact_pending,Shard recovered,Shard locked,fail_and_cooldown
+scn_a1_008,act1,1,lord_hook,Харизма,11,single_d20,mob_neutral_patrol_t1,reward_lord_income_t1,Tax list found,Tax list lost,fail_and_cooldown
+scn_a1_009,act1,1,monster_hunt,Сила,12,single_d20,mob_neutral_patrol_t1,reward_pve_t1,Nest marked,Nest scatters,fail_and_cooldown
+scn_a1_010,act1,1,investigation,Разум,11,single_d20,mob_neutral_patrol_t1,reward_pve_t1,Ledger copied,Ink ruined,fail_and_cooldown
+scn_a1_011,act1,1,order_object,Харизма,12,single_d20,mob_neutral_guard_t2,reward_order_success,Seal verified,Seal disputed,fail_and_cooldown
+scn_a1_012,act1,1,sorceress_hook,Воля,12,single_d20,mob_neutral_mage_t2,reward_pve_t2,Ward mapped,Ward backlash,fail_and_cooldown
+scn_a2_013,act2,2,monster_hunt,Сила,14,single_d20,mob_neutral_guard_t2,reward_pve_t2,Fang secured,Fang breaks,fail_and_cooldown
+scn_a2_014,act2,2,investigation,Разум,13,single_d20,mob_neutral_guard_t2,reward_pve_t2,Spy trail found,Spy escapes,fail_and_cooldown
+scn_a2_015,act2,2,moral_choice,Харизма,14,single_d20,mob_neutral_guard_t2,reward_pve_t2,Oath witnessed,Oath contested,fail_and_cooldown
+scn_a2_016,act2,2,puzzle_check,Разум,15,single_d20,mob_neutral_mage_t2,reward_pve_t2,Mechanism opened,Mechanism jams,fail_and_cooldown
+scn_a2_017,act2,2,sorceress_hook,Воля,15,single_d20,mob_neutral_mage_t2,reward_pve_t2,Mirror answers,Mirror lies,fail_and_cooldown
+scn_a2_018,act2,2,order_object,Сила,14,single_d20,mob_neutral_guard_t2,reward_order_success,Contraband seized,Contraband hidden,fail_and_cooldown
+scn_a2_019,act2,2,artifact,Разум,15,single_d20,mob_neutral_guard_t2,reward_artifact_pending,Relic named,Relic resists,fail_and_cooldown
+scn_a2_020,act2,2,lord_hook,Харизма,13,single_d20,mob_neutral_guard_t2,reward_lord_income_t1,Border pledge won,Border pledge withheld,fail_and_cooldown
+scn_a2_021,act2,2,monster_hunt,Сила,15,single_d20,mob_neutral_beast_t3,reward_pve_t3,Beast routed,Beast wounds hunter,fail_and_cooldown
+scn_a2_022,act2,2,investigation,Разум,14,single_d20,mob_neutral_guard_t2,reward_pve_t2,Map annotated,Map misread,fail_and_cooldown
+scn_a2_023,act2,2,npc_deal,Харизма,15,single_d20,mob_neutral_guard_t2,reward_final_evidence,Price understood,Price hidden,fail_and_cooldown
+scn_a2_024,act2,2,sorceress_hook,Воля,15,single_d20,mob_neutral_mage_t2,reward_pve_t2,Ritual clue anchored,Ritual clue fades,fail_and_cooldown
+scn_a2_025,act2,2,artifact,Разум,15,single_d20,mob_neutral_guard_t2,reward_artifact_pending,Key fragment found,Key fragment lost,fail_and_cooldown
+scn_a2_026,act2,2,order_object,Сила,14,single_d20,mob_neutral_guard_t2,reward_order_success,Order object secured,Order object contested,fail_and_cooldown
+scn_a3_027,act3,3,monster_hunt,Сила,17,single_d20,mob_neutral_beast_t3,reward_pve_t3,Trophy claimed,Trophy escapes,fail_and_cooldown
+scn_a3_028,act3,3,investigation,Разум,16,single_d20,mob_neutral_beast_t3,reward_pve_t3,Conspiracy exposed,Conspiracy deepens,fail_and_cooldown
+scn_a3_029,act3,3,moral_choice,Харизма,17,single_d20,mob_neutral_beast_t3,reward_pve_t3,Hostages saved,Hostages scattered,fail_and_cooldown
+scn_a3_030,act3,3,puzzle_check,Разум,18,single_d20,mob_neutral_mage_t2,reward_pve_t3,Seal aligned,Seal overloads,fail_and_cooldown
+scn_a3_031,act3,3,sorceress_hook,Воля,18,single_d20,mob_neutral_mage_t2,reward_pve_t3,Intent locked,Intent frays,fail_and_cooldown
+scn_a3_032,act3,3,order_object,Сила,17,single_d20,mob_neutral_beast_t3,reward_order_success,Final order proof taken,Final order disputed,fail_and_cooldown
+scn_a3_033,act3,3,artifact,Разум,18,single_d20,mob_neutral_beast_t3,reward_artifact_pending,Artifact awakened,Artifact dormant,fail_and_cooldown
+scn_a3_034,act3,3,lord_hook,Харизма,16,single_d20,mob_neutral_guard_t2,reward_lord_income_t1,Coalition signal sent,Coalition signal blocked,fail_and_cooldown
+scn_a3_035,act3,3,monster_hunt,Сила,18,single_d20,mob_neutral_beast_t3,reward_pve_t3,Alpha driven off,Alpha enraged,fail_and_cooldown
+scn_a3_036,act3,3,investigation,Разум,17,single_d20,mob_neutral_beast_t3,reward_pve_t3,Final witness found,Final witness flees,fail_and_cooldown
+scn_a3_037,act3,3,npc_deal,Харизма,18,single_d20,mob_final_shadow_t4,reward_final_evidence,Debt named,Debt concealed,fail_and_cooldown
+scn_a3_038,act3,3,sorceress_hook,Воля,18,single_d20,mob_neutral_mage_t2,reward_pve_t3,Ritual path chosen,Ritual path fractures,fail_and_cooldown
+scn_a3_039,act3,3,artifact,Разум,18,single_d20,mob_final_shadow_t4,reward_pve_t4,Legendary proof secured,Legendary proof demands review,fail_and_cooldown
+scn_a3_040,act3,3,order_object,Сила,17,single_d20,mob_neutral_beast_t3,reward_order_success,Last writ enforced,Last writ delayed,fail_and_cooldown

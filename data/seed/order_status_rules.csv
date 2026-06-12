@@ -1,0 +1,15 @@
+status_id,is_active,locks_object,counts_against_cap,next_statuses
+draft,false,false,false,published;cancelled_by_lord
+published,true,false,true,accepted;expired;cancelled_by_lord
+addressed_pending,true,false,true,accepted;expired;cancelled_by_lord
+accepted,true,true,true,in_progress;failed_retryable;cancelled_by_lord
+in_progress,true,true,true,claimed_at_prop;submitted_pending_sync;failed_retryable
+claimed_at_prop,true,true,true,submitted_pending_sync;pending_master_approval
+submitted_pending_sync,true,true,true,pending_master_approval;failed_retryable
+pending_master_approval,true,true,true,completed;failed_retryable;failed_closed;contested_review
+completed,false,false,false,
+failed_retryable,true,false,true,published
+failed_closed,false,false,false,
+cancelled_by_lord,false,false,false,
+expired,false,false,false,
+contested_review,true,true,true,completed;failed_closed

@@ -1,0 +1,4 @@
+token_rule_id,act_id,tokens_per_player,start_window_min
+challenge_act1,act1,3,30
+challenge_act2,act2,3,30
+challenge_act3,act3,3,30

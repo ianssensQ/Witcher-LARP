@@ -1,0 +1,5 @@
+procedure_id,final_act_window,start_offset_min,end_offset_min,station_count,master_role
+final_act_load_plan,7:30-9:30,450,570,3,npc_master_pair
+final_station_lord,7:30-9:30,460,520,1,npc_king
+final_station_witcher,7:30-9:30,480,540,1,npc_wanderer
+final_station_sorceress,7:30-9:30,500,560,1,npc_master_pair

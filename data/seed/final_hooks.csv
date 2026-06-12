@@ -1,0 +1,14 @@
+final_hook_id,role_category,evidence_category,summary_text
+hook_lord_border,lord,territory,Lord border claim evidence for final summary.
+hook_lord_route,lord,economy,Lord route control evidence for final summary.
+hook_lord_coalition,lord,diplomacy,Coalition or conspiracy signal for master review.
+hook_lord_defense,lord,battle,Contested defense result for final summary.
+hook_sorc_intent,sorceress,locked_magical_intent,Locked magical intent evidence.
+hook_sorc_potion,sorceress,potion_economy,Potion bargain evidence.
+hook_sorc_favorite,sorceress,favorite,Favorites lifecycle evidence.
+hook_sorc_alignment,sorceress,alignment,Sorceress alignment evidence.
+hook_witcher_contract,witcher,pve_contract,Monster contract final evidence.
+hook_witcher_gwent,witcher,pvp_gwent,Gwent stake evidence.
+hook_witcher_order,witcher,order,Order proof evidence.
+hook_witcher_npc,witcher,npc_price,NPC hidden price evidence.
+hook_witcher_final,witcher,final_scene,Optional witcher final scene evidence.

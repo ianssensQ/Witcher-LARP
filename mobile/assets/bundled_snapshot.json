@@ -1,0 +1,27 @@
+{
+  "snapshot_version": "seed-dev-2026-05-30",
+  "generated_at": "2026-05-30T00:00:00+03:00",
+  "profile": {
+    "total_people": 15,
+    "playable_roles": 13,
+    "npc_masters": 2,
+    "lords": 4,
+    "sorceresses": 4,
+    "witchers": 5
+  },
+  "content_summary": {
+    "acts": 4,
+    "reputation_range": [-5, 5],
+    "source": "data/seed",
+    "purpose": "Public non-playable dev fixture for connection/offline UI smoke. Player identity and secrets come only from server-scoped auth."
+  },
+  "player": null,
+  "players": [],
+  "visibility": {
+    "scope": "mobile_public_artifact",
+    "players": "server_scoped_only",
+    "secret_tables": "server_only",
+    "player_codes": "server_only",
+    "role_tokens": "server_only"
+  }
+}

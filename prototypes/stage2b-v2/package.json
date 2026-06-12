@@ -1,0 +1,38 @@
+{
+  "name": "witcher-larp-stage2b-v2",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc && vite build",
+    "assets:lords-login": "node scripts/generate-lords-login-assets.mjs",
+    "assets:lord-building-icons": "node scripts/generate-lord-building-icons.mjs",
+    "assets:lord-building-icon:postprocess": "node scripts/postprocess-lord-building-icon.mjs",
+    "assets:lords-login:panel-variants": "node scripts/build-lords-login-panel-variants.mjs",
+    "assets:lords-login:training-button": "node scripts/edit-lords-login-button.mjs",
+    "assets:lords-login:redesign": "node scripts/generate-lords-login-redesign-openrouter.mjs",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.542.0",
+    "motion": "^12.40.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.21",
+    "pngjs": "^7.0.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.18",
+    "typescript": "^5.7.3",
+    "vite": "^5.3.4"
+  }
+}

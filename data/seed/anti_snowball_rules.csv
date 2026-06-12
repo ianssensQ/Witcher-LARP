@@ -1,0 +1,3 @@
+rule_id,army_power_ratio_threshold,income_cut_percent,notes
+anti_snowball_soft,130,30,Applied when domain army power is at least 130 percent of average.
+anti_snowball_hard,170,50,Applied when domain army power is at least 170 percent of average.

@@ -1,0 +1,2 @@
+fixture_id,fixture_type,base_path,override_files,expected_result
+seed_invalid_reward_approval,invalid_overlay,../../../data/seed,rewards.csv,reward_approval_policy

@@ -1,0 +1,4 @@
+signal_id,trigger_type,visible_to,effect,notes
+signal_leader_power,army_power_ratio,masters_and_lords,coalition_prompt,Leader pressure visible without automatic alliance.
+signal_order_pressure,active_order_count,masters,review_order_pressure,Watch cap 2 public plus 1 addressed.
+signal_betrayal_hint,sorceress_alignment,masters,final_evidence_prompt,Alignment is evidence not forced outcome.

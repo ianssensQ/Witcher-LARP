@@ -1,0 +1,23 @@
+name: WitcherLARP
+options:
+  bundleIdPrefix: local.witcherlarp
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+targets:
+  WitcherLARP:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: WitcherLARP
+    resources:
+      - path: Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.witcherlarp.app
+        INFOPLIST_FILE: Resources/Info.plist
+        PRODUCT_NAME: WitcherLARP

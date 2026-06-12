@@ -1,0 +1,2 @@
+rule_id,deck_min_unit_cards,max_special_cards,hand_size,mulligans,row_count,tie_handling
+gwent_default,22,10,10,2,3,tie_no_stake_transfer

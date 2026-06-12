@@ -1,0 +1,5 @@
+announcement_id,act_id,required_signal,operator_role
+ann_act1,act1,voice_or_bell,npc_master
+ann_act2,act2,voice_or_bell,npc_master
+ann_act3,act3,voice_or_bell,npc_master
+ann_final,final_act,voice_or_bell,npc_master

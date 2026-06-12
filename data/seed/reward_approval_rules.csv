@@ -1,0 +1,5 @@
+rule_id,reward_type,default_status,locks_assets
+approval_auto_common,common_reward,approved,false
+approval_cascade_offline,cascade_prone_offline,pending_master_approval,true
+approval_corrected,corrected_reward,corrected,true
+approval_rejected,rejected_reward,rejected,true

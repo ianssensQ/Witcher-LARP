@@ -1,0 +1,2 @@
+rule_id,mp_cap,refill_interval_min,refill_amount
+movement_default,6,30,3

@@ -1,0 +1,2 @@
+fixture_id,fixture_type,base_path,override_files,expected_result
+seed_invalid_gwent_deck,invalid_overlay,../../../data/seed,gwent_decks.csv,gwent_deck_invalid
