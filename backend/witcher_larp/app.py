@@ -39,7 +39,9 @@ from .npc_service import list_npc_deals, list_npc_events, record_npc_event
 from .npc_service import resolve_npc_event, review_queue
 from .pvp_service import ChallengeCreateInput, ChallengeStartInput, PvpError
 from .pvp_service import convert_personal_card_to_lord, create_pvp_challenge
-from .pvp_service import finish_gwent_match, get_pvp_tables, record_gwent_round
+from .pvp_service import GwentActionInput, GwentBotMatchInput, GwentDeckSaveInput, GwentPreparationInput
+from .pvp_service import finish_gwent_match, get_player_pvp_state, get_pvp_tables
+from .pvp_service import prepare_gwent_challenge, record_gwent_action, record_gwent_round, save_gwent_runtime_deck, start_gwent_bot_match
 from .pvp_service import record_pvp_refusal, set_pvp_throttle_mode, start_pvp_challenge
 from .qr_runtime import QrLookupRequest, has_qr_content, lookup_qr_runtime
 from .qr_runtime import normalize_qr_code
@@ -79,6 +81,14 @@ ADMIN_STUDIO_INDEX = WEB_ROOT / "admin" / "index.html"
 LORD_FRONTEND_DIST = PROJECT_ROOT / "prototypes" / "stage2b-v2" / "dist"
 LORD_FRONTEND_INDEX = LORD_FRONTEND_DIST / "index.html"
 LORD_FRONTEND_ASSETS = LORD_FRONTEND_DIST / "assets"
+API_REVISION = "ios-gwent-pvp-v1"
+API_FEATURES = (
+    "ios_gwent_bot_match",
+    "ios_gwent_deckbuilder",
+    "ios_gwent_pvp_actions",
+    "ios_gwent_preflight",
+    "ios_gwent_scoiatael_first_turn",
+)
 
 
 class QrLookupPayload(BaseModel):
@@ -369,7 +379,16 @@ class PvpChallengePayload(BaseModel):
 class PvpStartPayload(BaseModel):
     master_approval: bool = False
     mulligans_by_player: dict[str, list[str]] | None = None
+    deck_ids_by_player: dict[str, str] | None = None
+    preferred_starting_player_id: str | None = None
     source: str = "pvp_api"
+
+
+class GwentPreparationPayload(BaseModel):
+    mulligans: list[str] | None = None
+    deck_id: str | None = None
+    preferred_starting_player_id: str | None = None
+    source: str = "ios_gwent_app"
 
 
 class GwentRoundPayload(BaseModel):
@@ -378,6 +397,31 @@ class GwentRoundPayload(BaseModel):
     plays: list[dict[str, Any]] | None = None
     passed: dict[str, bool] | None = None
     source: str = "pvp_api"
+
+
+class GwentActionPayload(BaseModel):
+    action: str
+    round_number: int | None = None
+    card_id: str | None = None
+    row: str | None = None
+    target_card_id: str | None = None
+    revive_card_id: str | None = None
+    revive_row: str | None = None
+    action_id: str | None = None
+    source: str = "pvp_api"
+
+
+class GwentBotMatchPayload(BaseModel):
+    mulligans: list[str] | None = None
+    deck_id: str | None = None
+    source: str = "ios_gwent_app"
+
+
+class GwentDeckSavePayload(BaseModel):
+    deck_id: str | None = None
+    leader_card_id: str
+    card_ids: list[str]
+    source: str = "ios_gwent_app"
 
 
 class GwentFinishPayload(BaseModel):
@@ -489,6 +533,10 @@ def create_app(settings: Settings | None = None):
             "status": "ok",
             "service": runtime_settings.app_name,
             "database": healthcheck_database(runtime_settings).as_dict(),
+            "api": {
+                "revision": API_REVISION,
+                "features": list(API_FEATURES),
+            },
         }
 
     @api.get("/api/content/snapshot")
@@ -1807,6 +1855,29 @@ def create_app(settings: Settings | None = None):
             _reconcile_due_timers(connection, runtime_settings)
             return get_pvp_tables(connection)
 
+    @api.get("/api/pvp/player-state")
+    def pvp_player_state(
+        player_id: str | None = None,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        player_code: str | None = None,
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            auth = _require_actor_context(
+                connection,
+                player_code=x_player_code or player_code,
+                role_token=x_role_token or role_token,
+            )
+            effective_player_id = player_id if auth["is_master"] and player_id else auth["player_id"]
+            if not effective_player_id:
+                raise HTTPException(status_code=400, detail="player_id is required.")
+            _reconcile_due_timers(connection, runtime_settings)
+            try:
+                return get_player_pvp_state(connection, str(effective_player_id))
+            except PvpError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @api.post("/api/pvp/challenges/{challenge_id}/start")
     def pvp_start_challenge(
         challenge_id: str,
@@ -1833,6 +1904,103 @@ def create_app(settings: Settings | None = None):
                         challenge_id=challenge_id,
                         master_approval=payload.master_approval,
                         mulligans_by_player=payload.mulligans_by_player,
+                        deck_ids_by_player=payload.deck_ids_by_player,
+                        preferred_starting_player_id=payload.preferred_starting_player_id,
+                        source=payload.source,
+                    ),
+                )
+            except PvpError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @api.post("/api/pvp/challenges/{challenge_id}/ready")
+    def pvp_prepare_challenge(
+        challenge_id: str,
+        payload: GwentPreparationPayload,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        player_code: str | None = None,
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            auth = _require_actor_context(
+                connection,
+                player_code=x_player_code or player_code,
+                role_token=x_role_token or role_token,
+            )
+            _require_pvp_challenge_participant(connection, challenge_id, auth)
+            if auth["is_master"] or not auth["player_id"]:
+                raise HTTPException(status_code=400, detail="Player code is required for Gwent preparation.")
+            _reconcile_due_timers(connection, runtime_settings)
+            try:
+                return prepare_gwent_challenge(
+                    connection,
+                    GwentPreparationInput(
+                        challenge_id=challenge_id,
+                        player_id=str(auth["player_id"]),
+                        mulligans=payload.mulligans,
+                        deck_id=payload.deck_id,
+                        preferred_starting_player_id=payload.preferred_starting_player_id,
+                        source=payload.source,
+                    ),
+                )
+            except PvpError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @api.post("/api/pvp/bot-match")
+    def pvp_start_bot_match(
+        payload: GwentBotMatchPayload,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        player_code: str | None = None,
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            auth = _require_actor_context(
+                connection,
+                player_code=x_player_code or player_code,
+                role_token=x_role_token or role_token,
+            )
+            if auth["is_master"] or not auth["player_id"]:
+                raise HTTPException(status_code=400, detail="Player code is required for bot Gwent match.")
+            _reconcile_due_timers(connection, runtime_settings)
+            try:
+                return start_gwent_bot_match(
+                    connection,
+                    GwentBotMatchInput(
+                        player_id=str(auth["player_id"]),
+                        mulligans=payload.mulligans,
+                        deck_id=payload.deck_id,
+                        source=payload.source,
+                    ),
+                )
+            except PvpError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @api.post("/api/pvp/decks")
+    def pvp_save_gwent_deck(
+        payload: GwentDeckSavePayload,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        player_code: str | None = None,
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            auth = _require_actor_context(
+                connection,
+                player_code=x_player_code or player_code,
+                role_token=x_role_token or role_token,
+            )
+            if auth["is_master"] or not auth["player_id"]:
+                raise HTTPException(status_code=400, detail="Player code is required for Gwent deck save.")
+            _reconcile_due_timers(connection, runtime_settings)
+            try:
+                return save_gwent_runtime_deck(
+                    connection,
+                    GwentDeckSaveInput(
+                        player_id=str(auth["player_id"]),
+                        deck_id=payload.deck_id,
+                        leader_card_id=payload.leader_card_id,
+                        card_ids=payload.card_ids,
                         source=payload.source,
                     ),
                 )
@@ -1860,6 +2028,17 @@ def create_app(settings: Settings | None = None):
                 role_token=x_role_token or role_token,
             )
             _require_gwent_match_participant(connection, match_id, auth)
+            match_exists = connection.execute(
+                "SELECT 1 FROM gwent_runtime_matches WHERE match_id = ?",
+                (match_id,),
+            ).fetchone()
+            if match_exists is None:
+                raise HTTPException(status_code=400, detail=f"Unknown Gwent match: {match_id}")
+            if not auth["is_master"] and payload.source not in {"paper_recovered", "legacy_fallback"}:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Legacy round submission is reserved for master or paper fallback; use /actions for gameplay.",
+                )
             _assert_round_payload_actor_scope(round_state, auth)
             _reconcile_due_timers(connection, runtime_settings)
             try:
@@ -1871,6 +2050,46 @@ def create_app(settings: Settings | None = None):
                     actor_id=None if auth["is_master"] else auth["player_id"],
                     master_override=auth["is_master"],
                     source=payload.source,
+                )
+            except PvpError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @api.post("/api/pvp/matches/{match_id}/actions")
+    def pvp_record_action(
+        match_id: str,
+        payload: GwentActionPayload,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        player_code: str | None = None,
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            auth = _require_actor_context(
+                connection,
+                player_code=x_player_code or player_code,
+                role_token=x_role_token or role_token,
+            )
+            _require_gwent_match_participant(connection, match_id, auth)
+            actor_id = auth["player_id"]
+            if not actor_id:
+                raise HTTPException(status_code=400, detail="player_id is required for Gwent action.")
+            _reconcile_due_timers(connection, runtime_settings)
+            try:
+                return record_gwent_action(
+                    connection,
+                    GwentActionInput(
+                        match_id=match_id,
+                        player_id=str(actor_id),
+                        action=payload.action,
+                        round_number=payload.round_number,
+                        card_id=payload.card_id,
+                        row=payload.row,
+                        target_card_id=payload.target_card_id,
+                        revive_card_id=payload.revive_card_id,
+                        revive_row=payload.revive_row,
+                        action_id=payload.action_id,
+                        source=payload.source,
+                    ),
                 )
             except PvpError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc

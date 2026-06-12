@@ -12,6 +12,7 @@ from backend.witcher_larp.database import connect
 from backend.witcher_larp.event_models import EventSyncEvent, EventSyncRequest
 from backend.witcher_larp.event_service import sync_events
 from backend.witcher_larp.import_service import import_seed_pack
+from backend.witcher_larp.lord_runtime import buy_building, order_action
 from backend.witcher_larp.pve_runtime import (
     PveSideEffectConflictError,
     apply_pve_completion_side_effects,
@@ -281,6 +282,162 @@ class EventSyncIntegrityTests(unittest.TestCase):
             "pve event was created before act unlock was authoritative",
         )
         self.assertEqual(attempt_count, 0)
+
+    def test_order_submission_event_sync_moves_order_to_master_approval(self) -> None:
+        settings = self._settings("order_submission_sync")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            bought = buy_building(
+                connection,
+                "p_lord_3",
+                building_id="b_notice_board",
+                source="test",
+            )
+            self.assertEqual(bought["status"], "purchased")
+            created = order_action(
+                connection,
+                "p_lord_3",
+                action="create",
+                order_id="sync_order_qr",
+                object_id="qr_a1_001",
+                target_player_id="p_witcher_1",
+                visibility="public",
+                escrow_reward_id="reward_order_success",
+                source="test",
+                actor_role="lord",
+            )
+            self.assertEqual(created["status"], "created")
+            accepted = order_action(
+                connection,
+                "p_lord_3",
+                action="accept",
+                order_id="sync_order_qr",
+                player_id="p_witcher_1",
+                source="test",
+                actor_role="player",
+            )
+            self.assertEqual(accepted["status"], "accepted")
+            pve_payload = resolve_pve_scene(
+                connection,
+                player_id="p_witcher_1",
+                qr_id="qr_a1_001",
+                roll=15,
+                now=datetime(2026, 6, 2, 10, 0, tzinfo=UTC),
+            )
+            response = self._sync_request(
+                connection,
+                actor_id="p_witcher_1",
+                actor_type="player",
+                events=[
+                    EventSyncEvent(
+                        event_id="evt_order_pve_proof",
+                        client_sequence=1,
+                        created_at="2026-06-02T10:00:00+00:00",
+                        event_type="pve_completed",
+                        payload=pve_payload,
+                    ),
+                    EventSyncEvent(
+                        event_id="evt_order_submission",
+                        client_sequence=2,
+                        created_at="2026-06-02T10:01:00+00:00",
+                        event_type="order_submission",
+                        payload={
+                            "player_id": "p_witcher_1",
+                            "order_id": "sync_order_qr",
+                            "result_event_id": "evt_order_pve_proof",
+                        },
+                    ),
+                ],
+            )
+            order = connection.execute(
+                """
+                SELECT status, submitted_by_player_id, result_event_id
+                FROM order_runtime_state
+                WHERE order_id = 'sync_order_qr'
+                """
+            ).fetchone()
+
+        self.assertEqual([result.status for result in response.results], ["accepted", "accepted"])
+        self.assertEqual(order["status"], "pending_master_approval")
+        self.assertEqual(order["submitted_by_player_id"], "p_witcher_1")
+        self.assertEqual(order["result_event_id"], "evt_order_pve_proof")
+
+    def test_order_submission_event_sync_reviews_qr_mismatch(self) -> None:
+        settings = self._settings("order_submission_qr_mismatch")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            buy_building(
+                connection,
+                "p_lord_3",
+                building_id="b_notice_board",
+                source="test",
+            )
+            order_action(
+                connection,
+                "p_lord_3",
+                action="create",
+                order_id="sync_order_qr_mismatch",
+                object_id="qr_a1_002",
+                target_player_id="p_witcher_1",
+                visibility="public",
+                escrow_reward_id="reward_order_success",
+                source="test",
+                actor_role="lord",
+            )
+            order_action(
+                connection,
+                "p_lord_3",
+                action="accept",
+                order_id="sync_order_qr_mismatch",
+                player_id="p_witcher_1",
+                source="test",
+                actor_role="player",
+            )
+            pve_payload = resolve_pve_scene(
+                connection,
+                player_id="p_witcher_1",
+                qr_id="qr_a1_001",
+                roll=15,
+                now=datetime(2026, 6, 2, 10, 0, tzinfo=UTC),
+            )
+            response = self._sync_request(
+                connection,
+                actor_id="p_witcher_1",
+                actor_type="player",
+                events=[
+                    EventSyncEvent(
+                        event_id="evt_order_mismatch_pve",
+                        client_sequence=1,
+                        created_at="2026-06-02T10:00:00+00:00",
+                        event_type="pve_completed",
+                        payload=pve_payload,
+                    ),
+                    EventSyncEvent(
+                        event_id="evt_order_mismatch_submission",
+                        client_sequence=2,
+                        created_at="2026-06-02T10:01:00+00:00",
+                        event_type="order_submission",
+                        payload={
+                            "player_id": "p_witcher_1",
+                            "order_id": "sync_order_qr_mismatch",
+                            "result_event_id": "evt_order_mismatch_pve",
+                        },
+                    ),
+                ],
+            )
+            order_status = connection.execute(
+                "SELECT status FROM order_runtime_state WHERE order_id = 'sync_order_qr_mismatch'"
+            ).fetchone()["status"]
+
+        self.assertEqual(response.results[0].status, "accepted")
+        self.assertEqual(response.results[1].status, "needs_master_review")
+        self.assertEqual(
+            response.results[1].reason,
+            "order proof qr_id does not match order object_id",
+        )
+        self.assertEqual(order_status, "accepted")
 
     def test_pve_completion_without_replayable_roll_log_needs_review(self) -> None:
         settings = self._settings("missing_roll")

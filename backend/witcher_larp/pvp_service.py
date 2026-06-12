@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import json
+import random
 import sqlite3
 from typing import Any
 from uuid import uuid4
@@ -25,6 +26,8 @@ FINAL_CHALLENGE_STATES = {"resolved", "cancelled", "rejected"}
 REFUNDABLE_PRE_START_REFUSALS = {"safety_stop", "unsafe_path", "force_majeure"}
 GOLD_STAKE_ASSET_TYPE = "gold"
 GOLD_STAKE_ASSET_ID = "gold"
+GWENT_BOT_PLAYER_ID = "p_gwent_bot_training"
+GWENT_BOT_DISPLAY_NAME = "Тренировочный соперник"
 GWENT_PENDING_ROUND_STATUS = "pending_player_submissions"
 GWENT_ROUND_REVIEW_STATUS = "needs_master_review"
 INCOMPLETE_ROUND_REVIEW_REASON = "incomplete_round_requires_master_review"
@@ -41,6 +44,75 @@ REVIEW_SEVERITY_BY_REASON = {
     "unsafe_path": "P1",
     "force_majeure": "P1",
 }
+
+
+def _row_get(row: sqlite3.Row | dict[str, Any], key: str, default: Any = "") -> Any:
+    try:
+        if hasattr(row, "keys") and key not in row.keys():
+            return default
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return default if value is None else value
+
+
+def _card_effects(card: sqlite3.Row | dict[str, Any]) -> list[str]:
+    primary = str(_row_get(card, "effect", "none") or "none").strip()
+    tags = [
+        tag
+        for tag in _split_ids(str(_row_get(card, "ability_tags", "") or ""))
+        if tag and tag != primary
+    ]
+    effects = [effect for effect in [primary, *tags] if effect]
+    if not effects:
+        return ["none"]
+    return effects
+
+
+def _card_has_effect(card: sqlite3.Row | dict[str, Any], effect: str) -> bool:
+    return effect in _card_effects(card)
+
+
+def _unit_effects(unit: dict[str, Any]) -> list[str]:
+    effects = unit.get("effects")
+    if isinstance(effects, list) and effects:
+        return [str(effect) for effect in effects]
+    return [str(unit.get("effect") or "none")]
+
+
+def _unit_has_effect(unit: dict[str, Any], effect: str) -> bool:
+    return effect in _unit_effects(unit)
+
+
+def _card_group(card: sqlite3.Row | dict[str, Any], column: str, fallback: str) -> str:
+    value = str(_row_get(card, column, "") or "").strip()
+    return value or fallback
+
+
+def _unit_group(unit: dict[str, Any], column: str, fallback: str) -> str:
+    value = str(unit.get(column) or "").strip()
+    return value or fallback
+
+
+def _gwent_shuffle_seed(challenge_id: str, player_id: str, deck_id: str) -> str:
+    return f"{challenge_id}:{player_id}:{deck_id}:witcher3-gwent-v2"
+
+
+def _shuffle_card_ids(card_ids: list[str], seed: str) -> list[str]:
+    shuffled = list(card_ids)
+    random.Random(seed).shuffle(shuffled)
+    return shuffled
+
+
+def _gwent_shuffle_audit(deck_state: dict[str, Any], players: list[str]) -> dict[str, Any]:
+    return {
+        player_id: {
+            "deck_id": deck_state.get(player_id, {}).get("deck_id"),
+            "shuffle_seed": deck_state.get(player_id, {}).get("shuffle_seed"),
+            "shuffle_log": deck_state.get(player_id, {}).get("shuffle_log") or {},
+        }
+        for player_id in players
+    }
 
 
 class PvpError(ValueError):
@@ -63,7 +135,51 @@ class ChallengeStartInput:
     challenge_id: str
     master_approval: bool = False
     mulligans_by_player: dict[str, list[str]] | None = None
+    deck_ids_by_player: dict[str, str] | None = None
+    preferred_starting_player_id: str | None = None
     source: str = "pvp_api"
+
+
+@dataclass(frozen=True)
+class GwentPreparationInput:
+    challenge_id: str
+    player_id: str
+    mulligans: list[str] | None = None
+    deck_id: str | None = None
+    preferred_starting_player_id: str | None = None
+    source: str = "ios_gwent_app"
+
+
+@dataclass(frozen=True)
+class GwentActionInput:
+    match_id: str
+    player_id: str
+    action: str
+    round_number: int | None = None
+    card_id: str | None = None
+    row: str | None = None
+    target_card_id: str | None = None
+    revive_card_id: str | None = None
+    revive_row: str | None = None
+    action_id: str | None = None
+    source: str = "pvp_api"
+
+
+@dataclass(frozen=True)
+class GwentBotMatchInput:
+    player_id: str
+    mulligans: list[str] | None = None
+    deck_id: str | None = None
+    source: str = "ios_gwent_app"
+
+
+@dataclass(frozen=True)
+class GwentDeckSaveInput:
+    player_id: str
+    leader_card_id: str
+    card_ids: list[str]
+    deck_id: str | None = None
+    source: str = "ios_gwent_app"
 
 
 def ensure_pvp_runtime_state(connection: sqlite3.Connection) -> None:
@@ -213,6 +329,455 @@ def get_pvp_tables(connection: sqlite3.Connection) -> dict[str, Any]:
         ).fetchall()
     ]
     return {"throttle": throttle, "tables": tables, "queued_challenges": queued}
+
+
+def get_player_pvp_state(connection: sqlite3.Connection, player_id: str) -> dict[str, Any]:
+    """Return the participant-scoped active Gwent state for a mobile client."""
+    ensure_pvp_runtime_state(connection)
+    normalized_player_id = str(player_id).strip()
+    if not normalized_player_id:
+        raise PvpError("player_id is required for PvP state.")
+
+    active_challenge = _active_challenge_for_player(connection, normalized_player_id)
+    active_match = _active_match_for_player(connection, normalized_player_id)
+    if active_match is None and active_challenge is not None:
+        active_match = _match_by_challenge(connection, str(active_challenge["challenge_id"]))
+    recent_match = (
+        None
+        if active_match is not None
+        else _recent_finished_match_for_player(connection, normalized_player_id)
+    )
+    runtime_row = connection.execute(
+        """
+        SELECT role_type, challenge_tokens
+        FROM player_runtime_state
+        WHERE player_id = ?
+        """,
+        (normalized_player_id,),
+    ).fetchone()
+    challenge_tokens = _to_int(runtime_row["challenge_tokens"]) if runtime_row is not None else 0
+
+    match_payload = _match_payload(connection, active_match)
+    current_round = _current_round_payload(connection, active_match, normalized_player_id)
+    recent_match_payload = _player_scoped_match_payload(
+        _match_payload(connection, recent_match),
+        normalized_player_id,
+        None,
+    )
+    player_deck_state = {}
+    opponent_id = None
+    table = None
+    if match_payload is not None:
+        players = [str(match_payload["challenger_id"]), str(match_payload["target_id"])]
+        opponent_id = next((candidate for candidate in players if candidate != normalized_player_id), None)
+        deck_state = match_payload.get("deck_state") if isinstance(match_payload, dict) else {}
+        if isinstance(deck_state, dict):
+            player_deck_state = dict(deck_state.get(normalized_player_id) or {})
+        active_hand = (
+            current_round.get("player_hand")
+            if isinstance(current_round, dict) and isinstance(current_round.get("player_hand"), list)
+            else None
+        )
+        if active_hand is not None:
+            player_deck_state["hand"] = list(active_hand)
+        table = _pvp_table_state(connection, str(match_payload.get("table_id") or ""))
+        match_payload = _player_scoped_match_payload(match_payload, normalized_player_id, current_round)
+    elif recent_match_payload is not None:
+        players = [str(recent_match_payload["challenger_id"]), str(recent_match_payload["target_id"])]
+        opponent_id = next((candidate for candidate in players if candidate != normalized_player_id), None)
+        table = _pvp_table_state(connection, str(recent_match_payload.get("table_id") or ""))
+    elif active_challenge is not None:
+        opponent_id = (
+            str(active_challenge["target_id"])
+            if str(active_challenge["challenger_id"]) == normalized_player_id
+            else str(active_challenge["challenger_id"])
+        )
+        table = _pvp_table_state(connection, str(active_challenge["table_id"] or ""))
+
+    return {
+        "player_id": normalized_player_id,
+        "opponent_id": opponent_id,
+        "role_type": str(runtime_row["role_type"]) if runtime_row is not None else None,
+        "challenge_tokens": challenge_tokens,
+        "can_create_challenge": bool(challenge_tokens > 0 and active_challenge is None and active_match is None),
+        "active_challenge": _challenge_payload(connection, active_challenge) if active_challenge else None,
+        "active_match": match_payload,
+        "recent_match": recent_match_payload,
+        "current_round": current_round,
+        "player_deck_state": player_deck_state,
+        "player_hand": list(player_deck_state.get("hand") or []),
+        "leader_used": bool(player_deck_state.get("leader_used")),
+        "table": table,
+        "legal_actions": _player_gwent_legal_actions(
+            connection,
+            active_challenge,
+            match_payload,
+            current_round,
+            player_deck_state,
+            normalized_player_id,
+        ),
+    }
+
+
+def _active_challenge_for_player(connection: sqlite3.Connection, player_id: str) -> sqlite3.Row | None:
+    placeholders = ", ".join("?" for _ in ACTIVE_CHALLENGE_STATES)
+    return connection.execute(
+        f"""
+        SELECT *
+        FROM pvp_challenges
+        WHERE (challenger_id = ? OR target_id = ?)
+          AND status IN ({placeholders})
+        ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC
+        LIMIT 1
+        """,
+        (player_id, player_id, *sorted(ACTIVE_CHALLENGE_STATES)),
+    ).fetchone()
+
+
+def _active_match_for_player(connection: sqlite3.Connection, player_id: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT *
+        FROM gwent_runtime_matches
+        WHERE (challenger_id = ? OR target_id = ?)
+          AND status != 'finished'
+        ORDER BY COALESCE(started_at, created_at) DESC, created_at DESC
+        LIMIT 1
+        """,
+        (player_id, player_id),
+    ).fetchone()
+
+
+def _recent_finished_match_for_player(connection: sqlite3.Connection, player_id: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT *
+        FROM gwent_runtime_matches
+        WHERE (challenger_id = ? OR target_id = ?)
+          AND status = 'finished'
+        ORDER BY COALESCE(finished_at, started_at, created_at) DESC, created_at DESC
+        LIMIT 1
+        """,
+        (player_id, player_id),
+    ).fetchone()
+
+
+def _current_round_payload(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row | None,
+    player_id: str,
+) -> dict[str, Any] | None:
+    if match is None:
+        return None
+    row = connection.execute(
+        """
+        SELECT *
+        FROM gwent_rounds
+        WHERE match_id = ?
+        ORDER BY round_number DESC
+        LIMIT 1
+        """,
+        (match["match_id"],),
+    ).fetchone()
+    if row is not None and (_is_pending_round_row(row) or bool(row["review_required"])):
+        payload = _round_row_to_dict(row) or {}
+        round_state = payload.get("round_state") if isinstance(payload, dict) else {}
+        if not isinstance(round_state, dict):
+            round_state = {}
+        ready_players = [str(player) for player in round_state.get("ready_players") or []]
+        missing_players = [str(player) for player in round_state.get("missing_players") or []]
+        status = str(round_state.get("status") or GWENT_ROUND_REVIEW_STATUS)
+        payload.update(
+            {
+                "status": status,
+                "ready_players": ready_players,
+                "missing_players": missing_players,
+                "player_submitted": player_id in ready_players,
+            }
+        )
+        return payload
+    deck_state = _json_loads(str(match["deck_state_json"]), {})
+    active_round_payload = _active_round_player_payload(connection, match, deck_state, player_id)
+    if active_round_payload is not None:
+        return active_round_payload
+    if row is None:
+        return {
+            "round_number": _next_round_number(connection, str(match["match_id"])),
+            "status": "ready_for_submission",
+            "ready_players": [],
+            "missing_players": [str(match["challenger_id"]), str(match["target_id"])],
+            "player_submitted": False,
+        }
+    payload = _round_row_to_dict(row) or {}
+    round_state = payload.get("round_state") if isinstance(payload, dict) else {}
+    if not isinstance(round_state, dict):
+        round_state = {}
+    ready_players = [str(player) for player in round_state.get("ready_players") or []]
+    missing_players = [str(player) for player in round_state.get("missing_players") or []]
+    status = str(round_state.get("status") or ("pending_player_submissions" if _is_pending_round_row(row) else "resolved"))
+    payload.update(
+        {
+            "status": status,
+            "ready_players": ready_players,
+            "missing_players": missing_players,
+            "player_submitted": player_id in ready_players,
+        }
+    )
+    return payload
+
+
+def _pvp_table_state(connection: sqlite3.Connection, table_id: str) -> dict[str, Any] | None:
+    if not table_id:
+        return None
+    row = connection.execute(
+        """
+        SELECT table_id, status, zone_name, current_challenge_id, current_match_id
+        FROM pvp_table_runtime
+        WHERE table_id = ?
+        """,
+        (table_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "table_id": row["table_id"],
+        "status": row["status"],
+        "zone_name": row["zone_name"],
+        "current_challenge_id": row["current_challenge_id"],
+        "current_match_id": row["current_match_id"],
+    }
+
+
+def _player_scoped_match_payload(
+    match: dict[str, Any] | None,
+    player_id: str,
+    current_round: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if match is None:
+        return None
+    scoped = deepcopy(match)
+    deck_state = scoped.get("deck_state")
+    if not isinstance(deck_state, dict):
+        return scoped
+    for deck_player_id, raw_state in list(deck_state.items()):
+        if deck_player_id in {"rules", "cards_burn_after_round", "active_round", "action_ids", "bot"}:
+            continue
+        if not isinstance(raw_state, dict):
+            continue
+        state = dict(raw_state)
+        hand = list(state.get("hand") or [])
+        draw_pile = list(state.get("draw_pile") or [])
+        state["hand_count"] = len(hand)
+        state["draw_pile_count"] = len(draw_pile)
+        if deck_player_id != player_id:
+            state["hand"] = []
+            state["draw_pile"] = []
+        deck_state[deck_player_id] = state
+    active_round = deck_state.get("active_round")
+    if isinstance(active_round, dict):
+        deck_state["active_round"] = _public_active_round(active_round)
+    if isinstance(current_round, dict) and isinstance(current_round.get("player_hand"), list):
+        own_state = deck_state.get(player_id)
+        if isinstance(own_state, dict):
+            own_state["hand"] = list(current_round["player_hand"])
+            own_state["hand_count"] = len(current_round["player_hand"])
+    return scoped
+
+
+def _public_active_round(active_round: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: deepcopy(value)
+        for key, value in active_round.items()
+        if key not in {"base_deck_state", "action_ids"}
+    }
+
+
+def _player_playable_card_actions(
+    connection: sqlite3.Connection,
+    player_deck_state: dict[str, Any],
+    current_round: dict[str, Any],
+    player_id: str,
+) -> list[dict[str, Any]]:
+    hand = list(current_round.get("player_hand") or player_deck_state.get("hand") or [])
+    if not hand:
+        return []
+    cards = _cards_by_id(connection)
+    actions = []
+    for card_id in hand:
+        card = cards.get(str(card_id))
+        if card is None:
+            continue
+        card_type = str(card["type"])
+        effects = _card_effects(card)
+        effect = effects[0]
+        action: dict[str, Any] = {
+            "action": "play_card",
+            "card_id": str(card_id),
+            "type": card_type,
+            "effect": effect,
+            "allowed_rows": _allowed_rows_for_card(card),
+            "requires_row": False,
+            "requires_target": False,
+            "target_kind": None,
+            "targets": [],
+        }
+        if card_type == "special" and any(item in effects for item in {"commanders_horn", "custom_larp_order_banner"}):
+            action["requires_row"] = True
+            action["allowed_rows"] = list(GWENT_ROWS)
+        elif card_type == "special" and "decoy" in effects:
+            targets = _decoy_targets(current_round, player_id)
+            action["requires_target"] = True
+            action["target_kind"] = "own_non_hero_unit"
+            action["targets"] = targets
+        elif card_type == "unit" and "medic" in effects:
+            targets = _medic_targets(player_deck_state, cards)
+            action["target_kind"] = "graveyard_unit"
+            action["targets"] = targets
+        actions.append(action)
+    return actions
+
+
+def _allowed_rows_for_card(card: sqlite3.Row) -> list[str]:
+    card_type = str(card["type"])
+    effects = _card_effects(card)
+    card_row = str(card["row"] or "")
+    if card_type == "leader":
+        return list(GWENT_ROWS)
+    if card_type == "special":
+        if any(effect in effects for effect in {"commanders_horn", "custom_larp_order_banner"}):
+            return list(GWENT_ROWS)
+        return []
+    if "agile" in effects:
+        return ["melee", "ranged"]
+    if card_row in GWENT_ROWS:
+        return [card_row]
+    return ["melee"]
+
+
+def _decoy_targets(current_round: dict[str, Any], player_id: str) -> list[dict[str, Any]]:
+    board = current_round.get("board") if isinstance(current_round, dict) else {}
+    if not isinstance(board, dict):
+        return []
+    player_board = board.get(player_id)
+    if not isinstance(player_board, dict):
+        return []
+    targets = []
+    for row_name in GWENT_ROWS:
+        units = player_board.get(row_name) or []
+        if not isinstance(units, list):
+            continue
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            if unit.get("removed") or _unit_has_effect(unit, "hero"):
+                continue
+            targets.append(
+                {
+                    "card_id": unit.get("card_id"),
+                    "row": row_name,
+                    "strength": unit.get("base_strength"),
+                    "effect": unit.get("effect"),
+                }
+            )
+    return targets
+
+
+def _medic_targets(
+    player_deck_state: dict[str, Any],
+    cards: dict[str, sqlite3.Row],
+) -> list[dict[str, Any]]:
+    targets = []
+    for card_id in player_deck_state.get("graveyard") or []:
+        card = cards.get(str(card_id))
+        if card is None or str(card["type"]) != "unit" or _card_has_effect(card, "hero"):
+            continue
+        targets.append(
+            {
+                "card_id": str(card_id),
+                "row": str(card["row"]),
+                "strength": _to_int(card["strength"]),
+                "effect": str(card["effect"] or "none"),
+            }
+        )
+    return targets
+
+
+def _player_gwent_legal_actions(
+    connection: sqlite3.Connection,
+    challenge: sqlite3.Row | None,
+    match: dict[str, Any] | None,
+    current_round: dict[str, Any] | None,
+    player_deck_state: dict[str, Any],
+    player_id: str,
+) -> dict[str, Any]:
+    challenge_status = str(challenge["status"]) if challenge is not None else ""
+    match_status = str(match.get("status") or "") if isinstance(match, dict) else ""
+    round_status = str(current_round.get("status") or "") if isinstance(current_round, dict) else ""
+    player_submitted = bool(current_round.get("player_submitted")) if isinstance(current_round, dict) else False
+    round_number = int(current_round.get("round_number") or 1) if isinstance(current_round, dict) else 1
+    phase = str(current_round.get("phase") or "") if isinstance(current_round, dict) else ""
+    passed = current_round.get("passed") if isinstance(current_round, dict) else {}
+    if not isinstance(passed, dict):
+        passed = {}
+    is_player_turn = bool(current_round.get("is_player_turn")) if isinstance(current_round, dict) else False
+    already_passed = bool(passed.get(player_id))
+    if phase == "active_turn":
+        can_act = (
+            match is not None
+            and match_status == "active"
+            and is_player_turn
+            and not already_passed
+            and 1 <= round_number <= 3
+        )
+        playable_cards = _player_playable_card_actions(
+            connection,
+            player_deck_state,
+            current_round or {},
+            player_id,
+        )
+        return {
+            "can_start": False,
+            "can_refuse": False,
+            "can_play_card": can_act and bool(playable_cards),
+            "can_pass": can_act,
+            "can_use_leader": can_act and not bool(player_deck_state.get("leader_used")),
+            "can_finish": match_status == "awaiting_finish",
+            "round_number": round_number,
+            "actor_id": player_id,
+            "phase": phase,
+            "turn_player_id": current_round.get("turn_player_id"),
+            "is_player_turn": is_player_turn,
+            "passed": passed,
+            "playable_cards": playable_cards,
+            "leader_card_id": player_deck_state.get("leader_card_id"),
+        }
+    can_play_round = (
+        match is not None
+        and match_status == "active"
+        and round_status in {"ready_for_submission", GWENT_PENDING_ROUND_STATUS}
+        and not player_submitted
+        and 1 <= round_number <= 3
+    )
+    return {
+        "can_start": challenge_status in {"assigned", "queued", "deferred"},
+        "can_refuse": challenge_status in {"assigned", "queued", "deferred"},
+        "can_play_card": can_play_round,
+        "can_pass": can_play_round,
+        "can_finish": match_status == "awaiting_finish",
+        "round_number": round_number,
+        "actor_id": player_id,
+        "phase": "legacy_round_submission",
+        "turn_player_id": player_id if can_play_round else None,
+        "is_player_turn": can_play_round,
+        "playable_cards": _player_playable_card_actions(
+            connection,
+            player_deck_state,
+            current_round or {},
+            player_id,
+        )
+        if can_play_round
+        else [],
+    }
 
 
 def create_pvp_challenge(
@@ -408,17 +973,37 @@ def start_pvp_challenge(
             challenger_id,
             rules,
             (request.mulligans_by_player or {}).get(challenger_id, []),
+            deck_id=(request.deck_ids_by_player or {}).get(challenger_id),
+            challenge_id=request.challenge_id,
         ),
         target_id: _build_player_deck_state(
             connection,
             target_id,
             rules,
             (request.mulligans_by_player or {}).get(target_id, []),
+            deck_id=(request.deck_ids_by_player or {}).get(target_id),
+            challenge_id=request.challenge_id,
         ),
         "rules": rules,
         "cards_burn_after_round": False,
     }
+    starting_player_id, first_turn_effect = _resolve_first_turn_player(
+        players=[challenger_id, target_id],
+        deck_state=deck_state,
+        preferred_starting_player_id=request.preferred_starting_player_id,
+    )
+    if first_turn_effect:
+        deck_state.setdefault("faction_effects", []).append(first_turn_effect)
+    deck_state["active_round"] = _new_active_round(
+        match_id="",
+        players=[challenger_id, target_id],
+        deck_state=deck_state,
+        round_number=1,
+        starting_player_id=starting_player_id,
+        now=current_time,
+    )
     match_id = f"gwent_match_{uuid4().hex}"
+    deck_state["active_round"]["match_id"] = match_id
     round_losses = {challenger_id: 0, target_id: 0}
     table_id = str(challenge["table_id"] or "")
     connection.execute(
@@ -478,6 +1063,9 @@ def start_pvp_challenge(
             "challenge_id": request.challenge_id,
             "players": [challenger_id, target_id],
             "table_id": table_id,
+            "starting_player_id": starting_player_id,
+            "first_turn_effect": first_turn_effect,
+            "shuffle_audit": _gwent_shuffle_audit(deck_state, [challenger_id, target_id]),
             "started_at": _iso(current_time),
             "no_match_time_limit_after_start": True,
             "target_duration_min": 20,
@@ -491,6 +1079,674 @@ def start_pvp_challenge(
         "challenge": _challenge_payload(connection, _fetch_challenge_required(connection, request.challenge_id)),
         "match": _match_payload(connection, match),
     }
+
+
+def prepare_gwent_challenge(
+    connection: sqlite3.Connection,
+    request: GwentPreparationInput,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    ensure_pvp_runtime_state(connection)
+    current_time = now or datetime.now(UTC)
+    challenge = _fetch_challenge_required(connection, request.challenge_id)
+    if str(challenge["status"]) == "started":
+        match = _match_by_challenge(connection, request.challenge_id)
+        return {
+            "challenge": _challenge_payload(connection, challenge),
+            "match": _match_payload(connection, match),
+            "prep": _challenge_prep(challenge),
+            "started": match is not None,
+            "duplicate": True,
+        }
+    if str(challenge["status"]) in FINAL_CHALLENGE_STATES or str(challenge["status"]) == "needs_master_review":
+        return {
+            "challenge": _challenge_payload(connection, challenge),
+            "match": None,
+            "prep": _challenge_prep(challenge),
+            "started": False,
+            "duplicate": False,
+        }
+
+    player_id = str(request.player_id or "").strip()
+    players = [str(challenge["challenger_id"]), str(challenge["target_id"])]
+    if player_id not in players:
+        raise PvpError(f"Gwent preparation references a non-participant: {player_id}")
+    prep = _challenge_prep(challenge)
+    prep.setdefault("ready_players", [])
+    ready_players = [str(value) for value in prep.get("ready_players") or []]
+    previous_mulligans = prep.get("mulligans_by_player", {}).get(player_id)
+    previous_deck_id = ""
+    if isinstance(prep.get("deck_ids_by_player"), dict):
+        previous_deck_id = str(prep["deck_ids_by_player"].get(player_id) or "")
+    previous_starting_player_id = ""
+    if isinstance(prep.get("preferred_starting_player_ids_by_player"), dict):
+        previous_starting_player_id = str(prep["preferred_starting_player_ids_by_player"].get(player_id) or "")
+    if request.mulligans is None and player_id in ready_players and isinstance(previous_mulligans, list):
+        mulligans = [str(card_id).strip() for card_id in previous_mulligans if str(card_id).strip()]
+    else:
+        mulligans = [str(card_id).strip() for card_id in (request.mulligans or []) if str(card_id).strip()]
+    rules = _gwent_rules(connection)
+    deck_id = str(request.deck_id or "").strip()
+    effective_deck_id = deck_id or previous_deck_id
+    _validate_player_mulligans(
+        connection,
+        player_id,
+        rules,
+        mulligans,
+        deck_id=effective_deck_id or None,
+        challenge_id=request.challenge_id,
+    )
+    preferred_starting_player_id = _validated_preferred_starting_player_id(
+        connection,
+        player_id=player_id,
+        players=players,
+        deck_id=effective_deck_id or None,
+        requested_player_id=request.preferred_starting_player_id,
+        previous_player_id=previous_starting_player_id,
+        preserve_previous=(
+            request.preferred_starting_player_id is None
+            and player_id in ready_players
+            and (not deck_id or deck_id == previous_deck_id)
+        ),
+    )
+
+    duplicate = (
+        player_id in ready_players
+        and prep.get("mulligans_by_player", {}).get(player_id) == mulligans
+        and (not deck_id or previous_deck_id == deck_id)
+        and previous_starting_player_id == preferred_starting_player_id
+    )
+    if player_id not in ready_players:
+        ready_players.append(player_id)
+    prep["ready_players"] = ready_players
+    prep.setdefault("mulligans_by_player", {})[player_id] = mulligans
+    if deck_id:
+        prep.setdefault("deck_ids_by_player", {})[player_id] = deck_id
+    if preferred_starting_player_id:
+        prep.setdefault("preferred_starting_player_ids_by_player", {})[player_id] = preferred_starting_player_id
+    elif isinstance(prep.get("preferred_starting_player_ids_by_player"), dict):
+        prep["preferred_starting_player_ids_by_player"].pop(player_id, None)
+    prep.setdefault("updated_at_by_player", {})[player_id] = _iso(current_time)
+    prep["updated_at"] = _iso(current_time)
+    connection.execute(
+        """
+        UPDATE pvp_challenges
+        SET prep_json = ?,
+            updated_at = ?
+        WHERE challenge_id = ?
+        """,
+        (_json_dumps(prep), _iso(current_time), request.challenge_id),
+    )
+    log_event(
+        connection,
+        "gwent_player_prepared",
+        {
+            "challenge_id": request.challenge_id,
+            "player_id": player_id,
+            "ready_players": ready_players,
+            "missing_players": [candidate for candidate in players if candidate not in ready_players],
+            "mulligan_count": len(mulligans),
+            "deck_id": deck_id or None,
+            "preferred_starting_player_id": preferred_starting_player_id or None,
+        },
+        source=request.source,
+        created_at=current_time,
+    )
+
+    refreshed = _fetch_challenge_required(connection, request.challenge_id)
+    if all(player in ready_players for player in players):
+        started = start_pvp_challenge(
+            connection,
+            ChallengeStartInput(
+                challenge_id=request.challenge_id,
+                mulligans_by_player=prep.get("mulligans_by_player") or {},
+                deck_ids_by_player=prep.get("deck_ids_by_player") or {},
+                preferred_starting_player_id=_preferred_starting_player_from_prep(prep, players),
+                source=request.source,
+            ),
+            now=current_time,
+        )
+        return {
+            **started,
+            "prep": _challenge_prep(_fetch_challenge_required(connection, request.challenge_id)),
+            "started": started.get("match") is not None,
+            "duplicate": duplicate,
+        }
+
+    return {
+        "challenge": _challenge_payload(connection, refreshed),
+        "match": None,
+        "prep": _challenge_prep(refreshed),
+        "started": False,
+        "duplicate": duplicate,
+    }
+
+
+def start_gwent_bot_match(
+    connection: sqlite3.Connection,
+    request: GwentBotMatchInput,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    ensure_pvp_runtime_state(connection)
+    current_time = now or datetime.now(UTC)
+    player_id = str(request.player_id).strip()
+    if not player_id:
+        raise PvpError("player_id is required for bot Gwent match.")
+    _require_personal_pvp_player(connection, player_id)
+    if _active_challenge_exists(connection, player_id):
+        raise PvpError(f"Player already has an active PvP challenge: {player_id}")
+
+    challenge_id = f"gwent_bot_challenge_{uuid4().hex}"
+    match_id = f"gwent_bot_match_{uuid4().hex}"
+    rules = _gwent_rules(connection)
+    player_state = _build_player_deck_state(
+        connection,
+        player_id,
+        rules,
+        request.mulligans or [],
+        deck_id=request.deck_id,
+        challenge_id=challenge_id,
+    )
+    bot_state = _build_bot_deck_state(connection, player_id, rules, challenge_id=challenge_id)
+    act_id = _current_act_id(connection)
+    table_id = ""
+    deck_state = {
+        player_id: player_state,
+        GWENT_BOT_PLAYER_ID: bot_state,
+        "rules": rules,
+        "cards_burn_after_round": False,
+        "bot": {
+            "player_id": GWENT_BOT_PLAYER_ID,
+            "display_name": GWENT_BOT_DISPLAY_NAME,
+            "difficulty": "training",
+            "human_player_id": player_id,
+        },
+    }
+    deck_state["active_round"] = _new_active_round(
+        match_id=match_id,
+        players=[player_id, GWENT_BOT_PLAYER_ID],
+        deck_state=deck_state,
+        round_number=1,
+        starting_player_id=player_id,
+        now=current_time,
+    )
+    round_losses = {player_id: 0, GWENT_BOT_PLAYER_ID: 0}
+    connection.execute(
+        """
+        INSERT INTO pvp_challenges (
+            challenge_id, challenger_id, target_id, act_id, status, mandatory,
+            stake_json, table_id, assigned_zone, start_window_deadline,
+            master_approval, created_at, updated_at, started_at
+        )
+        VALUES (?, ?, ?, ?, 'started', 0, ?, NULL, 'ios_training_table', NULL, 1, ?, ?, ?)
+        """,
+        (
+            challenge_id,
+            player_id,
+            GWENT_BOT_PLAYER_ID,
+            act_id,
+            _json_dumps({"asset_type": "practice", "asset_id": "none", "quantity": 0}),
+            _iso(current_time),
+            _iso(current_time),
+            _iso(current_time),
+        ),
+    )
+    connection.execute(
+        """
+        INSERT INTO gwent_runtime_matches (
+            match_id, challenge_id, challenger_id, target_id, act_id, status,
+            table_id, deck_state_json, round_losses_json, created_at, started_at,
+            balance_report_json
+        )
+        VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            match_id,
+            challenge_id,
+            player_id,
+            GWENT_BOT_PLAYER_ID,
+            act_id,
+            table_id,
+            _json_dumps(deck_state),
+            _json_dumps(round_losses),
+            _iso(current_time),
+            _iso(current_time),
+            _json_dumps(
+                {
+                    "profile": "ios_training_bot_gwent",
+                    "challenge_id": challenge_id,
+                    "act_id": act_id,
+                    "started_at": _iso(current_time),
+                    "bot_player_id": GWENT_BOT_PLAYER_ID,
+                    "stake_transfer_status": "practice_no_stake",
+                }
+            ),
+        ),
+    )
+    log_event(
+        connection,
+        "gwent_bot_match_started",
+        {
+            "match_id": match_id,
+            "challenge_id": challenge_id,
+            "player_id": player_id,
+            "bot_player_id": GWENT_BOT_PLAYER_ID,
+            "started_at": _iso(current_time),
+        },
+        source=request.source,
+        created_at=current_time,
+    )
+    match = _fetch_match_required(connection, match_id)
+    current_round = _active_round_player_payload(connection, match, deck_state, player_id)
+    return {
+        "challenge": _challenge_payload(connection, _fetch_challenge_required(connection, challenge_id)),
+        "match": _player_scoped_match_payload(_match_payload(connection, match), player_id, current_round),
+        "current_round": current_round,
+        "bot": deck_state["bot"],
+    }
+
+
+def save_gwent_runtime_deck(
+    connection: sqlite3.Connection,
+    request: GwentDeckSaveInput,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    ensure_pvp_runtime_state(connection)
+    current_time = now or datetime.now(UTC)
+    player_id = str(request.player_id).strip()
+    if not player_id:
+        raise PvpError("player_id is required for Gwent deck save.")
+    _require_personal_pvp_player(connection, player_id)
+    cards = _cards_by_id(connection)
+    leader_id = str(request.leader_card_id).strip()
+    card_ids = [str(card_id).strip() for card_id in request.card_ids if str(card_id).strip()]
+    leader = cards.get(leader_id)
+    if leader is None or str(leader["type"]) != "leader":
+        raise PvpError(f"Gwent deck leader is invalid for player: {player_id}")
+    available = _player_available_gwent_card_ids(connection, player_id)
+    missing_owned = [card_id for card_id in [leader_id, *card_ids] if card_id not in available]
+    if missing_owned:
+        raise PvpError(f"Gwent deck uses cards not owned by {player_id}: {', '.join(missing_owned)}")
+    rules = _gwent_rules(connection)
+    _validate_deck_cards(player_id, card_ids, cards, rules)
+    deck_id = str(request.deck_id or "").strip() or f"runtime_deck_{player_id}_{uuid4().hex}"
+    connection.execute(
+        """
+        INSERT INTO gwent_deck_runtime (
+            deck_id, player_id, leader_card_id, card_ids, status, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, 'active', ?, ?)
+        ON CONFLICT(deck_id) DO UPDATE SET
+            leader_card_id = excluded.leader_card_id,
+            card_ids = excluded.card_ids,
+            status = 'active',
+            updated_at = excluded.updated_at
+        """,
+        (
+            deck_id,
+            player_id,
+            leader_id,
+            ";".join(card_ids),
+            _iso(current_time),
+            _iso(current_time),
+        ),
+    )
+    payload = {
+        "deck_id": deck_id,
+        "player_id": player_id,
+        "leader_card_id": leader_id,
+        "card_ids": card_ids,
+        "status": "active",
+        "updated_at": _iso(current_time),
+    }
+    log_event(connection, "gwent_runtime_deck_saved", payload, source=request.source, created_at=current_time)
+    return {"deck": payload}
+
+
+def record_gwent_action(
+    connection: sqlite3.Connection,
+    request: GwentActionInput,
+    *,
+    advance_bot: bool = True,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    ensure_pvp_runtime_state(connection)
+    current_time = now or datetime.now(UTC)
+    match = _fetch_match_required(connection, request.match_id)
+    if str(match["status"]) in {"finished", "needs_master_review", "awaiting_finish"}:
+        return {
+            "match": _match_payload(connection, match),
+            "current_round": None,
+            "duplicate": False,
+        }
+    if str(match["status"]) != "active":
+        raise PvpError(f"Gwent match is not active: {request.match_id}")
+
+    players = [str(match["challenger_id"]), str(match["target_id"])]
+    player_id = str(request.player_id).strip()
+    if player_id not in players:
+        raise PvpError(f"Gwent action references a non-participant: {player_id}")
+
+    deck_state = _json_loads(str(match["deck_state_json"]), {})
+    deck_state = _normalize_match_deck_state(deck_state, players)
+    action_id = str(request.action_id or "").strip()
+    if action_id:
+        action_ids = [str(value) for value in deck_state.get("action_ids") or []]
+        if action_id in action_ids:
+            return {
+                "match": _player_scoped_match_payload(
+                    _match_payload(connection, match),
+                    player_id,
+                    _active_round_player_payload(connection, match, deck_state, player_id),
+                ),
+                "current_round": _active_round_player_payload(connection, match, deck_state, player_id),
+                "duplicate": True,
+            }
+        deck_state["action_ids"] = action_ids
+
+    active_round = _ensure_active_round(match, deck_state, players, request.round_number, current_time)
+    round_number = int(active_round["round_number"])
+    if request.round_number is not None and int(request.round_number) != round_number:
+        raise PvpError(f"Gwent action round mismatch: active round is {round_number}.")
+    if bool(active_round.get("passed", {}).get(player_id)):
+        raise PvpError(f"Gwent player has already passed this round: {player_id}")
+    if str(active_round.get("turn_player_id") or "") != player_id:
+        raise PvpError(f"Gwent action is out of turn for player: {player_id}")
+
+    action = str(request.action or "").strip().lower()
+    if action == "pass":
+        active_round.setdefault("passed", {})[player_id] = True
+        active_round.setdefault("action_log", []).append(
+            {
+                "action": "pass",
+                "player_id": player_id,
+                "action_id": action_id,
+                "created_at": _iso(current_time),
+            }
+        )
+    elif action in {"play_card", "play", "use_leader"}:
+        play = _action_to_play(connection, request, player_id, deck_state, active_round)
+        active_round.setdefault("plays", []).append(play)
+        active_round.setdefault("action_log", []).append(
+            {
+                "action": "use_leader" if action == "use_leader" else "play_card",
+                "player_id": player_id,
+                "card_id": play["card_id"],
+                "row": play.get("row"),
+                "target_card_id": play.get("target_card_id"),
+                "revive_card_id": play.get("revive_card_id"),
+                "action_id": action_id,
+                "created_at": _iso(current_time),
+            }
+        )
+    else:
+        raise PvpError(f"Unsupported Gwent action: {request.action}")
+
+    preview = _preview_active_round(connection, match, deck_state)
+    if _active_round_finished(active_round, players):
+        base_deck_state = deepcopy(active_round["base_deck_state"])
+        base_deck_state["action_ids"] = deck_state.get("action_ids", [])
+        if "bot" in deck_state:
+            base_deck_state["bot"] = deck_state["bot"]
+        result = _store_resolved_gwent_round(
+            connection,
+            match,
+            round_number=round_number,
+            round_state=_round_state_for_active_round(active_round),
+            deck_state=base_deck_state,
+            source=request.source,
+            now=current_time,
+        )
+        if action_id:
+            stored = _fetch_match_required(connection, request.match_id)
+            stored_deck_state = _json_loads(str(stored["deck_state_json"]), {})
+            stored_action_ids = [str(value) for value in stored_deck_state.get("action_ids") or []]
+            if action_id not in stored_action_ids:
+                stored_action_ids.append(action_id)
+                stored_deck_state["action_ids"] = stored_action_ids
+                connection.execute(
+                    "UPDATE gwent_runtime_matches SET deck_state_json = ? WHERE match_id = ?",
+                    (_json_dumps(stored_deck_state), request.match_id),
+                )
+                result["match"] = _match_payload(connection, _fetch_match_required(connection, request.match_id))
+        if advance_bot:
+            _advance_gwent_bot_turns(connection, request.match_id, player_id, now=current_time)
+            refreshed = _fetch_match_required(connection, request.match_id)
+            refreshed_deck = _json_loads(str(refreshed["deck_state_json"]), {})
+            current_round = _current_round_payload(connection, refreshed, player_id)
+            return {
+                "match": _player_scoped_match_payload(_match_payload(connection, refreshed), player_id, current_round),
+                "round": result["round"],
+                "current_round": current_round,
+                "duplicate": result["duplicate"],
+                "action": action,
+                "action_id": action_id,
+            }
+        return {**result, "current_round": result["round"], "action": action, "action_id": action_id}
+
+    if action_id:
+        deck_state.setdefault("action_ids", []).append(action_id)
+    active_round["turn_player_id"] = _next_turn_player(players, player_id, active_round.get("passed") or {})
+    active_round["updated_at"] = _iso(current_time)
+    active_round["board"] = preview["round_state"]["board"]
+    active_round["weather_rows"] = preview["round_state"]["weather_rows"]
+    active_round["horn_rows"] = preview["round_state"]["horn_rows"]
+    active_round["row_scores"] = preview["row_scores"]
+    active_round["total_scores"] = preview["round_state"]["total_scores"]
+    active_round["effects_applied"] = preview["effects_applied"]
+    active_round["hands_after_round"] = preview["round_state"]["hands_after_round"]
+    active_round["graveyards_after_round"] = preview["round_state"]["graveyards_after_round"]
+    deck_state["active_round"] = active_round
+    connection.execute(
+        """
+        UPDATE gwent_runtime_matches
+        SET deck_state_json = ?
+        WHERE match_id = ?
+        """,
+        (_json_dumps(deck_state), request.match_id),
+    )
+    stored_match = _fetch_match_required(connection, request.match_id)
+    if advance_bot:
+        _advance_gwent_bot_turns(connection, request.match_id, player_id, now=current_time)
+        stored_match = _fetch_match_required(connection, request.match_id)
+        deck_state = _json_loads(str(stored_match["deck_state_json"]), {})
+    current_round = _active_round_player_payload(connection, stored_match, deck_state, player_id)
+    log_event(
+        connection,
+        "gwent_action_recorded",
+        {
+            "match_id": request.match_id,
+            "round_number": round_number,
+            "player_id": player_id,
+            "action": action,
+            "card_id": request.card_id,
+            "row": request.row,
+            "target_card_id": request.target_card_id,
+            "revive_card_id": request.revive_card_id,
+            "action_id": action_id,
+            "next_turn_player_id": active_round["turn_player_id"],
+        },
+        source=request.source,
+        created_at=current_time,
+    )
+    match_payload = _player_scoped_match_payload(_match_payload(connection, stored_match), player_id, current_round)
+    return {
+        "match": match_payload,
+        "current_round": current_round,
+        "round": current_round,
+        "duplicate": False,
+        "action": action,
+        "action_id": action_id,
+    }
+
+
+def _advance_gwent_bot_turns(
+    connection: sqlite3.Connection,
+    match_id: str,
+    human_player_id: str,
+    *,
+    now: datetime,
+) -> None:
+    for _ in range(40):
+        match = _fetch_match_required(connection, match_id)
+        if str(match["status"]) == "awaiting_finish":
+            _auto_finish_bot_match(connection, match, now=now)
+            return
+        if str(match["status"]) != "active":
+            return
+        deck_state = _json_loads(str(match["deck_state_json"]), {})
+        if not isinstance(deck_state, dict) or not isinstance(deck_state.get("bot"), dict):
+            return
+        bot_id = str(deck_state["bot"].get("player_id") or GWENT_BOT_PLAYER_ID)
+        players = [str(match["challenger_id"]), str(match["target_id"])]
+        if bot_id not in players:
+            return
+        current_round = _active_round_player_payload(connection, match, deck_state, bot_id)
+        if not isinstance(current_round, dict) or str(current_round.get("turn_player_id") or "") != bot_id:
+            return
+        bot_action = _choose_gwent_bot_action(connection, match, deck_state, current_round, bot_id, human_player_id)
+        try:
+            record_gwent_action(
+                connection,
+                bot_action,
+                advance_bot=False,
+                now=now,
+            )
+        except PvpError as exc:
+            recoverable = (
+                "not in current hand" in str(exc)
+                or "leader was already used" in str(exc)
+            )
+            if bot_action.action == "pass" or not recoverable:
+                raise
+            record_gwent_action(
+                connection,
+                GwentActionInput(
+                    match_id=match_id,
+                    player_id=bot_id,
+                    action="pass",
+                    round_number=int(current_round.get("round_number") or 1),
+                    action_id=f"bot-pass-fallback-{uuid4().hex}",
+                    source="gwent_bot",
+                ),
+                advance_bot=False,
+                now=now,
+            )
+
+
+def _auto_finish_bot_match(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    *,
+    now: datetime,
+) -> None:
+    deck_state = _json_loads(str(match["deck_state_json"]), {})
+    if not isinstance(deck_state, dict) or not isinstance(deck_state.get("bot"), dict):
+        return
+    winner_id = str(match["winner_id"] or "")
+    if not winner_id:
+        return
+    finish_gwent_match(
+        connection,
+        str(match["match_id"]),
+        winner_id=winner_id,
+        outcome="practice_bot",
+        source="gwent_bot",
+        now=now,
+    )
+
+
+def _choose_gwent_bot_action(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    deck_state: dict[str, Any],
+    current_round: dict[str, Any],
+    bot_id: str,
+    human_player_id: str,
+) -> GwentActionInput:
+    bot_state = deck_state.get(bot_id) if isinstance(deck_state, dict) else {}
+    if not isinstance(bot_state, dict):
+        bot_state = {}
+    passed = current_round.get("passed") if isinstance(current_round.get("passed"), dict) else {}
+    total_scores = current_round.get("total_scores") if isinstance(current_round.get("total_scores"), dict) else {}
+    bot_score = _to_int(total_scores.get(bot_id) if isinstance(total_scores, dict) else 0)
+    human_score = _to_int(total_scores.get(human_player_id) if isinstance(total_scores, dict) else 0)
+    bot_hand = list(current_round.get("player_hand") or bot_state.get("hand") or [])
+    should_pass = (
+        not bot_hand
+        or (bool(passed.get(human_player_id)) and bot_score > human_score)
+        or (len(bot_hand) <= 2 and bot_score >= human_score)
+    )
+    if should_pass:
+        return GwentActionInput(
+            match_id=str(match["match_id"]),
+            player_id=bot_id,
+            action="pass",
+            round_number=int(current_round.get("round_number") or 1),
+            action_id=f"bot-pass-{uuid4().hex}",
+            source="gwent_bot",
+        )
+
+    playable = _player_playable_card_actions(connection, bot_state, current_round, bot_id)
+    cards = _cards_by_id(connection)
+    candidates = []
+    for action in playable:
+        card_id = str(action.get("card_id") or "")
+        if not card_id:
+            continue
+        if bool(action.get("requires_target")) and not action.get("targets"):
+            continue
+        card = cards.get(card_id)
+        card_type = str(card["type"]) if card is not None else str(action.get("type") or "")
+        strength = _to_int(card["strength"]) if card is not None else 0
+        effect = str(action.get("effect") or (card["effect"] if card is not None else "none"))
+        priority = 0 if card_type == "unit" else 1
+        if effect in {"weather_melee", "weather_ranged", "weather_siege", "biting_frost", "impenetrable_fog", "torrential_rain"}:
+            priority = 3
+        candidates.append((priority, strength, action))
+    if candidates:
+        _, _, selected = sorted(candidates, key=lambda item: (item[0], item[1]))[0]
+        allowed_rows = [str(row) for row in selected.get("allowed_rows") or []]
+        target = None
+        if selected.get("targets"):
+            raw_target = selected["targets"][0]
+            if isinstance(raw_target, dict):
+                target = str(raw_target.get("card_id") or "") or None
+        return GwentActionInput(
+            match_id=str(match["match_id"]),
+            player_id=bot_id,
+            action="play_card",
+            round_number=int(current_round.get("round_number") or 1),
+            card_id=str(selected["card_id"]),
+            row=allowed_rows[0] if allowed_rows else None,
+            target_card_id=target if str(selected.get("target_kind") or "") == "own_non_hero_unit" else None,
+            revive_card_id=target if str(selected.get("target_kind") or "") == "graveyard_unit" else None,
+            action_id=f"bot-card-{uuid4().hex}",
+            source="gwent_bot",
+        )
+
+    if not bool(bot_state.get("leader_used")) and bot_state.get("leader_card_id"):
+        return GwentActionInput(
+            match_id=str(match["match_id"]),
+            player_id=bot_id,
+            action="use_leader",
+            round_number=int(current_round.get("round_number") or 1),
+            card_id=str(bot_state["leader_card_id"]),
+            row="melee",
+            action_id=f"bot-leader-{uuid4().hex}",
+            source="gwent_bot",
+        )
+    return GwentActionInput(
+        match_id=str(match["match_id"]),
+        player_id=bot_id,
+        action="pass",
+        round_number=int(current_round.get("round_number") or 1),
+        action_id=f"bot-pass-{uuid4().hex}",
+        source="gwent_bot",
+    )
 
 
 def record_gwent_round(
@@ -530,15 +1786,23 @@ def record_gwent_round(
 
     players = [str(match["challenger_id"]), str(match["target_id"])]
     deck_state = _json_loads(str(match["deck_state_json"]), {})
+    if isinstance(deck_state, dict):
+        deck_state.pop("active_round", None)
+    legacy_round_card_fallback = (
+        master_override
+        or source in {"paper_recovered", "legacy_fallback"}
+        or actor_id is None
+    )
+    if legacy_round_card_fallback:
+        round_state = dict(round_state)
+        round_state["_legacy_round_card_fallback"] = True
     incoming_submissions = _round_submissions_from_state(round_state, players, actor_id=actor_id)
     if not incoming_submissions:
         raise PvpError("Gwent round submission requires a play or pass flag.")
-    _validate_round_submission_state(
-        connection,
-        match,
-        _round_state_from_submissions(incoming_submissions, players),
-        deck_state,
-    )
+    validation_round_state = _round_state_from_submissions(incoming_submissions, players)
+    if legacy_round_card_fallback:
+        validation_round_state["_legacy_round_card_fallback"] = True
+    _validate_round_submission_state(connection, match, validation_round_state, deck_state)
 
     if existing is not None:
         return _merge_pending_gwent_round(
@@ -601,6 +1865,7 @@ def _store_resolved_gwent_round(
     losses = _json_loads(str(match["round_losses_json"]), {})
     challenger_id = str(match["challenger_id"])
     target_id = str(match["target_id"])
+    players = [challenger_id, target_id]
     losses.setdefault(challenger_id, 0)
     losses.setdefault(target_id, 0)
     winner_id = resolved["winner_id"]
@@ -623,6 +1888,27 @@ def _store_resolved_gwent_round(
     elif int(losses[target_id]) >= 2:
         match_status = "awaiting_finish"
         match_winner_id = challenger_id
+
+    if match_status == "active":
+        next_round_number = round_number + 1
+        next_starter = winner_id if winner_id in {challenger_id, target_id} else players[next_round_number % len(players)]
+        if next_round_number == 3:
+            _apply_skellige_round_three_restore(
+                resolved["deck_state"],
+                players,
+                _cards_by_id(connection),
+                resolved["effects_applied"],
+            )
+        resolved["deck_state"]["active_round"] = _new_active_round(
+            match_id=match_id,
+            players=players,
+            deck_state=resolved["deck_state"],
+            round_number=next_round_number,
+            starting_player_id=str(next_starter),
+            now=now,
+        )
+    else:
+        resolved["deck_state"].pop("active_round", None)
 
     if existing_round_id is None:
         connection.execute(
@@ -781,11 +2067,14 @@ def _merge_pending_gwent_round(
             now=now,
         )
 
+    resolved_round_state = _round_state_from_submissions(submissions, players, order=order)
+    if master_override or source in {"paper_recovered", "legacy_fallback"}:
+        resolved_round_state["_legacy_round_card_fallback"] = True
     return _store_resolved_gwent_round(
         connection,
         match,
         round_number=int(existing["round_number"]),
-        round_state=_round_state_from_submissions(submissions, players, order=order),
+        round_state=resolved_round_state,
         deck_state=deck_state,
         source=source,
         now=now,
@@ -1339,10 +2628,12 @@ def _build_player_deck_state(
     player_id: str,
     rules: dict[str, int | str],
     mulligans: list[str],
+    *,
+    deck_id: str | None = None,
+    challenge_id: str = "standalone",
+    shuffle_seed: str | None = None,
 ) -> dict[str, Any]:
-    if len(mulligans) > int(rules["mulligans"]):
-        raise PvpError("Gwent mulligan count exceeds the configured limit.")
-    deck = _deck_for_player(connection, player_id)
+    deck = _deck_for_player(connection, player_id, deck_id=deck_id)
     cards = _cards_by_id(connection)
     leader = cards.get(str(deck["leader_card_id"]))
     if leader is None or str(leader["type"]) != "leader":
@@ -1354,8 +2645,15 @@ def _build_player_deck_state(
     )
     card_ids = _split_ids(str(deck["card_ids"]))
     _validate_deck_cards(player_id, card_ids, cards, rules)
-    hand = card_ids[: int(rules["hand_size"])]
-    draw_pile = card_ids[int(rules["hand_size"]) :]
+    effective_shuffle_seed = shuffle_seed or _gwent_shuffle_seed(
+        challenge_id,
+        player_id,
+        str(deck["deck_id"]),
+    )
+    shuffled_card_ids = _shuffle_card_ids(card_ids, effective_shuffle_seed)
+    _validate_mulligans_for_hand(player_id, shuffled_card_ids, rules, mulligans)
+    hand = shuffled_card_ids[: int(rules["hand_size"])]
+    draw_pile = shuffled_card_ids[int(rules["hand_size"]) :]
     for card_id in mulligans:
         if card_id not in hand:
             raise PvpError(f"Mulligan card is not in opening hand: {card_id}")
@@ -1367,6 +2665,13 @@ def _build_player_deck_state(
     return {
         "deck_id": deck["deck_id"],
         "leader_card_id": deck["leader_card_id"],
+        "faction": str(leader["faction"] or "neutral"),
+        "shuffle_seed": effective_shuffle_seed,
+        "shuffle_log": {
+            "original_card_ids": card_ids,
+            "shuffled_card_ids": shuffled_card_ids,
+            "opening_hand": list(shuffled_card_ids[: int(rules["hand_size"])]),
+        },
         "draw_pile": draw_pile,
         "hand": hand,
         "mulligans": mulligans,
@@ -1376,6 +2681,391 @@ def _build_player_deck_state(
         "cards_burned": False,
         "leader_used": False,
     }
+
+
+def _validate_player_mulligans(
+    connection: sqlite3.Connection,
+    player_id: str,
+    rules: dict[str, int | str],
+    mulligans: list[str],
+    *,
+    deck_id: str | None = None,
+    challenge_id: str = "standalone",
+) -> None:
+    deck = _deck_for_player(connection, player_id, deck_id=deck_id)
+    cards = _cards_by_id(connection)
+    card_ids = _split_ids(str(deck["card_ids"]))
+    _validate_deck_cards(player_id, card_ids, cards, rules)
+    shuffled_card_ids = _shuffle_card_ids(
+        card_ids,
+        _gwent_shuffle_seed(challenge_id, player_id, str(deck["deck_id"])),
+    )
+    _validate_mulligans_for_hand(player_id, shuffled_card_ids, rules, mulligans)
+
+
+def _validate_mulligans_for_hand(
+    player_id: str,
+    card_ids: list[str],
+    rules: dict[str, int | str],
+    mulligans: list[str],
+) -> None:
+    if len(mulligans) > int(rules["mulligans"]):
+        raise PvpError("Gwent mulligan count exceeds the configured limit.")
+    hand = card_ids[: int(rules["hand_size"])]
+    for card_id in mulligans:
+        if card_id not in hand:
+            raise PvpError(f"Mulligan card is not in opening hand for {player_id}: {card_id}")
+
+
+def _build_bot_deck_state(
+    connection: sqlite3.Connection,
+    source_player_id: str,
+    rules: dict[str, int | str],
+    *,
+    challenge_id: str = "bot",
+) -> dict[str, Any]:
+    deck = _deck_for_player(connection, source_player_id)
+    cards = _cards_by_id(connection)
+    leader = cards.get(str(deck["leader_card_id"]))
+    if leader is None or str(leader["type"]) != "leader":
+        raise PvpError(f"Gwent deck leader is invalid for bot source player: {source_player_id}")
+    _assert_stage1_gwent_effect_supported(
+        str(leader["card_id"]),
+        str(leader["type"]),
+        str(leader["effect"] or "none"),
+    )
+    card_ids = list(reversed(_split_ids(str(deck["card_ids"]))))
+    _validate_deck_cards(GWENT_BOT_PLAYER_ID, card_ids, cards, rules)
+    shuffle_seed = _gwent_shuffle_seed(challenge_id, GWENT_BOT_PLAYER_ID, str(deck["deck_id"]))
+    shuffled_card_ids = _shuffle_card_ids(card_ids, shuffle_seed)
+    hand = shuffled_card_ids[: int(rules["hand_size"])]
+    draw_pile = shuffled_card_ids[int(rules["hand_size"]) :]
+    return {
+        "deck_id": f"bot_deck_{source_player_id}",
+        "leader_card_id": deck["leader_card_id"],
+        "faction": str(leader["faction"] or "neutral"),
+        "shuffle_seed": shuffle_seed,
+        "shuffle_log": {
+            "original_card_ids": card_ids,
+            "shuffled_card_ids": shuffled_card_ids,
+            "opening_hand": list(shuffled_card_ids[: int(rules["hand_size"])]),
+        },
+        "draw_pile": draw_pile,
+        "hand": hand,
+        "mulligans": [],
+        "rows": {row: [] for row in GWENT_ROWS},
+        "passed": False,
+        "graveyard": [],
+        "cards_burned": False,
+        "leader_used": False,
+        "bot": True,
+    }
+
+
+def _new_active_round(
+    *,
+    match_id: str,
+    players: list[str],
+    deck_state: dict[str, Any],
+    round_number: int,
+    starting_player_id: str,
+    now: datetime,
+) -> dict[str, Any]:
+    base_deck_state = deepcopy(deck_state)
+    base_deck_state.pop("active_round", None)
+    base_deck_state.pop("action_ids", None)
+    return {
+        "match_id": match_id,
+        "round_number": round_number,
+        "phase": "active_turn",
+        "status": "ready_for_submission",
+        "players": list(players),
+        "turn_player_id": starting_player_id,
+        "starting_player_id": starting_player_id,
+        "plays": [],
+        "passed": {player_id: False for player_id in players},
+        "board": {player_id: {row: [] for row in GWENT_ROWS} for player_id in players},
+        "weather_rows": [],
+        "horn_rows": {player_id: [] for player_id in players},
+        "row_scores": {player_id: {row: 0 for row in GWENT_ROWS} for player_id in players},
+        "total_scores": {player_id: 0 for player_id in players},
+        "effects_applied": [],
+        "hands_after_round": {player_id: list(deck_state[player_id].get("hand") or []) for player_id in players},
+        "graveyards_after_round": {player_id: list(deck_state[player_id].get("graveyard") or []) for player_id in players},
+        "action_log": [],
+        "base_deck_state": base_deck_state,
+        "created_at": _iso(now),
+        "updated_at": _iso(now),
+    }
+
+
+def _validated_preferred_starting_player_id(
+    connection: sqlite3.Connection,
+    *,
+    player_id: str,
+    players: list[str],
+    deck_id: str | None,
+    requested_player_id: str | None,
+    previous_player_id: str,
+    preserve_previous: bool,
+) -> str:
+    requested = str(requested_player_id or "").strip()
+    previous = str(previous_player_id or "").strip()
+    if not requested and preserve_previous:
+        requested = previous
+    if not requested:
+        return ""
+    if requested not in players:
+        raise PvpError(f"Gwent preferred starting player is not a participant: {requested}")
+
+    deck = _deck_for_player(connection, player_id, deck_id=deck_id)
+    cards = _cards_by_id(connection)
+    faction = _deck_faction_from_deck(deck, cards)
+    if faction != "scoiatael":
+        raise PvpError("Gwent first-turn choice requires a Scoia'tael deck.")
+    return requested
+
+
+def _preferred_starting_player_from_prep(prep: dict[str, Any], players: list[str]) -> str | None:
+    choices = prep.get("preferred_starting_player_ids_by_player")
+    if not isinstance(choices, dict):
+        return None
+    for chooser_id in players:
+        preferred = str(choices.get(chooser_id) or "").strip()
+        if preferred in players:
+            return preferred
+    return None
+
+
+def _resolve_first_turn_player(
+    *,
+    players: list[str],
+    deck_state: dict[str, Any],
+    preferred_starting_player_id: str | None,
+) -> tuple[str, dict[str, Any] | None]:
+    preferred = str(preferred_starting_player_id or "").strip()
+    scoiatael_players = [
+        player_id
+        for player_id in players
+        if _deck_faction(deck_state.get(player_id, {}), {}) == "scoiatael"
+    ]
+    if not scoiatael_players:
+        if preferred:
+            raise PvpError("Gwent first-turn choice requires a Scoia'tael deck.")
+        seed = ":".join(
+            [
+                "gwent-first-turn",
+                *players,
+                *[
+                    str(deck_state.get(player_id, {}).get("shuffle_seed") or "")
+                    for player_id in players
+                ],
+            ]
+        )
+        starting_player_id = random.Random(seed).choice(players)
+        return starting_player_id, {
+            "effect": "coin_toss_first_turn",
+            "scope": "match",
+            "players": players,
+            "starting_player_id": starting_player_id,
+            "coin_toss_seed": seed,
+        }
+    chooser_id = scoiatael_players[0]
+    starting_player_id = preferred if preferred in players else chooser_id
+    return starting_player_id, {
+        "effect": "faction_scoiatael_choose_first",
+        "scope": "faction",
+        "player_id": chooser_id,
+        "faction": "scoiatael",
+        "starting_player_id": starting_player_id,
+    }
+
+
+def _ensure_active_round(
+    match: sqlite3.Row,
+    deck_state: dict[str, Any],
+    players: list[str],
+    requested_round_number: int | None,
+    now: datetime,
+) -> dict[str, Any]:
+    active_round = deck_state.get("active_round")
+    if isinstance(active_round, dict):
+        active_number = int(active_round.get("round_number") or 1)
+        if requested_round_number is not None and int(requested_round_number) != active_number:
+            raise PvpError(f"Gwent action round mismatch: active round is {active_number}.")
+        return active_round
+    next_round = int(requested_round_number or 1)
+    starting_player_id = players[(next_round - 1) % len(players)]
+    active_round = _new_active_round(
+        match_id=str(match["match_id"]),
+        players=players,
+        deck_state=deck_state,
+        round_number=next_round,
+        starting_player_id=starting_player_id,
+        now=now,
+    )
+    deck_state["active_round"] = active_round
+    return active_round
+
+
+def _action_to_play(
+    connection: sqlite3.Connection,
+    request: GwentActionInput,
+    player_id: str,
+    deck_state: dict[str, Any],
+    active_round: dict[str, Any],
+) -> dict[str, Any]:
+    player_state = deck_state[player_id]
+    cards = _cards_by_id(connection)
+    action = str(request.action or "").strip().lower()
+    card_id = str(request.card_id or "").strip()
+    if action == "use_leader":
+        card_id = card_id or str(player_state.get("leader_card_id") or "")
+    if not card_id:
+        raise PvpError("Gwent play action requires card_id.")
+    card = cards.get(card_id)
+    if card is None:
+        raise PvpError(f"Round play references an unknown Gwent card: {card_id}")
+    card_type = str(card["type"])
+    if action == "use_leader" and card_type != "leader":
+        raise PvpError(f"Gwent use_leader requires a leader card: {card_id}")
+    if action != "use_leader" and card_type == "leader":
+        action = "use_leader"
+
+    allowed_rows = _allowed_rows_for_card(card)
+    requested_row = str(request.row or "").strip()
+    row = requested_row
+    if allowed_rows:
+        row = row or allowed_rows[0]
+        if row not in allowed_rows:
+            raise PvpError(f"Gwent card cannot be played on row {row}: {card_id}")
+    play: dict[str, Any] = {"player_id": player_id, "card_id": card_id}
+    if row:
+        play["row"] = row
+
+    effects = _card_effects(card)
+    if card_type == "special" and "decoy" in effects:
+        target_card_id = str(request.target_card_id or "").strip()
+        if not target_card_id:
+            raise PvpError("Gwent decoy requires target_card_id.")
+        if target_card_id not in {str(target.get("card_id")) for target in _decoy_targets(active_round, player_id)}:
+            raise PvpError(f"Gwent decoy target is not a non-hero unit on board: {target_card_id}")
+        play["target_card_id"] = target_card_id
+    if card_type == "unit" and "medic" in effects:
+        revive_card_id = str(request.revive_card_id or "").strip()
+        if revive_card_id:
+            play["revive_card_id"] = revive_card_id
+        revive_row = str(request.revive_row or "").strip()
+        if revive_row:
+            play["revive_row"] = revive_row
+    return play
+
+
+def _preview_active_round(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    deck_state: dict[str, Any],
+) -> dict[str, Any]:
+    active_round = deck_state.get("active_round")
+    if not isinstance(active_round, dict):
+        raise PvpError("Gwent match has no active round.")
+    base_deck_state = active_round.get("base_deck_state")
+    if not isinstance(base_deck_state, dict):
+        raise PvpError("Gwent active round has invalid base deck state.")
+    return _resolve_round_state(
+        connection,
+        match,
+        _round_state_for_active_round(active_round),
+        deepcopy(base_deck_state),
+    )
+
+
+def _round_state_for_active_round(active_round: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "plays": [dict(play) for play in active_round.get("plays") or []],
+        "passed": {
+            str(player_id): bool(passed)
+            for player_id, passed in (active_round.get("passed") or {}).items()
+        },
+    }
+
+
+def _active_round_finished(active_round: dict[str, Any], players: list[str]) -> bool:
+    passed = active_round.get("passed") or {}
+    return all(bool(passed.get(player_id)) for player_id in players)
+
+
+def _next_turn_player(players: list[str], current_player_id: str, passed: dict[str, Any]) -> str:
+    if not players:
+        return current_player_id
+    start_index = players.index(current_player_id) if current_player_id in players else 0
+    for offset in range(1, len(players) + 1):
+        candidate = players[(start_index + offset) % len(players)]
+        if not bool(passed.get(candidate)):
+            return candidate
+    return current_player_id
+
+
+def _active_round_player_payload(
+    connection: sqlite3.Connection,
+    match: sqlite3.Row,
+    deck_state: dict[str, Any],
+    player_id: str,
+) -> dict[str, Any] | None:
+    active_round = deck_state.get("active_round") if isinstance(deck_state, dict) else None
+    if not isinstance(active_round, dict):
+        return None
+    preview = _preview_active_round(connection, match, deck_state)
+    players = [str(match["challenger_id"]), str(match["target_id"])]
+    passed = {
+        player: bool((active_round.get("passed") or {}).get(player))
+        for player in players
+    }
+    player_after = preview["deck_state"].get(player_id, {}) if isinstance(preview.get("deck_state"), dict) else {}
+    row_scores = preview.get("row_scores") or {}
+    total_scores = preview["round_state"].get("total_scores") if isinstance(preview.get("round_state"), dict) else {}
+    ready_players = [player for player in players if passed.get(player)]
+    missing_players = [player for player in players if not passed.get(player)]
+    return {
+        "match_id": match["match_id"],
+        "round_number": int(active_round.get("round_number") or 1),
+        "status": "ready_for_submission",
+        "phase": "active_turn",
+        "turn_player_id": active_round.get("turn_player_id"),
+        "is_player_turn": str(active_round.get("turn_player_id") or "") == player_id,
+        "starting_player_id": active_round.get("starting_player_id"),
+        "players": players,
+        "ready_players": ready_players,
+        "missing_players": missing_players,
+        "player_submitted": bool(passed.get(player_id)),
+        "passed": passed,
+        "plays": _public_plays(active_round.get("plays") or []),
+        "board": preview["round_state"]["board"],
+        "weather_rows": preview["round_state"]["weather_rows"],
+        "horn_rows": preview["round_state"]["horn_rows"],
+        "row_scores": row_scores,
+        "total_scores": total_scores,
+        "effects_applied": preview["effects_applied"],
+        "player_hand": list(player_after.get("hand") or []),
+        "player_graveyard": list(player_after.get("graveyard") or []),
+        "created_at": active_round.get("created_at"),
+        "updated_at": active_round.get("updated_at"),
+    }
+
+
+def _public_plays(plays: list[Any]) -> list[dict[str, Any]]:
+    public = []
+    for play in plays:
+        if not isinstance(play, dict):
+            continue
+        public.append(
+            {
+                key: value
+                for key, value in play.items()
+                if key in {"player_id", "card_id", "row", "target_card_id", "revive_card_id", "revive_row"}
+            }
+        )
+    return public
 
 
 def _validate_player_gwent_preflight(
@@ -1407,11 +3097,8 @@ def _validate_deck_cards(
         raise PvpError(f"Gwent deck has unknown cards for {player_id}: {', '.join(missing)}")
     for card_id in card_ids:
         card = cards[card_id]
-        _assert_stage1_gwent_effect_supported(
-            card_id,
-            str(card["type"]),
-            str(card["effect"] or "none"),
-        )
+        for effect in _card_effects(card):
+            _assert_stage1_gwent_effect_supported(card_id, str(card["type"]), effect)
     unit_count = sum(1 for card_id in card_ids if str(cards[card_id]["type"]) == "unit")
     special_count = sum(1 for card_id in card_ids if str(cards[card_id]["type"]) == "special")
     if unit_count < int(rules["deck_min_unit_cards"]):
@@ -1440,6 +3127,7 @@ def _normalize_match_deck_state(
         player_state["mulligans"] = list(player_state.get("mulligans") or [])
         player_state["graveyard"] = list(player_state.get("graveyard") or [])
         player_state["leader_used"] = bool(player_state.get("leader_used", False))
+        player_state["faction"] = str(player_state.get("faction") or "")
         player_state["rows"] = {
             row: list(rows.get(row) or [])
             for row in GWENT_ROWS
@@ -1462,11 +3150,21 @@ def _consume_card_from_hand(
     player_state: dict[str, Any],
     player_id: str,
     card_id: str,
+    *,
+    allow_legacy_round_fallback: bool = False,
 ) -> None:
     hand = player_state["hand"]
-    if card_id not in hand:
-        raise PvpError(f"Gwent card is not in current hand for {player_id}: {card_id}")
-    hand.remove(card_id)
+    if card_id in hand:
+        hand.remove(card_id)
+        return
+    if allow_legacy_round_fallback:
+        draw_pile = player_state["draw_pile"]
+        if card_id in draw_pile:
+            draw_pile.remove(card_id)
+            return
+        if card_id in player_state.get("graveyard", []):
+            raise PvpError(f"Gwent card has already been played by {player_id}: {card_id}")
+    raise PvpError(f"Gwent card is not in current hand for {player_id}: {card_id}")
 
 
 def _return_card_to_hand(player_state: dict[str, Any], card_id: str) -> None:
@@ -1478,6 +3176,74 @@ def _remove_pending_discard(cards: list[str], card_id: str) -> None:
         cards.remove(card_id)
 
 
+def _unit_from_card(
+    card: sqlite3.Row,
+    *,
+    player_id: str,
+    played_by: str,
+    row_name: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    card_id = str(card["card_id"])
+    effects = _card_effects(card)
+    name_group = _card_group(card, "name_group", card_id)
+    unit = {
+        "player_id": player_id,
+        "played_by": played_by,
+        "card_id": card_id,
+        "row": row_name,
+        "base_strength": _to_int(card["strength"]),
+        "effect": effects[0],
+        "effects": effects,
+        "hero": "hero" in effects,
+        "removed": False,
+        "name_group": name_group,
+        "bond_group": _card_group(card, "bond_group", name_group),
+        "muster_group": _card_group(card, "muster_group", name_group),
+    }
+    unit.update(extra)
+    return unit
+
+
+def _active_unit_rows(
+    units: list[dict[str, Any]],
+    row_name: str,
+) -> tuple[dict[str, int], int]:
+    bond_counts: dict[str, int] = {}
+    morale_count = 0
+    for unit in units:
+        if unit.get("removed"):
+            continue
+        if any(effect in _unit_effects(unit) for effect in {"bond", "tight_bond"}):
+            group = _unit_group(unit, "bond_group", str(unit.get("card_id") or ""))
+            bond_counts[group] = bond_counts.get(group, 0) + 1
+        if _unit_has_effect(unit, "morale"):
+            morale_count += 1
+    return bond_counts, morale_count
+
+
+def _effective_unit_strength(
+    unit: dict[str, Any],
+    *,
+    row_name: str,
+    weather_rows: set[str],
+    horn_active: bool,
+    bond_counts: dict[str, int],
+    morale_count: int,
+) -> int:
+    strength = int(unit["base_strength"])
+    if not _unit_has_effect(unit, "hero") and row_name in weather_rows:
+        strength = 1
+    if not _unit_has_effect(unit, "hero") and any(effect in _unit_effects(unit) for effect in {"bond", "tight_bond"}):
+        group = _unit_group(unit, "bond_group", str(unit.get("card_id") or ""))
+        strength *= max(1, bond_counts.get(group, 1))
+    if not _unit_has_effect(unit, "hero") and not _unit_has_effect(unit, "morale"):
+        strength += morale_count
+    if not _unit_has_effect(unit, "hero") and horn_active:
+        strength *= 2
+    return strength
+
+
 def _resolve_round_state(
     connection: sqlite3.Connection,
     match: sqlite3.Row,
@@ -1487,6 +3253,7 @@ def _resolve_round_state(
     cards = _cards_by_id(connection)
     players = [str(match["challenger_id"]), str(match["target_id"])]
     deck_state = _normalize_match_deck_state(deck_state, players)
+    allow_legacy_round_fallback = bool(round_state.get("_legacy_round_card_fallback"))
     board = {player: {row: [] for row in GWENT_ROWS} for player in players}
     weather_rows: set[str] = set()
     horn_rows = {player: set() for player in players}
@@ -1494,6 +3261,18 @@ def _resolve_round_state(
     returned_cards: list[dict[str, Any]] = []
     scorch_pending: list[dict[str, Any]] = []
     consumed_cards: dict[str, list[str]] = {player: [] for player in players}
+    for player_id in players:
+        for row_name in GWENT_ROWS:
+            for unit in deck_state[player_id].get("rows", {}).get(row_name, []):
+                if not isinstance(unit, dict):
+                    continue
+                carried = dict(unit)
+                carried["player_id"] = player_id
+                carried.setdefault("played_by", player_id)
+                carried.setdefault("row", row_name)
+                carried["removed"] = False
+                board[player_id][row_name].append(carried)
+                consumed_cards[player_id].append(str(carried.get("card_id")))
 
     for play in _normalize_plays(round_state):
         player_id = str(play.get("player_id"))
@@ -1504,8 +3283,10 @@ def _resolve_round_state(
         if card is None:
             raise PvpError(f"Round play references an unknown Gwent card: {card_id}")
         card_type = str(card["type"])
-        effect = str(card["effect"] or "none")
-        _assert_stage1_gwent_effect_supported(card_id, card_type, effect)
+        effects = _card_effects(card)
+        effect = effects[0]
+        for card_effect in effects:
+            _assert_stage1_gwent_effect_supported(card_id, card_type, card_effect)
 
         player_state = deck_state[player_id]
         if card_type == "leader":
@@ -1513,16 +3294,25 @@ def _resolve_round_state(
                 play,
                 card,
                 player_state,
+                deck_state,
+                cards,
                 horn_rows,
                 weather_rows,
                 effects_applied,
+                players,
             )
             continue
 
-        _consume_card_from_hand(player_state, player_id, card_id)
+        _consume_card_from_hand(
+            player_state,
+            player_id,
+            card_id,
+            allow_legacy_round_fallback=allow_legacy_round_fallback,
+        )
         consumed_cards[player_id].append(card_id)
         if card_type == "special":
             returned_before = len(returned_cards)
+            scorch_before = len(scorch_pending)
             _apply_special_play(
                 play,
                 card,
@@ -1534,27 +3324,23 @@ def _resolve_round_state(
                 returned_cards,
                 scorch_pending,
             )
+            for scorch in scorch_pending[scorch_before:]:
+                _apply_scorch(board, scorch, weather_rows, horn_rows, effects_applied)
             for returned in returned_cards[returned_before:]:
                 if returned["player_id"] == player_id:
                     _remove_pending_discard(consumed_cards[player_id], str(returned["card_id"]))
                     _return_card_to_hand(player_state, str(returned["card_id"]))
             continue
         row_name = _row_for_card(card, str(play.get("row") or ""))
-        board_player_id = _opponent_id(players, player_id) if effect == "spy" else player_id
-        unit = {
-            "player_id": board_player_id,
-            "played_by": player_id,
-            "card_id": card_id,
-            "row": row_name,
-            "base_strength": _to_int(card["strength"]),
-            "effect": effect,
-            "hero": effect == "hero",
-            "removed": False,
-        }
+        board_player_id = _opponent_id(players, player_id) if "spy" in effects else player_id
+        unit = _unit_from_card(
+            card,
+            player_id=board_player_id,
+            played_by=player_id,
+            row_name=row_name,
+        )
         board[board_player_id][row_name].append(unit)
-        if effect.startswith("scorch_"):
-            scorch_pending.append({"effect": effect, "source_card_id": card_id})
-        if effect == "spy":
+        if "spy" in effects:
             drawn = _draw_cards(player_state, 2)
             effects_applied.append(
                 {
@@ -1565,7 +3351,7 @@ def _resolve_round_state(
                     "drawn_card_ids": drawn,
                 }
             )
-        elif effect == "medic":
+        if "medic" in effects:
             revived = _apply_medic(
                 play,
                 player_id,
@@ -1574,10 +3360,13 @@ def _resolve_round_state(
                 board,
                 consumed_cards[player_id],
                 effects_applied,
+                weather_rows,
+                horn_rows,
+                players,
             )
             if revived is None:
                 effects_applied.append({"card_id": card_id, "effect": "medic", "scope": "unit", "revived_card_id": None})
-        elif effect == "muster":
+        if "muster" in effects:
             mustered = _apply_muster(
                 player_id,
                 card_id,
@@ -1595,11 +3384,22 @@ def _resolve_round_state(
                     "mustered_card_ids": mustered,
                 }
             )
-        elif effect in {"morale", "bond", "tight_bond", "agile", "hero"} or effect.startswith("scorch_"):
-            effects_applied.append({"card_id": card_id, "effect": effect, "scope": "unit"})
-
-    for scorch in scorch_pending:
-        _apply_scorch(board, scorch, effects_applied)
+        for card_effect in effects:
+            if card_effect.startswith("scorch_"):
+                _apply_scorch(
+                    board,
+                    {
+                        "effect": card_effect,
+                        "source_card_id": card_id,
+                        "player_id": player_id,
+                        "opponent_only": True,
+                    },
+                    weather_rows,
+                    horn_rows,
+                    effects_applied,
+                )
+            elif card_effect in {"morale", "bond", "tight_bond", "agile", "hero"}:
+                effects_applied.append({"card_id": card_id, "effect": card_effect, "scope": "unit"})
 
     row_scores: dict[str, dict[str, int]] = {player: {} for player in players}
     totals: dict[str, int] = {}
@@ -1612,22 +3412,29 @@ def _resolve_round_state(
         totals[player_id] = total
 
     if totals[players[0]] == totals[players[1]]:
-        winner_id = None
-        tie = True
+        winner_id = _tie_winner_from_faction(players, deck_state, cards, effects_applied)
+        tie = winner_id is None
     else:
         winner_id = players[0] if totals[players[0]] > totals[players[1]] else players[1]
         tie = False
     passed = round_state.get("passed") or round_state.get("passed_flags") or {}
     if not isinstance(passed, dict):
         passed = {}
+    carryover_rows = (
+        _apply_monsters_carryover(players, deck_state, cards, board, consumed_cards, effects_applied)
+        if _round_end_abilities_should_apply(players, passed)
+        else {player: {row: [] for row in GWENT_ROWS} for player in players}
+    )
     for player_id in players:
         player_state = deck_state[player_id]
         player_state["graveyard"].extend(consumed_cards[player_id])
-        player_state["rows"] = {row: [] for row in GWENT_ROWS}
+        player_state["rows"] = carryover_rows[player_id]
         player_state["passed"] = bool(passed.get(player_id, True))
         player_state["cards_burned"] = False
+    if _round_end_abilities_should_apply(players, passed):
+        _apply_round_end_faction_abilities(winner_id, deck_state, cards, effects_applied)
     return {
-        "round_state": {
+            "round_state": {
             "plays": _normalize_plays(round_state),
             "board": board,
             "weather_rows": sorted(weather_rows),
@@ -1649,6 +3456,169 @@ def _resolve_round_state(
     }
 
 
+def _round_end_abilities_should_apply(players: list[str], passed: dict[str, Any]) -> bool:
+    return all(bool(passed.get(player_id, True)) for player_id in players)
+
+
+def _tie_winner_from_faction(
+    players: list[str],
+    deck_state: dict[str, Any],
+    cards: dict[str, sqlite3.Row],
+    effects_applied: list[dict[str, Any]],
+) -> str | None:
+    nilfgaard_players = [
+        player_id
+        for player_id in players
+        if _deck_faction(deck_state.get(player_id, {}), cards) == "nilfgaard"
+    ]
+    if len(nilfgaard_players) != 1:
+        return None
+    winner_id = nilfgaard_players[0]
+    effects_applied.append(
+        {
+            "effect": "faction_nilfgaard_tie_win",
+            "scope": "faction",
+            "player_id": winner_id,
+            "faction": "nilfgaard",
+        }
+    )
+    return winner_id
+
+
+def _apply_round_end_faction_abilities(
+    winner_id: str | None,
+    deck_state: dict[str, Any],
+    cards: dict[str, sqlite3.Row],
+    effects_applied: list[dict[str, Any]],
+) -> None:
+    if not winner_id or winner_id not in deck_state:
+        return
+    player_state = deck_state[winner_id]
+    faction = _deck_faction(player_state, cards)
+    if faction != "northern":
+        return
+    drawn = _draw_cards(player_state, 1)
+    effects_applied.append(
+        {
+            "effect": "faction_northern_realms_draw",
+            "scope": "faction",
+            "player_id": winner_id,
+            "faction": faction,
+            "drawn_count": len(drawn),
+            "drawn_card_ids": drawn,
+        }
+    )
+
+
+def _apply_monsters_carryover(
+    players: list[str],
+    deck_state: dict[str, Any],
+    cards: dict[str, sqlite3.Row],
+    board: dict[str, dict[str, list[dict[str, Any]]]],
+    consumed_cards: dict[str, list[str]],
+    effects_applied: list[dict[str, Any]],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    carryover_rows = {player_id: {row: [] for row in GWENT_ROWS} for player_id in players}
+    for player_id in players:
+        player_state = deck_state.get(player_id, {})
+        if _deck_faction(player_state, cards) != "monsters":
+            continue
+        candidates = [
+            unit
+            for row_name in GWENT_ROWS
+            for unit in board[player_id][row_name]
+            if not unit.get("removed") and not _unit_has_effect(unit, "hero")
+        ]
+        if not candidates:
+            effects_applied.append(
+                {
+                    "effect": "faction_monsters_keep_unit",
+                    "scope": "faction",
+                    "player_id": player_id,
+                    "faction": "monsters",
+                    "kept_card_id": None,
+                }
+            )
+            continue
+        seed = f"{player_state.get('shuffle_seed')}:monsters:{len(player_state.get('graveyard') or [])}:{len(consumed_cards[player_id])}"
+        kept = random.Random(seed).choice(candidates)
+        kept_card_id = str(kept["card_id"])
+        _remove_pending_discard(consumed_cards[player_id], kept_card_id)
+        carryover_rows[player_id][str(kept["row"])].append(dict(kept, carried_by_faction=True))
+        effects_applied.append(
+            {
+                "effect": "faction_monsters_keep_unit",
+                "scope": "faction",
+                "player_id": player_id,
+                "faction": "monsters",
+                "kept_card_id": kept_card_id,
+                "row": kept["row"],
+            }
+        )
+    return carryover_rows
+
+
+def _apply_skellige_round_three_restore(
+    deck_state: dict[str, Any],
+    players: list[str],
+    cards: dict[str, sqlite3.Row],
+    effects_applied: list[dict[str, Any]],
+) -> None:
+    for player_id in players:
+        player_state = deck_state.get(player_id, {})
+        if _deck_faction(player_state, cards) != "skellige":
+            continue
+        candidates = [
+            card_id
+            for card_id in player_state.get("graveyard", [])
+            if (card := cards.get(str(card_id))) is not None
+            and str(card["type"]) == "unit"
+            and not _card_has_effect(card, "hero")
+        ]
+        seed = f"{player_state.get('shuffle_seed')}:skellige_round_three:{len(candidates)}"
+        restored = _shuffle_card_ids([str(card_id) for card_id in candidates], seed)[:2]
+        for card_id in restored:
+            card = cards[card_id]
+            player_state["graveyard"].remove(card_id)
+            row_name = _row_for_card(card, "")
+            player_state.setdefault("rows", {row: [] for row in GWENT_ROWS})
+            player_state["rows"].setdefault(row_name, []).append(
+                _unit_from_card(
+                    card,
+                    player_id=player_id,
+                    played_by=player_id,
+                    row_name=row_name,
+                    restored_by_faction=True,
+                )
+            )
+        effects_applied.append(
+            {
+                "effect": "faction_skellige_round_three_restore",
+                "scope": "faction",
+                "player_id": player_id,
+                "faction": "skellige",
+                "restored_card_ids": restored,
+            }
+        )
+
+
+def _deck_faction(player_state: dict[str, Any], cards: dict[str, sqlite3.Row]) -> str:
+    faction = str(player_state.get("faction") or "").strip().lower()
+    if faction:
+        return faction
+    leader = cards.get(str(player_state.get("leader_card_id") or ""))
+    if leader is None:
+        return ""
+    return str(leader["faction"] or "").strip().lower()
+
+
+def _deck_faction_from_deck(deck: sqlite3.Row, cards: dict[str, sqlite3.Row]) -> str:
+    leader = cards.get(str(deck["leader_card_id"]))
+    if leader is None:
+        return ""
+    return str(leader["faction"] or "").strip().lower()
+
+
 def _apply_special_play(
     play: dict[str, Any],
     card: sqlite3.Row,
@@ -1662,7 +3632,8 @@ def _apply_special_play(
 ) -> None:
     player_id = str(play.get("player_id"))
     card_id = str(card["card_id"])
-    effect = str(card["effect"] or "none")
+    effects = _card_effects(card)
+    effect = effects[0]
     if effect in GWENT_WEATHER_BY_EFFECT:
         weather_rows.add(GWENT_WEATHER_BY_EFFECT[effect])
     elif effect == "clear_weather":
@@ -1678,7 +3649,7 @@ def _apply_special_play(
             raise PvpError(f"Gwent decoy target is not a non-hero unit on board: {target_card_id}")
         returned_cards.append({"player_id": player_id, "card_id": target_card_id})
     elif effect in {"scorch", "custom_larp_oathbreak"}:
-        scorch_pending.append({"effect": "scorch", "source_card_id": card_id})
+        scorch_pending.append({"effect": "scorch", "source_card_id": card_id, "player_id": player_id})
     elif effect == "custom_larp_spyglass":
         drawn = _draw_cards(player_state, 1)
         effects_applied.append(
@@ -1700,9 +3671,12 @@ def _apply_leader_play(
     play: dict[str, Any],
     card: sqlite3.Row,
     player_state: dict[str, Any],
+    deck_state: dict[str, Any],
+    cards: dict[str, sqlite3.Row],
     horn_rows: dict[str, set[str]],
     weather_rows: set[str],
     effects_applied: list[dict[str, Any]],
+    players: list[str],
 ) -> None:
     player_id = str(play.get("player_id"))
     card_id = str(card["card_id"])
@@ -1710,13 +3684,45 @@ def _apply_leader_play(
         raise PvpError(f"Gwent leader is not assigned to player deck: {card_id}")
     if bool(player_state.get("leader_used")):
         raise PvpError(f"Gwent leader was already used by player: {player_id}")
-    effect = str(card["effect"] or "none")
+    effect = _card_effects(card)[0]
+    payload: dict[str, Any] = {"card_id": card_id, "effect": effect, "scope": "leader"}
     if effect == "leader_order_rally":
         horn_rows[player_id].add(_row_name(str(play.get("row") or "melee")))
-    elif effect == "clear_weather":
+    elif effect == "leader_foltest_clear_weather":
         weather_rows.clear()
+    elif effect == "leader_francesca_ranged_horn":
+        horn_rows[player_id].add("ranged")
+    elif effect == "leader_eredin_melee_horn":
+        horn_rows[player_id].add("melee")
+    elif effect == "leader_emhyr_graveyard_theft":
+        opponent_id = _opponent_id(players, player_id)
+        opponent_state = deck_state.get(opponent_id, {})
+        target_card_id = str(play.get("target_card_id") or "")
+        if target_card_id:
+            if target_card_id not in opponent_state.get("graveyard", []):
+                raise PvpError(f"Gwent leader target is not in opponent graveyard: {target_card_id}")
+        else:
+            target_card_id = _first_medic_target(list(opponent_state.get("graveyard") or []), cards)
+        if target_card_id:
+            opponent_state["graveyard"].remove(target_card_id)
+            player_state["hand"].append(target_card_id)
+        payload["drawn_from_opponent_graveyard"] = target_card_id or None
+    elif effect == "leader_crach_graveyard_shuffle":
+        shuffled_by_player: dict[str, list[str]] = {}
+        for candidate_id in players:
+            candidate_state = deck_state.get(candidate_id, {})
+            graveyard = [str(card_id) for card_id in candidate_state.get("graveyard") or []]
+            if not graveyard:
+                shuffled_by_player[candidate_id] = []
+                continue
+            seed = f"{candidate_state.get('shuffle_seed')}:leader_crach:{card_id}:{len(candidate_state.get('draw_pile') or [])}"
+            shuffled = _shuffle_card_ids(graveyard, seed)
+            candidate_state["draw_pile"].extend(shuffled)
+            candidate_state["graveyard"] = []
+            shuffled_by_player[candidate_id] = shuffled
+        payload["shuffled_graveyards"] = shuffled_by_player
     player_state["leader_used"] = True
-    effects_applied.append({"card_id": card_id, "effect": effect, "scope": "leader"})
+    effects_applied.append(payload)
 
 
 def _draw_cards(player_state: dict[str, Any], count: int) -> list[str]:
@@ -1739,6 +3745,11 @@ def _apply_medic(
     board: dict[str, dict[str, list[dict[str, Any]]]],
     consumed: list[str],
     effects_applied: list[dict[str, Any]],
+    weather_rows: set[str],
+    horn_rows: dict[str, set[str]],
+    players: list[str],
+    *,
+    chain_depth: int = 0,
 ) -> str | None:
     target_card_id = str(play.get("revive_card_id") or "")
     graveyard = player_state["graveyard"]
@@ -1750,22 +3761,20 @@ def _apply_medic(
     if not target_card_id:
         return None
     target = cards.get(target_card_id)
-    if target is None or str(target["type"]) != "unit" or str(target["effect"]) == "hero":
+    if target is None or str(target["type"]) != "unit" or _card_has_effect(target, "hero"):
         raise PvpError(f"Gwent medic target is not a revivable unit: {target_card_id}")
     graveyard.remove(target_card_id)
     row_name = _row_for_card(target, str(play.get("revive_row") or ""))
-    board[player_id][row_name].append(
-        {
-            "player_id": player_id,
-            "played_by": player_id,
-            "card_id": target_card_id,
-            "row": row_name,
-            "base_strength": _to_int(target["strength"]),
-            "effect": str(target["effect"] or "none"),
-            "hero": False,
-            "removed": False,
-            "revived_by_medic": True,
-        }
+    target_effects = _card_effects(target)
+    board_player_id = _opponent_id(players, player_id) if "spy" in target_effects else player_id
+    board[board_player_id][row_name].append(
+        _unit_from_card(
+            target,
+            player_id=board_player_id,
+            played_by=player_id,
+            row_name=row_name,
+            revived_by_medic=True,
+        )
     )
     consumed.append(target_card_id)
     effects_applied.append(
@@ -1776,13 +3785,73 @@ def _apply_medic(
             "revived_card_id": target_card_id,
         }
     )
+    if "spy" in target_effects:
+        drawn = _draw_cards(player_state, 2)
+        effects_applied.append(
+            {
+                "card_id": target_card_id,
+                "effect": "spy",
+                "scope": "unit",
+                "placed_for_player_id": board_player_id,
+                "drawn_card_ids": drawn,
+                "triggered_by": "medic",
+            }
+        )
+    if "muster" in target_effects:
+        mustered = _apply_muster(player_id, target_card_id, target, player_state, cards, board, consumed)
+        effects_applied.append(
+            {
+                "card_id": target_card_id,
+                "effect": "muster",
+                "scope": "unit",
+                "mustered_card_ids": mustered,
+                "triggered_by": "medic",
+            }
+        )
+    if "medic" in target_effects and chain_depth < 4:
+        _apply_medic(
+            {"card_id": target_card_id},
+            player_id,
+            player_state,
+            cards,
+            board,
+            consumed,
+            effects_applied,
+            weather_rows,
+            horn_rows,
+            players,
+            chain_depth=chain_depth + 1,
+        )
+    for effect in target_effects:
+        if effect.startswith("scorch_"):
+            _apply_scorch(
+                board,
+                {
+                    "effect": effect,
+                    "source_card_id": target_card_id,
+                    "player_id": player_id,
+                    "opponent_only": True,
+                },
+                weather_rows,
+                horn_rows,
+                effects_applied,
+            )
+        elif effect in {"morale", "bond", "tight_bond", "agile", "hero"}:
+            effects_applied.append(
+                {
+                    "card_id": target_card_id,
+                    "effect": effect,
+                    "scope": "unit",
+                    "triggered_by": "medic",
+                }
+            )
     return target_card_id
 
 
 def _first_medic_target(graveyard: list[str], cards: dict[str, sqlite3.Row]) -> str:
     for card_id in graveyard:
         card = cards.get(card_id)
-        if card is not None and str(card["type"]) == "unit" and str(card["effect"]) != "hero":
+        if card is not None and str(card["type"]) == "unit" and not _card_has_effect(card, "hero"):
             return card_id
     return ""
 
@@ -1797,8 +3866,11 @@ def _apply_muster(
     consumed: list[str],
 ) -> list[str]:
     mustered: list[str] = []
-    source_faction = str(source_card["faction"])
-    source_row = str(source_card["row"])
+    source_group = _card_group(
+        source_card,
+        "muster_group",
+        _card_group(source_card, "name_group", source_card_id),
+    )
     candidates = list(player_state["hand"]) + list(player_state["draw_pile"])
     for card_id in candidates:
         if card_id == source_card_id:
@@ -1807,9 +3879,8 @@ def _apply_muster(
         if (
             card is None
             or str(card["type"]) != "unit"
-            or str(card["effect"]) != "muster"
-            or str(card["faction"]) != source_faction
-            or str(card["row"]) != source_row
+            or not _card_has_effect(card, "muster")
+            or _card_group(card, "muster_group", _card_group(card, "name_group", card_id)) != source_group
         ):
             continue
         if card_id in player_state["hand"]:
@@ -1818,17 +3889,13 @@ def _apply_muster(
             player_state["draw_pile"].remove(card_id)
         row_name = _row_for_card(card, "")
         board[player_id][row_name].append(
-            {
-                "player_id": player_id,
-                "played_by": player_id,
-                "card_id": card_id,
-                "row": row_name,
-                "base_strength": _to_int(card["strength"]),
-                "effect": "muster",
-                "hero": False,
-                "removed": False,
-                "mustered": True,
-            }
+            _unit_from_card(
+                card,
+                player_id=player_id,
+                played_by=player_id,
+                row_name=row_name,
+                mustered=True,
+            )
         )
         consumed.append(card_id)
         mustered.append(card_id)
@@ -1838,26 +3905,55 @@ def _apply_muster(
 def _apply_scorch(
     board: dict[str, dict[str, list[dict[str, Any]]]],
     scorch: dict[str, Any],
+    weather_rows: set[str],
+    horn_rows: dict[str, set[str]],
     effects_applied: list[dict[str, Any]],
 ) -> None:
     effect = str(scorch["effect"])
     row_filter = effect.removeprefix("scorch_") if effect.startswith("scorch_") else None
-    candidates: list[dict[str, Any]] = []
-    for rows in board.values():
+    source_player_id = str(scorch.get("player_id") or "")
+    opponent_only = bool(scorch.get("opponent_only"))
+    candidates: list[tuple[dict[str, Any], int]] = []
+    row_totals: dict[tuple[str, str], int] = {}
+    for board_player_id, rows in board.items():
+        if opponent_only and source_player_id and board_player_id == source_player_id:
+            continue
         for row_name, units in rows.items():
             if row_filter and row_filter != row_name:
                 continue
+            active_units = [unit for unit in units if not unit["removed"]]
+            bond_counts, morale_count = _active_unit_rows(active_units, row_name)
+            row_total = 0
             for unit in units:
-                if not unit["removed"] and not unit["hero"]:
-                    candidates.append(unit)
+                if unit["removed"] or _unit_has_effect(unit, "hero"):
+                    continue
+                strength = _effective_unit_strength(
+                    unit,
+                    row_name=row_name,
+                    weather_rows=weather_rows,
+                    horn_active=row_name in horn_rows.get(board_player_id, set()),
+                    bond_counts=bond_counts,
+                    morale_count=morale_count,
+                )
+                row_total += strength
+                candidates.append((unit, strength))
+            row_totals[(board_player_id, row_name)] = row_total
     if not candidates:
         return
-    max_strength = max(int(unit["base_strength"]) for unit in candidates)
+    if row_filter and opponent_only:
+        candidates = [
+            (unit, strength)
+            for unit, strength in candidates
+            if row_totals.get((str(unit.get("player_id") or ""), row_filter), 0) >= 10
+        ]
+        if not candidates:
+            return
+    max_strength = max(strength for _, strength in candidates)
     if max_strength < 10:
         return
     removed_ids = []
-    for unit in candidates:
-        if int(unit["base_strength"]) == max_strength:
+    for unit, strength in candidates:
+        if strength == max_strength:
             unit["removed"] = True
             removed_ids.append(unit["card_id"])
     effects_applied.append(
@@ -1877,27 +3973,18 @@ def _score_row(
     horn_active: bool,
 ) -> int:
     active_units = [unit for unit in units if not unit["removed"]]
-    bond_counts: dict[str, int] = {}
-    morale_count = 0
-    for unit in active_units:
-        if unit["effect"] in {"bond", "tight_bond"}:
-            bond_counts[str(unit["card_id"])] = bond_counts.get(str(unit["card_id"]), 0) + 1
-        if unit["effect"] == "morale":
-            morale_count += 1
-
-    total = 0
-    for unit in active_units:
-        strength = int(unit["base_strength"])
-        if not unit["hero"] and row_name in weather_rows:
-            strength = 1
-        if not unit["hero"] and unit["effect"] in {"bond", "tight_bond"}:
-            strength *= max(1, bond_counts.get(str(unit["card_id"]), 1))
-        if not unit["hero"] and unit["effect"] != "morale":
-            strength += morale_count
-        if not unit["hero"] and horn_active:
-            strength *= 2
-        total += strength
-    return total
+    bond_counts, morale_count = _active_unit_rows(active_units, row_name)
+    return sum(
+        _effective_unit_strength(
+            unit,
+            row_name=row_name,
+            weather_rows=weather_rows,
+            horn_active=horn_active,
+            bond_counts=bond_counts,
+            morale_count=morale_count,
+        )
+        for unit in active_units
+    )
 
 
 def _mark_challenge_for_review(
@@ -2308,8 +4395,49 @@ def _challenge_payload(
     payload = _challenge_row_to_dict(row)
     stake = _stake_payload(connection, str(row["challenge_id"]))
     payload["stake"] = stake
+    payload["prep"] = _challenge_prep(row)
     payload["duplicate"] = duplicate
     return payload
+
+
+def _challenge_prep(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    raw = row["prep_json"] if "prep_json" in row.keys() else "{}"  # type: ignore[union-attr]
+    prep = _json_loads(str(raw or "{}"), {})
+    if not isinstance(prep, dict):
+        prep = {}
+    ready_players = [str(value) for value in prep.get("ready_players") or []]
+    players = [str(row["challenger_id"]), str(row["target_id"])]
+    mulligans_by_player = prep.get("mulligans_by_player") if isinstance(prep.get("mulligans_by_player"), dict) else {}
+    deck_ids_by_player = prep.get("deck_ids_by_player") if isinstance(prep.get("deck_ids_by_player"), dict) else {}
+    preferred_starting_player_ids = (
+        prep.get("preferred_starting_player_ids_by_player")
+        if isinstance(prep.get("preferred_starting_player_ids_by_player"), dict)
+        else {}
+    )
+    updated_at_by_player = prep.get("updated_at_by_player") if isinstance(prep.get("updated_at_by_player"), dict) else {}
+    return {
+        "ready_players": ready_players,
+        "missing_players": [player_id for player_id in players if player_id not in ready_players],
+        "mulligans_by_player": {
+            str(player_id): [str(card_id) for card_id in cards]
+            for player_id, cards in mulligans_by_player.items()
+            if isinstance(cards, list)
+        },
+        "deck_ids_by_player": {
+            str(player_id): str(deck_id)
+            for player_id, deck_id in deck_ids_by_player.items()
+        },
+        "preferred_starting_player_ids_by_player": {
+            str(player_id): str(preferred_player_id)
+            for player_id, preferred_player_id in preferred_starting_player_ids.items()
+        },
+        "updated_at_by_player": {
+            str(player_id): str(updated_at)
+            for player_id, updated_at in updated_at_by_player.items()
+        },
+        "updated_at": prep.get("updated_at"),
+        "all_ready": all(player_id in ready_players for player_id in players),
+    }
 
 
 def _match_payload(connection: sqlite3.Connection, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any] | None:
@@ -2337,6 +4465,7 @@ def _match_payload(connection: sqlite3.Connection, row: sqlite3.Row | dict[str, 
         "act_id": row["act_id"],
         "status": row["status"],
         "table_id": row["table_id"],
+        "stake": _stake_payload(connection, str(row["challenge_id"])),
         "deck_state": _json_loads(str(row["deck_state_json"]), {}),
         "round_losses": _json_loads(str(row["round_losses_json"]), {}),
         "winner_id": row["winner_id"],
@@ -2650,7 +4779,7 @@ def _remove_card_from_board(
 ) -> dict[str, Any] | None:
     for units in rows.values():
         for unit in units:
-            if unit["card_id"] == target_card_id and not unit["removed"] and not unit["hero"]:
+            if unit["card_id"] == target_card_id and not unit["removed"] and not _unit_has_effect(unit, "hero"):
                 unit["removed"] = True
                 unit["returned_by_decoy"] = True
                 return unit
@@ -2679,9 +4808,45 @@ def _gwent_rules(connection: sqlite3.Connection) -> dict[str, int | str]:
     }
 
 
-def _deck_for_player(connection: sqlite3.Connection, player_id: str) -> sqlite3.Row:
+def _deck_for_player(
+    connection: sqlite3.Connection,
+    player_id: str,
+    *,
+    deck_id: str | None = None,
+) -> sqlite3.Row:
     if not _table_exists(connection, "gwent_decks"):
         raise PvpError("No imported Gwent decks are available.")
+    normalized_deck_id = str(deck_id or "").strip()
+    if normalized_deck_id:
+        if _table_exists(connection, "gwent_deck_runtime"):
+            runtime_row = connection.execute(
+                """
+                SELECT deck_id, player_id, leader_card_id, card_ids
+                FROM gwent_deck_runtime
+                WHERE player_id = ?
+                  AND deck_id = ?
+                  AND status = 'active'
+                LIMIT 1
+                """,
+                (player_id, normalized_deck_id),
+            ).fetchone()
+            if runtime_row is not None:
+                return runtime_row
+        row = connection.execute(
+            """
+            SELECT *
+            FROM gwent_decks
+            WHERE player_id = ?
+              AND deck_id = ?
+            ORDER BY _row_number
+            LIMIT 1
+            """,
+            (player_id, normalized_deck_id),
+        ).fetchone()
+        if row is None:
+            raise PvpError(f"Gwent deck is not available for player {player_id}: {normalized_deck_id}")
+        return row
+
     row = connection.execute(
         """
         SELECT *
@@ -2695,6 +4860,35 @@ def _deck_for_player(connection: sqlite3.Connection, player_id: str) -> sqlite3.
     if row is None:
         raise PvpError(f"No Gwent deck for player: {player_id}")
     return row
+
+
+def _player_available_gwent_card_ids(connection: sqlite3.Connection, player_id: str) -> set[str]:
+    available: set[str] = set()
+    if _table_exists(connection, "gwent_decks"):
+        for row in connection.execute(
+            """
+            SELECT leader_card_id, card_ids
+            FROM gwent_decks
+            WHERE player_id = ?
+            """,
+            (player_id,),
+        ).fetchall():
+            available.add(str(row["leader_card_id"]))
+            available.update(_split_ids(str(row["card_ids"])))
+    if _table_exists(connection, "asset_ownership"):
+        for row in connection.execute(
+            """
+            SELECT asset_id
+            FROM asset_ownership
+            WHERE owner_player_id = ?
+              AND asset_type = 'card'
+              AND status = 'active'
+              AND quantity > 0
+            """,
+            (player_id,),
+        ).fetchall():
+            available.add(str(row["asset_id"]))
+    return available
 
 
 def _cards_by_id(connection: sqlite3.Connection) -> dict[str, sqlite3.Row]:

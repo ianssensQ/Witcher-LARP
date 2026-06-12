@@ -1881,6 +1881,11 @@ def _validate_gwent(
         row = record.values["row"]
         card_type = record.values["type"]
         effect = record.values["effect"] or "none"
+        ability_tags = [
+            tag
+            for tag in split_ids(record.values.get("ability_tags", ""))
+            if tag and tag != effect
+        ]
         if card_type == "leader" and row != "leader":
             errors.append(
                 ImportErrorDetail(
@@ -1911,19 +1916,22 @@ def _validate_gwent(
                     message=f"Unsupported Gwent card type {card_type}.",
                 )
             )
-        elif not is_gwent_effect_supported(card_type, effect):
-            errors.append(
-                ImportErrorDetail(
-                    code="gwent_effect_unsupported",
-                    file="gwent_cards.csv",
-                    row=record.row_number,
-                    record_id=record.values["card_id"],
-                    message=(
-                        f"Gwent effect {effect} on {card_type} card is not supported "
-                        "by the Stage 1 runtime."
-                    ),
+        else:
+            for candidate_effect in [effect, *ability_tags]:
+                if is_gwent_effect_supported(card_type, candidate_effect):
+                    continue
+                errors.append(
+                    ImportErrorDetail(
+                        code="gwent_effect_unsupported",
+                        file="gwent_cards.csv",
+                        row=record.row_number,
+                        record_id=record.values["card_id"],
+                        message=(
+                            f"Gwent effect {candidate_effect} on {card_type} card is not supported "
+                            "by the Stage 1 runtime."
+                        ),
+                    )
                 )
-            )
 
     for record in tables["gwent_decks.csv"].rows:
         deck_id = record.values["deck_id"]

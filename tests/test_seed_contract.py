@@ -282,6 +282,10 @@ REQUIRED_HEADERS = {
         "strength",
         "effect",
         "rarity",
+        "ability_tags",
+        "name_group",
+        "bond_group",
+        "muster_group",
     ],
     "gwent_decks.csv": ["deck_id", "player_id", "leader_card_id", "card_ids"],
     "gwent_matches.csv": [

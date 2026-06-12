@@ -213,15 +213,15 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             ),
             (
                 "gwent_cards.csv",
-                "card_id,faction,row,type,strength,effect,rarity\n"
-                "bad_leader,northern,melee,leader,0,leader_order_rally,Uncommon\n"
-                "bad_unit,northern,special,unit,4,none,Common\n",
+                "card_id,faction,row,type,strength,effect,rarity,ability_tags,name_group,bond_group,muster_group\n"
+                "bad_leader,northern,melee,leader,0,leader_order_rally,Uncommon,,bad_leader,,\n"
+                "bad_unit,northern,special,unit,4,none,Common,,bad_unit,,\n",
                 {"gwent_card_invalid"},
             ),
             (
                 "gwent_cards.csv",
-                "card_id,faction,row,type,strength,effect,rarity\n"
-                "bad_effect,northern,melee,unit,4,stage2_portal,Common\n",
+                "card_id,faction,row,type,strength,effect,rarity,ability_tags,name_group,bond_group,muster_group\n"
+                "bad_effect,northern,melee,unit,4,stage2_portal,Common,,bad_effect,,\n",
                 {"gwent_effect_unsupported"},
             ),
             (

@@ -28,6 +28,7 @@ from .pve_runtime import (
 from .pve_runtime import apply_pve_completion_side_effects, validate_pve_completion
 from .repository import latest_snapshot_version
 from .reward_service import create_pending_reward_approval
+from .lord_runtime import LordRuntimeError, order_action
 
 
 MASTER_ACTOR_TYPES = {"master", "npc_master", "npc", "king", "wanderer"}
@@ -36,6 +37,7 @@ MASTER_ONLY_EVENT_TYPES = {"paper_recovered"}
 MOBILE_PLAYER_ROLE_TYPES = {"sorceress", "witcher"}
 PLAYER_ONLY_SYNC_EVENT_TYPES = {
     "pve_completed",
+    "order_submission",
     "qr_attempt",
     "qr_scene_started",
     "reward_approval_requested",
@@ -301,6 +303,13 @@ def _sync_single_event(
         server_event_id,
         received_at,
     )
+    decision = _apply_order_submission_side_effect_if_needed(
+        connection,
+        request,
+        event,
+        decision,
+        server_event_id,
+    )
 
     return EventSyncResult(
         event_id=event.event_id,
@@ -362,6 +371,8 @@ def _decide_event(
 
     if event.event_type == "pve_completed":
         return _decide_pve_completed(connection, request, event, metadata)
+    if event.event_type == "order_submission":
+        return _decide_order_submission(connection, request, event, metadata)
     if event.event_type == "act_unlocked_offline":
         return _decide_act_unlocked_offline(connection, event, metadata)
     if event.event_type == "reward_approval_requested":
@@ -510,6 +521,125 @@ def _decide_pve_completed(
         )
 
     return _decide_pve_reward(connection, scenario_reward_id, metadata)
+
+
+def _decide_order_submission(
+    connection: sqlite3.Connection,
+    request: EventSyncRequest,
+    event: EventSyncEvent,
+    metadata: dict[str, Any],
+) -> EventDecision:
+    player_only_reason = _player_only_sync_scope_reason(connection, request, event.event_type)
+    if player_only_reason is not None:
+        metadata.update(
+            {
+                "audit_review": True,
+                "review_severity": "P0",
+                "auth_boundary": "player_only_mobile_event",
+            }
+        )
+        return EventDecision(EventStatus.REJECTED, player_only_reason, metadata)
+
+    order_id = str(event.payload.get("order_id") or "").strip()
+    result_event_id = str(event.payload.get("result_event_id") or "").strip()
+    if not order_id:
+        return EventDecision(EventStatus.REJECTED, "missing order_submission order_id", metadata)
+    if not result_event_id:
+        return EventDecision(EventStatus.REJECTED, "missing order_submission result_event_id", metadata)
+
+    metadata.update({"order_id": order_id, "result_event_id": result_event_id})
+    order = _fetch_optional_row(
+        connection,
+        "order_runtime_state",
+        """
+        SELECT order_id, lord_id, object_id, status, accepted_by_player_id,
+               target_player_id
+        FROM order_runtime_state
+        WHERE order_id = ?
+        """,
+        (order_id,),
+    )
+    if order is None:
+        return EventDecision(EventStatus.NEEDS_MASTER_REVIEW, f"unknown order_id: {order_id}", metadata)
+
+    metadata["lord_id"] = str(order["lord_id"])
+    metadata["order_status_before_submission"] = str(order["status"])
+    accepted_by = str(order["accepted_by_player_id"] or "").strip()
+    target_player = str(order["target_player_id"] or "").strip()
+    if accepted_by and accepted_by != request.actor_id:
+        metadata.update({"audit_review": True, "review_severity": "P1"})
+        return EventDecision(EventStatus.REJECTED, "order is accepted by another player", metadata)
+    if not accepted_by and target_player and target_player != request.actor_id:
+        metadata.update({"audit_review": True, "review_severity": "P1"})
+        return EventDecision(EventStatus.REJECTED, "order is addressed to another player", metadata)
+
+    proof_decision = _order_submission_proof_decision(
+        connection,
+        request,
+        event,
+        metadata,
+        order_object_id=str(order["object_id"] or ""),
+        result_event_id=result_event_id,
+    )
+    if proof_decision is not None:
+        return proof_decision
+    return EventDecision(EventStatus.ACCEPTED, None, metadata)
+
+
+def _order_submission_proof_decision(
+    connection: sqlite3.Connection,
+    request: EventSyncRequest,
+    event: EventSyncEvent,
+    metadata: dict[str, Any],
+    *,
+    order_object_id: str,
+    result_event_id: str,
+) -> EventDecision | None:
+    proof = connection.execute(
+        """
+        SELECT event_id, actor_id, event_type, status, payload_json
+        FROM events
+        WHERE event_id = ?
+        """,
+        (result_event_id,),
+    ).fetchone()
+    if proof is None:
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            "order proof event is not synced yet",
+            metadata,
+        )
+    metadata["proof_event_status"] = str(proof["status"])
+    if str(proof["actor_id"]) != request.actor_id:
+        metadata.update({"audit_review": True, "review_severity": "P0"})
+        return EventDecision(EventStatus.REJECTED, "order proof actor mismatch", metadata)
+    if str(proof["event_type"]) != "pve_completed":
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            "order proof must reference a pve_completed event",
+            metadata,
+        )
+    if str(proof["status"]) not in {
+        EventStatus.ACCEPTED.value,
+        EventStatus.PENDING_MASTER_APPROVAL.value,
+    }:
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            "order proof event is not accepted",
+            metadata,
+        )
+
+    proof_payload = _json_loads_dict(proof["payload_json"])
+    proof_qr_id = str(proof_payload.get("qr_id") or "").strip()
+    metadata["proof_qr_id"] = proof_qr_id
+    if proof_qr_id and order_object_id and proof_qr_id != order_object_id:
+        metadata.update({"audit_review": True, "review_severity": "P1"})
+        return EventDecision(
+            EventStatus.NEEDS_MASTER_REVIEW,
+            "order proof qr_id does not match order object_id",
+            metadata,
+        )
+    return None
 
 
 def _pve_duplicate_check_reason(
@@ -1150,6 +1280,70 @@ def _apply_pve_side_effects_if_needed(
         _record_review_if_needed(connection, event, review_decision, server_event_id)
         return review_decision
     decision.metadata["pve_side_effects"] = applied
+    connection.execute(
+        """
+        UPDATE events
+        SET metadata_json = ?
+        WHERE server_event_id = ?
+        """,
+        (_json_dumps(decision.metadata), server_event_id),
+    )
+    return decision
+
+
+def _apply_order_submission_side_effect_if_needed(
+    connection: sqlite3.Connection,
+    request: EventSyncRequest,
+    event: EventSyncEvent,
+    decision: EventDecision,
+    server_event_id: int,
+) -> EventDecision:
+    if event.event_type != "order_submission" or decision.status != EventStatus.ACCEPTED:
+        return decision
+
+    try:
+        applied = order_action(
+            connection,
+            str(decision.metadata["lord_id"]),
+            action="submit_success",
+            order_id=str(decision.metadata["order_id"]),
+            player_id=request.actor_id,
+            result_event_id=str(decision.metadata["result_event_id"]),
+            reason=str(event.payload.get("reason") or "mobile order proof synced"),
+            source="event_sync",
+            actor_role="player",
+        )
+    except LordRuntimeError as exc:
+        metadata = {
+            **decision.metadata,
+            "order_submission_conflict": {
+                "code": exc.code,
+                "message": exc.message,
+            },
+            "audit_review": True,
+            "review_severity": "P1",
+        }
+        review_decision = EventDecision(EventStatus.NEEDS_MASTER_REVIEW, exc.message, metadata)
+        connection.execute(
+            """
+            UPDATE events
+            SET status = ?,
+                reason = ?,
+                metadata_json = ?,
+                applied_at = NULL
+            WHERE server_event_id = ?
+            """,
+            (
+                review_decision.status.value,
+                review_decision.reason,
+                _json_dumps(review_decision.metadata),
+                server_event_id,
+            ),
+        )
+        _record_review_if_needed(connection, event, review_decision, server_event_id)
+        return review_decision
+
+    decision.metadata["order_side_effects"] = applied
     connection.execute(
         """
         UPDATE events

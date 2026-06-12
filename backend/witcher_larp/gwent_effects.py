@@ -40,7 +40,14 @@ GWENT_SPECIAL_EFFECTS = {
     "custom_larp_last_stand",
 }
 
-GWENT_LEADER_EFFECTS = {"leader_order_rally"}
+GWENT_LEADER_EFFECTS = {
+    "leader_order_rally",
+    "leader_foltest_clear_weather",
+    "leader_emhyr_graveyard_theft",
+    "leader_francesca_ranged_horn",
+    "leader_eredin_melee_horn",
+    "leader_crach_graveyard_shuffle",
+}
 
 GWENT_SUPPORTED_EFFECTS_BY_TYPE = {
     "unit": GWENT_UNIT_EFFECTS,

@@ -461,6 +461,7 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             status TEXT NOT NULL,
             mandatory INTEGER NOT NULL DEFAULT 1,
             stake_json TEXT NOT NULL DEFAULT '{}',
+            prep_json TEXT NOT NULL DEFAULT '{}',
             table_id TEXT,
             assigned_zone TEXT,
             start_window_deadline TEXT,
@@ -510,6 +511,16 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             UNIQUE(match_id, round_number),
             FOREIGN KEY (match_id) REFERENCES gwent_runtime_matches(match_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS gwent_deck_runtime (
+            deck_id TEXT PRIMARY KEY,
+            player_id TEXT NOT NULL,
+            leader_card_id TEXT NOT NULL,
+            card_ids TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS pvp_stake_ledger (
@@ -769,6 +780,13 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
         "pvp_stake_ledger",
         {
             "quantity": "INTEGER NOT NULL DEFAULT 1",
+        },
+    )
+    _ensure_columns(
+        connection,
+        "pvp_challenges",
+        {
+            "prep_json": "TEXT NOT NULL DEFAULT '{}'",
         },
     )
 

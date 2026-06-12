@@ -5,7 +5,7 @@ import json
 import unittest
 from uuid import uuid4
 
-from backend.witcher_larp.app import create_app
+from backend.witcher_larp.app import LORD_FRONTEND_INDEX, create_app
 from backend.witcher_larp.config import PROJECT_ROOT, Settings
 from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
@@ -47,6 +47,8 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["database"]["status"], "ok")
         self.assertEqual(payload["database"]["schema_version"], 1)
+        self.assertEqual(payload["api"]["revision"], "ios-gwent-pvp-v1")
+        self.assertIn("ios_gwent_pvp_actions", payload["api"]["features"])
 
     def test_static_entrypoints_auth_and_qr_errors_are_explicit(self) -> None:
         settings = self._settings("fastapi_entry_auth_errors")
@@ -74,7 +76,11 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(root.status_code, 307)
         self.assertEqual(root.headers["location"], "/admin")
         self.assertEqual(old_lord_panel.status_code, 404)
-        self.assertEqual(old_lord_login.status_code, 200)
+        if LORD_FRONTEND_INDEX.exists():
+            self.assertEqual(old_lord_login.status_code, 200)
+        else:
+            self.assertEqual(old_lord_login.status_code, 503)
+            self.assertIn("build is not available", old_lord_login.json()["detail"])
         self.assertEqual(invalid_role.status_code, 401)
         self.assertEqual(valid_role.status_code, 200)
         self.assertEqual(valid_role.json()["owner_id"], "p_lord_1")
@@ -223,6 +229,7 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["player"]["xp"], 24)
         self.assertEqual(payload["player"]["gold"], 35)
         self.assertEqual(payload["act_unlock_state"]["policy"], "server_sync_or_revealed_master_code")
+        self.assertIn("current_act_id", payload["act_unlock_state"])
         self.assertTrue(payload["act_unlock_codes"])
         self.assertTrue(all(row["code"] is None for row in payload["act_unlock_codes"]))
         self.assertTrue(all(row["code_sha256"] is None for row in payload["act_unlock_codes"]))

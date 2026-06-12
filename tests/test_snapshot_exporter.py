@@ -7,6 +7,7 @@ import unittest
 from uuid import uuid4
 
 from backend.witcher_larp.act_service import reveal_unlock_code, start_act
+from backend.witcher_larp.asset_service import grant_asset_ownership
 from backend.witcher_larp.config import PROJECT_ROOT, Settings
 from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
@@ -230,10 +231,157 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
         self.assertTrue(revealed_act2["server_unlocked"])
         self.assertIsNotNone(revealed_act2["code_sha256"])
         self.assertEqual(revealed_act2["unlock_revealed_by"], "gm_king")
+        self.assertEqual(revealed_snapshot["act_unlock_state"]["current_act_id"], "act2")
         self.assertIn("act2", revealed_snapshot["act_unlock_state"]["unlocked_act_ids"])
         self.assertIn("act2", revealed_snapshot["act_unlock_state"]["revealed_act_ids"])
         self.assertNotIn("player_codes", revealed_snapshot)
         self.assertNotIn("role_tokens", revealed_snapshot)
+
+    def test_player_scoped_snapshot_includes_only_own_runtime_inventory(self) -> None:
+        settings = self._settings("scoped_runtime_inventory")
+        self._import_valid_seed(settings)
+        now = datetime(2026, 6, 2, 14, 0, tzinfo=UTC)
+        timestamp = now.isoformat(timespec="seconds")
+
+        with connect(settings) as connection:
+            grant_asset_ownership(
+                connection,
+                owner_player_id="p_witcher_1",
+                asset_type="item",
+                asset_id="item_herb_bundle",
+                quantity=2,
+                source="test",
+                source_ref_id="own_w1",
+                now=now,
+            )
+            grant_asset_ownership(
+                connection,
+                owner_player_id="p_witcher_2",
+                asset_type="item",
+                asset_id="item_silver_dust",
+                quantity=1,
+                source="test",
+                source_ref_id="own_w2",
+                now=now,
+            )
+            connection.execute(
+                """
+                INSERT INTO potion_inventory (
+                    inventory_id, player_id, potion_id, quantity, updated_at
+                )
+                VALUES
+                    ('inv_w1_swallow', 'p_witcher_1', 'potion_common_swallow', 2, ?),
+                    ('inv_w2_oriole', 'p_witcher_2', 'potion_rare_oriole', 1, ?)
+                """,
+                (timestamp, timestamp),
+            )
+            connection.execute(
+                """
+                INSERT INTO trade_transfer_runtime (
+                    transfer_id, from_player_id, to_player_id, asset_type, asset_id,
+                    quantity, price_gold, mode, status, source, created_at, updated_at
+                )
+                VALUES
+                    (
+                        'trade_w1_to_w2',
+                        'p_witcher_1',
+                        'p_witcher_2',
+                        'item',
+                        'item_herb_bundle',
+                        1,
+                        0,
+                        'gift',
+                        'pending_locked',
+                        'test',
+                        ?,
+                        ?
+                    ),
+                    (
+                        'trade_w3_to_sorc',
+                        'p_witcher_3',
+                        'p_sorc_1',
+                        'item',
+                        'item_monster_trophy',
+                        1,
+                        0,
+                        'gift',
+                        'pending_locked',
+                        'test',
+                        ?,
+                        ?
+                    )
+                """,
+                (timestamp, timestamp, timestamp, timestamp),
+            )
+            connection.execute(
+                """
+                INSERT INTO reward_approvals (
+                    approval_id, reward_id, player_id, status, source_event_id,
+                    created_at, locked_assets_json
+                )
+                VALUES
+                    (
+                        'approval_w1',
+                        'reward_pve_t1',
+                        'p_witcher_1',
+                        'pending_master_approval',
+                        1,
+                        ?,
+                        '[{"asset_type":"item","asset_id":"item_herb_bundle","quantity":1}]'
+                    ),
+                    (
+                        'approval_w2',
+                        'reward_pve_t1',
+                        'p_witcher_2',
+                        'pending_master_approval',
+                        2,
+                        ?,
+                        '[{"asset_type":"item","asset_id":"item_silver_dust","quantity":1}]'
+                    )
+                """,
+                (timestamp, timestamp),
+            )
+
+            snapshot = build_snapshot_from_database(
+                connection,
+                player_code="WC-WOLF-6GF4",
+            )
+
+        assert snapshot is not None
+        self.assertEqual(
+            [row["asset_id"] for row in snapshot["asset_ownership"]],
+            ["item_herb_bundle"],
+        )
+        self.assertEqual(
+            [row["potion_id"] for row in snapshot["potion_inventory"]],
+            ["potion_common_swallow"],
+        )
+        self.assertEqual(
+            [row["transfer_id"] for row in snapshot["trade_transfers"]],
+            ["trade_w1_to_w2"],
+        )
+        self.assertEqual(
+            [row["approval_id"] for row in snapshot["reward_approvals"]],
+            ["approval_w1"],
+        )
+        self.assertEqual(snapshot["reward_approvals"][0]["locked_assets"][0]["asset_id"], "item_herb_bundle")
+
+        self.assertNotIn(
+            "item_silver_dust",
+            {row["asset_id"] for row in snapshot["asset_ownership"]},
+        )
+        self.assertNotIn(
+            "potion_rare_oriole",
+            {row["potion_id"] for row in snapshot["potion_inventory"]},
+        )
+        self.assertNotIn(
+            "trade_w3_to_sorc",
+            {row["transfer_id"] for row in snapshot["trade_transfers"]},
+        )
+        self.assertNotIn(
+            "approval_w2",
+            {row["approval_id"] for row in snapshot["reward_approvals"]},
+        )
 
     def assert_secret_tables_absent(self, payload: dict[str, object]) -> None:
         self.assertNotIn("player_codes", payload)

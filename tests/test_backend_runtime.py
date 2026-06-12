@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import os
 import sqlite3
+import sys
+import types
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
+from backend.witcher_larp import __main__ as backend_main
 from backend.witcher_larp.config import Settings
 from backend.witcher_larp.config import PROJECT_ROOT
 from backend.witcher_larp.database import connect, healthcheck_database, init_database
@@ -76,6 +81,44 @@ class DatabaseRuntimeTests(unittest.TestCase):
 
         self.assertEqual(health.status, "missing_schema")
         self.assertEqual(health.schema_version, 0)
+
+
+class BackendEntrypointTests(unittest.TestCase):
+    def run_main_with_env(self, env: dict[str, str]) -> dict[str, object]:
+        captured: dict[str, object] = {}
+
+        def fake_run(app_ref: str, **kwargs: object) -> None:
+            captured["app_ref"] = app_ref
+            captured.update(kwargs)
+
+        fake_uvicorn = types.SimpleNamespace(run=fake_run)
+        with patch.dict(sys.modules, {"uvicorn": fake_uvicorn}):
+            with patch.dict(os.environ, env, clear=True):
+                exit_code = backend_main.main()
+
+        captured["exit_code"] = exit_code
+        return captured
+
+    def test_python_module_entrypoint_defaults_to_lan_production_server(self) -> None:
+        captured = self.run_main_with_env({})
+
+        self.assertEqual(captured["exit_code"], 0)
+        self.assertEqual(captured["app_ref"], "backend.witcher_larp.app:create_app")
+        self.assertEqual(captured["factory"], True)
+        self.assertEqual(captured["host"], "0.0.0.0")
+        self.assertEqual(captured["port"], 8002)
+
+    def test_python_module_entrypoint_accepts_host_and_port_overrides(self) -> None:
+        captured = self.run_main_with_env(
+            {
+                "WITCHER_LARP_HOST": "127.0.0.1",
+                "WITCHER_LARP_PORT": "8794",
+            }
+        )
+
+        self.assertEqual(captured["exit_code"], 0)
+        self.assertEqual(captured["host"], "127.0.0.1")
+        self.assertEqual(captured["port"], 8794)
 
 
 if __name__ == "__main__":

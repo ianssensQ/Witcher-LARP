@@ -70,6 +70,12 @@ PLAYER_PUBLIC_ORDER_STATUSES = {
     "published",
     "addressed_pending",
 }
+RUNTIME_PLAYER_SNAPSHOT_KEYS = (
+    "asset_ownership",
+    "potion_inventory",
+    "trade_transfers",
+    "reward_approvals",
+)
 
 
 def build_snapshot_from_pack(pack: SeedPack) -> tuple[str, str, dict[str, object]]:
@@ -110,12 +116,15 @@ def build_snapshot_from_database(
         tables["act_unlock_codes"],
         _fetch_act_history(connection),
     )
+    current_act_id = _fetch_current_act_id(connection)
     snapshot = _payload_from_tables(
         tables,
         snapshot_version=version_row["snapshot_version"],
         generated_at=version_row["created_at"],
         act_unlocks=act_unlocks,
+        current_act_id=current_act_id,
     )
+    snapshot.update(_fetch_runtime_snapshot_rows(connection))
     if player_scope is not None:
         reputation_view = _player_reputation_view(
             connection,
@@ -186,6 +195,7 @@ def _scope_snapshot_to_player_id(
     scoped["players"] = [public_player]
     scoped["goals"] = _scope_goals(snapshot.get("goals"), player_id)
     scoped["orders"] = _scope_orders(snapshot.get("orders"), player_id)
+    _scope_runtime_player_content(scoped, player_id)
     _redact_player_content(scoped)
     scoped["visibility"] = {
         "scope": "player",
@@ -228,6 +238,7 @@ def _payload_from_tables(
     snapshot_version: str,
     generated_at: str,
     act_unlocks: list[dict[str, object]] | None = None,
+    current_act_id: str | None = None,
 ) -> dict[str, object]:
     safe_act_unlocks = (
         act_unlocks
@@ -242,7 +253,11 @@ def _payload_from_tables(
         "players": tables["players"],
         "acts": tables["acts"],
         "act_unlock_codes": safe_act_unlocks,
-        "act_unlock_state": _act_unlock_state(tables["acts"], safe_act_unlocks),
+        "act_unlock_state": _act_unlock_state(
+            tables["acts"],
+            safe_act_unlocks,
+            current_act_id=current_act_id,
+        ),
         "orders": _order_snapshot_rows(
             tables["orders"],
             qr_objects=tables["qr_objects"],
@@ -309,6 +324,18 @@ def _fetch_act_history(connection: sqlite3.Connection) -> dict[str, dict[str, st
     }
 
 
+def _fetch_current_act_id(connection: sqlite3.Connection) -> str | None:
+    if not _table_exists(connection, "act_state"):
+        return None
+    row = connection.execute(
+        "SELECT current_act_id FROM act_state WHERE id = 1"
+    ).fetchone()
+    if row is None:
+        return None
+    current_act_id = str(row["current_act_id"] or "").strip()
+    return current_act_id or None
+
+
 def _act_unlock_snapshot_rows(
     rows: list[dict[str, str]],
     history_by_act: dict[str, dict[str, str]],
@@ -343,6 +370,8 @@ def _act_unlock_snapshot_rows(
 def _act_unlock_state(
     acts: list[dict[str, str]],
     act_unlocks: list[dict[str, object]],
+    *,
+    current_act_id: str | None = None,
 ) -> dict[str, object]:
     unlocked = {"act1"}
     revealed = set()
@@ -357,6 +386,7 @@ def _act_unlock_state(
         if row.get("revealed"):
             revealed.add(act_id)
     return {
+        "current_act_id": current_act_id,
         "unlocked_act_ids": sorted(unlocked),
         "revealed_act_ids": sorted(revealed),
         "policy": "server_sync_or_revealed_master_code",
@@ -581,6 +611,17 @@ def _dict_rows(rows: object) -> list[dict[str, object]]:
     return [row for row in rows if isinstance(row, dict)]
 
 
+def _row_payload(row: sqlite3.Row) -> dict[str, object]:
+    return {key: row[key] for key in row.keys()}
+
+
+def _json_loads(value: object, fallback: object) -> object:
+    try:
+        return json.loads(str(value or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return fallback
+
+
 def _mobile_export_payload(snapshot: dict[str, object]) -> dict[str, object]:
     payload = json.loads(json.dumps(snapshot, ensure_ascii=False, default=str))
     visibility = payload.get("visibility", {})
@@ -599,6 +640,8 @@ def _mobile_export_payload(snapshot: dict[str, object]) -> dict[str, object]:
         goals["goal_flags"] = []
         goals["final_hooks"] = []
     payload["orders"] = []
+    for key in RUNTIME_PLAYER_SNAPSHOT_KEYS:
+        payload[key] = []
     payload["visibility"] = {
         **(visibility if isinstance(visibility, dict) else {}),
         "scope": "mobile_public_artifact",
@@ -640,6 +683,13 @@ def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
         (table_name,),
     ).fetchone()
     return row is not None
+
+
+def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    return {
+        str(row["name"])
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
 
 
 def _scope_goals(goals: object, player_id: str) -> dict[str, list[dict[str, str]]]:
@@ -697,6 +747,153 @@ def _fetch_order_snapshot_rows(
     if not rows:
         return list(fallback_rows)
     return [{key: row[key] for key in row.keys()} for row in rows]
+
+
+def _fetch_runtime_snapshot_rows(connection: sqlite3.Connection) -> dict[str, list[dict[str, object]]]:
+    return {
+        "asset_ownership": _fetch_asset_ownership_rows(connection),
+        "potion_inventory": _fetch_potion_inventory_rows(connection),
+        "trade_transfers": _fetch_trade_transfer_rows(connection),
+        "reward_approvals": _fetch_reward_approval_rows(connection),
+    }
+
+
+def _fetch_asset_ownership_rows(connection: sqlite3.Connection) -> list[dict[str, object]]:
+    if not _table_exists(connection, "asset_ownership"):
+        return []
+    rows = connection.execute(
+        """
+        SELECT ownership_id, owner_player_id, asset_type, asset_id, quantity,
+               status, source, source_ref_id, created_at, updated_at
+        FROM asset_ownership
+        WHERE quantity > 0
+        ORDER BY owner_player_id, asset_type, asset_id, status
+        """
+    ).fetchall()
+    return [_row_payload(row) for row in rows]
+
+
+def _fetch_potion_inventory_rows(connection: sqlite3.Connection) -> list[dict[str, object]]:
+    if not _table_exists(connection, "potion_inventory"):
+        return []
+    rows = connection.execute(
+        """
+        SELECT inventory_id, player_id, potion_id, quantity, updated_at
+        FROM potion_inventory
+        WHERE quantity > 0
+        ORDER BY player_id, potion_id
+        """
+    ).fetchall()
+    return [_row_payload(row) for row in rows]
+
+
+def _fetch_trade_transfer_rows(connection: sqlite3.Connection) -> list[dict[str, object]]:
+    if not _table_exists(connection, "trade_transfer_runtime"):
+        return []
+    columns = _table_columns(connection, "trade_transfer_runtime")
+    select_columns = [
+        column
+        for column in (
+            "transfer_id",
+            "from_player_id",
+            "to_player_id",
+            "asset_type",
+            "asset_id",
+            "quantity",
+            "price_gold",
+            "mode",
+            "status",
+            "accepted_at",
+            "source",
+            "created_at",
+            "updated_at",
+            "closed_at",
+            "close_reason",
+            "closed_by_player_id",
+        )
+        if column in columns
+    ]
+    rows = connection.execute(
+        f"""
+        SELECT {", ".join(select_columns)}
+        FROM trade_transfer_runtime
+        ORDER BY created_at, transfer_id
+        """
+    ).fetchall()
+    result = []
+    for row in rows:
+        payload = _row_payload(row)
+        for column in ("closed_at", "close_reason", "closed_by_player_id"):
+            payload.setdefault(column, None)
+        result.append(payload)
+    return result
+
+
+def _fetch_reward_approval_rows(connection: sqlite3.Connection) -> list[dict[str, object]]:
+    if not _table_exists(connection, "reward_approvals"):
+        return []
+    columns = _table_columns(connection, "reward_approvals")
+    select_columns = [
+        column
+        for column in (
+            "approval_id",
+            "reward_id",
+            "player_id",
+            "status",
+            "source_event_id",
+            "created_at",
+            "decided_at",
+            "decided_by",
+            "audit_reason",
+            "correction_json",
+            "applied_at",
+            "locked_assets_json",
+        )
+        if column in columns
+    ]
+    rows = connection.execute(
+        f"""
+        SELECT {", ".join(select_columns)}
+        FROM reward_approvals
+        ORDER BY created_at, approval_id
+        """
+    ).fetchall()
+    result: list[dict[str, object]] = []
+    for row in rows:
+        payload = _row_payload(row)
+        payload.setdefault("correction_json", "{}")
+        payload.setdefault("locked_assets_json", "[]")
+        payload["correction"] = _json_loads(payload.get("correction_json"), {})
+        payload["locked_assets"] = _json_loads(payload.get("locked_assets_json"), [])
+        result.append(payload)
+    return result
+
+
+def _scope_runtime_player_content(payload: dict[str, object], player_id: str) -> None:
+    payload["asset_ownership"] = [
+        row
+        for row in _dict_rows(payload.get("asset_ownership"))
+        if str(row.get("owner_player_id", "")) == player_id
+    ]
+    payload["potion_inventory"] = [
+        row
+        for row in _dict_rows(payload.get("potion_inventory"))
+        if str(row.get("player_id", "")) == player_id
+    ]
+    payload["trade_transfers"] = [
+        row
+        for row in _dict_rows(payload.get("trade_transfers"))
+        if player_id
+        in {
+            str(row.get("from_player_id", "")),
+            str(row.get("to_player_id", "")),
+        }
+    ]
+    payload["reward_approvals"] = [
+        row
+        for row in _dict_rows(payload.get("reward_approvals"))
+        if str(row.get("player_id", "")) == player_id
+    ]
 
 
 def _merge_runtime_player_rows(

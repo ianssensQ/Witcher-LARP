@@ -17,8 +17,8 @@ def main() -> int:
         )
         return 2
 
-    host = os.environ.get("WITCHER_LARP_HOST", "127.0.0.1")
-    port = int(os.environ.get("WITCHER_LARP_PORT", "8000"))
+    host = os.environ.get("WITCHER_LARP_HOST", "0.0.0.0")
+    port = int(os.environ.get("WITCHER_LARP_PORT", "8002"))
     uvicorn.run("backend.witcher_larp.app:create_app", factory=True, host=host, port=port)
     return 0
 
