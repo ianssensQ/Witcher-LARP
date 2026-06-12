@@ -1718,6 +1718,87 @@ class LordBattleRuntimeTests(unittest.TestCase):
         self.assertEqual(state.status_code, 200, state.text)
         self.assertEqual(state.json()["movement"]["current_node_id"], "node_res_north")
 
+    def test_neutral_defeat_retreats_lord_home_with_surviving_active_army(self) -> None:
+        settings = self._settings("lord_battle_neutral_retreat_survivors")
+        self._import_seed(settings)
+        self._set_active_armies(
+            settings,
+            current_nodes={"domain_north": "node_field_oats"},
+            rows=[
+                ("army_north_neutral_survivors", "domain_north", "unit_infantry_t1", 3, "node_field_oats"),
+            ],
+            clear_existing=True,
+        )
+        client = TestClient(create_app(settings))
+        created = client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_neutral_retreat_survivors",
+                "attacker_domain_id": "domain_north",
+                "territory_id": "territory_field_oats",
+                "seed": "neutral-retreat-survivors",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        self._start_battle_after_deployment(client, "battle_neutral_retreat_survivors")
+
+        surrendered = client.post(
+            "/api/lord-battles/battle_neutral_retreat_survivors/actions",
+            headers=self._headers("north"),
+            json={
+                "action_id": "surrender-neutral-retreat-survivors",
+                "action_type": "surrender",
+                "actor_side": "attacker",
+            },
+        )
+        self.assertEqual(surrendered.status_code, 200, surrendered.text)
+        result = surrendered.json()["battle"]["result"]
+
+        self.assertEqual(result["winner_side"], "defender")
+        self.assertEqual(
+            result["retreat"],
+            {"domain_id": "domain_north", "to_node_id": "node_res_north", "status": "retreated"},
+        )
+        with connect(settings) as connection:
+            domain = connection.execute(
+                """
+                SELECT current_node_id
+                FROM domain_runtime_state
+                WHERE domain_id = 'domain_north'
+                """
+            ).fetchone()
+            army = connection.execute(
+                """
+                SELECT count, status, location_node_id
+                FROM active_army_runtime
+                WHERE army_id = 'army_north_neutral_survivors'
+                """
+            ).fetchone()
+        self.assertEqual(domain["current_node_id"], "node_res_north")
+        self.assertEqual(army["count"], 3)
+        self.assertEqual(army["status"], "active")
+        self.assertEqual(army["location_node_id"], "node_res_north")
+
+        state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers=self._headers("north"),
+        )
+        self.assertEqual(state.status_code, 200, state.text)
+        self.assertEqual(state.json()["movement"]["current_node_id"], "node_res_north")
+        self.assertEqual(state.json()["active_army_location"]["node_id"], "node_res_north")
+
+        preview = client.post(
+            "/api/lords/p_lord_1/route-preview",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_res_north"},
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        preview_payload = preview.json()
+        self.assertFalse(preview_payload["can_move"])
+        self.assertEqual(preview_payload["from_node_id"], "node_res_north")
+        self.assertEqual(preview_payload["reason_code"], "already_at_target")
+
     def test_expired_turn_timer_is_applied_before_ordinary_action(self) -> None:
         settings = self._settings("lord_battle_proactive_timeout")
         self._import_seed(settings)

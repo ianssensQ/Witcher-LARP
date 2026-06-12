@@ -105,6 +105,11 @@ class FastApiContractTests(unittest.TestCase):
     def test_lord_frontend_runtime_avoids_seed_auth_defaults_and_secret_query_tokens(self) -> None:
         frontend_root = PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src"
         app_source = (frontend_root / "App.tsx").read_text(encoding="utf-8")
+        route_sources = {
+            path.name: path.read_text(encoding="utf-8")
+            for path in sorted((frontend_root / "routes").glob("*.tsx"))
+        }
+        lord_route_source = "\n".join(route_sources.values())
         battle_source = (frontend_root / "LordBattleScreen.tsx").read_text(encoding="utf-8")
         mp_source = (frontend_root / "LordMpHud.tsx").read_text(encoding="utf-8")
         main_source = (frontend_root / "main.tsx").read_text(encoding="utf-8")
@@ -113,27 +118,83 @@ class FastApiContractTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        for source in (app_source, battle_source, mp_source, runtime_source):
+        for source in (app_source, lord_route_source, battle_source, mp_source, runtime_source):
             self.assertNotIn("LORD-NORTH-R8K4", source)
             self.assertNotIn("lordHomeDefaultRoleToken", source)
             self.assertNotIn('searchParams.set("token"', source)
             self.assertNotIn('routeParams.get("token")', source)
             self.assertNotIn('localStorage.getItem("witcher_larp_role_token")', source)
 
-        self.assertIn("readLordRuntimeSession", app_source)
-        self.assertIn("clearLordRuntimeSession", app_source)
+        self.assertIn('lazy(() => import("./routes/LordLoginRoute"))', app_source)
+        self.assertIn('lazy(() => import("./routes/LordHomeRoute"))', app_source)
+        self.assertIn('lazy(() => import("./routes/LordMapRoute"))', app_source)
+        self.assertIn("readLordRuntimeSession", lord_route_source)
+        self.assertIn("clearLordRuntimeSession", lord_route_source)
         self.assertIn("stripLordRuntimeSensitiveQueryParams", runtime_source)
         self.assertIn('lazy(() => import("./App"))', main_source)
         self.assertNotIn("mobile/witcher", main_source)
-        self.assertNotIn("assets/generated/mobile", app_source)
+        self.assertNotIn("assets/generated/mobile", lord_route_source)
         self.assertNotIn("assets/generated/mobile", battle_source)
-        self.assertIn("Маршрут недоступен", app_source)
-        self.assertIn("Проверяем маршрут.", app_source)
-        self.assertNotIn("РњР°СЂС€СЂСѓС‚", app_source)
-        self.assertNotIn("РџСЂРѕРІРµСЂСЏРµРј", app_source)
+        self.assertIn("Маршрут недоступен", route_sources["LordMapRoute.tsx"])
+        self.assertIn("Проверяем маршрут.", route_sources["LordMapRoute.tsx"])
+        self.assertNotIn("РњР°СЂС€СЂСѓС‚", route_sources["LordMapRoute.tsx"])
+        self.assertNotIn("РџСЂРѕРІРµСЂСЏРµРј", route_sources["LordMapRoute.tsx"])
+        self.assertNotIn("Р СљР В°РЎР‚РЎв‚¬РЎР‚РЎС“РЎвЂљ", lord_route_source)
+        self.assertNotIn("Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С", lord_route_source)
         self.assertIn("MAX_RUNTIME_ASSET_BYTES", build_script)
+        self.assertIn("MAX_RUNTIME_TOTAL_ASSET_BYTES", build_script)
         self.assertIn("FORBIDDEN_RUNTIME_ASSET_SUBPATHS", build_script)
+        self.assertIn("CSS_ASSET_RE", build_script)
         self.assertIn("vite", build_script)
+
+    def test_lord_frontend_build_guard_rejects_forbidden_mobile_generated_assets(self) -> None:
+        from scripts import build_lord_frontend
+
+        original_imports = build_lord_frontend._runtime_asset_imports
+        forbidden_asset = (
+            PROJECT_ROOT
+            / "prototypes"
+            / "stage2b-v2"
+            / "src"
+            / "assets"
+            / "generated"
+            / "mobile"
+            / "m1-journal-shell-v1.png"
+        )
+        try:
+            build_lord_frontend._runtime_asset_imports = lambda: [forbidden_asset]
+            with self.assertRaises(SystemExit) as raised:
+                build_lord_frontend._audit_runtime_assets()
+        finally:
+            build_lord_frontend._runtime_asset_imports = original_imports
+
+        self.assertIn("assets/generated/mobile", str(raised.exception).replace("\\", "/"))
+
+    def test_lord_frontend_login_and_map_route_smoke_contracts(self) -> None:
+        frontend_root = PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src"
+        login_source = (frontend_root / "routes" / "LordLoginRoute.tsx").read_text(
+            encoding="utf-8"
+        )
+        map_source = (frontend_root / "routes" / "LordMapRoute.tsx").read_text(
+            encoding="utf-8"
+        )
+        runtime_source = (frontend_root / "lordRuntime.ts").read_text(encoding="utf-8")
+
+        self.assertIn("const isMissingLordRuntimeSession", map_source)
+        self.assertIn("getLordRuntimeLoginPath(apiBaseUrl, getLordRuntimeCurrentPathWithoutSensitiveParams())", map_source)
+        self.assertIn("window.location.replace(loginRedirectPath)", map_source)
+        self.assertIn("persistLordRuntimeSession({", login_source)
+        self.assertIn("window.location.assign(withLordRuntimeQuery(nextPath, apiBaseUrl))", login_source)
+        self.assertIn("stripLordRuntimeSensitiveQueryParams", login_source)
+        self.assertIn("stripLordRuntimeSensitiveQueryParams", map_source)
+        self.assertIn('const lordRuntimeSensitiveQueryKeys = ["token", "role_token", "roleToken"]', runtime_source)
+        self.assertIn("lordRuntimeSensitiveQueryKeys.forEach((key)", runtime_source)
+        self.assertIn("url.searchParams.delete(key)", runtime_source)
+        self.assertIn('searchParams.delete("api")', runtime_source)
+        self.assertNotIn('searchParams.set("token"', login_source)
+        self.assertNotIn('searchParams.set("api"', login_source)
+        self.assertNotIn("Только чтение", map_source)
+        self.assertIn("Ожидает приказа", map_source)
 
     def test_qr_lookup_reports_missing_imported_qr_content(self) -> None:
         settings = self._settings("fastapi_no_qr_content")

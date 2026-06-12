@@ -214,9 +214,17 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertNotEqual(blocked.headers.get("access-control-allow-origin"), "http://example.com")
 
     def test_lord_frontend_keeps_runtime_api_connection_for_live_master_ops(self) -> None:
-        app_source = (PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "App.tsx").read_text(
+        frontend_root = PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src"
+        home_source = (frontend_root / "routes" / "LordHomeRoute.tsx").read_text(
             encoding="utf-8"
         )
+        map_source = (frontend_root / "routes" / "LordMapRoute.tsx").read_text(
+            encoding="utf-8"
+        )
+        login_source = (frontend_root / "routes" / "LordLoginRoute.tsx").read_text(
+            encoding="utf-8"
+        )
+        route_source = "\n".join([home_source, map_source, login_source])
         mp_source = (
             PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "LordMpHud.tsx"
         ).read_text(encoding="utf-8")
@@ -227,23 +235,31 @@ class AdminStudioContractTests(unittest.TestCase):
             PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "lordRuntime.ts"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('const lordHomeStatePollMs = 10_000;', app_source)
-        self.assertIn('/api/lords/${backendLordId}/${endpoint}', app_source)
-        self.assertIn('/api/lords/${encodeURIComponent(backendLordId)}/${endpoint}', app_source)
+        self.assertIn('const lordHomeStatePollMs = 10_000;', route_source)
+        self.assertIn('/api/lords/${backendLordId}/${endpoint}', map_source)
+        self.assertIn('/api/lords/${encodeURIComponent(backendLordId)}/${endpoint}', home_source)
         self.assertIn('/summary', mp_source)
         self.assertIn('/summary', battle_source)
         self.assertIn('const lordMpStatePollMs = 3_000;', mp_source)
         self.assertIn("witcher_larp_api_base_url", runtime_source)
-        self.assertIn("stripLordRuntimeSensitiveQueryParams", app_source)
+        self.assertIn("stripLordRuntimeSensitiveQueryParams", route_source)
         self.assertIn("stripLordRuntimeSensitiveQueryParams", battle_source)
         self.assertIn("readLordRuntimeSession", mp_source)
-        self.assertIn("getLordRuntimeApiBaseUrl(queryParams)", app_source)
-        self.assertIn("window.location.assign(withLordRuntimeQuery(nextPath, apiBaseUrl))", app_source)
-        self.assertIn("withLordRuntimeQuery(\"/lords/map\", apiBaseUrl)", app_source)
-        self.assertIn("withLordBattleRuntimeQuery(\"/lords/home\")", battle_source)
+        self.assertIn("getLordRuntimeApiBaseUrl(queryParams)", login_source)
+        self.assertIn("window.location.assign(withLordRuntimeQuery(nextPath, apiBaseUrl))", login_source)
+        self.assertIn("withLordRuntimeQuery(\"/lords/map\", apiBaseUrl)", home_source)
+        self.assertIn("withLordBattleRuntimeQuery(getLordBattleReturnPath", battle_source)
+        self.assertIn('return "/lords/home";', battle_source)
 
     def test_lord_frontend_maps_current_lord_residence_to_castle_runtime(self) -> None:
-        app_source = (PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src" / "App.tsx").read_text(
+        app_source = (
+            PROJECT_ROOT
+            / "prototypes"
+            / "stage2b-v2"
+            / "src"
+            / "routes"
+            / "LordHomeRoute.tsx"
+        ).read_text(
             encoding="utf-8"
         )
 
