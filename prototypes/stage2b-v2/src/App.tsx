@@ -111,7 +111,7 @@ const LordBattleScreen = lazy(() => import("./LordBattleScreen"));
 type Tone = "gold" | "green" | "blue" | "red" | "violet" | "muted";
 
 type LordHomeUnitId = "infantry" | "guard" | "ranged" | "cavalry" | "heavy-siege" | "specialist";
-type LordHomeTerritoryId = "castle" | "north-fort" | "river-gate" | "mist-lake";
+type LordHomeTerritoryId = string;
 type LordHomeStack = { stackId?: string; unitId: LordHomeUnitId; count: number };
 type LordHomeDragPayload = { lane: "army" | "garrison"; index: number } | null;
 type LordHomeTransferDraft = { lane: "army" | "garrison"; index: number; mode: "transfer" | "split" } | null;
@@ -284,6 +284,13 @@ type LordHomeTerritoryRuntime = {
   buildingNodes?: LordHomeBackendBuilding[];
   lockReasons?: LordHomeBackendLockReason[];
 };
+
+const lordHomeCapturePendingStatuses = new Set(["capture_pending_garrison", "awaiting_garrison"]);
+const isLordHomeCapturePendingStatus = (status: string | null | undefined) =>
+  lordHomeCapturePendingStatuses.has((status ?? "").trim());
+const isLordHomeCapturePendingRuntime = (runtime: LordHomeTerritoryRuntime | undefined) =>
+  isLordHomeCapturePendingStatus(runtime?.status);
+
 type LordHomeRecruitStockInfo = {
   rate: number;
   stock: number;
@@ -411,7 +418,7 @@ const lordHomeUnitIdByBackendCardId = Object.fromEntries(
   lordHomeUnitOrder.map((unitId) => [lordHomeUnitCatalog[unitId].backendCardId, unitId])
 ) as Record<string, LordHomeUnitId>;
 
-const lordHomeTerritories: Array<{
+type LordHomeTerritoryDefinition = {
   id: LordHomeTerritoryId;
   backendTerritoryId: string;
   name: string;
@@ -421,7 +428,9 @@ const lordHomeTerritories: Array<{
   bonus: string;
   heroHere: boolean;
   recruitIds: Array<LordHomeUnitId | null>;
-}> = [
+};
+
+const lordHomeTerritories: LordHomeTerritoryDefinition[] = [
   {
     id: "castle",
     backendTerritoryId: "territory_res_north",
@@ -472,6 +481,47 @@ const lordHomeTerritoryIdByBackendId = Object.fromEntries(
   lordHomeTerritories.map((territory) => [territory.backendTerritoryId, territory.id])
 ) as Partial<Record<string, LordHomeTerritoryId>>;
 
+const lordHomeStaticTerritoryIds = new Set(lordHomeTerritories.map((territory) => territory.id));
+
+const createEmptyLordHomeTerritoryRecruitStock = () =>
+  Object.fromEntries(lordHomeUnitOrder.map((unitId) => [unitId, { rate: 0, stock: 0 }])) as Record<
+    LordHomeUnitId,
+    LordHomeRecruitStockInfo
+  >;
+
+const getLordHomeRouteTerritoryId = (routeParams: URLSearchParams): LordHomeTerritoryId => {
+  const requestedTerritory = (routeParams.get("territory_id") || routeParams.get("territory") || "").trim();
+  if (!requestedTerritory) {
+    return "castle";
+  }
+  return lordHomeTerritoryIdByBackendId[requestedTerritory] ?? requestedTerritory;
+};
+
+const getLordHomeShortName = (name: string | undefined, fallback: string) => {
+  const cleanName = (name || fallback).trim();
+  if (!cleanName) {
+    return "Земля";
+  }
+  const words = cleanName.split(/\s+/).filter(Boolean);
+  const firstWord = words[0] ?? cleanName;
+  return firstWord.length > 10 ? `${firstWord.slice(0, 9)}.` : firstWord;
+};
+
+const getLordHomeRuntimeTerritoryDefinition = (
+  territoryId: LordHomeTerritoryId,
+  runtime: LordHomeTerritoryRuntime
+): LordHomeTerritoryDefinition => ({
+  id: territoryId,
+  backendTerritoryId: runtime.backendTerritoryId || territoryId,
+  name: runtime.name || getLordHomeShortName(undefined, territoryId),
+  shortName: runtime.shortName || getLordHomeShortName(runtime.name, territoryId),
+  background: runtime.background || territoryRiverGateHome,
+  income: runtime.incomePerHour,
+  bonus: "Управляемая территория",
+  heroHere: runtime.heroHere,
+  recruitIds: [null, null, null, null, null, null]
+});
+
 const isLordHomeBackendResidenceTerritory = (territory: LordHomeBackendTerritory) => {
   const territoryId = territory.territory_id ?? "";
   return (
@@ -496,6 +546,9 @@ const getLordHomeLocalTerritoryId = (
   }
   if (isOwned && isLordHomeBackendResidenceTerritory(territory)) {
     return "castle";
+  }
+  if (territory.territory_id && (isOwned || isLordHomeCapturePendingStatus(territory.status))) {
+    return territory.territory_id;
   }
   return undefined;
 };
@@ -1012,12 +1065,17 @@ const lordHomeRecruitStatusRank = (status: string) => {
 
 const isLordHomeRecruitOfferUsable = (status: string) => status === "available" || status === "held";
 
-const lordHomeActionDock = [
+const lordHomeBaseActionDock = [
   { id: "buildings", label: "Здания", icon: lordHomeActionBuildingsIcon, tone: "gold" },
   { id: "map", label: "Карта", icon: lordHomeActionMapIcon, tone: "blue" },
   { id: "orders", label: "Заказы", icon: lordHomeActionOrdersIcon, tone: "green" },
   { id: "raids", label: "Рейды", icon: lordHomeActionRaidsIcon, tone: "red" },
   { id: "battle", label: "Бой", icon: lordHomeActionBattleIcon, tone: "red", alert: true }
+] as const;
+
+const lordHomeActionDock = [
+  { id: "castle", label: "Главный замок", icon: null, tone: "blue" },
+  ...lordHomeBaseActionDock
 ] as const;
 
 type LordHomeView = "territory" | "buildings" | "orders" | "raids";
@@ -1974,6 +2032,7 @@ const lordHomeApiErrorLabelByCode: Record<string, string> = {
   no_route: "Нет открытой дороги",
   route_cost_mismatch: "Стоимость пути изменилась",
   route_stopped_at_front: "Поход остановится на первом рубеже",
+  front_locked: "Сначала решите текущий рубеж или вернитесь в свои владения",
   territory_node_not_found: "У этой земли нет точки на карте",
   order_cap_exceeded: "Лимит активных заказов занят",
   insufficient_escrow_gold: "В казне не хватает награды",
@@ -3037,13 +3096,47 @@ const getLordMapLordIdFromValue = (value: string | null | undefined): LordMapLor
 type LordMapPendingBattleClaim = {
   claimId: string;
   territoryId: string;
+  battleId?: string;
 };
 
 const lordMapBattleClaimStatuses = new Set(["in_battle", "contested", "contested_pending_tick"]);
+const lordMapFinalBattleStatuses = new Set(["finished", "needs_master_review", "cancelled", "closed", "resolved"]);
+
+const getLordMapActiveBattleId = (state: LordMapBackendState | null | undefined) => {
+  const battle = [...(state?.active_battles ?? []), ...(state?.battles ?? [])].find((item) => {
+    const battleId = String(item.battle_id ?? "").trim();
+    const status = String(item.status ?? "").trim().toLowerCase();
+    return Boolean(battleId) && !lordMapFinalBattleStatuses.has(status);
+  });
+  if (battle?.battle_id) {
+    return String(battle.battle_id);
+  }
+
+  const alertBattle = (state?.battle_alerts ?? []).find((item) => {
+    const battleId = item.cta?.battle_id ?? item.battle_id;
+    const status = String(item.status ?? "").trim().toLowerCase();
+    return item.type === "active_battle" && Boolean(battleId) && !lordMapFinalBattleStatuses.has(status);
+  });
+  return alertBattle ? String(alertBattle.cta?.battle_id ?? alertBattle.battle_id) : null;
+};
 
 const getLordMapPendingBattleClaim = (state: LordMapBackendState | null): LordMapPendingBattleClaim | null => {
   if (!state) return null;
   const domainId = state.domain?.domain_id ?? state.lord?.domain_id ?? "";
+  const activeBattleAlert = (state.battle_alerts ?? []).find((item) => {
+    const cta = item.cta;
+    const battleId = cta?.battle_id ?? item.battle_id;
+    return item.type === "active_battle" && cta?.action === "open_battle" && Boolean(battleId);
+  });
+  if (activeBattleAlert) {
+    const cta = activeBattleAlert.cta;
+    return {
+      claimId: String(cta?.claim_id ?? activeBattleAlert.claim_id ?? cta?.battle_id ?? activeBattleAlert.battle_id),
+      territoryId: String(cta?.territory_id ?? activeBattleAlert.territory_id ?? ""),
+      battleId: String(cta?.battle_id ?? activeBattleAlert.battle_id)
+    };
+  }
+
   const alert = (state.battle_alerts ?? []).find((item) => {
     const cta = item.cta;
     const claimId = cta?.claim_id ?? item.claim_id;
@@ -3675,6 +3768,7 @@ function LordMapScreen() {
   const [mapMode, setMapMode] = useState<LordMapMode>("march");
   const [isMapInspectorCollapsed, setIsMapInspectorCollapsed] = useState(false);
   const [isMoveSubmitting, setIsMoveSubmitting] = useState(false);
+  const [arrivalBattleOpenRequestId, setArrivalBattleOpenRequestId] = useState<string | null>(null);
   const [pendingRenderNowMs, setPendingRenderNowMs] = useState(() => Date.now());
   const [mapTimerNowMs, setMapTimerNowMs] = useState(() => Date.now());
   const [mapLayers, setMapLayers] = useState<LordMapLayerState>({
@@ -3746,11 +3840,11 @@ function LordMapScreen() {
 
   const fetchLordMapState = useCallback(async (options?: { silent?: boolean; summaryOnly?: boolean }) => {
     if (!useDemoState && (!backendLordId || !backendRoleToken)) {
-      return;
+      return null;
     }
 
     if (stateFetchInFlightRef.current) {
-      return;
+      return null;
     }
 
     stateFetchInFlightRef.current = true;
@@ -3772,7 +3866,7 @@ function LordMapScreen() {
         if (isLordRuntimeAuthResponse(response)) {
           clearLordRuntimeSession({ clearApiBaseUrl: isLordRuntimeProductionOrigin() });
           window.location.replace(loginRedirectPath);
-          return;
+          return null;
         }
         throw new Error(getLordHomeApiErrorMessage(payload, "Приказная не отвечает"));
       }
@@ -3809,6 +3903,7 @@ function LordMapScreen() {
       if (pendingTargetId) {
         setSelectedSocketId(pendingTargetId);
       }
+      return nextState;
     } catch (error) {
       setBackendState((currentState) => currentState);
       setLordUiState((current) => markLordUiStateOffline(current));
@@ -3818,6 +3913,7 @@ function LordMapScreen() {
       if (!options?.silent) {
         setMapActionStatus(getLordHomeCaughtErrorMessage(error, "Приказная не отвечает"));
       }
+      return null;
     } finally {
       window.clearTimeout(timeoutId);
       stateFetchInFlightRef.current = false;
@@ -3908,11 +4004,18 @@ function LordMapScreen() {
 
     const arrivedMove = lastPendingMoveRef.current;
     lastPendingMoveRef.current = null;
+    const arrivalRequestId = arrivedMove.move_id ?? `${arrivedMove.to_node_id ?? "move"}:${Date.now()}`;
+    setArrivalBattleOpenRequestId(arrivalRequestId);
     const arrivedSocketId = backendState.movement?.current_node_id ?? backendState.domain?.current_node_id ?? arrivedMove.to_node_id;
     if (arrivedSocketId && hasMapSocket(arrivedSocketId)) {
       setMapActionStatus(`Армия прибыла: ${getMapSocket(arrivedSocketId).name}.`);
     }
-  }, [backendPendingMove, backendState, getMapSocket, hasMapSocket]);
+    void fetchLordMapState({ silent: true }).then((nextState) => {
+      if (!getLordMapPendingBattleClaim(nextState)) {
+        setArrivalBattleOpenRequestId((current) => current === arrivalRequestId ? null : current);
+      }
+    });
+  }, [backendPendingMove, backendState, fetchLordMapState, getMapSocket, hasMapSocket]);
 
   useEffect(() => {
     if (backendState) {
@@ -4230,26 +4333,55 @@ function LordMapScreen() {
   const activeBattle = lordUiState.activeBattle.active;
   const activeBattleId = lordUiState.activeBattle.battleId;
   const mapBattleClaim = useMemo(() => getLordMapPendingBattleClaim(backendState), [backendState]);
+  const navigateToLordMapBattle = useCallback((battleId: string, territoryId = "") => {
+    const territoryQuery = territoryId ? `&territory_id=${encodeURIComponent(territoryId)}` : "";
+    window.location.assign(
+      withLordRuntimeQuery(
+        `/lords/battle?battle_id=${encodeURIComponent(battleId)}&return_to=map${territoryQuery}`,
+        apiBaseUrl,
+        { lordId: backendLordId }
+      )
+    );
+  }, [apiBaseUrl, backendLordId]);
   const openLordMapBattle = useCallback(async (source = "stage2b_map_claim") => {
-    const battleRuntimeAuth = { lordId: backendLordId };
     if (activeBattleId) {
-      window.location.assign(
-        withLordRuntimeQuery(`/lords/battle?battle_id=${encodeURIComponent(activeBattleId)}&return_to=map`, apiBaseUrl, battleRuntimeAuth)
-      );
+      navigateToLordMapBattle(activeBattleId, mapBattleClaim?.territoryId);
       return;
     }
 
-    if (!mapBattleClaim) {
+    if (mapBattleClaim?.battleId) {
+      navigateToLordMapBattle(mapBattleClaim.battleId, mapBattleClaim.territoryId);
+      return;
+    }
+
+    const refreshedState = await fetchLordMapState({ silent: true });
+    const refreshedBattleId = getLordMapActiveBattleId(refreshedState);
+    const refreshedBattleClaim = getLordMapPendingBattleClaim(refreshedState);
+    if (refreshedBattleId) {
+      navigateToLordMapBattle(refreshedBattleId, refreshedBattleClaim?.territoryId);
+      return;
+    }
+
+    const battleClaim = refreshedBattleClaim ?? mapBattleClaim;
+    if (battleClaim?.battleId) {
+      navigateToLordMapBattle(battleClaim.battleId, battleClaim.territoryId);
+      return;
+    }
+
+    if (!battleClaim) {
       setMapActionStatus("Активного боя сейчас нет.");
       return;
     }
 
-    if (battleClaimOpenRef.current === mapBattleClaim.claimId) {
+    if (battleClaimOpenRef.current === battleClaim.claimId) {
+      setMapActionStatus("Бой уже открывается.");
       return;
     }
 
-    battleClaimOpenRef.current = mapBattleClaim.claimId;
+    battleClaimOpenRef.current = battleClaim.claimId;
     setMapActionStatus("Открываю бой за территорию.");
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), lordRuntimeRequestTimeoutMs);
     try {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -4261,9 +4393,10 @@ function LordMapScreen() {
       const response = await fetch(`${apiBaseUrl}/api/lord-battles`, {
         method: "POST",
         headers,
+        signal: controller.signal,
         body: JSON.stringify({
-          claim_id: mapBattleClaim.claimId,
-          territory_id: mapBattleClaim.territoryId,
+          claim_id: battleClaim.claimId,
+          territory_id: battleClaim.territoryId,
           source
         })
       });
@@ -4277,20 +4410,40 @@ function LordMapScreen() {
       if (!battleId) {
         throw new Error("Бой создан без номера. Обновите карту или позовите мастера.");
       }
-      window.location.assign(
-        withLordRuntimeQuery(`/lords/battle?battle_id=${encodeURIComponent(battleId)}&return_to=map`, apiBaseUrl, battleRuntimeAuth)
-      );
+      navigateToLordMapBattle(battleId, battleClaim.territoryId);
     } catch (error) {
-      battleClaimOpenRef.current = null;
       setMapActionStatus(getLordHomeCaughtErrorMessage(error, "Бой не открыт. Позовите мастера."));
+    } finally {
+      window.clearTimeout(timeoutId);
+      battleClaimOpenRef.current = null;
     }
   }, [
     activeBattleId,
     apiBaseUrl,
     backendLordId,
     backendRoleToken,
+    fetchLordMapState,
     mapBattleClaim?.claimId,
-    mapBattleClaim?.territoryId
+    mapBattleClaim?.territoryId,
+    mapBattleClaim?.battleId,
+    navigateToLordMapBattle
+  ]);
+
+  useEffect(() => {
+    if (!arrivalBattleOpenRequestId || !mapBattleClaim || isBackendPendingMove || movementDraft || isMoveSubmitting) {
+      return;
+    }
+
+    setArrivalBattleOpenRequestId(null);
+    void openLordMapBattle("stage2b_map_arrival");
+  }, [
+    arrivalBattleOpenRequestId,
+    isBackendPendingMove,
+    isMoveSubmitting,
+    mapBattleClaim?.claimId,
+    mapBattleClaim?.territoryId,
+    movementDraft,
+    openLordMapBattle
   ]);
 
   const mapClaimBannerText =
@@ -4511,7 +4664,7 @@ function LordMapScreen() {
           <LordHomeTimerChip timerSummary={mapTimerSummary} nowMs={mapTimerNowMs} />
         </header>
         <nav className="lord-map-left-dock lord-home-left-dock" aria-label="Основные действия лорда">
-          {lordHomeActionDock.map((action) => (
+          {lordHomeBaseActionDock.map((action) => (
             <button
               key={action.id}
               className={`lord-home-dock-button action-${action.id} ${action.tone}${action.id === "map" ? " is-selected" : ""}${"alert" in action && action.alert && (activeBattle || mapBattleClaim) ? " is-alert" : ""}`}
@@ -4937,6 +5090,7 @@ function LordHomeScreen() {
     panelParam === "map" || panelParam === "help"
       ? panelParam
       : null;
+  const initialSelectedTerritoryId = getLordHomeRouteTerritoryId(homeRouteParams);
   const apiBaseUrl = getLordRuntimeApiBaseUrl(homeRouteParams);
   const runtimeSession = useDemoState ? { lordId: lordHomeDemoLordId, roleToken: lordHomeDemoRoleToken } : readLordRuntimeSession(homeRouteParams);
   const isMissingLordRuntimeSession = !useDemoState && !runtimeSession;
@@ -4951,7 +5105,7 @@ function LordHomeScreen() {
       ? markLordUiStateOffline(adaptLordState(initialHomeBackendStateRef.current, { mode: lordRuntimeMode }))
       : createLordUiState(useDemoState ? "demo" : "loading", { mode: lordRuntimeMode })
   );
-  const [selectedTerritoryId, setSelectedTerritoryId] = useState<LordHomeTerritoryId>("castle");
+  const [selectedTerritoryId, setSelectedTerritoryId] = useState<LordHomeTerritoryId>(initialSelectedTerritoryId);
   const [army, setArmy] = useState<LordHomeStack[]>(() => useDemoState ? lordHomeInitialArmy : lordHomeEmptyArmy);
   const [garrisons, setGarrisons] = useState<Record<LordHomeTerritoryId, LordHomeStack[]>>(() =>
     useDemoState ? lordHomeInitialGarrisons : createEmptyLordHomeGarrisons()
@@ -5038,7 +5192,33 @@ function LordHomeScreen() {
   }, [isMissingLordRuntimeSession, loginRedirectPath]);
 
   const prefersReducedMotion = useReducedMotion();
-  const selectedTerritory = lordHomeTerritories.find((territory) => territory.id === selectedTerritoryId) ?? lordHomeTerritories[0];
+  const homeTerritoryCatalog = useMemo(() => {
+    const staticTerritories = lordHomeTerritories.map((territory) => {
+      const runtime = territoryRuntime[territory.id];
+      return runtime
+        ? {
+            ...territory,
+            backendTerritoryId: runtime.backendTerritoryId || territory.backendTerritoryId,
+            name: runtime.name || territory.name,
+            shortName: runtime.shortName || territory.shortName,
+            background: runtime.background || territory.background,
+            income: runtime.incomePerHour,
+            heroHere: runtime.heroHere
+          }
+        : territory;
+    });
+    const runtimeTerritories = Object.entries(territoryRuntime)
+      .filter((entry): entry is [string, LordHomeTerritoryRuntime] =>
+        !lordHomeStaticTerritoryIds.has(entry[0]) && Boolean(entry[1])
+      )
+      .map(([territoryId, runtime]) => getLordHomeRuntimeTerritoryDefinition(territoryId, runtime));
+
+    return [...staticTerritories, ...runtimeTerritories];
+  }, [territoryRuntime]);
+  const selectedTerritory =
+    homeTerritoryCatalog.find((territory) => territory.id === selectedTerritoryId) ??
+    homeTerritoryCatalog[0] ??
+    lordHomeTerritories[0];
   const selectedTerritoryRuntime = territoryRuntime[selectedTerritory.id];
   const selectedTerritoryBackendId = selectedTerritoryRuntime?.backendTerritoryId || selectedTerritory.backendTerritoryId;
   const selectedTerritoryName = selectedTerritoryRuntime?.name || selectedTerritory.name;
@@ -5052,6 +5232,13 @@ function LordHomeScreen() {
   const selectedActiveArmyLockReason = selectedTerritoryRuntime?.activeArmyLockReason || (!selectedHeroHere ? "Герой в другой локации" : "");
   const selectedRecruitLockReason = selectedTerritoryRuntime?.recruitLockReason || "";
   const selectedBuildingTreeLockReason = selectedTerritoryRuntime?.buildingTreeLockReason || "";
+  const selectedTerritoryCapturePending = isLordHomeCapturePendingRuntime(selectedTerritoryRuntime);
+  const selectedCaptureGarrisonHint = selectedTerritoryCapturePending
+    ? selectedHeroHere
+      ? "Оставь минимум 1 отряд в гарнизоне: перетащи карту из «Армия» в «Гарнизон», чтобы земля стала твоей."
+      : "Чтобы закрепить землю, приведи сюда активную армию и оставь минимум 1 отряд в гарнизоне."
+    : "";
+  const displayedActiveArmyLockReason = selectedTerritoryCapturePending ? "" : selectedActiveArmyLockReason;
   const selectedBuildingNodeIds = selectedTerritoryRuntime?.buildingNodeIds;
   const selectedBuildingNodeIdSet = useMemo(
     () => selectedBuildingNodeIds?.length ? new Set(selectedBuildingNodeIds) : null,
@@ -5082,8 +5269,11 @@ function LordHomeScreen() {
   );
   const isHomeReadOnly = lordUiState.mode === "production" && lordUiState.isReadOnly;
   const homeReadOnlyReason = isHomeReadOnly ? lordUiState.readonlyReason : "";
-  const displayedTerritoryBubbles = lordHomeTerritories
-    .filter((territory) => territory.id !== "castle" && territoryRuntime[territory.id]?.isOwned)
+  const displayedTerritoryBubbles = homeTerritoryCatalog
+    .filter((territory) => {
+      const runtime = territoryRuntime[territory.id];
+      return territory.id === "castle" || runtime?.isOwned;
+    })
     .map((territory) => {
       const runtime = territoryRuntime[territory.id];
       return {
@@ -5093,6 +5283,10 @@ function LordHomeScreen() {
         background: runtime?.background || territory.background
       };
     });
+  const displayedOwnedTerritoryCount = displayedTerritoryBubbles.filter((territory) => {
+    const runtime = territoryRuntime[territory.id];
+    return territory.id === "castle" || runtime?.isOwned;
+  }).length;
   const transferStack = transferDraft
     ? transferDraft.lane === "army"
       ? army[transferDraft.index]
@@ -5299,6 +5493,9 @@ function LordHomeScreen() {
       setArmy(getLordHomeStacksFromBackend(state.active_army));
     }
 
+    const activeArmyTerritoryId = state.active_army_location?.territory_id ?? "";
+    const activeArmyNodeId =
+      state.active_army_location?.node_id ?? state.movement?.current_node_id ?? state.domain?.current_node_id ?? "";
     const backendTerritoryViews = Array.isArray(state.territory_views) ? state.territory_views : [];
     if (backendTerritoryViews.length > 0) {
       const nextGarrisons = createEmptyLordHomeGarrisons();
@@ -5315,9 +5512,18 @@ function LordHomeScreen() {
         const localTerritory = lordHomeTerritories.find((item) => item.id === localTerritoryId);
         const backendTerritoryId = territory.territory_id ?? localTerritory?.backendTerritoryId ?? "";
         const stacks = getLordHomeStacksFromBackend(territory.garrisons);
+        if (!nextRecruitStock[localTerritoryId]) {
+          nextRecruitStock[localTerritoryId] = createEmptyLordHomeTerritoryRecruitStock();
+        }
         const incomePerHour = Number(territory.income_per_hour);
         const garrisonCapacity = Number(territory.fort?.garrison_capacity);
         const garrisonSlotsUsed = Number(territory.fort?.garrison_slots_used);
+        const isCapturePending = isLordHomeCapturePendingStatus(territory.status);
+        const activeArmyAtTerritory = Boolean(
+          activeArmyTerritoryId
+            ? activeArmyTerritoryId === backendTerritoryId
+            : activeArmyNodeId && activeArmyNodeId === territory.node_id
+        );
         const buildingNodeIds = territory.building_tree?.node_ids?.filter((buildingId) =>
           lordBuildingKnownIds.has(buildingId)
         ) ?? territory.building_tree?.nodes
@@ -5327,8 +5533,11 @@ function LordHomeScreen() {
           (building) => building.building_id && lordBuildingKnownIds.has(building.building_id)
         );
         const activeArmyLockReason =
-          territory.active_army_lock_reason ||
-          getLordHomeLockReasonMessage(territory.lock_reasons, ["active_army", "transfer"]);
+          isCapturePending && activeArmyAtTerritory
+            ? ""
+            : typeof territory.active_army_lock_reason === "string"
+              ? territory.active_army_lock_reason
+              : getLordHomeLockReasonMessage(territory.lock_reasons, ["active_army", "transfer"]);
         const recruitLockReason =
           territory.recruit_lock_reason ||
           getLordHomeLockReasonMessage(territory.lock_reasons, ["recruit"]);
@@ -5340,13 +5549,13 @@ function LordHomeScreen() {
         nextGarrisons[localTerritoryId] = stacks;
         nextTerritoryRuntime[localTerritoryId] = {
           backendTerritoryId,
-          name: territory.name || territory.node_name || localTerritory?.name,
-          shortName: territory.short_name || localTerritory?.shortName,
+          name: territory.name || territory.node_name || localTerritory?.name || getLordHomeShortName(undefined, backendTerritoryId),
+          shortName: territory.short_name || localTerritory?.shortName || getLordHomeShortName(territory.name || territory.node_name, backendTerritoryId),
           background: getLordHomeTerritoryBackground(territory, localTerritory?.background ?? castleCity),
           incomePerHour: clampLordHomeMetric(incomePerHour, localTerritory?.income ?? 0),
-          heroHere: Boolean(territory.active_army_present ?? territory.hero_here),
+          heroHere: Boolean(territory.hero_here ?? territory.active_army_present) || (isCapturePending && activeArmyAtTerritory),
           isOwned,
-          isSelectable: territory.is_selectable !== false,
+          isSelectable: territory.is_selectable !== false || isCapturePending,
           status: territory.status ?? "controlled",
           garrisonCapacity: clampLordHomeMetric(garrisonCapacity, Math.max(8, stacks.length)),
           garrisonSlotsUsed: clampLordHomeMetric(garrisonSlotsUsed, stacks.length),
@@ -5412,14 +5621,23 @@ function LordHomeScreen() {
         const garrisonCapacity = Number(territory.fort?.garrison_capacity);
         const garrisonSlotsUsed = Number(territory.fort?.garrison_slots_used);
         const hasActiveNodeId = typeof activeNodeId === "string" && activeNodeId.length > 0;
+        const isCapturePending = isLordHomeCapturePendingStatus(territory.status);
+        const activeArmyAtTerritory = Boolean(
+          state.active_army_location?.territory_id
+            ? state.active_army_location.territory_id === backendTerritoryId
+            : hasActiveNodeId && activeNodeId === territory.node_id
+        );
 
         nextGarrisons[localTerritoryId] = stacks;
         nextTerritoryRuntime[localTerritoryId] = {
           backendTerritoryId,
-          name: territory.name || territory.node_name || localTerritory?.name,
+          name: territory.name || territory.node_name || localTerritory?.name || getLordHomeShortName(undefined, backendTerritoryId),
+          shortName: localTerritory?.shortName || getLordHomeShortName(territory.name || territory.node_name, backendTerritoryId),
+          background: getLordHomeTerritoryBackground(territory, localTerritory?.background ?? castleCity),
           incomePerHour: clampLordHomeMetric(incomePerHour, localTerritory?.income ?? 0),
-          heroHere: hasActiveNodeId ? activeNodeId === territory.node_id : Boolean(localTerritory?.heroHere),
+          heroHere: (hasActiveNodeId ? activeNodeId === territory.node_id : Boolean(localTerritory?.heroHere)) || (isCapturePending && activeArmyAtTerritory),
           isOwned,
+          isSelectable: isOwned || isCapturePending,
           status: territory.status ?? "controlled",
           garrisonCapacity: clampLordHomeMetric(garrisonCapacity, Math.max(8, stacks.length)),
           garrisonSlotsUsed: clampLordHomeMetric(garrisonSlotsUsed, stacks.length)
@@ -5647,7 +5865,12 @@ function LordHomeScreen() {
   }, [lordRaidTargets, selectedRaidTargetId]);
 
   useEffect(() => {
-    if (selectedTerritory.id !== "castle" && selectedTerritoryRuntime && !selectedTerritoryRuntime.isOwned) {
+    if (
+      selectedTerritory.id !== "castle" &&
+      selectedTerritoryRuntime &&
+      !selectedTerritoryRuntime.isOwned &&
+      !isLordHomeCapturePendingRuntime(selectedTerritoryRuntime)
+    ) {
       setSelectedTerritoryId("castle");
     }
   }, [selectedTerritory.id, selectedTerritoryRuntime]);
@@ -6133,6 +6356,25 @@ function LordHomeScreen() {
     };
   };
 
+  const markTerritoryCapturedLocally = (territoryId: LordHomeTerritoryId) => {
+    setTerritoryRuntime((current) => {
+      const runtime = current[territoryId];
+      if (!runtime) {
+        return current;
+      }
+      return {
+        ...current,
+        [territoryId]: {
+          ...runtime,
+          isOwned: true,
+          isSelectable: true,
+          status: "controlled",
+          activeArmyLockReason: ""
+        }
+      };
+    });
+  };
+
   const splitStackLocally = (
     lane: "army" | "garrison",
     territoryId: LordHomeTerritoryId,
@@ -6381,8 +6623,12 @@ function LordHomeScreen() {
         throw new Error(getLordHomeApiErrorMessage(payload, "Объединение не выполнено"));
       }
 
+      const result = payload as LordHomeTransferActionResponse;
       mergeStackDropLocally(from, to, sourceStack, frontendTerritoryId);
-      setTransferStatus(`${unit.name}: пачки объединены`);
+      if (result.status === "captured") {
+        markTerritoryCapturedLocally(frontendTerritoryId);
+      }
+      setTransferStatus(result.status === "captured" ? `${selectedTerritoryName}: территория закреплена` : `${unit.name}: пачки объединены`);
       refreshLordHomeStateInBackground("lord_home_stack_merge");
     } catch (error) {
       setTransferStatus(getLordHomeCaughtErrorMessage(error, "Объединение не выполнено"));
@@ -6483,9 +6729,14 @@ function LordHomeScreen() {
           result
         );
       }
-      setTransferStatus(currentTransferDraft.mode === "split"
-        ? `${currentTransferUnit.name}: пачка разделена`
-        : `${currentTransferUnit.name}: перенесено ${clampedCount}`);
+      if (result.status === "captured") {
+        markTerritoryCapturedLocally(frontendTerritoryId);
+      }
+      setTransferStatus(result.status === "captured"
+        ? `${selectedTerritoryName}: территория закреплена`
+        : currentTransferDraft.mode === "split"
+          ? `${currentTransferUnit.name}: пачка разделена`
+          : `${currentTransferUnit.name}: перенесено ${clampedCount}`);
       setTransferDraft(null);
       refreshLordHomeStateInBackground("lord_home_stack_transfer");
     } catch (error) {
@@ -6730,7 +6981,7 @@ function LordHomeScreen() {
             <div className="lord-home-resource blue"><Swords size={14} /><b>{armyResourceLabel}</b><span>армия</span></div>
             <div className="lord-home-resource red"><Flame size={14} /><b>{raidResourceLabel}</b><span>рейды</span></div>
             <div className="lord-home-resource iron"><Shield size={14} /><b>{garrisonResourceLabel}</b><span>гарнизон</span></div>
-            <div className="lord-home-resource green"><Users size={14} /><b>{displayedTerritoryBubbles.length + 1}</b><span>владения</span></div>
+            <div className="lord-home-resource green"><Users size={14} /><b>{displayedOwnedTerritoryCount}</b><span>владения</span></div>
           </div>
           <button className="lord-home-top-icon help" type="button" aria-label="Обучение" onClick={() => setOpenPanel("help")}>
             <LordHomeActionIcon src={lordHomeActionHelpIcon} />
@@ -6741,56 +6992,70 @@ function LordHomeScreen() {
         </header>
 
         <nav className="lord-home-left-dock" aria-label="Основные действия лорда">
-          {lordHomeActionDock.map((action) => (
-            <button
-              key={action.id}
-              className={`lord-home-dock-button action-${action.id} ${action.tone}${"alert" in action && action.alert && activeBattle ? " is-alert" : ""}${action.id === homeView ? " is-selected" : ""}`}
-              type="button"
-              aria-label={action.label}
-              onClick={() => {
-                if (action.id === "buildings") {
-                  setHomeView((current) => current === "buildings" ? "territory" : "buildings");
-                  setOpenPanel(null);
-                  return;
-                }
+          {lordHomeActionDock.map((action) => {
+            const isSelected =
+              action.id === "castle"
+                ? homeView === "territory" && selectedTerritory.id === "castle"
+                : action.id === homeView;
 
-                if (action.id === "orders") {
-                  setHomeView((current) => current === "orders" ? "territory" : "orders");
-                  setOpenPanel(null);
-                  return;
-                }
-
-                if (action.id === "raids") {
-                  setHomeView((current) => current === "raids" ? "territory" : "raids");
-                  setOpenPanel(null);
-                  return;
-                }
-
-                if (action.id === "map") {
-                  window.location.assign(useDemoState
-                    ? withLordRuntimeQuery(lordMapPath, apiBaseUrl)
-                    : withLordRuntimeQuery("/lords/map", apiBaseUrl));
-                  return;
-                }
-
-                if (action.id === "battle") {
-                  if (!activeBattleId) {
+            return (
+              <button
+                key={action.id}
+                className={`lord-home-dock-button action-${action.id} ${action.tone}${"alert" in action && action.alert && activeBattle ? " is-alert" : ""}${isSelected ? " is-selected" : ""}`}
+                type="button"
+                aria-label={action.label}
+                onClick={() => {
+                  if (action.id === "castle") {
+                    setHomeView("territory");
+                    setSelectedTerritoryId("castle");
                     setOpenPanel(null);
                     return;
                   }
-                  window.location.assign(withLordRuntimeQuery(
-                    `/lords/battle?battle_id=${activeBattleId}&return_to=home`,
-                    apiBaseUrl,
-                    { lordId: backendLordId }
-                  ));
-                  return;
-                }
-              }}
-            >
-              <LordHomeActionIcon src={action.icon} />
-              <span className="lord-home-dock-label">{action.label}</span>
-            </button>
-          ))}
+
+                  if (action.id === "buildings") {
+                    setHomeView((current) => current === "buildings" ? "territory" : "buildings");
+                    setOpenPanel(null);
+                    return;
+                  }
+
+                  if (action.id === "orders") {
+                    setHomeView((current) => current === "orders" ? "territory" : "orders");
+                    setOpenPanel(null);
+                    return;
+                  }
+
+                  if (action.id === "raids") {
+                    setHomeView((current) => current === "raids" ? "territory" : "raids");
+                    setOpenPanel(null);
+                    return;
+                  }
+
+                  if (action.id === "map") {
+                    window.location.assign(useDemoState
+                      ? withLordRuntimeQuery(lordMapPath, apiBaseUrl)
+                      : withLordRuntimeQuery("/lords/map", apiBaseUrl));
+                    return;
+                  }
+
+                  if (action.id === "battle") {
+                    if (!activeBattleId) {
+                      setOpenPanel(null);
+                      return;
+                    }
+                    window.location.assign(withLordRuntimeQuery(
+                      `/lords/battle?battle_id=${activeBattleId}&return_to=home`,
+                      apiBaseUrl,
+                      { lordId: backendLordId }
+                    ));
+                    return;
+                  }
+                }}
+              >
+                {action.icon ? <LordHomeActionIcon src={action.icon} /> : <LordHomeCastleActionIcon />}
+                <span className="lord-home-dock-label">{action.label}</span>
+              </button>
+            );
+          })}
         </nav>
 
         <button className="lord-home-minimap-frame" type="button" aria-label="Открыть карту земель" onClick={() => window.location.assign(withLordRuntimeQuery(lordMapPath, apiBaseUrl))}>
@@ -6799,11 +7064,18 @@ function LordHomeScreen() {
         </button>
 
             {homeView !== "orders" ? (
-            <section className="lord-home-bottom-panel" aria-label="Армия, гарнизон и найм">
+            <section className={`lord-home-bottom-panel${selectedTerritoryCapturePending ? " is-capture-pending" : ""}`} aria-label="Армия, гарнизон и найм">
               <div className="lord-home-location-title">{selectedTerritoryName}</div>
               <div className="lord-home-local-income">
                 +{selectedIncomePerHour}/тик · Г {selectedGarrisonSlotsUsed}/{selectedGarrisonCapacity} · А {domainStats.activeArmySlotsUsed}/{domainStats.activeArmyCapacity}
               </div>
+
+              {selectedCaptureGarrisonHint ? (
+                <div className="lord-home-capture-hint" role="status">
+                  <Shield size={14} />
+                  <span>{selectedCaptureGarrisonHint}</span>
+                </div>
+              ) : null}
 
               <LordHomeLane
                 lane="army"
@@ -6830,6 +7102,7 @@ function LordHomeScreen() {
                 label="Гарнизон"
                 stacks={selectedGarrison}
                 locked={false}
+                highlight={selectedTerritoryCapturePending}
                 onStackClick={(index) => openStackSplit("garrison", index)}
                 activeDragPayload={dragPayload}
                 onDrop={() => handleStackDrop("garrison")}
@@ -6846,7 +7119,7 @@ function LordHomeScreen() {
                 }}
               />
 
-              {selectedActiveArmyLockReason ? <div className="lord-home-army-lock">{selectedActiveArmyLockReason}</div> : null}
+              {displayedActiveArmyLockReason ? <div className="lord-home-army-lock">{displayedActiveArmyLockReason}</div> : null}
               {selectedRecruitLockReason ? <div className="lord-home-army-lock">{selectedRecruitLockReason}</div> : null}
 
               <div className="lord-home-recruit-grid">
@@ -6875,11 +7148,11 @@ function LordHomeScreen() {
             ) : null}
 
         {homeView === "territory" ? (
-            <aside className="lord-home-territory-bubbles" aria-label="Захваченные территории">
+            <aside className="lord-home-territory-bubbles" aria-label="Территории управления">
               {displayedTerritoryBubbles.map((territory) => (
                 <button
                   key={territory.id}
-                  className={`lord-home-territory-bubble${territory.id === selectedTerritory.id ? " is-selected" : ""}`}
+                  className={`lord-home-territory-bubble${territory.id === selectedTerritory.id ? " is-selected" : ""}${isLordHomeCapturePendingRuntime(territoryRuntime[territory.id]) ? " is-capture-pending" : ""}`}
                   type="button"
                   onClick={() => {
                     setHomeView("territory");
@@ -6888,7 +7161,7 @@ function LordHomeScreen() {
                   aria-label={territory.name}
                 >
                   <img src={territory.background} alt="" draggable={false} />
-                  <span>{territory.shortName}</span>
+                  <span>{territory.name}</span>
                 </button>
               ))}
             </aside>
@@ -7106,6 +7379,14 @@ function LordHomeActionIcon({ src }: { src: string }) {
   return (
     <span className="lord-home-action-medallion" aria-hidden="true">
       <img className="lord-home-action-icon" src={src} alt="" draggable={false} />
+    </span>
+  );
+}
+
+function LordHomeCastleActionIcon() {
+  return (
+    <span className="lord-home-action-medallion is-vector" aria-hidden="true">
+      <Castle size={34} strokeWidth={1.75} />
     </span>
   );
 }
@@ -7363,6 +7644,7 @@ function LordHomeLane({
   label,
   stacks,
   locked,
+  highlight = false,
   onStackClick,
   activeDragPayload,
   onDrop,
@@ -7375,6 +7657,7 @@ function LordHomeLane({
   label: string;
   stacks: LordHomeStack[];
   locked: boolean;
+  highlight?: boolean;
   onStackClick: (index: number) => void;
   activeDragPayload: LordHomeDragPayload;
   onDrop: (targetIndex?: number) => void;
@@ -7386,7 +7669,7 @@ function LordHomeLane({
   return (
     <div
       data-lane={lane}
-      className={`lord-home-lane ${lane}${locked ? " is-locked" : ""}`}
+      className={`lord-home-lane ${lane}${locked ? " is-locked" : ""}${highlight ? " is-capture-target" : ""}`}
       onPointerUp={(event) => {
         const handled = onPointerDrop({ x: event.clientX, y: event.clientY });
         if (handled) {

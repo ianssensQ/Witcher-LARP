@@ -134,6 +134,9 @@ type LordBattleLogEntryPayload = Record<string, unknown> & {
 type LordBattlePayload = Record<string, unknown> & {
   battle_id?: unknown;
   battle_type?: unknown;
+  territory_id?: unknown;
+  territory?: unknown;
+  claim?: unknown;
   attacker_domain_id?: unknown;
   defender_domain_id?: unknown;
   defender_control?: unknown;
@@ -502,7 +505,7 @@ const getDeploymentRowsForServerSide = (payload: LordBattlePayload | null, side:
   const board = isRecordValue(payload.board) ? payload.board : {};
   const startLines = isRecordValue(board.start_lines) ? board.start_lines : {};
   const height = Math.max(1, Math.floor(toSafeNumber(board.height, boardRows)));
-  const startLine = Math.floor(toSafeNumber(startLines[side], side === "attacker" ? 1 : height - 2));
+  const startLine = Math.floor(toSafeNumber(startLines[side], side === "attacker" ? 0 : height - 1));
   return side === "attacker"
     ? new Set([startLine, Math.min(height - 1, startLine + 1)])
     : new Set([startLine, Math.max(0, startLine - 1)]);
@@ -605,6 +608,21 @@ const getBattleResultTitle = (
   return `Победил ${winnerLabel}`;
 };
 
+const getBattleResultOutcomeLabel = (
+  payload: LordBattlePayload | null,
+  playerSide: LordBattleServerSide | null
+) => {
+  const result = getBattleResultRecord(payload);
+  const winnerSide = normalizeServerSide(result.winner_side);
+  if (!winnerSide) {
+    return "Бой завершен";
+  }
+  if (playerSide && winnerSide !== playerSide) {
+    return "Поражение";
+  }
+  return "Победа";
+};
+
 const getBattleResultDetail = (payload: LordBattlePayload | null) => {
   const result = getBattleResultRecord(payload);
   const outcome = toSafeString(result.outcome);
@@ -632,6 +650,29 @@ const getBattleCaptureText = (payload: LordBattlePayload | null) => {
   if (status === "defended") return "Территория удержана защитником.";
   if (status) return `Статус территории: ${status}.`;
   return "Территориальный результат не требуется.";
+};
+
+const getTerritoryIdFromRecord = (value: unknown) =>
+  isRecordValue(value) ? toSafeString(value.territory_id) || toSafeString(value.target_territory_id) : "";
+
+const getBattleTerritoryId = (payload: LordBattlePayload | null, routeParams?: URLSearchParams) => {
+  const result = getBattleResultRecord(payload);
+  const capture = isRecordValue(result.capture) ? result.capture : {};
+  return (
+    toSafeString(payload?.territory_id) ||
+    getTerritoryIdFromRecord(payload?.territory) ||
+    getTerritoryIdFromRecord(payload?.claim) ||
+    getTerritoryIdFromRecord(capture) ||
+    getTerritoryIdFromRecord(result.territory) ||
+    getTerritoryIdFromRecord(result.claim) ||
+    toSafeString(routeParams?.get("territory_id")) ||
+    toSafeString(routeParams?.get("target_territory_id"))
+  );
+};
+
+const getBattleTerritoryHomePath = (payload: LordBattlePayload | null, routeParams?: URLSearchParams) => {
+  const territoryId = getBattleTerritoryId(payload, routeParams);
+  return territoryId ? `/lords/home?territory_id=${encodeURIComponent(territoryId)}` : "/lords/home";
 };
 
 const initialUnits: BattleUnit[] = [
@@ -1120,9 +1161,10 @@ function LordBattleScreen() {
       !isBattleActionPending);
   const battleVictoryLabel = useDemoState ? "Победа Севера" : getBattleVictoryLabel(serverBattle, battleSideViews);
   const autoResolveLabel = getAutoResolveLabel(serverBattle);
-  const battleResultTitle = getBattleResultTitle(serverBattle, battleSideViews, playerServerSide);
-  const battleResultDetail = getBattleResultDetail(serverBattle);
-  const battleCaptureText = getBattleCaptureText(serverBattle);
+  const battleResultOutcomeLabel = useDemoState ? "Победа" : getBattleResultOutcomeLabel(serverBattle, playerServerSide);
+  const battleTerritoryHomePath = useDemoState
+    ? "/lords/home?demo=1&territory=river-gate"
+    : getBattleTerritoryHomePath(serverBattle, battleConnection.routeParams);
 
   const addLog = (message: string) => {
     setBattleLog((current) => [message, ...current].slice(0, 8));
@@ -1618,6 +1660,7 @@ function LordBattleScreen() {
 
   const handleCellClick = (cell: BattleCell) => {
     const occupant = getUnitAtCell(units, cell);
+    const isHeroCell = heroTargetByCellKey.has(cellKey(cell));
 
     if (phase === "deployment") {
       if (occupant) {
@@ -1625,7 +1668,7 @@ function LordBattleScreen() {
         return;
       }
 
-      if (selectedReserve && (useDemoState ? deploymentRows.north.includes(cell.row) : deploymentRowSet.has(cell.row))) {
+      if (selectedReserve && !isHeroCell && (useDemoState ? deploymentRows.north.includes(cell.row) : deploymentRowSet.has(cell.row))) {
         deployReserve(cell);
       }
 
@@ -1810,7 +1853,7 @@ function LordBattleScreen() {
               ))}
               <div className="lord-battle-deploy-note">
                 <CheckCircle2 size={15} />
-                Выберите карту и поставьте ее на две нижние стартовые линии.
+                Выберите карту и поставьте ее на две стартовые линии у ставки.
               </div>
             </div>
           ) : (
@@ -1937,17 +1980,12 @@ function LordBattleScreen() {
           transition={{ type: "spring", stiffness: 180, damping: 22 }}
         >
           <div>
-            <span>Итог боя</span>
-            <h2>{battleResultTitle}</h2>
-            <p>{battleResultDetail}</p>
-            <p>{battleCaptureText}</p>
+            <h2>{battleResultOutcomeLabel}</h2>
           </div>
           <div className="lord-battle-result-actions">
-            <button type="button" onClick={() => window.location.assign(withLordBattleRuntimeQuery("/lords/map"))}>
-              На карту
-            </button>
-            <button type="button" onClick={() => window.location.assign(withLordBattleRuntimeQuery("/lords/home"))}>
-              Домой
+            <button type="button" onClick={() => window.location.assign(withLordBattleRuntimeQuery(battleTerritoryHomePath))}>
+              <Trophy size={15} />
+              Перейти в территорию
             </button>
           </div>
         </motion.section>
