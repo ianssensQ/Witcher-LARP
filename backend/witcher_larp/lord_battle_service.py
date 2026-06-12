@@ -37,6 +37,39 @@ UNIT_CLASSES = {
     "heavy_siege",
     "specialist",
 }
+UNIT_CLASS_ATTACK_BONUS = {
+    "infantry": 0,
+    "guard": 0,
+    "ranged": 1,
+    "cavalry": 2,
+    "heavy_siege": 3,
+    "specialist": 1,
+}
+UNIT_CLASS_DEFENSE_BONUS = {
+    "infantry": 0,
+    "guard": 0,
+    "ranged": 0,
+    "cavalry": 1,
+    "heavy_siege": 1,
+    "specialist": 1,
+}
+UNIT_CLASS_POWER_BONUS = {
+    "infantry": 0,
+    "guard": 4,
+    "ranged": 4,
+    "cavalry": 10,
+    "heavy_siege": 16,
+    "specialist": 8,
+}
+HERO_ATTACK_MULTIPLIER = {
+    "infantry": 1,
+    "guard": 1,
+    "ranged": 1,
+    "cavalry": 1,
+    "heavy_siege": 2,
+    "specialist": 1,
+}
+ARCING_ATTACK_CLASSES = {"ranged", "heavy_siege"}
 UNIT_BATTLE_RANGES = {
     "tier": (1, 4),
     "attack": (1, 20),
@@ -891,7 +924,7 @@ def _attack_stack(
         payload={
             "stack_id": stack["stack_id"],
             "target_stack_id": target["stack_id"],
-            "damage_formula": "count_alive * max(1, attack - defense + modifiers)",
+            "damage_formula": "count_alive * max(1, effective_attack - effective_defense + modifiers)",
             "damage": damage,
             "casualties": casualty,
             "retaliation": retaliation,
@@ -927,9 +960,13 @@ def _attack_hero(
         raise LordBattleError("friendly_fire", "Cannot attack your own hero.")
     hero_cell = state["board"]["hero_cells"][target_side]
     target = {"x": hero_cell["x"], "y": hero_cell["y"], "defense": 0, "side": target_side}
-    if _distance(stack, target) > int(stack["attack_range"]) or not _line_of_sight_clear(state["board"], stack, target):
+    if _distance(stack, target) > int(stack["attack_range"]) or not _can_arc_or_see(
+        state["board"],
+        stack,
+        target,
+    ):
         raise LordBattleError("illegal_hero_attack", "Hero is outside range or line of sight.")
-    damage = max(1, int(stack["attack"]))
+    damage = _hero_damage(stack)
     state["hero_hp"][target_side]["current"] = max(
         0,
         int(state["hero_hp"][target_side]["current"]) - damage,
@@ -1160,7 +1197,11 @@ def _apply_retreat(
     ]
     if not active_stacks:
         return None
-    retreat_node = _retreat_node(connection, loser_domain_id)
+    retreat_node = _retreat_node(
+        connection,
+        loser_domain_id,
+        battle_territory_id=_optional(state.get("territory_id")),
+    )
     if retreat_node is None:
         return {"domain_id": loser_domain_id, "status": "no_retreat_node"}
     active_source_ids = {
@@ -1888,9 +1929,24 @@ def _damage(attacker: dict[str, Any], defender: dict[str, Any]) -> int:
     modifiers = -1 if bool(defender.get("defended")) else 0
     per_unit_damage = max(
         1,
-        int(attacker["attack"]) - int(defender["defense"]) + modifiers,
+        _effective_attack(attacker) - _effective_defense(defender) + modifiers,
     )
     return max(1, int(attacker["count_alive"]) * per_unit_damage)
+
+
+def _hero_damage(stack: dict[str, Any]) -> int:
+    multiplier = HERO_ATTACK_MULTIPLIER.get(str(stack.get("unit_class") or ""), 1)
+    return max(1, int(stack["count_alive"]) * _effective_attack(stack) * multiplier)
+
+
+def _effective_attack(stack: dict[str, Any]) -> int:
+    unit_class = str(stack.get("unit_class") or "")
+    return int(stack["attack"]) + UNIT_CLASS_ATTACK_BONUS.get(unit_class, 0)
+
+
+def _effective_defense(stack: dict[str, Any]) -> int:
+    unit_class = str(stack.get("unit_class") or "")
+    return int(stack["defense"]) + UNIT_CLASS_DEFENSE_BONUS.get(unit_class, 0)
 
 
 def _apply_damage_to_stack(stack: dict[str, Any], damage: int) -> dict[str, int]:
@@ -1923,7 +1979,17 @@ def _assert_can_move(board: dict[str, Any], stack: dict[str, Any], to_x: int, to
 
 def _can_attack(board: dict[str, Any], stack: dict[str, Any], target: dict[str, Any]) -> bool:
     distance = _distance(stack, target)
-    return distance <= int(stack["attack_range"]) and _line_of_sight_clear(board, stack, target)
+    return distance <= int(stack["attack_range"]) and _can_arc_or_see(board, stack, target)
+
+
+def _can_arc_or_see(board: dict[str, Any], stack: dict[str, Any], target: dict[str, Any]) -> bool:
+    if _uses_arcing_attack(stack):
+        return True
+    return _line_of_sight_clear(board, stack, target)
+
+
+def _uses_arcing_attack(stack: dict[str, Any]) -> bool:
+    return int(stack.get("attack_range", 1)) > 1 and str(stack.get("unit_class") or "") in ARCING_ATTACK_CLASSES
 
 
 def _line_of_sight_clear(board: dict[str, Any], stack: dict[str, Any], target: dict[str, Any]) -> bool:
@@ -1974,7 +2040,7 @@ def _battle_rule(connection: sqlite3.Connection) -> dict[str, Any]:
         "grid_width": BOARD_WIDTH,
         "grid_height": BOARD_HEIGHT,
         "turn_timer_seconds": 60,
-        "damage_formula": "count_alive*max(1 attack-defense+modifiers)",
+        "damage_formula": "count_alive*max(1 effective_attack-effective_defense+modifiers)",
         "initiative_tiebreaker": "initiative_desc_tier_desc_seed",
         "timeout_policy": "auto_defend_then_skip",
         "auto_resolve_policy": "repeated_timeout_master_takeover_or_auto_resolve",
@@ -2115,7 +2181,18 @@ def _territory_for_node(connection: sqlite3.Connection, node_id: str | None) -> 
     return _optional(row["territory_id"]) if row is not None else None
 
 
-def _retreat_node(connection: sqlite3.Connection, domain_id: str) -> str | None:
+def _retreat_node(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    *,
+    battle_territory_id: str | None = None,
+) -> str | None:
+    battle_node = _node_for_territory(connection, battle_territory_id)
+    candidates = _retreat_candidates(connection, domain_id, exclude_territory_id=battle_territory_id)
+    if battle_node is not None and candidates:
+        nearest = _nearest_node_by_route_cost(connection, battle_node, candidates)
+        if nearest is not None:
+            return nearest
     residence = connection.execute(
         """
         SELECT n.node_id
@@ -2129,6 +2206,8 @@ def _retreat_node(connection: sqlite3.Connection, domain_id: str) -> str | None:
     ).fetchone()
     if residence is not None:
         return _optional(residence["node_id"])
+    if candidates:
+        return candidates[0]
     row = connection.execute(
         """
         SELECT n.node_id
@@ -2141,6 +2220,95 @@ def _retreat_node(connection: sqlite3.Connection, domain_id: str) -> str | None:
         (domain_id,),
     ).fetchone()
     return _optional(row["node_id"]) if row is not None else None
+
+
+def _node_for_territory(connection: sqlite3.Connection, territory_id: str | None) -> str | None:
+    if not territory_id:
+        return None
+    row = connection.execute(
+        """
+        SELECT node_id
+        FROM map_nodes
+        WHERE territory_id = ?
+        ORDER BY _row_number
+        LIMIT 1
+        """,
+        (territory_id,),
+    ).fetchone()
+    return _optional(row["node_id"]) if row is not None else None
+
+
+def _retreat_candidates(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    *,
+    exclude_territory_id: str | None,
+) -> list[str]:
+    rows = connection.execute(
+        """
+        SELECT n.node_id, t.territory_id
+        FROM territories t
+        JOIN map_nodes n ON n.territory_id = t.territory_id
+        LEFT JOIN territory_runtime_state r ON r.territory_id = t.territory_id
+        WHERE COALESCE(NULLIF(r.owner_domain_id, ''), NULLIF(t.owner_domain_id, '')) = ?
+          AND (? IS NULL OR t.territory_id != ?)
+          AND COALESCE(
+                NULLIF(r.status, ''),
+                CASE
+                    WHEN t.owner_domain_id IS NULL OR t.owner_domain_id = ''
+                    THEN 'neutral'
+                    ELSE 'controlled'
+                END
+              ) NOT IN (
+                'contested',
+                'contested_pending_tick',
+                'in_battle',
+                'awaiting_garrison',
+                'capture_pending_garrison'
+              )
+        ORDER BY n._row_number
+        """,
+        (domain_id, exclude_territory_id, exclude_territory_id),
+    ).fetchall()
+    return [str(row["node_id"]) for row in rows if _optional(row["node_id"])]
+
+
+def _nearest_node_by_route_cost(
+    connection: sqlite3.Connection,
+    start_node_id: str,
+    candidate_node_ids: list[str],
+) -> str | None:
+    candidates = set(candidate_node_ids)
+    if start_node_id in candidates:
+        return start_node_id
+    graph: dict[str, list[tuple[str, int]]] = {}
+    for edge in connection.execute(
+        "SELECT from_node_id, to_node_id, mp_cost, bidirectional FROM map_edges"
+    ).fetchall():
+        cost = max(1, _to_int(edge["mp_cost"]))
+        from_node = str(edge["from_node_id"])
+        to_node = str(edge["to_node_id"])
+        graph.setdefault(from_node, []).append((to_node, cost))
+        if str(edge["bidirectional"]).strip().lower() == "true":
+            graph.setdefault(to_node, []).append((from_node, cost))
+
+    distances: dict[str, int] = {start_node_id: 0}
+    visited: set[str] = set()
+    while True:
+        current = min(
+            (node for node in distances if node not in visited),
+            key=lambda node: distances[node],
+            default=None,
+        )
+        if current is None:
+            return None
+        if current in candidates:
+            return current
+        visited.add(current)
+        for neighbor, cost in graph.get(current, []):
+            next_cost = distances[current] + cost
+            if next_cost < distances.get(neighbor, 10**9):
+                distances[neighbor] = next_cost
 
 
 def _state_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -2646,7 +2814,14 @@ def _is_alive(stack: dict[str, Any]) -> bool:
 
 
 def _unit_power(stack: dict[str, Any]) -> int:
-    return int(stack["attack"]) + int(stack["defense"]) + int(stack["hp"]) + int(stack["tier"])
+    unit_class = str(stack.get("unit_class") or "")
+    return (
+        int(stack["attack"])
+        + int(stack["defense"])
+        + int(stack["hp"])
+        + int(stack["tier"])
+        + UNIT_CLASS_POWER_BONUS.get(unit_class, 0)
+    )
 
 
 def _domain_for_side(state: dict[str, Any], side: str) -> str | None:

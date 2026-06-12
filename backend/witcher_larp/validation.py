@@ -165,7 +165,7 @@ CANONICAL_LORD_BATTLE_RULES = {
     "grid_width": "5",
     "grid_height": "6",
     "turn_timer_seconds": "60",
-    "damage_formula": "count_alive*max(1 attack-defense+modifiers)",
+    "damage_formula": "count_alive*max(1 effective_attack-effective_defense+modifiers)",
     "initiative_tiebreaker": "initiative_desc_tier_desc_seed",
     "timeout_policy": "auto_defend_then_skip",
     "auto_resolve_policy": "repeated_timeout_master_takeover_or_auto_resolve",

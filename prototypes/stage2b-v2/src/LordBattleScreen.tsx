@@ -83,6 +83,7 @@ type BattleUnit = {
   ability?: string;
   sourceId?: string;
   cardId?: string;
+  actedRound?: number;
 };
 
 type BattleHeroTarget = {
@@ -126,6 +127,7 @@ type LordBattleStackPayload = Record<string, unknown> & {
   initial_count?: unknown;
   count_alive?: unknown;
   wounds_on_front_unit?: unknown;
+  acted_round?: unknown;
   x?: unknown;
   y?: unknown;
   defended?: unknown;
@@ -408,7 +410,8 @@ const stackToBattleUnit = (stack: LordBattleStackPayload): BattleUnit | null => 
     woundsOnFrontUnit: Math.max(0, Math.floor(toSafeNumber(stack.wounds_on_front_unit))),
     status: countAlive <= 0 ? "destroyed" : stack.defended ? "defending" : toSafeNumber(stack.wounds_on_front_unit) > 0 ? "wounded" : undefined,
     sourceId: toSafeString(stack.source_id),
-    cardId
+    cardId,
+    actedRound: Math.max(0, Math.floor(toSafeNumber(stack.acted_round)))
   };
 };
 
@@ -1014,11 +1017,18 @@ const getLegalAttacks = (unit: BattleUnit | undefined, units: BattleUnit[]) => {
           return distance === 1;
         }
 
+        if (usesArcingAttack(unit)) {
+          return distance <= unit.attackRange;
+        }
+
         return distance <= unit.attackRange && hasStraightLineOfSight(units, unit.position, target.position, unit.id);
       })
       .map((target) => cellKey(target.position as BattleCell))
   );
 };
+
+const usesArcingAttack = (unit: BattleUnit) =>
+  unit.attackRange > 1 && (unit.classId === "ranged" || unit.classId === "heavy_siege");
 
 const getHeroTargetsFromPayload = (
   payload: LordBattlePayload | null,
@@ -1063,6 +1073,9 @@ const getLegalHeroAttacks = (
           return false;
         }
         const distance = getCellDistance(unit.position, target.cell);
+        if (usesArcingAttack(unit)) {
+          return distance <= unit.attackRange;
+        }
         return distance <= unit.attackRange && hasStraightLineOfSight(units, unit.position, target.cell, unit.id);
       })
       .map((target) => cellKey(target.cell))
@@ -1070,7 +1083,7 @@ const getLegalHeroAttacks = (
 };
 
 const getLineOfSightTarget = (unit: BattleUnit | undefined, units: BattleUnit[]) => {
-  if (!unit?.position || unit.attackRange <= 1) {
+  if (!unit?.position || unit.attackRange <= 1 || usesArcingAttack(unit)) {
     return null;
   }
 
@@ -1159,6 +1172,29 @@ function LordBattleScreen() {
       return aliveUnits.sort((left, right) => right.initiative - left.initiative || right.attack - left.attack);
     },
     [initiativeOrder, units]
+  );
+  const initiativeRoundSections = useMemo(
+    () => [
+      {
+        id: "current",
+        title: `Раунд ${round}`,
+        subtitle: "текущий круг",
+        rows: initiativeQueue.map((unit) => ({
+          unit,
+          state: unit.id === activeStackId ? "active" : unit.actedRound === round ? "acted" : "waiting"
+        }))
+      },
+      {
+        id: "next",
+        title: `Раунд ${round + 1}`,
+        subtitle: "следующий круг",
+        rows: initiativeQueue.map((unit) => ({
+          unit,
+          state: "next"
+        }))
+      }
+    ],
+    [activeStackId, initiativeQueue, round]
   );
   const reserveUnits = units.filter((unit) => unit.side === playerUiSide && !unit.position && unit.status !== "destroyed");
   const deploymentRowSet = useMemo(
@@ -2066,21 +2102,32 @@ function LordBattleScreen() {
             <b>{initiativeQueue[0]?.name ?? "нет отрядов"}</b>
           </div>
           <div className="lord-battle-initiative">
-            {initiativeQueue.slice(0, 6).map((unit) => {
-              const currentTone = unit.id === activeStackId ? (unit.side === playerUiSide ? "own" : "enemy") : null;
-              return (
-                <button
-                  key={unit.id}
-                  type="button"
-                  className={`lord-battle-queue-row ${unit.side}${unit.id === selectedUnitId ? " is-selected" : ""}${currentTone ? ` is-current is-current-${currentTone}` : ""}`}
-                  onClick={() => setSelectedUnitId(unit.id)}
-                >
-                  <img src={unitClassIcon[unit.classId]} alt="" draggable={false} />
-                  <span>{unit.name}</span>
-                  <b>{unit.initiative}</b>
-                </button>
-              );
-            })}
+            {initiativeRoundSections.map((section) => (
+              <div className="lord-battle-initiative-round" key={section.id}>
+                <div className="lord-battle-initiative-round-title">
+                  <span>{section.title}</span>
+                  <small>{section.subtitle}</small>
+                </div>
+                {section.rows.map(({ unit, state }) => {
+                  const currentTone = unit.id === activeStackId ? (unit.side === playerUiSide ? "own" : "enemy") : null;
+                  const stateLabel =
+                    state === "active" ? "сейчас" : state === "acted" ? "ход сделан" : unit.side === playerUiSide ? "свой" : "чужой";
+                  return (
+                    <button
+                      key={`${section.id}-${unit.id}`}
+                      type="button"
+                      className={`lord-battle-queue-row ${unit.side}${unit.id === selectedUnitId ? " is-selected" : ""}${currentTone ? ` is-current is-current-${currentTone}` : ""}${state === "acted" ? " is-acted" : ""}${state === "next" ? " is-next-round" : ""}`}
+                      onClick={() => setSelectedUnitId(unit.id)}
+                    >
+                      <img src={unitClassIcon[unit.classId]} alt="" draggable={false} />
+                      <span>{unit.name}</span>
+                      <b>{unit.initiative}</b>
+                      <small>{stateLabel}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </aside>
       </section>

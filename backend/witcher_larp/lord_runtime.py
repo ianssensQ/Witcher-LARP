@@ -78,6 +78,14 @@ LORD_ORDER_MANAGEMENT_ACTIONS = {
 }
 PLAYER_ORDER_ACTIONS = {"accept", "submit_success"}
 MASTER_ORDER_ACTIONS = {"complete"}
+ARMY_UNIT_CLASS_POWER_BONUS = {
+    "infantry": 0,
+    "guard": 4,
+    "ranged": 4,
+    "cavalry": 10,
+    "heavy_siege": 16,
+    "specialist": 8,
+}
 ORDER_MASTER_RECOVERY_SOURCES = {
     "master_api",
     "master_override",
@@ -725,13 +733,12 @@ def transfer_garrison(
                 _assert_active_army_new_stack_capacity_available(
                     connection, domain_id, capacity
                 )
-                source_stack = _garrison_stack(
+                _garrison_stack(
                     connection,
                     domain_id,
                     territory_id,
                     _required_stack_id(source_stack_id),
                 )
-                source_card_id = str(source_stack["card_id"])
                 consumed = _consume_garrison_stack(
                     connection,
                     domain_id,
@@ -5410,13 +5417,19 @@ def _army_power_by_domain(connection: sqlite3.Connection) -> dict[str, int]:
             continue
         for row in connection.execute(
             f"""
-            SELECT r.{domain_column} AS domain_id, r.count, c.attack, c.defense, c.hp, c.tier
+            SELECT r.{domain_column} AS domain_id, r.count, c.attack, c.defense, c.hp, c.tier, c.unit_class
             FROM {table_name} r
             JOIN army_unit_cards c ON c.card_id = r.card_id
             WHERE r.status IN ('available', 'active') AND r.count > 0
             """
         ).fetchall():
-            unit_power = _to_int(row["attack"]) + _to_int(row["defense"]) + _to_int(row["hp"]) + _to_int(row["tier"])
+            unit_power = (
+                _to_int(row["attack"])
+                + _to_int(row["defense"])
+                + _to_int(row["hp"])
+                + _to_int(row["tier"])
+                + ARMY_UNIT_CLASS_POWER_BONUS.get(str(row["unit_class"]), 0)
+            )
             powers[str(row["domain_id"])] = powers.get(str(row["domain_id"]), 0) + unit_power * _to_int(row["count"])
     for row in connection.execute("SELECT domain_id FROM domain_runtime_state").fetchall():
         powers.setdefault(str(row["domain_id"]), 0)

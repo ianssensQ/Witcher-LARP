@@ -8336,7 +8336,35 @@ button:focus-visible {
 
   .lord-battle-initiative {
     display: grid;
+    gap: 10px;
+    max-height: min(48vh, 520px);
+    overflow: auto;
+    padding-right: 2px;
+    scrollbar-color: rgba(214, 176, 99, .54) rgba(0, 0, 0, .22);
+    scrollbar-width: thin;
+  }
+
+  .lord-battle-initiative-round {
+    display: grid;
     gap: 6px;
+  }
+
+  .lord-battle-initiative-round-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    color: rgba(246, 229, 195, .78);
+    font-size: .68rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .lord-battle-initiative-round-title small {
+    color: rgba(246, 229, 195, .48);
+    font-size: .62rem;
+    font-weight: 800;
+    text-transform: none;
   }
 
   .lord-battle-queue-row {
@@ -8344,6 +8372,7 @@ button:focus-visible {
     min-height: 42px;
     display: grid;
     grid-template-columns: 34px minmax(0, 1fr) 26px;
+    grid-template-rows: auto auto;
     gap: 7px;
     align-items: center;
     padding: 5px;
@@ -8396,7 +8425,7 @@ button:focus-visible {
     width: 32px;
     height: 32px;
     object-fit: contain;
-    grid-row: auto;
+    grid-row: 1 / 3;
   }
 
   .lord-battle-queue-row span {
@@ -8418,6 +8447,23 @@ button:focus-visible {
     border-radius: 50%;
     background: rgba(0, 0, 0, .32);
     font-size: .75rem;
+  }
+
+  .lord-battle-queue-row small {
+    grid-column: 2 / 4;
+    color: rgba(246, 229, 195, .58);
+    font-size: .62rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .lord-battle-queue-row.is-acted {
+    opacity: .58;
+    filter: saturate(.72);
+  }
+
+  .lord-battle-queue-row.is-next-round {
+    opacity: .78;
   }
 
   .lord-battle-modifiers {
@@ -8815,10 +8861,6 @@ button:focus-visible {
 
     .lord-battle-log {
       max-height: 112px;
-    }
-
-    .lord-battle-initiative .lord-battle-queue-row:nth-child(n+5) {
-      display: none;
     }
 
     .lord-battle-state-chip {

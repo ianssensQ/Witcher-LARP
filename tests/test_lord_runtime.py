@@ -149,7 +149,7 @@ class LordRuntimeTests(unittest.TestCase):
                     'army_north_prepared_guard',
                     'domain_north',
                     'unit_guard_t1',
-                    8,
+                    20,
                     'node_fort_east',
                     'active',
                     '2026-06-02T10:00:00+00:00'

@@ -667,15 +667,18 @@ Raid subtree находится внутри ветки Совета. Запус
 V1 damage formula:
 
 ```text
-damage = count_alive * max(1, attack - target_defense + modifiers)
+effective_attack = attack + class_attack_bonus
+effective_defense = target_defense + class_defense_bonus
+damage = count_alive * max(1, effective_attack - effective_defense + modifiers)
+hero_damage = count_alive * effective_attack * hero_attack_multiplier
 ```
 
-`modifiers` - простая сумма явных статусов вроде защиты/оберега/осады. В V1 нет отдельной обязательной формулы вида "контр-модификатор x дистанция x местность": дистанция ограничивает возможность атаки через `attack_range`/line of sight, а не умножает урон. Полученный урон убивает столько единиц в пачке, сколько проходит через HP. Потерянное количество уменьшает дальнейший урон этого стека.
+`modifiers` - простая сумма явных статусов вроде защиты/оберега/осады. Классовые бонусы нужны, чтобы дорогие и поздние отряды не проигрывали только из-за количества дешевых пачек: ranged получает небольшой bonus к атаке, cavalry - заметный удар и защиту, heavy_siege - самый высокий bonus и двойной `hero_attack_multiplier`, specialist - умеренное усиление. В V1 нет отдельной обязательной формулы вида "контр-модификатор x дистанция x местность": дистанция ограничивает возможность атаки через `attack_range`/line of sight, а не умножает урон. Полученный урон убивает столько единиц в пачке, сколько проходит через HP. Потерянное количество уменьшает дальнейший урон этого стека.
 
 V1 уточнение для реализации:
 
 ```text
-unit_power = count_alive * (attack + defense + hp) + initiative * 2 + move_range * 2 + attack_range * 2 + tier * 8
+unit_power = count_alive * (attack + defense + hp + tier + class_power_bonus)
 deployed_army_power = sum(unit_power for deployed cards)
 active_army_power = sum(unit_power for active army cards)
 domain_army_power = active_army_power + sum(garrison unit_power)
@@ -707,10 +710,10 @@ Deployment caps:
 - лорды ходят юнитами в порядке инициативы;
 - юнит может переместиться, атаковать или использовать доступное действие;
 - перемещение ортогональное, без диагоналей, если карта явно не задает исключение;
-- melee атакует соседнюю ортогональную клетку, ranged/siege используют `attack_range` и line of sight;
-- line of sight идет по прямой ортогонали; свои и чужие юниты блокируют выстрел, terrain blocker блокирует выстрел, terrain cover дает защитный modifier, если это задано в battle map;
+- melee атакует соседнюю ортогональную клетку, ranged/siege используют `attack_range`;
+- line of sight идет по прямой ортогонали для обычных дальних атак; ranged и heavy_siege стреляют навесом и игнорируют юниты на пути, но terrain blocker/cover может остаться отдельным правилом battle map;
 - ranged/siege не стреляют через героя, стены резиденции или закрытые клетки, если карта явно не задает исключение;
-- герой лорда может быть целью melee, если атакующий стоит на одной из трех соединенных центральных клеток у линии героя; ranged/siege могут атаковать героя только при прямой line of sight и достаточном `attack_range`;
+- герой лорда может быть целью melee, если атакующий стоит на одной из трех соединенных центральных клеток у линии героя; ranged/siege могут атаковать героя при достаточном `attack_range`, а heavy_siege наносит по герою/главному зданию усиленный урон;
 - герой не делает обычную ответку; leader ability или защитное здание могут дать отдельный логируемый defensive effect;
 - у каждого юнита есть одна ответка за раунд, если цель выжила и атакующий находится в диапазоне ответки;
 - ход имеет 60s turn timer;
