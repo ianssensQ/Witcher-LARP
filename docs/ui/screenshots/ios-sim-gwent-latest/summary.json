@@ -1,0 +1,26 @@
+{
+  "bundle_id": "local.witcherlarp.app",
+  "derived_data_path": "/tmp/witcher-ios-gwent-dd",
+  "device": "iPhone 16",
+  "output_dir": "/Users/matvei/Documents/projects/Witcher-LARP/docs/ui/screenshots/ios-sim-gwent-latest",
+  "project": "/Users/matvei/Documents/projects/Witcher-LARP/ios/WitcherLARP.xcodeproj",
+  "scheme": "WitcherLARP",
+  "screenshots": {
+    "gwent_lobby": {
+      "file_size": 868858,
+      "height": 2556,
+      "orientation": "portrait",
+      "path": "docs/ui/screenshots/ios-sim-gwent-latest/gwent-lobby.png",
+      "width": 1179
+    },
+    "gwent_table": {
+      "file_size": 2279971,
+      "height": 1179,
+      "orientation": "landscape",
+      "path": "docs/ui/screenshots/ios-sim-gwent-latest/gwent-table-landscape.png",
+      "width": 2556
+    }
+  },
+  "status": "passed",
+  "steps": []
+}

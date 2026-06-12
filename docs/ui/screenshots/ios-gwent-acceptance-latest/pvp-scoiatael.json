@@ -1,0 +1,150 @@
+{
+  "challenge_id": "ios-gwent-smoke-1781254848",
+  "decks": {
+    "p_witcher_1": {
+      "deck_id": "deck_witcher_wolf_scoiatael",
+      "faction": "scoiatael"
+    }
+  },
+  "finished_at": 1781254849,
+  "finished_match_status": "finished",
+  "idempotency_checks": [
+    {
+      "action_id": "ios-gwent-smoke-1781254848-p1-r1-play",
+      "duplicate": true,
+      "player_id": "p_witcher_1",
+      "round_number": 1
+    }
+  ],
+  "match_id": "gwent_match_38252ac88a034b0f83cf04dcedb75c0e",
+  "mode": "pvp",
+  "players": {
+    "p1": {
+      "deck_id": "deck_witcher_wolf_scoiatael",
+      "player_id": "p_witcher_1",
+      "preferred_starting_player_id": "p_witcher_2"
+    },
+    "p2": {
+      "deck_id": null,
+      "player_id": "p_witcher_2",
+      "preferred_starting_player_id": null
+    }
+  },
+  "pre_finish_match_status": "awaiting_finish",
+  "preflight_only": false,
+  "recent_match_id": "gwent_match_38252ac88a034b0f83cf04dcedb75c0e",
+  "rounds": [
+    {
+      "actions": [
+        {
+          "action": "pass",
+          "player_id": "p_witcher_2"
+        },
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_17",
+          "player_id": "p_witcher_1",
+          "row": "melee"
+        },
+        {
+          "action": "pass",
+          "player_id": "p_witcher_1"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_18",
+          "player_id": "p_witcher_1",
+          "row": "melee"
+        },
+        {
+          "action": "pass",
+          "player_id": "p_witcher_2"
+        },
+        {
+          "action": "pass",
+          "player_id": "p_witcher_1"
+        }
+      ],
+      "round_number": 2
+    }
+  ],
+  "server": "http://127.0.0.1:58748",
+  "stake": {
+    "amount": 5,
+    "asset_id": "gold",
+    "asset_type": "gold"
+  },
+  "stake_transfer_status": "applied",
+  "started_at": 1781254848,
+  "starting_player_id": "p_witcher_2",
+  "status": "passed",
+  "steps": [
+    {
+      "at": 1781254848,
+      "challenge_tokens": {
+        "p_witcher_1": 3,
+        "p_witcher_2": 3
+      },
+      "name": "preflight_clear",
+      "players": [
+        "p_witcher_1",
+        "p_witcher_2"
+      ]
+    },
+    {
+      "at": 1781254848,
+      "challenge_id": "ios-gwent-smoke-1781254848",
+      "name": "challenge_created"
+    },
+    {
+      "at": 1781254848,
+      "name": "player_ready",
+      "player_id": "p_witcher_1",
+      "started": false
+    },
+    {
+      "at": 1781254848,
+      "deck_id": "deck_witcher_wolf_scoiatael",
+      "faction": "scoiatael",
+      "name": "deck_verified",
+      "player_id": "p_witcher_1"
+    },
+    {
+      "at": 1781254848,
+      "name": "starting_player_verified",
+      "player_id": "p_witcher_2"
+    },
+    {
+      "at": 1781254848,
+      "match_id": "gwent_match_38252ac88a034b0f83cf04dcedb75c0e",
+      "name": "player_ready",
+      "player_id": "p_witcher_2",
+      "started": true
+    },
+    {
+      "action_id": "ios-gwent-smoke-1781254848-p1-r1-play",
+      "at": 1781254848,
+      "name": "duplicate_action_verified",
+      "player_id": "p_witcher_1",
+      "round_number": 1
+    },
+    {
+      "at": 1781254849,
+      "name": "rounds_completed",
+      "status": "awaiting_finish",
+      "winner_id": "p_witcher_1"
+    },
+    {
+      "at": 1781254849,
+      "match_id": "gwent_match_38252ac88a034b0f83cf04dcedb75c0e",
+      "name": "finished_and_visible",
+      "stake_transfer_status": "applied"
+    }
+  ],
+  "winner_id": "p_witcher_1"
+}

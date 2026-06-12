@@ -1,0 +1,35 @@
+{
+  "artifact_dir": "docs/ui/screenshots/ios-gwent-acceptance-latest",
+  "base_url": "http://127.0.0.1:58748",
+  "database_path": "docs/ui/screenshots/ios-gwent-acceptance-latest/ios_gwent_acceptance.db",
+  "finished_at": 1781254849,
+  "server_log": "docs/ui/screenshots/ios-gwent-acceptance-latest/server.log",
+  "snapshot_version": "seed-v1-ea725cb389ec",
+  "started_at": 1781254845,
+  "status": "passed",
+  "steps": [
+    {
+      "database_path": "docs/ui/screenshots/ios-gwent-acceptance-latest/ios_gwent_acceptance.db",
+      "name": "database_prepared"
+    },
+    {
+      "base_url": "http://127.0.0.1:58748",
+      "name": "server_started"
+    },
+    {
+      "name": "preflight",
+      "output_tail": "Server: http://127.0.0.1:58748\nPreflight only: no challenge, bot match, stake or card action will be created\npreflight: p_witcher_1 auth/snapshot/player-state ok\npreflight: p_witcher_2 auth/snapshot/player-state ok\nreport: docs/ui/screenshots/ios-gwent-acceptance-latest/preflight.json\nOK: iOS Gwent HTTP preflight completed without creating a challenge or match.\n",
+      "returncode": 0
+    },
+    {
+      "name": "bot",
+      "output_tail": "Server: http://127.0.0.1:58748\nBot training player: p_witcher_1\npreflight: selected player has no active PvP state\nstarted bot match gwent_bot_match_a5469cb15b6f4cf296e4619a6ddf9158\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human play_card\nbot round 1: human pass\nbot round 2: human pass\nfinished bot match and verified recent_match\nreport: docs/ui/screenshots/ios-gwent-acceptance-latest/bot.json\nOK: iOS Gwent bot HTTP smoke completed.\n",
+      "returncode": 0
+    },
+    {
+      "name": "pvp_scoiatael",
+      "output_tail": "Server: http://127.0.0.1:58748\nChallenge: ios-gwent-smoke-1781254848\npreflight: selected players have no active PvP state\ncreated challenge\np1 ready\np2 ready, match gwent_match_38252ac88a034b0f83cf04dcedb75c0e\nround 1: p2 passed from first turn\nround 1: p1 played gwent_unit_17\nround 1: p1 passed\nround 2: p1 played gwent_unit_18\nround 2: p2 passed\nround 2: p1 passed\nfinished match and verified recent_match\nreport: docs/ui/screenshots/ios-gwent-acceptance-latest/pvp-scoiatael.json\nOK: iOS Gwent HTTP smoke completed.\n",
+      "returncode": 0
+    }
+  ]
+}

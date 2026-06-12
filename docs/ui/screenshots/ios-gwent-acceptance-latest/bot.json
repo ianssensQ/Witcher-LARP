@@ -1,0 +1,232 @@
+{
+  "bot": {
+    "difficulty": "training",
+    "display_name": "Тренировочный соперник",
+    "human_player_id": "p_witcher_1",
+    "player_id": "p_gwent_bot_training"
+  },
+  "challenge_id": "ios-gwent-smoke-1781254847",
+  "finished_at": 1781254848,
+  "finished_match_status": "finished",
+  "idempotency_checks": [
+    {
+      "action_id": "ios-gwent-smoke-1781254847-bot-human-1-play",
+      "duplicate": true,
+      "player_id": "p_witcher_1",
+      "round_number": 1
+    }
+  ],
+  "match_id": "gwent_bot_match_a5469cb15b6f4cf296e4619a6ddf9158",
+  "mode": "bot",
+  "players": {
+    "p1": {
+      "deck_id": null,
+      "player_id": "p_witcher_1",
+      "preferred_starting_player_id": null
+    },
+    "p2": {
+      "deck_id": null,
+      "player_id": "p_witcher_2",
+      "preferred_starting_player_id": null
+    }
+  },
+  "preflight_only": false,
+  "recent_match_id": "gwent_bot_match_a5469cb15b6f4cf296e4619a6ddf9158",
+  "rounds": [
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_01",
+          "player_id": "p_witcher_1",
+          "row": "melee"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_02",
+          "player_id": "p_witcher_1",
+          "row": "melee"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_03",
+          "player_id": "p_witcher_1",
+          "row": "melee"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_04",
+          "player_id": "p_witcher_1",
+          "row": "melee"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_05",
+          "player_id": "p_witcher_1",
+          "row": "melee"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_07",
+          "player_id": "p_witcher_1",
+          "row": "ranged"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_08",
+          "player_id": "p_witcher_1",
+          "row": "ranged"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_09",
+          "player_id": "p_witcher_1",
+          "row": "ranged"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_10",
+          "player_id": "p_witcher_1",
+          "row": "ranged"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_06",
+          "player_id": "p_witcher_1",
+          "row": "melee"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_11",
+          "player_id": "p_witcher_1",
+          "row": "ranged"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "play_card",
+          "card_id": "gwent_unit_12",
+          "player_id": "p_witcher_1",
+          "row": "ranged"
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "pass",
+          "card_id": null,
+          "player_id": "p_witcher_1",
+          "row": null
+        }
+      ],
+      "round_number": 1
+    },
+    {
+      "actions": [
+        {
+          "action": "pass",
+          "card_id": null,
+          "player_id": "p_witcher_1",
+          "row": null
+        }
+      ],
+      "round_number": 2
+    }
+  ],
+  "server": "http://127.0.0.1:58748",
+  "stake": {
+    "amount": 5,
+    "asset_id": "gold",
+    "asset_type": "gold"
+  },
+  "stake_transfer_status": "practice_no_stake",
+  "started_at": 1781254847,
+  "status": "passed",
+  "steps": [
+    {
+      "at": 1781254847,
+      "challenge_tokens": {
+        "p_witcher_1": 3
+      },
+      "name": "preflight_clear",
+      "players": [
+        "p_witcher_1"
+      ]
+    },
+    {
+      "at": 1781254847,
+      "bot_player_id": "p_gwent_bot_training",
+      "match_id": "gwent_bot_match_a5469cb15b6f4cf296e4619a6ddf9158",
+      "name": "bot_match_started"
+    },
+    {
+      "action_id": "ios-gwent-smoke-1781254847-bot-human-1-play",
+      "at": 1781254847,
+      "name": "duplicate_action_verified",
+      "player_id": "p_witcher_1",
+      "round_number": 1
+    },
+    {
+      "at": 1781254848,
+      "match_id": "gwent_bot_match_a5469cb15b6f4cf296e4619a6ddf9158",
+      "name": "bot_finished_and_visible",
+      "winner_id": "p_gwent_bot_training"
+    }
+  ],
+  "winner_id": "p_gwent_bot_training"
+}

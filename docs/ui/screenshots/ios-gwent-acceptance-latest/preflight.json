@@ -1,0 +1,94 @@
+{
+  "challenge_id": "ios-gwent-smoke-1781254847",
+  "finished_at": 1781254847,
+  "health": {
+    "api_features": [
+      "ios_gwent_bot_match",
+      "ios_gwent_preflight",
+      "ios_gwent_pvp_actions",
+      "ios_gwent_scoiatael_first_turn"
+    ],
+    "api_revision": "ios-gwent-pvp-v1",
+    "database_path": "/Users/matvei/Documents/projects/Witcher-LARP/docs/ui/screenshots/ios-gwent-acceptance-latest/ios_gwent_acceptance.db",
+    "database_status": "ok",
+    "schema_version": 1,
+    "status": "ok"
+  },
+  "idempotency_checks": [],
+  "mode": "pvp",
+  "players": {
+    "p1": {
+      "deck_id": null,
+      "player_id": "p_witcher_1",
+      "preferred_starting_player_id": null
+    },
+    "p2": {
+      "deck_id": null,
+      "player_id": "p_witcher_2",
+      "preferred_starting_player_id": null
+    }
+  },
+  "preflight_only": true,
+  "rounds": [],
+  "server": "http://127.0.0.1:58748",
+  "snapshots": {
+    "p_witcher_1": {
+      "deck_count": 3,
+      "selected_deck_id": null,
+      "snapshot_version": "seed-v1-ea725cb389ec"
+    },
+    "p_witcher_2": {
+      "deck_count": 3,
+      "selected_deck_id": null,
+      "snapshot_version": "seed-v1-ea725cb389ec"
+    }
+  },
+  "stake": {
+    "amount": 5,
+    "asset_id": "gold",
+    "asset_type": "gold"
+  },
+  "started_at": 1781254847,
+  "status": "passed",
+  "steps": [
+    {
+      "api_features": [
+        "ios_gwent_bot_match",
+        "ios_gwent_preflight",
+        "ios_gwent_pvp_actions",
+        "ios_gwent_scoiatael_first_turn"
+      ],
+      "api_revision": "ios-gwent-pvp-v1",
+      "at": 1781254847,
+      "database_path": "/Users/matvei/Documents/projects/Witcher-LARP/docs/ui/screenshots/ios-gwent-acceptance-latest/ios_gwent_acceptance.db",
+      "database_status": "ok",
+      "name": "health_ok",
+      "schema_version": 1,
+      "status": "ok"
+    },
+    {
+      "at": 1781254847,
+      "count": 2,
+      "name": "pvp_tables_ok",
+      "open": 2
+    },
+    {
+      "at": 1781254847,
+      "can_create_challenge": true,
+      "challenge_tokens": 3,
+      "name": "player_preflight_clear",
+      "player_id": "p_witcher_1"
+    },
+    {
+      "at": 1781254847,
+      "can_create_challenge": true,
+      "challenge_tokens": 3,
+      "name": "player_preflight_clear",
+      "player_id": "p_witcher_2"
+    }
+  ],
+  "tables": {
+    "count": 2,
+    "open": 2
+  }
+}
