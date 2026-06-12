@@ -152,13 +152,13 @@ URL/IP подключения является скрытой мастерско
 `0.0.0.0:8002`, который одновременно раздает Admin Studio, лордские экраны и
 API над одной базой. Для текущей локальной сети адреса такие:
 
-- Admin Studio мастера: `http://192.168.0.103:8002/admin`;
-- вход лордов: `http://192.168.0.103:8002/lords/login`;
-- игровые экраны лордов: `http://192.168.0.103:8002/lords/...`;
-- API: `http://192.168.0.103:8002/api/...`.
+- Admin Studio мастера: `http://192.168.0.102:8002/admin`;
+- вход лордов: `http://192.168.0.102:8002/lords/login`;
+- игровые экраны лордов: `http://192.168.0.102:8002/lords/...`;
+- API: `http://192.168.0.102:8002/api/...`.
 
 Если IPv4 мастерского ноутбука изменился, меняется только host
-`192.168.0.103`; порт `8002` и единый сервер остаются production path.
+`192.168.0.102`; порт `8002` и единый сервер остаются production path.
 Dev/Vite-порты вроде `5174`, `5178` и похожих не являются
 продакшен-серверами и не должны использоваться для мастерской/лордской игры.
 
@@ -181,7 +181,9 @@ Python/backend/tooling окружение управляется через `uv`
 - bootstrap SQLite: `backend/witcher_larp/database.py`;
 - FastAPI factory и endpoint `/health`: `backend/witcher_larp/app.py`;
 - команда запуска на мастерском ноутбуке после `uv sync`: `uv run python -m backend.witcher_larp`;
-- переменные окружения: `WITCHER_LARP_HOST`, `WITCHER_LARP_PORT`, `WITCHER_LARP_DB`;
+- эта команда по умолчанию поднимает единый LAN production server на `0.0.0.0:8002`;
+- переменные окружения `WITCHER_LARP_HOST`, `WITCHER_LARP_PORT`, `WITCHER_LARP_DB`
+  используются только для осознанного переопределения host, port или базы;
 - зависимости локального backend: `pyproject.toml`; `requirements.txt` остается только legacy-совместимостью.
 
 Рабочая раскладка реализации:
@@ -523,15 +525,13 @@ Android/iOS install-launch-auto-connect-code-login-snapshot-restart-sync дол�
 
 - `uv 0.11.14`;
 - Python через `uv`: `3.12.10`;
-- текущий IPv4 мастерского ноутбука в локальной сети: `192.168.0.103`;
+- текущий IPv4 мастерского ноутбука в локальной сети: `192.168.0.102`;
 - production port сервера: `8002`;
 - canonical command path:
 
 ```powershell
 uv sync
 uv run python scripts/build_lord_frontend.py
-$env:WITCHER_LARP_HOST = "0.0.0.0"
-$env:WITCHER_LARP_PORT = "8002"
 uv run python -m backend.witcher_larp
 ```
 
@@ -539,13 +539,13 @@ Health URLs для smoke:
 
 - мастерский ноутбук: `http://127.0.0.1:8002/health`;
 - телефоны и лордские ноутбуки в той же Wi-Fi-сети:
-  `http://192.168.0.103:8002/health` для текущего IP; на репетиции IP
+  `http://192.168.0.102:8002/health` для текущего IP; на репетиции IP
   нужно заменить на фактический адрес game-day ноутбука.
 
 Gameplay URLs для smoke:
 
-- мастер: `http://192.168.0.103:8002/admin`;
-- лорды: `http://192.168.0.103:8002/lords/login`;
+- мастер: `http://192.168.0.102:8002/admin`;
+- лорды: `http://192.168.0.102:8002/lords/login`;
 - проверка, что админка и лорды связаны: действие мастера в Admin Studio должно
   отражаться в лордском экране, потому что оба идут через тот же `8002` и ту же
   SQLite базу.

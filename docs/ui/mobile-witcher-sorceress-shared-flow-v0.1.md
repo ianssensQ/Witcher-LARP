@@ -37,8 +37,8 @@ locked magical intent остаются future layer и не блокируют �
   целевые размеры.
 - Все ключевые действия доступны большим нижним tab bar и крупными primary
   кнопками не меньше 44 px.
-- На экране постоянно видны: персонаж, текущий акт, sync/offline статус и
-  понятное состояние последнего действия.
+- На экране постоянно видны: персонаж, текущий акт из server snapshot,
+  sync/offline статус и понятное состояние последнего действия.
 - Offline-safe действия работают без Wi-Fi: просмотр snapshot, QR/PvE по
   локальному snapshot, результаты, cooldown, очередь событий.
 - Online-only действия явно помечены: trade, Gwent match start/rounds, live
@@ -87,7 +87,7 @@ flowchart TD
   M1 -->|"QR tab / Сканировать"| M2["M2 QR / Manual ID"]
   M1S -->|"QR tab / Сканировать"| M2
   M2 -->|"Код найден"| M3["M3 Подтверждение присутствия"]
-  M2 -->|"Future act"| M11["M11 Unlock act"]
+  M2 -->|"Future act"| M2E
   M2 -->|"Cooldown / invalid / rate limit"| M2E["M2 state: locked/error/review"]
   M3 -->|"Я на месте"| M4["M4 PvE scene"]
   M3 -->|"Проблема с QR"| M12["M12 Sync Queue / review event"]
@@ -109,7 +109,6 @@ flowchart TD
   M10Q -->|"Начать матч в online zone"| M10B["M10 board"]
   M10B -->|"Финиш / спор / отказ"| M12
   M1 -->|"Sync strip"| M12
-  M11 -->|"Ввести код акта"| M1
 ```
 
 ## Экраны, кнопки и переходы
@@ -118,8 +117,8 @@ flowchart TD
 | --- | --- | --- | --- | --- |
 | `Ops0` | Скрытая настройка подключения | Сохраненный/встроенный server URL, connection QR, health status | `Проверить`, `Сохранить`, `Сбросить` | Только мастер/техник; в нормальном player flow не показывается |
 | `Shared2` | Вход | Поле `player_code`, auto-connect status, роль после проверки | `Войти`, `Очистить` | ведьмак/чародейка -> `M1`; invalid -> same screen; нет связи без snapshot -> help state |
-| `M1` | Журнал | Портрет, роль, уровень/XP, золото, репутация описательно, акт, цели, sync strip | `Сканировать`, `Синхронизировать`, tab buttons | QR -> `M2`; sync -> `M12`; tabs -> `M6A/M6B/M7/M10` |
-| `M2` | QR / Manual ID | Camera area, manual opaque code field, last attempts, lock reasons | `Сканировать`, `Проверить код`, `Ввести код акта`, `Назад` | valid -> `M3`; future act -> `M11`; invalid/cooldown -> state on `M2` |
+| `M1` | Журнал | Портрет, роль, уровень/XP, золото, репутация описательно, текущий акт read-only из server snapshot, цели, sync strip | `Сканировать`, `Синхронизировать`, tab buttons | QR -> `M2`; sync -> `M12`; tabs -> `M6A/M6B/M7/M10` |
+| `M2` | QR / Manual ID | Camera area, manual opaque code field, last attempts, lock reasons | `Сканировать`, `Проверить код`, `Назад` | valid -> `M3`; future act -> locked state до объявления мастера/sync; invalid/cooldown -> state on `M2` |
 | `M3` | Physical presence | Краткое описание сцены без скрытых наград, честное подтверждение | `Я на месте`, `Проблема с QR`, `Назад` | confirm -> `M4`; issue -> queued review in `M12` |
 | `M4` | PvE scene | Hook, check/stat, modifiers, scene HP if needed, one-roll warning | `Бросить d20`, `Использовать предмет`, `Отступить` | roll -> `M5`; item drawer -> `M6B` overlay; retreat -> `M1` with local log |
 | `M5` | Result | d20 log, success/failure, reward/cooldown, lock status | `В журнал`, `Синхронизировать`, `Открыть сумку` | home -> `M1`; sync -> `M12`; reward -> `M6B` |
@@ -130,12 +129,11 @@ flowchart TD
 | `M8` | Trade | Incoming/outgoing, selected asset, recipient, price/mode | `Создать`, `Подтвердить`, `Отклонить`, `История` | online success -> pending/accepted state; offline -> blocked hint |
 | `M9` | Goals section | Known personal goals and goal_tracks inside `M1` | `Развернуть`, `Свернуть` | no mutation; hidden flags never shown |
 | `M10` | Personal Gwent | Challenge tokens, target, stake, queue/table, board entry | `Вызвать`, `Принять`, `К столу`, `Пас`, `Сыграть карту` | challenge -> queue/table; board actions -> match states; finish/review -> `M12` |
-| `M11` | Unlock act | Master unlock code/manual QR for future act | `Открыть акт`, `Сканировать код`, `Назад` | valid -> `M1` with act unlocked; invalid -> same screen |
 | `M12` | Sync Queue | Event list, per-event status, retryable errors, review/locked counters | `Синхронизировать`, `Повторить`, `В журнал` | accepted/rejected/review updates local state; home -> `M1` |
 
 ## Чародейка в V0
 
-В первом production UI чародейка использует те же экраны `M1-M12`.
+В первом production UI чародейка использует тот же основной мобильный flow.
 Отличия только визуальные и текстовые:
 
 - роль: `чародейка`, но без отдельной боевой магии;
@@ -180,10 +178,10 @@ flowchart LR
 1. Android and iPhone open the same build; app auto-connects in the background
    or shows an offline/help badge without asking players for URL.
 2. Witcher starts from code login, downloads snapshot, restarts app, keeps `M1`.
-3. Sorceress logs in and lands on the same `M1-M12` flow with sorceress skin.
+3. Sorceress logs in and lands on the same core mobile flow with sorceress skin.
 4. Witcher runs QR/manual -> physical presence -> PvE d20 -> result -> sync.
 5. Sorceress runs the same QR/manual -> PvE route without magic controls.
-6. Future act QR stays blocked until `M11` unlock code or server sync.
+6. Future act QR stays blocked until the master announces the act and the phone receives server sync.
 7. Failure creates cooldown on the QR for that player only.
 8. Locked reward is visible in `M6B` and cannot be spent, traded or staked.
 9. `M6A` gear, `M6B` bag, `M6C` deck, order and trade screens show

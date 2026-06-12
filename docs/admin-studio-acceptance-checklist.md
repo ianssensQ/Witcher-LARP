@@ -85,7 +85,7 @@ TASK-028, TASK-050 and Stage 5.
    ```
 
 3. Find the master laptop LAN IP on the Wi-Fi network. Current smoke IP is
-   `192.168.0.103`; if it changes, replace only the host and keep port `8002`.
+   `192.168.0.102`; if it changes, replace only the host and keep port `8002`.
 4. From another laptop on the same Wi-Fi, open Admin Studio:
    `http://<LAN-IP>:8002/admin`.
 5. Log in with a master role token.
