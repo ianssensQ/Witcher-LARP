@@ -149,7 +149,8 @@ class ActTimerRuntimeTests(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(north_update["territory_income"], 8)
-        self.assertEqual(north_update["raw_income"], 33)
+        self.assertEqual(north_update["raw_income"], 8)
+        self.assertEqual(north_growth["cap"], 48)
         self.assertEqual(
             dict(north),
             {"gold": 80 + north_update["income"], "current_mp": 6, "influence": 4},
@@ -220,6 +221,49 @@ class ActTimerRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(third_north["influence"], 6)
         self.assertEqual(third_sorceress_mana, 6)
+
+    def test_lord_income_uses_controlled_territories_without_hidden_domain_base(self) -> None:
+        settings = self.make_settings("lord_income_territories")
+        self.import_seed(settings)
+        started_at = datetime.now(UTC)
+        with connect(settings) as connection:
+            start_act(
+                connection,
+                settings,
+                "act1",
+                operator="gm_income",
+                physical_announcement_state="announced",
+                now=started_at,
+            )
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_north',
+                    status = 'controlled',
+                    contested_by_domain_id = NULL
+                WHERE territory_id IN ('territory_fort_east', 'territory_well_city')
+                """
+            )
+            connection.execute(
+                """
+                UPDATE anti_snowball_rules
+                SET army_power_ratio_threshold = 9999
+                """
+            )
+
+            applied = apply_due_timers(connection, settings, now=started_at + timedelta(minutes=31))
+
+        north_update = next(
+            update
+            for update in applied[0]["domain_updates"]
+            if update["domain_id"] == "domain_north"
+        )
+        self.assertEqual(north_update["configured_base_income"], 0)
+        self.assertEqual(north_update["base_income"], 0)
+        self.assertEqual(north_update["territory_income"], 43)
+        self.assertEqual(north_update["raw_income"], 43)
+        self.assertEqual(north_update["income"], 43)
 
     def test_starting_registration_resets_game_to_clean_initial_state(self) -> None:
         settings = self.make_settings("registration_reset")

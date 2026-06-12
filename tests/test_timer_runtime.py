@@ -78,7 +78,7 @@ class TimerRuntimeContractTests(unittest.TestCase):
                     ],
                 )
 
-    def test_mana_regen_uses_runtime_owner_and_current_patron(self) -> None:
+    def test_mana_regen_tracks_patron_without_territory_bonus(self) -> None:
         settings = self._settings("timer_mana_runtime_owner")
         self._import_valid_seed(settings)
         started_at = datetime(2026, 6, 2, 10, 7, tzinfo=UTC)
@@ -132,10 +132,11 @@ class TimerRuntimeContractTests(unittest.TestCase):
 
         mana = {row["player_id"]: row["mana"] for row in mana_rows}
         updates = {row["player_id"]: row for row in due[0]["sorceress_updates"]}
-        self.assertEqual(mana, {"p_sorc_1": 3, "p_sorc_2": 3, "p_sorc_3": 2})
+        self.assertEqual(mana, {"p_sorc_1": 2, "p_sorc_2": 2, "p_sorc_3": 2})
         self.assertEqual(updates["p_sorc_1"]["patron_domain_id"], "domain_river")
-        self.assertEqual(updates["p_sorc_1"]["bonus_sources"], ["territory_magic_corner"])
+        self.assertEqual(updates["p_sorc_1"]["bonus_sources"], [])
         self.assertEqual(updates["p_sorc_2"]["patron_domain_id"], "domain_river")
+        self.assertEqual(updates["p_sorc_2"]["bonus_sources"], [])
         self.assertEqual(updates["p_sorc_3"]["patron_domain_id"], "domain_forest")
 
     def _settings(self, name: str) -> Settings:

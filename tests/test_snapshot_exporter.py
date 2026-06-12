@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import hashlib
@@ -83,7 +83,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
             apply_reputation_change(
                 connection,
                 "p_witcher_1",
-                3,
+                4,
                 reason="public contract accepted",
             )
             snapshot = build_snapshot_from_database(
@@ -102,7 +102,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
         reputation = player["reputation_state"]
         assert isinstance(reputation, dict)
 
-        self.assertEqual(master_view["value"], 3)
+        self.assertEqual(master_view["value"], 4)
         self.assertNotIn("reputation", player)
         self.assertNotIn("value", reputation)
         self.assertNotIn("change_log", reputation)
@@ -146,11 +146,22 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
         self.assertIn("scn_a1_001", scenario_ids)
         self.assertNotIn("scn_a1_006", scenario_ids)
         self.assertNotIn("scn_a2_013", scenario_ids)
+        visible_scenario = next(row for row in scenario_rows if row["scenario_id"] == "scn_a1_001")
+        self.assertEqual(
+            visible_scenario["scenario_title"],
+            "Дети болотной тропы: Акт 1 / scn_a1_001",
+        )
+        self.assertEqual(visible_scenario["trial_type"], "combat")
+        self.assertEqual(visible_scenario["visual_asset_id"], "pve_scn_a1_001_card")
+        self.assertEqual(visible_scenario["scene_type"], "monster_hunt")
+        self.assertIn("пропадать дети", visible_scenario["board_description"])
+        self.assertIn("2 успешные проверки из 3", visible_scenario["victory_rule"])
+        self.assertNotIn("choice_morality_json", visible_scenario)
         self.assertEqual(artifact_rows, [])
 
         dumped = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
-        self.assertNotIn("QR-A1-X3L5", dumped)
-        self.assertNotIn("QR-A2-B4K8", dumped)
+        self.assertNotIn("QR-A1-EAZ-006-X3L5", dumped)
+        self.assertNotIn("QR-A2-TRV-013-B4K8", dumped)
         self.assertNotIn("Fang secured", dumped)
         self.assertNotIn("artifact_black_seal", dumped)
         self.assertNotIn("artifact_crow_feather", dumped)
@@ -170,6 +181,10 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
 
         self.assertEqual(payload["visibility"]["secret_tables"], "server_only")
         self.assert_secret_tables_absent(payload)
+        self.assertNotIn(
+            "choice_morality_json",
+            json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        )
 
     def test_unknown_player_code_cannot_build_scoped_snapshot(self) -> None:
         settings = self._settings("bad_player_code")

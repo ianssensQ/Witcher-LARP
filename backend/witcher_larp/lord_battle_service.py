@@ -19,6 +19,12 @@ BOARD_WIDTH = 5
 BOARD_HEIGHT = 6
 DEPLOYMENT_CAP = 5
 DEPLOYMENT_SECONDS = 60
+NEUTRAL_DEFENSE_COUNT_BY_TIER = {
+    1: 3,
+    2: 4,
+    3: 6,
+    4: 8,
+}
 HERO_HP_BASE = 30
 HERO_HP_POWER_DIVISOR = 10
 HERO_HP_MIN = 35
@@ -41,6 +47,8 @@ UNIT_BATTLE_RANGES = {
     "attack_range": (1, BOARD_HEIGHT - 1),
 }
 FINAL_BATTLE_STATES = {"finished", "needs_master_review"}
+BATTLE_READY_CLAIM_STATUSES = {"in_battle", "contested", "contested_pending_tick"}
+GARRISON_PENDING_CLAIM_STATUSES = {"awaiting_garrison", "capture_pending_garrison"}
 
 
 class LordBattleError(ValueError):
@@ -103,6 +111,15 @@ def create_lord_battle(
 
     claim = _claim_for_create(connection, claim_id, territory_id)
     if claim is not None:
+        claim_status = str(claim["status"] or "")
+        if claim_status not in BATTLE_READY_CLAIM_STATUSES:
+            raise LordBattleError(
+                "claim_awaiting_garrison"
+                if claim_status in GARRISON_PENDING_CLAIM_STATUSES
+                else "claim_not_battle_ready",
+                "Territory claim is already resolved; place a garrison instead of starting another battle.",
+                409,
+            )
         claim_id = str(claim["claim_id"])
         territory_id = str(claim["territory_id"])
         attacker_domain_id = attacker_domain_id or str(claim["claimant_domain_id"])
@@ -1143,18 +1160,23 @@ def _apply_retreat(
     ]
     if not active_stacks:
         return None
-    surviving_active = [stack for stack in active_stacks if int(stack["count_alive"]) > 0]
     retreat_node = _retreat_node(connection, loser_domain_id)
     if retreat_node is None:
         return {"domain_id": loser_domain_id, "status": "no_retreat_node"}
-    if surviving_active:
+    active_source_ids = {
+        str(stack["source_id"])
+        for stack in active_stacks
+        if stack.get("source_id")
+    }
+    if active_source_ids:
+        placeholders = ",".join("?" for _ in active_source_ids)
         connection.execute(
-            """
+            f"""
             UPDATE active_army_runtime
             SET location_node_id = ?, updated_at = ?
-            WHERE domain_id = ? AND status = 'active' AND count > 0
+            WHERE domain_id = ? AND army_id IN ({placeholders})
             """,
-            (retreat_node, _iso(now), loser_domain_id),
+            (retreat_node, _iso(now), loser_domain_id, *sorted(active_source_ids)),
         )
     connection.execute(
         """
@@ -1164,7 +1186,12 @@ def _apply_retreat(
         """,
         (retreat_node, _iso(now), loser_domain_id),
     )
-    return {"domain_id": loser_domain_id, "to_node_id": retreat_node, "status": "retreated"}
+    return {
+        "domain_id": loser_domain_id,
+        "to_node_id": retreat_node,
+        "territory_id": _territory_for_node(connection, retreat_node),
+        "status": "retreated",
+    }
 
 
 def _apply_capture_result(
@@ -1193,7 +1220,7 @@ def _apply_capture_result(
             connection.execute(
                 """
                 UPDATE territory_claim_runtime
-                SET status = 'awaiting_garrison', resolved_at = ?
+                SET status = 'awaiting_garrison', battle_required = 0, resolved_at = ?
                 WHERE claim_id = ?
                 """,
                 (_iso(now), state["claim_id"]),
@@ -1221,7 +1248,7 @@ def _apply_capture_result(
         connection.execute(
             """
             UPDATE territory_claim_runtime
-            SET status = 'failed_defender_won', resolved_at = ?
+            SET status = 'failed_defender_won', battle_required = 0, resolved_at = ?
             WHERE claim_id = ?
             """,
             (_iso(now), state["claim_id"]),
@@ -1740,7 +1767,7 @@ def _neutral_sources(
         FROM army_unit_cards
         WHERE CAST(tier AS INTEGER) <= ?
           AND unit_class IN ('infantry', 'guard', 'ranged', 'cavalry', 'heavy_siege', 'specialist')
-        ORDER BY CAST(tier AS INTEGER), unit_class
+        ORDER BY CAST(tier AS INTEGER) DESC, unit_class
         LIMIT ?
         """,
         (tier, max_sources),
@@ -1755,11 +1782,15 @@ def _neutral_sources(
             LIMIT 2
             """
         ).fetchall()
+    neutral_count = NEUTRAL_DEFENSE_COUNT_BY_TIER.get(
+        tier,
+        NEUTRAL_DEFENSE_COUNT_BY_TIER[max(NEUTRAL_DEFENSE_COUNT_BY_TIER)],
+    )
     return [
         {
             **_source_from_row(row, "neutral_profile", f"neutral_{profile_id or 'default'}_{row['card_id']}"),
             "domain_id": None,
-            "count": 1,
+            "count": neutral_count,
             "neutral_profile_id": profile_id,
         }
         for row in rows
@@ -1985,7 +2016,7 @@ def _claim_for_create(
             SELECT *
             FROM territory_claim_runtime
             WHERE territory_id = ?
-              AND status IN ('in_battle', 'contested', 'contested_pending_tick', 'awaiting_garrison')
+              AND status IN ('in_battle', 'contested', 'contested_pending_tick', 'awaiting_garrison', 'capture_pending_garrison')
             ORDER BY created_at
             LIMIT 1
             """,
@@ -2070,6 +2101,16 @@ def _domain_current_territory(connection: sqlite3.Connection, domain_id: str) ->
         LIMIT 1
         """,
         (domain_id,),
+    ).fetchone()
+    return _optional(row["territory_id"]) if row is not None else None
+
+
+def _territory_for_node(connection: sqlite3.Connection, node_id: str | None) -> str | None:
+    if node_id is None:
+        return None
+    row = connection.execute(
+        "SELECT territory_id FROM map_nodes WHERE node_id = ? LIMIT 1",
+        (node_id,),
     ).fetchone()
     return _optional(row["territory_id"]) if row is not None else None
 

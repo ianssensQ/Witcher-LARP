@@ -79,7 +79,7 @@ class ImportSnapshotPipelineTests(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(player_count, 13)
-        self.assertEqual(qr_count, 40)
+        self.assertEqual(qr_count, 72)
         self.assertEqual(snapshot_count, 1)
 
         snapshot_path = snapshot_dir / f"{report.snapshot_version}.json"
@@ -91,7 +91,7 @@ class ImportSnapshotPipelineTests(unittest.TestCase):
         self.assertEqual(snapshot["players"], [])
         self.assertNotIn("player_codes", snapshot)
         self.assertNotIn("role_tokens", snapshot)
-        self.assertEqual(len(snapshot["qr_objects"]), 40)
+        self.assertEqual(len(snapshot["qr_objects"]), 72)
         self.assertTrue(snapshot["pve_scenarios"])
         self.assertTrue(snapshot["mobs"])
         self.assertTrue(snapshot["checks"]["xp_rules"])

@@ -338,7 +338,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
                 "operation": "reserve_to_active",
                 "territory_id": "territory_res_north",
                 "card_id": "unit_infantry_t1",
-                "count": 3,
+                "count": 8,
             },
         )
         self.assertEqual(active["status"], "active_army_updated")
@@ -408,6 +408,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         self.assertEqual(battle["board"]["width"], 5)
         self.assertEqual(battle["board"]["height"], 6)
         self.assertEqual(battle["defender_control"], "neutral_ai")
+        battle = self._start_battle_after_deployment(client, "stage1_neutral_field")
 
         takeover = self._post_ok(
             client,
@@ -694,7 +695,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=self._event_auth_headers("p_witcher_1", "player"),
             json={
-                "code": "QR-A1-K7Q2",
+                "code": "QR-A1-TRV-001-K7Q2",
                 "device_id": "phone_wolf",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -706,7 +707,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=self._event_auth_headers("p_witcher_1", "player"),
             json={
-                "code": "witcher-larp://qr?code=QR-A1-X3L5",
+                "code": "witcher-larp://qr?code=QR-A1-EAZ-006-X3L5",
                 "device_id": "phone_wolf",
                 "source": "qr_scan",
                 "physical_presence_confirmed": False,
@@ -1162,6 +1163,61 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
         response = client.post(url, **kwargs)
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    def _start_battle_after_deployment(
+        self,
+        client: TestClient,
+        battle_id: str,
+        *,
+        attacker_lord: str = "north",
+    ) -> dict[str, object]:
+        battle = client.get(
+            f"/api/lord-battles/{battle_id}",
+            headers=MASTER_HEADERS,
+        ).json()
+        board = battle["board"]
+        deployment = battle["deployment"]
+        for index, item in enumerate(deployment["hand"]["attacker"][: int(deployment["deployment_cap"])]):
+            x, y = self._deployment_cell(board, "attacker", index)
+            deployed = client.post(
+                f"/api/lord-battles/{battle_id}/actions",
+                headers=self._headers(attacker_lord),
+                json={
+                    "action_id": f"deploy-{battle_id}-attacker-{index}",
+                    "action_type": "deploy",
+                    "actor_side": "attacker",
+                    "payload": {
+                        "source_id": item["source_id"],
+                        "card_id": item["card_id"],
+                        "to": {"x": x, "y": y},
+                    },
+                },
+            )
+            self.assertEqual(deployed.status_code, 200, deployed.text)
+        ready = client.post(
+            f"/api/lord-battles/{battle_id}/actions",
+            headers=self._headers(attacker_lord),
+            json={
+                "action_id": f"ready-{battle_id}-attacker",
+                "action_type": "ready",
+                "actor_side": "attacker",
+            },
+        )
+        self.assertEqual(ready.status_code, 200, ready.text)
+        if isinstance(ready.json().get("battle"), dict):
+            return ready.json()["battle"]
+        return battle
+
+    @staticmethod
+    def _deployment_cell(board: dict[str, object], side: str, index: int) -> tuple[int, int]:
+        x_order = [0, 1, 3, 4, 2]
+        start_lines = board["start_lines"]
+        start = int(start_lines[side])
+        if side == "attacker":
+            y_order = [start, start, start, start, min(int(board["height"]) - 1, start + 1)]
+        else:
+            y_order = [start, start, start, start, max(0, start - 1)]
+        return x_order[index], y_order[index]
 
     def _grant_stage1_stake_assets(self, settings: Settings) -> None:
         with connect(settings) as connection:

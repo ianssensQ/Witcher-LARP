@@ -19,9 +19,11 @@ const els = {
 };
 
 const VIEWS = [
-  { id: "lords", label: "Пульт лордов", status: "watch" },
+  { id: "lords", label: "Слежение: лорды", status: "watch" },
+  { id: "decks", label: "Слежение: колоды", status: "watch" },
   { id: "game", label: "Пульт игры", status: "live" },
-  { id: "players", label: "Игроки", status: "watch" },
+  { id: "players", label: "Игроки без лордов", status: "watch" },
+  { id: "reputation", label: "Добро/Зло", status: "watch" },
   { id: "codes", label: "Коды", status: "setup" },
   { id: "review", label: "Ревью", status: "attention" },
   { id: "content", label: "Контент", status: "setup" },
@@ -40,6 +42,7 @@ let overview = null;
 let masterState = null;
 let lordBattles = { items: [] };
 let playerCodes = { items: [], total: 0, enabled_count: 0 };
+let reputationState = { items: [], total: 0, thresholds: [], range: { min: -12, max: 12, start: 0 } };
 let contentState = null;
 let activeViewId = "lords";
 let autoRefreshId = null;
@@ -67,6 +70,7 @@ els.logoutButton.addEventListener("click", () => {
   masterState = null;
   lordBattles = { items: [] };
   playerCodes = { items: [], total: 0, enabled_count: 0 };
+  reputationState = { items: [], total: 0, thresholds: [], range: { min: -12, max: 12, start: 0 } };
   contentState = null;
   activeViewId = "lords";
   queuedManualRefresh = false;
@@ -139,16 +143,28 @@ async function refreshAll(options = {}) {
       return masterState;
     }
 
-    const [overviewPayload, statePayload, battlesPayload, codesPayload] = await Promise.all([
+    const [overviewPayload, statePayload, battlesPayload, codesPayload, reputationPayload] = await Promise.all([
       apiJson("/api/master/admin/overview"),
       apiJson("/api/master/state"),
       apiJson("/api/lord-battles").catch(() => ({ items: [] })),
       apiJson("/api/master/player-codes").catch(() => ({ items: [], total: 0, enabled_count: 0 })),
+      apiJson("/api/master/reputation").catch(() => ({
+        items: [],
+        total: 0,
+        thresholds: [],
+        range: { min: -12, max: 12, start: 0 },
+      })),
     ]);
     overview = overviewPayload;
     masterState = statePayload;
     lordBattles = battlesPayload || { items: [] };
     playerCodes = codesPayload || { items: [], total: 0, enabled_count: 0 };
+    reputationState = reputationPayload || {
+      items: [],
+      total: 0,
+      thresholds: [],
+      range: { min: -12, max: 12, start: 0 },
+    };
     renderFreshState({ deferActiveView: isAuto && isMasterEditing() });
     if (!isAuto) setDashboardStatus("Состояние игры обновлено");
   } catch (error) {
@@ -254,7 +270,9 @@ function renderActiveView() {
   els.workspace.append(pageHeader(view.label, viewIntro(view.id)));
   if (view.id === "game") renderGameView();
   if (view.id === "lords") renderLordsView();
+  if (view.id === "decks") renderDecksView();
   if (view.id === "players") renderPlayersView();
+  if (view.id === "reputation") renderReputationView();
   if (view.id === "codes") renderPlayerCodesView();
   if (view.id === "review") renderReviewView();
   if (view.id === "content") renderContentView();
@@ -411,9 +429,11 @@ function renderLordsView() {
   panel.append(actionBar([
     actionButton("Обновить", () => refreshAll(), "secondary"),
     actionButton("Начислить тик", () => applyLordTick()),
+    actionButton("Колоды", () => switchView("decks"), "secondary"),
     actionButton("Коды игроков", () => switchView("codes"), "secondary"),
     actionButton("Пульт игры", () => switchView("game"), "secondary"),
   ]));
+  panel.append(lordLiveMapPanel(domains));
   panel.append(lordAttentionPanel(domains));
   const grid = document.createElement("div");
   grid.className = "lord-command-grid";
@@ -424,6 +444,70 @@ function renderLordsView() {
   const editPanel = sectionPanel("Точная правка выбранного лорда", "lord-edit-panel");
   editPanel.append(lordEditForm(domains));
   els.workspace.append(editPanel);
+}
+
+function lordLiveMapPanel(domains) {
+  const territories = territoriesList().filter((territory) => territory.node_id);
+  const occupiedTerritories = territories.filter((territory) => territory.owner_domain_id);
+  const lordsOnMap = domains.filter((domain) => domain.current_node_id).length;
+  const contestedCount = contestedClaims().length;
+  const panel = document.createElement("section");
+  panel.className = "lord-live-map-panel";
+  panel.innerHTML = `
+    <div>
+      <p class="eyebrow">Актуальная карта лордов</p>
+      <h4>Территории, владельцы и присутствие на карте</h4>
+    </div>
+  `;
+  panel.append(summaryCards([
+    ["Территорий", territories.length],
+    ["Под контролем", occupiedTerritories.length],
+    ["Лордов на карте", lordsOnMap],
+    ["Спорные точки", contestedCount],
+  ]));
+  const board = document.createElement("div");
+  board.className = "lord-live-map";
+  board.append(...territories.map((territory) => lordMapNodeCard(territory, domains)));
+  panel.append(board);
+  return panel;
+}
+
+function lordMapNodeCard(territory, domains) {
+  const ownerId = territory.owner_domain_id || "";
+  const ownerName = ownerId ? domainTitleById(ownerId) : "нейтрально";
+  const presentDomains = domains.filter((domain) => domain.current_node_id === territory.node_id);
+  const claims = contestedClaims().filter((claim) => claim.territory_id === territory.territory_id);
+  const battles = activeBattles().filter((battle) => battle.territory_id === territory.territory_id);
+  const garrisonTotal = sumRows(territory.garrisons);
+  const pendingRewards = territory.pending_rewards || [];
+  const card = document.createElement("article");
+  card.className = [
+    "lord-map-node",
+    ownerId ? "owned" : "neutral",
+    claims.length || battles.length ? "attention" : "",
+    presentDomains.length ? "has-presence" : "",
+  ].filter(Boolean).join(" ");
+  card.innerHTML = `
+    <header>
+      <div>
+        <p class="eyebrow">${escapeHtml(territory.node_type || territory.bonus_type || "узел")}</p>
+        <h5>${escapeHtml(territory.node_name || territory.name || territory.territory_id)}</h5>
+      </div>
+      <span class="status-badge ${ownerId ? "ready" : "pending"}">${escapeHtml(ownerName)}</span>
+    </header>
+    <div class="lord-map-node-facts">
+      <span><b>Статус</b>${escapeHtml(humanStatus(territory.status || "neutral"))}</span>
+      <span><b>Гарнизон</b>${escapeHtml(garrisonTotal)}</span>
+      <span><b>Награды</b>${escapeHtml(pendingRewards.length)}</span>
+      <span><b>Бои/споры</b>${escapeHtml(battles.length + claims.length)}</span>
+    </div>
+    <div class="lord-map-presence">
+      ${presentDomains.length
+        ? presentDomains.map((domain) => `<span>${escapeHtml(domainTitle(domain))}</span>`).join("")
+        : "<span>лордов нет</span>"}
+    </div>
+  `;
+  return card;
 }
 
 function lordAttentionPanel(domains) {
@@ -600,14 +684,92 @@ function lordEditForm(domains) {
   return form;
 }
 
+function renderDecksView() {
+  const decks = playerDecks();
+  const summary = masterState.player_decks?.summary || {};
+  const panel = sectionPanel("Колоды ведьмаков и чародеек", "main-panel deck-watch-panel");
+  panel.append(heroBlock([
+    ["Всего колод", summary.total ?? decks.length],
+    ["Ведьмаки", summary.witcher ?? decks.filter((deck) => deck.role_type === "witcher").length],
+    ["Чародейки", summary.sorceress ?? decks.filter((deck) => deck.role_type === "sorceress").length],
+    ["Ошибки карт", summary.missing_cards ?? deckMissingCount(decks)],
+  ]));
+  panel.append(filterTabs("deck-role-filter", [
+    ["all", "Все"],
+    ["witcher", "Ведьмаки"],
+    ["sorceress", "Чародейки"],
+  ]));
+  const grid = document.createElement("div");
+  grid.id = "deck-grid";
+  grid.className = "deck-grid";
+  grid.append(...decks.map((deck) => deckCard(deck)));
+  panel.append(grid);
+  els.workspace.append(panel);
+  setupDeckFilter(panel, decks);
+}
+
+function deckCard(deck) {
+  const cards = deck.cards || [];
+  const missing = deck.missing_card_ids || [];
+  const leader = deck.leader || {};
+  const card = document.createElement("article");
+  card.className = `deck-card ${missing.length ? "attention" : ""}`.trim();
+  card.innerHTML = `
+    <header class="deck-card-header">
+      <div>
+        <p class="eyebrow">${escapeHtml(roleLabel(deck.role_type))}</p>
+        <h4>${escapeHtml(deck.display_name || deck.player_id)}</h4>
+      </div>
+      <span class="status-badge ${missing.length ? "warn" : "ready"}">${missing.length ? "проверить" : "готово"}</span>
+    </header>
+    <div class="deck-stat-grid">
+      <span><b>${escapeHtml(deck.total_cards ?? cards.length)}</b>Карт</span>
+      <span><b>${escapeHtml(deck.unit_count ?? countDeckCards(cards, "type", "unit"))}</b>Отряды</span>
+      <span><b>${escapeHtml(deck.special_count ?? countDeckCards(cards, "type", "special"))}</b>Особые</span>
+      <span><b>${escapeHtml(deck.strength_total ?? deckStrengthTotal(cards))}</b>Сила</span>
+    </div>
+    <div class="deck-leader">
+      <b>Лидер</b>
+      <span>${escapeHtml(cardLabel(leader))}</span>
+    </div>
+    ${missing.length ? `<p class="deck-warning">Нет в справочнике: ${escapeHtml(missing.join(", "))}</p>` : ""}
+    <div class="deck-card-list">
+      ${cards.map((deckCardItem) => deckCardChip(deckCardItem)).join("")}
+    </div>
+  `;
+  return card;
+}
+
+function deckCardChip(card) {
+  return `
+    <span class="deck-card-chip ${escapeHtml(card.type || "unknown")}" title="${escapeHtml(cardLabel(card))}">
+      <b>${escapeHtml(card.card_id || "-")}</b>
+      <small>${escapeHtml(cardMeta(card))}</small>
+    </span>
+  `;
+}
+
+function setupDeckFilter(panel, decks) {
+  for (const button of panel.querySelectorAll("[data-filter]")) {
+    button.addEventListener("click", () => {
+      for (const item of panel.querySelectorAll("[data-filter]")) {
+        item.setAttribute("aria-pressed", String(item === button));
+      }
+      const role = button.dataset.filter;
+      const filtered = role === "all" ? decks : decks.filter((deck) => deck.role_type === role);
+      const grid = panel.querySelector("#deck-grid");
+      grid.replaceChildren(...filtered.map((deck) => deckCard(deck)));
+    });
+  }
+}
+
 function renderPlayersView() {
-  const players = playersList();
-  const panel = sectionPanel("Игроки", "main-panel");
+  const players = nonLordPlayers();
+  const panel = sectionPanel("Игроки без лордов", "main-panel");
   panel.append(filterTabs("player-role-filter", [
     ["all", "Все"],
     ["witcher", "Ведьмаки"],
     ["sorceress", "Чародейки"],
-    ["lord", "Лорды"],
   ]));
   const grid = entityGrid(players.map((player) => playerCard(player)));
   grid.id = "players-grid";
@@ -707,6 +869,175 @@ function setupPlayerFilter(panel, players) {
       const filtered = role === "all" ? players : players.filter((player) => player.role_type === role);
       const grid = panel.querySelector("#players-grid");
       grid.replaceChildren(...filtered.map((player) => playerCard(player)));
+    });
+  }
+}
+
+function renderReputationView() {
+  const items = reputationItems();
+  const range = reputationState?.range || { min: -12, max: 12, start: 0 };
+  const panel = sectionPanel("Шкала Добро/Зло", "main-panel reputation-panel");
+  const lightCount = items.filter((item) => reputationAxis(item) === "light").length;
+  const darkCount = items.filter((item) => reputationAxis(item) === "dark").length;
+  panel.append(heroBlock([
+    ["Диапазон", `${range.min}..+${range.max}`],
+    ["Игроков на шкале", items.length],
+    ["Светлая сторона", lightCount],
+    ["Темная сторона", darkCount],
+  ]));
+  panel.append(reputationScale(range));
+  panel.append(filterTabs("reputation-role-filter", [
+    ["all", "Все"],
+    ["witcher", "Ведьмаки"],
+    ["sorceress", "Чародейки"],
+  ]));
+  const grid = entityGrid(items.map((item) => reputationCard(item)));
+  grid.id = "reputation-grid";
+  panel.append(grid);
+  panel.append(reputationEditForm(items, range));
+  els.workspace.append(panel);
+  setupReputationFilter(panel, items);
+}
+
+function reputationScale(range) {
+  const scale = document.createElement("div");
+  scale.className = "reputation-scale";
+  const thresholds = reputationState?.thresholds || [];
+  if (!thresholds.length) {
+    scale.append(emptyLine("Пороги репутации пока не загружены"));
+    return scale;
+  }
+  for (const rule of thresholds) {
+    const axis = rule.threshold_access?.axis || "neutral";
+    const min = rule.min ?? range.min;
+    const max = rule.max ?? range.max;
+    const segment = document.createElement("span");
+    segment.className = `reputation-segment ${axis}`;
+    segment.innerHTML = `
+      <b>${escapeHtml(rule.canonical_label || rule.state_label)}</b>
+      <small>${escapeHtml(min)}..${escapeHtml(max)}</small>
+    `;
+    scale.append(segment);
+  }
+  return scale;
+}
+
+function reputationCard(item) {
+  const lastChange = (item.change_log || []).at(-1);
+  return entityCard(reputationTitle(item), [
+    ["Роль", roleLabel(item.role_type)],
+    ["Значение", reputationValue(item)],
+    ["Состояние", item.canonical_label || item.state_label],
+    ["Ось", reputationAxisLabel(reputationAxis(item))],
+    ["Последняя причина", lastChange?.reason || "-"],
+  ], {
+    role: item.role_type,
+    alignment: reputationAxis(item),
+  });
+}
+
+function reputationEditForm(items, range) {
+  const form = document.createElement("form");
+  form.className = "form-grid quick-form reputation-edit-form";
+  form.innerHTML = `
+    <label class="field wide">
+      <span>Игрок</span>
+      <select id="reputation-player-id">${options(items.map((item) => [
+        item.player_id,
+        `${reputationTitle(item)} · ${roleLabel(item.role_type)} · ${reputationValue(item)}`,
+      ]))}</select>
+    </label>
+    <label class="field">
+      <span>Текущее</span>
+      <input id="reputation-current" readonly>
+    </label>
+    <label class="field">
+      <span>Новое значение</span>
+      <input id="reputation-target" type="number" min="${escapeHtml(range.min)}" max="${escapeHtml(range.max)}" step="1">
+    </label>
+    <label class="field wide">
+      <span>Причина</span>
+      <textarea id="reputation-reason" required placeholder="Например: итог PvE-сцены, NPC-сделка, ручная коррекция мастера"></textarea>
+    </label>
+    <button type="submit">Сохранить репутацию</button>
+  `;
+  const select = form.querySelector("#reputation-player-id");
+  const currentInput = form.querySelector("#reputation-current");
+  const targetInput = form.querySelector("#reputation-target");
+  const reasonInput = form.querySelector("#reputation-reason");
+  const fill = () => {
+    const item = items.find((candidate) => candidate.player_id === select.value);
+    currentInput.value = item ? reputationValue(item) : "";
+    targetInput.value = item?.value ?? "";
+  };
+  select.addEventListener("change", fill);
+  fill();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const item = items.find((candidate) => candidate.player_id === select.value);
+    if (!item) {
+      setDashboardStatus("Выберите ведьмака или чародейку");
+      return;
+    }
+    const next = Number(targetInput.value);
+    const current = Number(item.value ?? 0);
+    const reason = reasonInput.value.trim();
+    if (!Number.isInteger(next) || next < Number(range.min) || next > Number(range.max)) {
+      setDashboardStatus(`Значение должно быть целым числом от ${range.min} до ${range.max}`);
+      return;
+    }
+    if (!reason) {
+      setDashboardStatus("Укажите причину изменения репутации");
+      return;
+    }
+    const delta = next - current;
+    if (delta === 0) {
+      setDashboardStatus("Репутация не изменилась");
+      return;
+    }
+    const confirmed = await confirmAction({
+      title: `Изменить репутацию: ${reputationTitle(item)}?`,
+      body: "Точное значение видно только мастерам. Изменение попадет в журнал причин.",
+      details: [
+        ["Игрок", reputationTitle(item)],
+        ["Роль", roleLabel(item.role_type)],
+        ["Изменение", `${current} -> ${next} (${formatSigned(delta)})`],
+        ["Причина", reason],
+      ],
+      confirmLabel: "Изменить репутацию",
+      danger: true,
+    });
+    if (!confirmed) return;
+    await runAction(
+      "Сохраняю репутацию",
+      () => apiJson(`/api/master/reputation/${encodeURIComponent(item.player_id)}/change`, {
+        method: "POST",
+        body: {
+          delta,
+          reason,
+          source: "admin_reputation_panel",
+        },
+      }),
+      (result) => {
+        const value = result?.reputation?.value ?? next;
+        const label = result?.reputation?.canonical_label || result?.reputation?.state_label || "";
+        return `Репутация обновлена: ${value} ${label}`.trim();
+      }
+    );
+  });
+  return form;
+}
+
+function setupReputationFilter(panel, items) {
+  for (const button of panel.querySelectorAll("[data-filter]")) {
+    button.addEventListener("click", () => {
+      for (const item of panel.querySelectorAll("[data-filter]")) {
+        item.setAttribute("aria-pressed", String(item === button));
+      }
+      const role = button.dataset.filter;
+      const filtered = role === "all" ? items : items.filter((item) => item.role_type === role);
+      const grid = panel.querySelector("#reputation-grid");
+      grid.replaceChildren(...filtered.map((item) => reputationCard(item)));
     });
   }
 }
@@ -843,6 +1174,7 @@ function renderContentView() {
   panel.append(heroBlock([
     ["Статус контента", overview?.snapshot_version ? "готов" : "не загружен"],
     ["QR", contentState?.qr?.total ?? "-"],
+    ["Authoring", contentState?.authoring?.total ?? "-"],
     ["Памятки", contentState?.handouts?.items?.length ?? "-"],
     ["Ошибки", contentState?.report?.error_count ?? "-"],
   ]));
@@ -863,12 +1195,13 @@ async function loadContentState() {
   await runAction(
     "Проверяю контент",
     async () => {
-      const [report, qr, handouts] = await Promise.all([
+      const [report, qr, authoring, handouts] = await Promise.all([
         apiJson("/api/master/content/import-report/latest"),
         apiJson("/api/master/content/qr-checklist"),
+        apiJson("/api/master/content/pve-authoring"),
         apiJson("/api/master/content/handout-checklist"),
       ]);
-      contentState = { report, qr, handouts };
+      contentState = { report, qr, authoring, handouts };
       return contentState;
     },
     "Контент проверен",
@@ -911,18 +1244,36 @@ function renderContentResult(root) {
   root.append(summaryCards([
     ["Статус", humanStatus(contentState.report?.status || "not_imported")],
     ["Ошибки", contentState.report?.error_count || 0],
-    ["QR готовы", contentState.qr?.total || 0],
+    ["Runtime QR", contentState.qr?.total || 0],
+    ["Authoring QR", contentState.authoring?.total || 0],
     ["Памятки", contentState.handouts?.items?.length || 0],
   ]));
   root.append(simpleTable(
     ["Проверка", "Состояние"],
     [
       ["QR и ручные коды", contentState.qr?.status === "ready" ? "готово" : "нужно внимание"],
+      ["PvE authoring", contentState.authoring?.status === "ready" ? "печать/freeze готовы" : "draft"],
+      ["Печатный лист", contentState.authoring?.print_sheet || "нет"],
+      ["QR freeze", contentState.authoring?.freeze || "нет"],
       ["Памятки игрокам", contentState.handouts?.status === "ready" ? "готово" : "нужно внимание"],
       ["Последнее обновление", shortDate(contentState.report?.finished_at || contentState.report?.started_at)],
     ],
     "Проверок пока нет"
   ));
+  if (contentState.authoring?.items?.length) {
+    root.append(blockTitle("QR Registry preview"));
+    root.append(simpleTable(
+      ["QR", "Manual ID", "Act", "Loc", "Mode"],
+      contentState.authoring.items.map((item) => [
+        item.qr_id,
+        item.manual_code,
+        item.act_id,
+        item.loc_code,
+        item.qr_mode,
+      ]),
+      "QR registry пуст"
+    ));
+  }
   if (contentState.report?.errors?.length) {
     root.append(blockTitle("Что исправить"));
     root.append(simpleTable(
@@ -1299,6 +1650,18 @@ function playersList() {
   return masterState?.economy?.player_economy || [];
 }
 
+function nonLordPlayers() {
+  return playersList().filter((player) => player.role_type !== "lord");
+}
+
+function reputationItems() {
+  return reputationState?.items || [];
+}
+
+function playerDecks() {
+  return masterState?.player_decks?.items || [];
+}
+
 function lordDomains() {
   return masterState?.lord_map?.domains || [];
 }
@@ -1325,8 +1688,12 @@ function territoryByNode(nodeId) {
   return territoriesList().find((territory) => territory.node_id === nodeId);
 }
 
+function contestedClaims() {
+  return masterState?.lord_map?.contested_claims || [];
+}
+
 function contestedClaimsForDomain(domain) {
-  return (masterState?.lord_map?.contested_claims || []).filter((claim) => {
+  return contestedClaims().filter((claim) => {
     return claim.claimant_domain_id === domain.domain_id || claim.defender_domain_id === domain.domain_id;
   });
 }
@@ -1446,6 +1813,32 @@ function previewText(rows, emptyText) {
   return rest > 0 ? `${visible.join(", ")} +${rest}` : visible.join(", ");
 }
 
+function cardLabel(card) {
+  if (!card || card.missing) return card?.card_id || "-";
+  const strength = Number(card.strength || 0) ? ` сила ${card.strength}` : "";
+  const effect = card.effect && card.effect !== "none" ? ` · ${card.effect}` : "";
+  return `${card.card_id}${strength} · ${card.row || card.type || "карта"}${effect}`;
+}
+
+function cardMeta(card) {
+  if (!card || card.missing) return "нет справочника";
+  const strength = Number(card.strength || 0) ? `S${card.strength}` : "S0";
+  const effect = card.effect && card.effect !== "none" ? card.effect : "без эффекта";
+  return `${card.row || card.type || "-"} · ${strength} · ${effect}`;
+}
+
+function countDeckCards(cards, key, value) {
+  return (cards || []).filter((card) => card[key] === value).length;
+}
+
+function deckStrengthTotal(cards) {
+  return (cards || []).reduce((sum, card) => sum + Number(card.strength || 0), 0);
+}
+
+function deckMissingCount(decks) {
+  return (decks || []).reduce((sum, deck) => sum + (deck.missing_card_ids || []).length, 0);
+}
+
 function reviewItems() {
   return masterState?.events?.review?.open_items || [];
 }
@@ -1518,6 +1911,34 @@ function playerTitleById(playerId, displayName = "") {
   return player?.display_name || displayName || playerId || "-";
 }
 
+function reputationTitle(item) {
+  return item?.display_name || playerTitleById(item?.player_id) || "-";
+}
+
+function reputationAxis(item) {
+  return item?.threshold_access?.axis || "neutral";
+}
+
+function reputationAxisLabel(axis) {
+  const labels = {
+    light: "свет",
+    dark: "тьма",
+    neutral: "нейтрально",
+  };
+  return labels[axis] || axis || "-";
+}
+
+function reputationValue(item) {
+  const range = item?.threshold_range;
+  const suffix = range ? ` (${range.min}..${range.max})` : "";
+  return `${item?.value ?? 0}${suffix}`;
+}
+
+function formatSigned(value) {
+  const number = Number(value || 0);
+  return number > 0 ? `+${number}` : String(number);
+}
+
 function armyTotal(domain) {
   return domainArmyTotal(domain);
 }
@@ -1552,6 +1973,10 @@ function humanStatus(status) {
     needs_attention: "нужно внимание",
     needs_master_review: "нужен мастер",
     not_started: "игра не начата",
+    neutral: "нейтрально",
+    controlled: "под контролем",
+    contested_pending_tick: "спор до тика",
+    capture_pending_garrison: "нужен гарнизон",
   };
   return labels[status] || status || "-";
 }
@@ -1592,8 +2017,10 @@ function contentSourceName(value) {
 function viewIntro(viewId) {
   const intros = {
     game: "запуск, время и общий ход игры",
-    lords: "наблюдение и быстрые правки лордов",
-    players: "наблюдение и быстрые правки игроков",
+    lords: "актуальная карта, наблюдение и быстрые правки лордов",
+    decks: "мастерский просмотр колод ведьмаков и чародеек",
+    players: "наблюдение и быстрые правки игроков без лордов",
+    reputation: "точная шкала Добро/Зло для ведьмаков и чародеек",
     codes: "коды входа для отправки игрокам",
     review: "бои, спорные события и награды",
     content: "подготовка игрового контента",
@@ -1610,7 +2037,9 @@ function viewBadgeText(viewId) {
     const attention = lordDomains().filter((domain) => lordAttention(domain).length).length;
     return attention ? `${attention}!` : String(lordDomains().length || 0);
   }
-  if (viewId === "players") return String(playersList().length || 0);
+  if (viewId === "decks") return String(playerDecks().length || 0);
+  if (viewId === "players") return String(nonLordPlayers().length || 0);
+  if (viewId === "reputation") return String(reputationItems().length || 0);
   if (viewId === "codes") return String(playerCodes.enabled_count || playerCodes.total || playersList().length || 0);
   if (viewId === "content") return overview?.snapshot_version ? "готово" : "нет";
   return actLabel(masterState?.acts?.state?.current_act_id || "not_started");
@@ -1622,6 +2051,9 @@ function viewBadgeClass(viewId) {
   }
   if (viewId === "lords") {
     return lordDomains().some((domain) => lordAttention(domain).length) ? "warn" : "ready";
+  }
+  if (viewId === "decks") {
+    return deckMissingCount(playerDecks()) ? "warn" : "ready";
   }
   if (viewId === "content" && !overview?.snapshot_version) return "warn";
   return "ready";

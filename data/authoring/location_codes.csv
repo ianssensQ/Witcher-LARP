@@ -1,0 +1,24 @@
+loc_code,location_node_id,print_label,zone_role,qr_allowed,notes
+NRE,node_res_north,North Residence,residence,true,use only for public house props or master-supervised hooks
+RRE,node_res_river,River Residence,residence,true,use only for public house props or master-supervised hooks
+FRE,node_res_forest,Forest Residence,residence,true,use only for public house props or master-supervised hooks
+HRE,node_res_hill,Hill Residence,residence,true,use only for public house props or master-supervised hooks
+EAZ,node_fort_east,Severnaya Zastava,fort,true,field QR allowed
+WOS,node_fort_west,Zapadny Ostrog,fort,true,field QR allowed
+SKP,node_fort_southwest,Yuzhnaya Krep,fort,true,field QR allowed
+OAT,node_field_oats,Severnye Ovsy,field,true,field QR allowed
+LVP,node_field_west_large,Levoberezhnye Pashni,field,true,field QR allowed
+PRP,node_field_east_large,Pravye Pashni,field,true,field QR allowed
+SNP,node_village_barn,Sennoy Posad,village,true,field QR allowed
+VSL,node_village_east_shed,Vostochnaya Sloboda,village,true,field QR allowed
+KTG,node_well_city,Kolodezny Torg,resource_city,true,field QR allowed
+MAG,node_spanish_magic,Charodeysky Ugol,magic_city,true,field QR allowed
+SCI,node_science_barn,Dvukhyarusnaya Manufaktura,science_city,true,field QR allowed
+TRV,node_forest_dark,Travnichya Roshcha,forest,true,field QR allowed
+NSD,node_forest_south_garden,Nizhny Sad,forest,true,field QR allowed
+ZPR,node_lake_mist,Zerkalny Prud,lake,true,field QR allowed
+LNZ,node_lake_south_pond,Lunnaya Zavod,lake,true,field QR allowed
+CHT,node_swamp_black,Chernaya Top,swamp,true,field QR allowed
+SKR,node_mountain_north_alpine,Severny Kryazh,mountain,true,field QR allowed
+SDO,node_mountain_gray,Sery Dozor,mountain,true,field QR allowed
+VUT,node_mountain_west_alpine,Volchy Utes,mountain,true,field QR allowed

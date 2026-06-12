@@ -125,6 +125,13 @@ def _game_ops_section(connection: sqlite3.Connection) -> dict[str, Any]:
                 "/api/master/visibility-audit",
                 "ready",
             ),
+            _action(
+                "reputation_control",
+                "Шкала Добро/Зло",
+                "GET",
+                "/api/master/reputation",
+                "ready",
+            ),
             _action("acts_state", "Состояние актов", "GET", "/api/master/acts/state", "ready"),
             _action("timers", "Таймеры", "GET", "/api/master/timers", "ready"),
             _action(

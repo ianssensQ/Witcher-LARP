@@ -44,6 +44,7 @@ SNAPSHOT_TABLES = (
     "final_summary_fields",
     "map_nodes",
     "territories",
+    "territory_bonuses",
     "reputation_rules",
     "favorite_rules",
     "ops_checklists",
@@ -52,6 +53,7 @@ SNAPSHOT_TABLES = (
 
 SECRET_SNAPSHOT_KEYS = {"player_codes", "role_tokens"}
 PRIVATE_PLAYER_KEYS = {"player_code_id", "reputation"}
+HIDDEN_PVE_PLAYER_FIELDS = {"choice_morality_json"}
 PLAYER_SAFE_QR_MODES = {"repeatable_scene", "always_available_scene"}
 PLAYER_PUBLIC_ARTIFACT_VISIBILITIES = {"public", "player_visible", "always_visible"}
 PLAYER_VISIBLE_ORDER_STATUSES = {
@@ -275,6 +277,7 @@ def _payload_from_tables(
         "map": {
             "nodes": tables["map_nodes"],
             "territories": tables["territories"],
+            "territory_bonuses": tables["territory_bonuses"],
         },
         "descriptors": {
             "reputation_rules": tables["reputation_rules"],
@@ -484,6 +487,7 @@ def _redact_player_content(payload: dict[str, object]) -> None:
         "scenario_id",
         scenario_ids,
     )
+    scenarios = [_player_safe_pve_scenario(row) for row in scenarios]
     reward_ids = {
         str(row.get("reward_id", ""))
         for row in scenarios
@@ -575,6 +579,10 @@ def _filter_dict_rows_by_ids(
     ]
 
 
+def _player_safe_pve_scenario(row: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in row.items() if key not in HIDDEN_PVE_PLAYER_FIELDS}
+
+
 def _dict_rows(rows: object) -> list[dict[str, object]]:
     if not isinstance(rows, list):
         return []
@@ -587,6 +595,9 @@ def _mobile_export_payload(snapshot: dict[str, object]) -> dict[str, object]:
     scope = visibility.get("scope") if isinstance(visibility, dict) else None
     for key in SECRET_SNAPSHOT_KEYS:
         payload.pop(key, None)
+    payload["pve_scenarios"] = [
+        _player_safe_pve_scenario(row) for row in _dict_rows(payload.get("pve_scenarios"))
+    ]
     if scope == "player":
         return payload
 

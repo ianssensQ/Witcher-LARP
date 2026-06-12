@@ -401,6 +401,18 @@ class FinalSummaryRuntimeTests(unittest.TestCase):
                 physical_announcement_state="announced",
                 now=datetime(2026, 6, 2, 17, 15, tzinfo=UTC),
             )
+            connection.execute(
+                """
+                INSERT INTO domain_buildings (
+                    domain_id, territory_id, building_id, purchased_at, source
+                )
+                VALUES (
+                    'domain_hill', 'territory_res_hill', 'b_notice_board',
+                    '2026-06-02T17:10:00+00:00', 'final_summary_test'
+                )
+                ON CONFLICT(domain_id, territory_id, building_id) DO NOTHING
+                """
+            )
         client = TestClient(create_app(settings))
 
         summary = client.get("/api/master/final-summary", headers=MASTER_HEADERS)

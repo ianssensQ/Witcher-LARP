@@ -1,6 +1,6 @@
 card_id,unit_class,tier,attack,defense,hp,initiative,move_range,attack_range,cost,source_id
-unit_infantry_t1,infantry,1,3,1,5,3,2,1,1,b_training_yard
-unit_guard_t1,guard,1,2,3,6,2,1,1,2,b_barracks
+unit_infantry_t1,infantry,1,3,1,5,3,2,1,2,b_training_yard
+unit_guard_t1,guard,1,2,3,6,2,1,1,3,b_barracks
 unit_ranged_t1,ranged,1,3,1,4,4,1,3,2,b_archery_range
 unit_cavalry_t2,cavalry,2,5,2,6,5,3,1,5,b_stables
 unit_heavy_siege_t3,heavy_siege,3,7,2,8,1,1,4,8,b_siege_yard

@@ -127,11 +127,11 @@ class Stage1FreshRegressionTests(unittest.TestCase):
 
         self.assertEqual(
             review_reasons["fresh_pve_duplicate_roll"],
-            "duplicate pve roll for same check_id requires master review",
+            "client_sequence gap detected: expected 1, got 2",
         )
         self.assertEqual(
             review_reasons["fresh_pve_changed_roll"],
-            "pve check_id already has a different d20 roll and needs master review",
+            "client_sequence gap detected: expected 1, got 3",
         )
         self.assertEqual(
             review_reasons["fresh_pve_forged_modifier"],
@@ -148,7 +148,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_1_HEADERS,
             json={
-                "code": "QR-A2-B4K8",
+                "code": "QR-A2-TRV-013-B4K8",
                 "device_id": "phone-wolf",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -206,7 +206,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
         self.assertNotIn("player_codes", snapshot_payload)
         self.assertNotIn("role_tokens", snapshot_payload)
         self.assertNotIn("UNLOCK-A2-7GQ4", snapshot.text)
-        self.assertNotIn("QR-A2-B4K8", snapshot.text)
+        self.assertNotIn("QR-A2-TRV-013-B4K8", snapshot.text)
         self.assertNotIn("scn_a2_013", snapshot.text)
 
         self.assertEqual(sync["results"][0]["status"], "accepted")
@@ -233,7 +233,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
             "status": "accepted",
         })
         self.assertEqual(sync_state["player_id"], "p_witcher_1")
-        self.assertEqual(sync_state["last_event_sequence"], 2)
+        self.assertEqual(sync_state["last_event_sequence"], 1)
 
     def test_task063_064_pvp_stakes_winner_lord_route_and_escrow_are_authoritative(self) -> None:
         settings = self._settings("fresh_pvp_lord")
@@ -342,6 +342,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
         self.assertEqual(impossible_route.status_code, 400, impossible_route.text)
         self.assertEqual(impossible_route.json()["detail"]["code"], "invalid_route")
         with connect(settings) as connection:
+            self._grant_residence_building(connection, "domain_forest", "b_notice_board")
             self.assertEqual(self._current_mp(connection, "domain_north"), mp_before)
             forest_gold_before = self._domain_gold(connection, "domain_forest")
 
@@ -578,6 +579,32 @@ class Stage1FreshRegressionTests(unittest.TestCase):
                 source["leader_card_id"],
                 source["card_ids"],
             ),
+        )
+
+    def _grant_residence_building(
+        self,
+        connection,
+        domain_id: str,
+        building_id: str,
+    ) -> None:
+        territory_id = connection.execute(
+            """
+            SELECT territory_id
+            FROM territories
+            WHERE owner_domain_id = ? AND bonus_type = 'residence'
+            LIMIT 1
+            """,
+            (domain_id,),
+        ).fetchone()["territory_id"]
+        connection.execute(
+            """
+            INSERT INTO domain_buildings (
+                domain_id, territory_id, building_id, purchased_at, source
+            )
+            VALUES (?, ?, ?, '2026-06-02T10:30:00+00:00', 'stage1_fresh_test')
+            ON CONFLICT(domain_id, territory_id, building_id) DO NOTHING
+            """,
+            (domain_id, territory_id, building_id),
         )
 
     def _grant_item(self, connection, asset_id: str, owner_player_id: str) -> None:

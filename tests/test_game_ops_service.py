@@ -64,6 +64,19 @@ class GameOpsServiceTests(unittest.TestCase):
         self.assertTrue(state["economy"]["potion_markets"])
         self.assertTrue(state["economy"]["trade_transfers"])
         self.assertGreaterEqual(state["economy"]["summary"]["player_rows"], 13)
+        self.assertEqual(state["player_decks"]["summary"]["total"], 9)
+        self.assertEqual(state["player_decks"]["summary"]["witcher"], 5)
+        self.assertEqual(state["player_decks"]["summary"]["sorceress"], 4)
+        self.assertEqual(
+            {deck["role_type"] for deck in state["player_decks"]["items"]},
+            {"witcher", "sorceress"},
+        )
+        wolf_deck = next(
+            deck for deck in state["player_decks"]["items"] if deck["player_id"] == "p_witcher_1"
+        )
+        self.assertEqual(wolf_deck["leader"]["card_id"], "gwent_leader_wolf")
+        self.assertGreaterEqual(wolf_deck["unit_count"], 22)
+        self.assertEqual(wolf_deck["total_cards"], len(wolf_deck["cards"]))
 
     def test_potion_trade_and_player_corrections_are_audited(self) -> None:
         settings = self._settings("game_ops_corrections")

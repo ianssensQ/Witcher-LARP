@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import unittest
@@ -593,7 +593,7 @@ class MobileShellContractTests(unittest.TestCase):
                             payload={
                                 "qr_context_id": "qr-context-presence",
                                 "qr_id": "qr_a1_001",
-                                "manual_code": "QR-A1-K7Q2",
+                                "manual_code": "QR-A1-TRV-001-K7Q2",
                                 "source": "manual_id",
                                 "local_status": "ready",
                                 "physical_presence_confirmed": True,

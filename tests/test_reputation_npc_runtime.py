@@ -19,6 +19,7 @@ except ModuleNotFoundError:
     TestClient = None  # type: ignore[assignment]
 
 MASTER_HEADERS = {"X-Role-Token": "MASTER-KING-4QZ8"}
+LORD_HEADERS = {"X-Role-Token": "LORD-NORTH-R8K4"}
 
 
 class ReputationNpcRuntimeTests(unittest.TestCase):
@@ -35,14 +36,14 @@ class ReputationNpcRuntimeTests(unittest.TestCase):
             change = apply_reputation_change(
                 connection,
                 "p_witcher_1",
-                10,
+                20,
                 reason="saved villagers before payment",
             )
 
         self.assertNotIn("value", player_view)
         self.assertEqual(player_view["canonical_label"], "Нейтральный")
         self.assertEqual(master_view["value"], 0)
-        self.assertEqual(change["value_after"], 5)
+        self.assertEqual(change["value_after"], 12)
         self.assertEqual(change["canonical_label"], "Свет")
 
         with connect(settings) as connection:
@@ -57,8 +58,8 @@ class ReputationNpcRuntimeTests(unittest.TestCase):
         self.assertEqual(player_after_restart["value_visibility"], "hidden_from_player")
         self.assertEqual(player_after_restart["player_descriptor"], "celebrated")
         self.assertEqual(player_after_restart["threshold_access"]["axis"], "light")
-        self.assertEqual(master_after_restart["value"], 5)
-        self.assertEqual(master_after_restart["change_log"][0]["value_after"], 5)
+        self.assertEqual(master_after_restart["value"], 12)
+        self.assertEqual(master_after_restart["change_log"][0]["value_after"], 12)
         self.assertEqual(
             master_after_restart["change_log"][0]["reason"],
             "saved villagers before payment",
@@ -72,13 +73,13 @@ class ReputationNpcRuntimeTests(unittest.TestCase):
             apply_reputation_change(
                 connection,
                 "p_sorc_1",
-                3,
+                4,
                 reason="backed a public ruling",
             )
             apply_reputation_change(
                 connection,
                 "p_sorc_2",
-                -3,
+                -4,
                 reason="accepted a hidden price",
             )
             good = get_reputation_view(connection, "p_sorc_1", visibility="master")
@@ -119,7 +120,7 @@ class ReputationNpcRuntimeTests(unittest.TestCase):
                         "effect": "unlock_dark_path",
                         "artifact": "dark_token",
                     },
-                    reputation_delta=-4,
+                    reputation_delta=-9,
                     severity="P0",
                     final_flag=True,
                 ),
@@ -153,7 +154,7 @@ class ReputationNpcRuntimeTests(unittest.TestCase):
         self.assertTrue(wanderer_deal["final_flag"])
         self.assertEqual(wanderer_deal["deal"]["price"]["hidden_price"], "final_debt")
         self.assertTrue(wanderer_deal["deal"]["hidden_price"])
-        self.assertEqual(reputation["value"], -4)
+        self.assertEqual(reputation["value"], -9)
         self.assertEqual(reputation["canonical_label"], "Тьма")
         self.assertEqual(deals_for_master[0]["price"]["hidden_price"], "final_debt")
         self.assertEqual(deals_for_player[0]["price"]["hidden_price"], "master_only")
@@ -199,6 +200,53 @@ class ReputationNpcRuntimeTests(unittest.TestCase):
         self.assertEqual(history["status"], "resolved")
         self.assertEqual(history["resolved_by"], "gm_king")
         self.assertEqual(history["resolution_reason"], "ruling announced at table")
+
+    @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
+    def test_master_reputation_list_is_editable_and_excludes_lords(self) -> None:
+        settings = self._settings("api_reputation_list")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings))
+
+        missing = client.get("/api/master/reputation")
+        lord = client.get("/api/master/reputation", headers=LORD_HEADERS)
+        before = client.get("/api/master/reputation", headers=MASTER_HEADERS)
+        change = client.post(
+            "/api/master/reputation/p_sorc_1/change",
+            headers=MASTER_HEADERS,
+            json={
+                "delta": 4,
+                "reason": "admin corrected moral outcome",
+                "source": "admin_reputation_panel",
+            },
+        )
+        after = client.get("/api/master/reputation", headers=MASTER_HEADERS)
+
+        self.assertEqual(missing.status_code, 401)
+        self.assertEqual(lord.status_code, 403)
+        self.assertEqual(before.status_code, 200, before.text)
+        before_payload = before.json()
+        self.assertEqual(before_payload["scope"], "master")
+        self.assertEqual(before_payload["range"], {"min": -12, "max": 12, "start": 0})
+        self.assertEqual(before_payload["roles"], ["sorceress", "witcher"])
+        self.assertEqual(before_payload["total"], 9)
+        player_ids = {item["player_id"] for item in before_payload["items"]}
+        self.assertIn("p_witcher_1", player_ids)
+        self.assertIn("p_sorc_1", player_ids)
+        self.assertNotIn("p_lord_1", player_ids)
+        self.assertTrue(all("value" in item for item in before_payload["items"]))
+        self.assertTrue(all("threshold_range" in item for item in before_payload["items"]))
+
+        self.assertEqual(change.status_code, 200, change.text)
+        after_item = next(
+            item for item in after.json()["items"] if item["player_id"] == "p_sorc_1"
+        )
+        self.assertEqual(after_item["value"], 4)
+        self.assertEqual(after_item["canonical_label"], "Добро")
+        self.assertEqual(
+            after_item["change_log"][-1]["reason"],
+            "admin corrected moral outcome",
+        )
+        self.assertEqual(after_item["change_log"][-1]["source"], "admin_reputation_panel")
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_fastapi_reputation_and_npc_contract(self) -> None:

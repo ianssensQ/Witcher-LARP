@@ -11,6 +11,8 @@ from uuid import uuid4
 from .backup_service import run_backup
 from .config import Settings
 from .runtime_schema import ensure_runtime_schema, log_event
+from .territory_bonuses import controlled_domain_numeric_bonus
+from .territory_bonuses import territory_numeric_bonus
 
 
 def apply_due_timers(
@@ -372,7 +374,8 @@ def _apply_lord_income_mana_and_mp(
             bonus_percent=territory_bonus_percent,
             apply_raid_effects=False,
         )
-        base_income = _to_int(row["base_income"]) + flat_building_income
+        configured_base_income = _to_int(row["base_income"])
+        base_income = flat_building_income
         raw_income = base_income + territory_income
         pre_penalty_income = base_income + territory_income_before_penalties
         influence_gain = _influence_gain(connection, domain_id)
@@ -386,7 +389,15 @@ def _apply_lord_income_mana_and_mp(
         income_floor = (pre_penalty_income * floor_percent) // 100 if floor_percent else 0
         if income_floor:
             income = max(income, income_floor)
-        current_mp = min(_to_int(row["mp_cap"]), _to_int(row["current_mp"]) + _mp_refill_amount(connection))
+        mp_refill_bonus = controlled_domain_numeric_bonus(
+            connection,
+            domain_id,
+            "mp_refill_flat",
+        )
+        current_mp = min(
+            _to_int(row["mp_cap"]),
+            _to_int(row["current_mp"]) + _mp_refill_amount(connection) + mp_refill_bonus,
+        )
         influence = _to_int(row["influence"]) + influence_gain
         connection.execute(
             """
@@ -403,6 +414,7 @@ def _apply_lord_income_mana_and_mp(
                 "raw_income": raw_income,
                 "pre_penalty_income": pre_penalty_income,
                 "base_income": base_income,
+                "configured_base_income": configured_base_income,
                 "flat_building_income": flat_building_income,
                 "territory_income": territory_income,
                 "territory_income_before_penalties": territory_income_before_penalties,
@@ -411,6 +423,7 @@ def _apply_lord_income_mana_and_mp(
                 "influence_gain": influence_gain,
                 "influence": influence,
                 "current_mp": current_mp,
+                "mp_refill_bonus": mp_refill_bonus,
                 "anti_snowball": anti_snowball,
             }
         )
@@ -592,7 +605,7 @@ def _territory_income(
 
     if not _table_exists(connection, "territories"):
         return 0
-    income_by_tier = {1: 8, 2: 14, 3: 22}
+    income_by_tier = {1: 8, 2: 15, 3: 24}
     total = 0
     if _table_exists(connection, "territory_runtime_state"):
         rows = connection.execute(
@@ -614,7 +627,13 @@ def _territory_income(
             (domain_id,),
         ).fetchall()
     for row in rows:
+        territory_id = str(row["territory_id"])
         base_income = income_by_tier.get(_to_int(row["tier"]), 0)
+        base_income += territory_numeric_bonus(
+            connection,
+            territory_id,
+            "income_flat",
+        )
         if bonus_percent:
             base_income += (base_income * bonus_percent) // 100
         multiplier = (
@@ -652,7 +671,12 @@ def _influence_gain(connection: sqlite3.Connection, domain_id: str) -> int:
             (domain_id,),
         ).fetchall()
     territory_bonus = sum(1 for row in rows if row["bonus_type"] != "residence")
-    return 1 + territory_bonus
+    influence_bonus = controlled_domain_numeric_bonus(
+        connection,
+        domain_id,
+        "influence_flat",
+    )
+    return 1 + territory_bonus + influence_bonus
 
 
 def _create_contested_pending_tick_rewards(
@@ -673,7 +697,7 @@ def _create_contested_pending_tick_rewards(
         ORDER BY rt.territory_id
         """
     ).fetchall():
-        reward_gold = {1: 8, 2: 14, 3: 22}.get(_to_int(row["tier"]), 0)
+        reward_gold = {1: 8, 2: 15, 3: 24}.get(_to_int(row["tier"]), 0)
         pending_reward_id = (
             "pending_tick_"
             f"{row['territory_id']}_"
@@ -710,33 +734,7 @@ def _mana_bonus_sources(connection: sqlite3.Connection, player_id: str) -> dict[
     if not (_table_exists(connection, "players") and _table_exists(connection, "domains")):
         return {"bonus": 0, "sources": [], "patron_domain_id": None}
     patron_domain_id = _current_patron_domain_id(connection, player_id)
-    if patron_domain_id is None or not _table_exists(connection, "territories"):
-        return {"bonus": 0, "sources": [], "patron_domain_id": patron_domain_id}
-    if _table_exists(connection, "territory_runtime_state"):
-        rows = connection.execute(
-            """
-            SELECT t.territory_id
-            FROM territories t
-            JOIN territory_runtime_state rt ON rt.territory_id = t.territory_id
-            WHERE rt.owner_domain_id = ?
-              AND rt.status = 'controlled'
-              AND t.bonus_type = 'magic'
-            ORDER BY t.territory_id
-            """,
-            (patron_domain_id,),
-        ).fetchall()
-    else:
-        rows = connection.execute(
-            """
-            SELECT territory_id
-            FROM territories
-            WHERE owner_domain_id = ? AND bonus_type = 'magic'
-            ORDER BY territory_id
-            """,
-            (patron_domain_id,),
-        ).fetchall()
-    sources = [str(row["territory_id"]) for row in rows]
-    return {"bonus": len(sources), "sources": sources, "patron_domain_id": patron_domain_id}
+    return {"bonus": 0, "sources": [], "patron_domain_id": patron_domain_id}
 
 
 def _current_patron_domain_id(connection: sqlite3.Connection, player_id: str) -> str | None:

@@ -12,6 +12,7 @@ import sqlite3
 DEFAULT_MANUAL_RATE_LIMIT = "5_per_minute"
 DEFAULT_RATE_WINDOW_SECONDS = 60
 VALID_SOURCES = {"qr_scan", "manual_id"}
+HIDDEN_SCENARIO_FIELDS = {"choice_morality_json"}
 
 
 @dataclass(frozen=True)
@@ -144,7 +145,7 @@ def lookup_qr_runtime(
         "reason": reason,
         "message": _message_for(status, reason),
         "qr": _qr_payload(qr, locked=act_lock_reason is not None),
-        "scenario": scenario,
+        "scenario": _scenario_payload(scenario),
         "act": _act_payload(act, locked=act_lock_reason is not None),
         "event_context": context,
         "attempts_in_window": attempts_in_window,
@@ -237,6 +238,12 @@ def _qr_payload(qr: dict[str, str] | None, *, locked: bool) -> dict[str, object]
         "requires_act_unlock": True,
         "locked": True,
     }
+
+
+def _scenario_payload(scenario: dict[str, str] | None) -> dict[str, str] | None:
+    if scenario is None:
+        return None
+    return {key: value for key, value in scenario.items() if key not in HIDDEN_SCENARIO_FIELDS}
 
 
 def _act_payload(act: dict[str, str] | None, *, locked: bool) -> dict[str, object] | None:
@@ -426,17 +433,17 @@ def _offline_instruction(qr: dict[str, str] | None) -> str | None:
     if qr is None:
         return None
     if qr.get("qr_mode") == "unique_object" or qr.get("consumption_rule") == "consume_once":
-        return "success_take_physical_qr_failure_leave_it"
-    return "repeatable_scene_no_physical_qr_consumption"
+        return "story_slot_complete_once_leave_printed_qr_on_board"
+    return "story_slot_repeatable_leave_printed_qr_on_board"
 
 
 def _message_for(status: str, reason: str | None) -> str:
     if status == "ok":
-        return "QR scene can start after confirmed physical presence."
+        return "QR quest scene can start from the shared order board."
     if reason == "requires_act_unlock":
         return "QR scene is locked until the act is physically announced or unlocked by masters."
     if reason == "honesty_violation_suspected":
-        return "Physical presence was not confirmed; attempt needs master review."
+        return "Order-board QR confirmation is missing; attempt needs master review."
     if reason == "manual_rate_limit":
         return "Too many wrong manual QR IDs; attempt needs master review."
     if status == "unknown_qr":

@@ -1,0 +1,24 @@
+bonus_id,territory_id,effect_type,effect_value,public_label,strategic_role,stacking_rule,notes
+bonus_res_north,territory_res_north,home_base,0,Дом Севера,starting_home,exclusive,Стартовая резиденция без нейтрального захвата
+bonus_res_river,territory_res_river,home_base,0,Речные ворота,starting_home,exclusive,Стартовая резиденция без нейтрального захвата
+bonus_res_forest,territory_res_forest,home_base,0,Лесной марш,starting_home,exclusive,Стартовая резиденция без нейтрального захвата
+bonus_res_hill,territory_res_hill,home_base,0,Холмовая корона,starting_home,exclusive,Стартовая резиденция без нейтрального захвата
+bonus_fort_east,territory_fort_east,raid_defense_flat,1,Укрепленная застава +1 к защите от рейдов,front_defense,stack_additive,Дешевый северный щит против саботажа
+bonus_fort_west,territory_fort_west,raid_token_cap,1,Западный плацдарм +1 предел жетонов рейда,raid_pressure,stack_additive,Создает угрозу налетов по полям и тылам
+bonus_fort_southwest,territory_fort_southwest,raid_defense_flat,2,Южный редут +2 к защите от рейдов,front_defense,stack_additive,Сильная оборона на лесном фронте
+bonus_field_oats,territory_field_oats,income_flat,3,Овсяные поля +3 золота в час,economy,stack_additive,Быстрая ранняя экономика около северной резиденции
+bonus_field_west_large,territory_field_west_large,income_flat,4,Левобережные пашни +4 золота в час,economy,stack_additive,Более доходное поле но глубже в графе
+bonus_field_east_large,territory_field_east_large,recruit_card_unlock,unit_infantry_t1,Восточные сборы открывают пехоту,recruit,unlock_additive,Дает холмам дешевую массовую пехоту
+bonus_village_barn,territory_village_barn,influence_flat,1,Сенной посад +1 влияние в час,politics,stack_additive,Дешевый политический рычаг у лесного дома
+bonus_village_east_shed,territory_village_east_shed,recruit_card_unlock,unit_guard_t1,Восточная слобода открывает стражу,recruit,unlock_additive,Речной дом получает оборонный найм при удержании слободы
+bonus_well_city,territory_well_city,income_flat,5,Колодезный торг +5 золота в час,economy,stack_additive,Сильный торговый центр под стражей tier 2
+bonus_magic_corner,territory_magic_corner,recruit_card_unlock,unit_specialist_t3,Чародейский угол открывает специалистов,magic_recruit,unlock_additive,Главная магическая точка дает редкий тактический найм вместо маны
+bonus_science_barn,territory_science_barn,influence_flat,2,Мануфактура +2 влияния в час,research,stack_additive,Сильный политико-технический центр
+bonus_forest_dark,territory_forest_dark,raid_token_cap,1,Травничья роща +1 предел жетонов рейда,raid_cover,stack_additive,Тайные тропы для подготовки налетов
+bonus_forest_south_garden,territory_forest_south_garden,income_flat,2,Нижний сад +2 золота в час,alchemy_supply,stack_additive,Мягкая экономика на южном маршруте
+bonus_lake_mist,territory_lake_mist,mp_refill_flat,1,Зеркальный пруд +1 MP при тике,tempo,stack_additive,Ускоряет переброску армии и борьбу за центр
+bonus_lake_south_pond,territory_lake_south_pond,influence_flat,1,Лунная заводь +1 влияние в час,magic_politics,stack_additive,Малая магическая точка дает политический след вместо маны
+bonus_swamp_black,territory_swamp_black,raid_defense_flat,2,Черная топь +2 к защите от рейдов,anti_raid,stack_additive,Болотная позиция удерживает тыл от саботажа
+bonus_mountain_north_alpine,territory_mountain_north_alpine,raid_defense_flat,3,Северный кряж +3 к защите от рейдов,late_defense,stack_additive,Самая крепкая нейтральная оборонная вершина
+bonus_mountain_gray,territory_mountain_gray,influence_flat,2,Серый дозор +2 влияния в час,visibility,stack_additive,Высотный контроль дает политическое преимущество
+bonus_mountain_west_alpine,territory_mountain_west_alpine,raid_token_cap,1,Волчий утес +1 предел жетонов рейда,raid_pressure,stack_additive,Западная высота для налетов на магический фланг

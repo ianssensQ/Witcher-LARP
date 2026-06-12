@@ -40,7 +40,7 @@ class LordBattleRuntimeTests(unittest.TestCase):
         settings = self._settings("lord_battle_neutral")
         self._import_seed(settings)
         client = TestClient(create_app(settings))
-        self._set_reserve_count(settings, "reserve_north_infantry", 4)
+        self._set_reserve_count(settings, "reserve_north_infantry", 8)
 
         active = client.post(
             "/api/lords/p_lord_1/garrisons/transfer",
@@ -49,7 +49,7 @@ class LordBattleRuntimeTests(unittest.TestCase):
                 "operation": "reserve_to_active",
                 "territory_id": "territory_res_north",
                 "card_id": "unit_infantry_t1",
-                "count": 3,
+                "count": 8,
             },
         )
         self.assertEqual(active.status_code, 200)
@@ -466,6 +466,33 @@ class LordBattleRuntimeTests(unittest.TestCase):
             headers=MASTER_HEADERS,
         ).json()
 
+        fort_settings = self._settings("lord_battle_neutral_fort_profile")
+        self._import_seed(fort_settings)
+        self._set_active_armies(
+            fort_settings,
+            current_nodes={"domain_north": "node_fort_east"},
+            rows=[
+                ("army_north_fort_profile", "domain_north", "unit_infantry_t1", 1, "node_fort_east"),
+            ],
+            clear_existing=True,
+        )
+        fort_client = TestClient(create_app(fort_settings))
+        fort_created = fort_client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_neutral_fort_profile",
+                "attacker_domain_id": "domain_north",
+                "territory_id": "territory_fort_east",
+                "seed": "fort-profile",
+            },
+        )
+        self.assertEqual(fort_created.status_code, 200, fort_created.text)
+        fort_battle = fort_client.get(
+            "/api/lord-battles/battle_neutral_fort_profile",
+            headers=MASTER_HEADERS,
+        ).json()
+
         mountain_settings = self._settings("lord_battle_neutral_mountain_profile")
         self._import_seed(mountain_settings)
         self._set_active_armies(
@@ -500,8 +527,15 @@ class LordBattleRuntimeTests(unittest.TestCase):
         ).json()
 
         field_defenders = field_battle["deployment"]["hand"]["defender"]
+        fort_defenders = fort_battle["deployment"]["hand"]["defender"]
         mountain_defenders = mountain_battle["deployment"]["hand"]["defender"]
         self.assertLess(len(field_defenders), len(mountain_defenders))
+        self.assertEqual(max(item["tier"] for item in field_defenders), 1)
+        self.assertEqual(max(item["tier"] for item in fort_defenders), 2)
+        self.assertEqual(max(item["tier"] for item in mountain_defenders), 3)
+        self.assertEqual({item["count"] for item in field_defenders}, {3})
+        self.assertEqual({item["count"] for item in fort_defenders}, {4})
+        self.assertEqual({item["count"] for item in mountain_defenders}, {6})
         self.assertLess(
             max(item["tier"] for item in field_defenders),
             max(item["tier"] for item in mountain_defenders),
@@ -630,6 +664,65 @@ class LordBattleRuntimeTests(unittest.TestCase):
         self.assertEqual(persisted.status_code, 200)
         self.assertEqual(persisted.json()["status"], "finished")
         self.assertTrue(persisted.json()["burned_cards"])
+
+    def test_defeated_active_army_retreats_even_when_wiped(self) -> None:
+        settings = self._settings("lord_battle_wiped_retreat")
+        self._import_seed(settings)
+        self._set_active_armies(
+            settings,
+            current_nodes={"domain_north": "node_res_river", "domain_river": "node_res_river"},
+            rows=[
+                ("army_north_wiped", "domain_north", "unit_infantry_t1", 1, "node_res_river"),
+                ("army_river_retaliators", "domain_river", "unit_guard_t1", 30, "node_res_river"),
+            ],
+            clear_existing=True,
+        )
+        client = TestClient(create_app(settings))
+        created = client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_wiped_retreat",
+                "attacker_domain_id": "domain_north",
+                "defender_domain_id": "domain_river",
+                "territory_id": "territory_res_river",
+                "seed": "wiped-retreat",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        self._start_battle_after_deployment(client, "battle_wiped_retreat")
+
+        resolved = client.post(
+            "/api/lord-battles/battle_wiped_retreat/actions",
+            headers=MASTER_HEADERS,
+            json={
+                "action_id": "master-resolve-wiped-retreat",
+                "action_type": "auto_resolve",
+                "actor_side": "attacker",
+            },
+        )
+        self.assertEqual(resolved.status_code, 200, resolved.text)
+        result = resolved.json()["battle"]["result"]
+        self.assertEqual(result["winner_side"], "defender")
+        self.assertEqual(result["retreat"]["territory_id"], "territory_res_north")
+
+        with connect(settings) as connection:
+            domain_node = connection.execute(
+                "SELECT current_node_id FROM domain_runtime_state WHERE domain_id = 'domain_north'"
+            ).fetchone()["current_node_id"]
+            army_row = connection.execute(
+                """
+                SELECT count, status, location_node_id
+                FROM active_army_runtime
+                WHERE army_id = 'army_north_wiped'
+                """
+            ).fetchone()
+
+        self.assertEqual(domain_node, "node_res_north")
+        self.assertEqual(
+            dict(army_row),
+            {"count": 0, "status": "burned", "location_node_id": "node_res_north"},
+        )
 
     def test_unit_class_fixtures_damage_los_and_retaliation(self) -> None:
         for unit_class, card_id in {
@@ -1689,7 +1782,12 @@ class LordBattleRuntimeTests(unittest.TestCase):
         self.assertEqual(result["winner_side"], "defender")
         self.assertEqual(
             result["retreat"],
-            {"domain_id": "domain_north", "to_node_id": "node_res_north", "status": "retreated"},
+            {
+                "domain_id": "domain_north",
+                "to_node_id": "node_res_north",
+                "territory_id": "territory_res_north",
+                "status": "retreated",
+            },
         )
         with connect(settings) as connection:
             domain = connection.execute(
@@ -1709,7 +1807,7 @@ class LordBattleRuntimeTests(unittest.TestCase):
         self.assertEqual(domain["current_node_id"], "node_res_north")
         self.assertEqual(army["count"], 0)
         self.assertEqual(army["status"], "burned")
-        self.assertEqual(army["location_node_id"], "node_field_oats")
+        self.assertEqual(army["location_node_id"], "node_res_north")
 
         state = client.get(
             "/api/lords/p_lord_1/state",
@@ -1758,7 +1856,12 @@ class LordBattleRuntimeTests(unittest.TestCase):
         self.assertEqual(result["winner_side"], "defender")
         self.assertEqual(
             result["retreat"],
-            {"domain_id": "domain_north", "to_node_id": "node_res_north", "status": "retreated"},
+            {
+                "domain_id": "domain_north",
+                "to_node_id": "node_res_north",
+                "territory_id": "territory_res_north",
+                "status": "retreated",
+            },
         )
         with connect(settings) as connection:
             domain = connection.execute(

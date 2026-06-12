@@ -8,7 +8,11 @@ from typing import Any
 from .act_service import ActNotFoundError, UnlockCodeHiddenError
 from .act_service import get_act_state, record_physical_announcement, reveal_unlock_code
 from .act_service import set_active_act_elapsed_minutes, start_act
-from .admin_content import build_handout_checklist, build_qr_checklist
+from .admin_content import (
+    build_handout_checklist,
+    build_pve_authoring_summary,
+    build_qr_checklist,
+)
 from .admin_content import export_latest_snapshot, latest_import_report
 from .admin_content import list_content_packs, resolve_manifest_path, resolve_snapshot_dir
 from .admin_studio import build_admin_overview
@@ -45,6 +49,7 @@ from .qr_runtime import QrLookupRequest, has_qr_content, lookup_qr_runtime
 from .qr_runtime import normalize_qr_code
 from .reputation_service import ReputationError
 from .reputation_service import apply_reputation_change, get_reputation_view
+from .reputation_service import list_master_reputation_views
 from .review_service import ReviewDecisionError, decide_event_review
 from .reward_service import decide_reward_approval
 from .sorceress_service import SorceressError
@@ -687,6 +692,15 @@ def create_app(settings: Settings | None = None):
             _require_master_token(connection, x_role_token or role_token)
             return build_qr_checklist(connection)
 
+    @api.get("/api/master/content/pve-authoring")
+    def master_pve_authoring(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+        return build_pve_authoring_summary()
+
     @api.get("/api/master/content/handout-checklist")
     def master_handout_checklist(
         x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
@@ -1234,6 +1248,15 @@ def create_app(settings: Settings | None = None):
                 return get_reputation_view(connection, player_id, visibility="master")
             except ReputationError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @api.get("/api/master/reputation")
+    def master_reputation_list(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            return list_master_reputation_views(connection)
 
     @api.post("/api/master/reputation/{player_id}/change")
     def master_change_reputation(
@@ -2587,17 +2610,60 @@ def _mobile_quest_payload(scenario: dict[str, object] | None) -> dict[str, objec
         return {}
     primary_stat = str(scenario.get("primary_stat", ""))
     dc = str(scenario.get("dc", ""))
+    title = str(scenario.get("scenario_title", ""))
+    trial_type = str(scenario.get("trial_type", ""))
+    stat_check_label = str(scenario.get("stat_check_label", ""))
+    reward_summary = str(scenario.get("reward_summary", ""))
     success_text = str(scenario.get("success_text", ""))
+    victory_rule = str(scenario.get("victory_rule", ""))
     memo_parts = []
+    if title:
+        memo_parts.append(title)
+    if trial_type:
+        memo_parts.append(trial_type)
+    if stat_check_label:
+        memo_parts.append(stat_check_label)
     if primary_stat and dc:
         memo_parts.append(f"{primary_stat} vs {dc}")
+    if reward_summary:
+        memo_parts.append(reward_summary)
+    if victory_rule:
+        memo_parts.append(victory_rule)
     if success_text:
         memo_parts.append(success_text)
     return {
         "scenario_id": str(scenario.get("scenario_id", "")),
+        "scenario_title": title,
+        "visible_hook": str(scenario.get("visible_hook", "")),
+        "player_brief": str(scenario.get("player_brief", "")),
+        "story_summary": str(scenario.get("story_summary", "")),
+        "visual_asset_id": str(scenario.get("visual_asset_id", "")),
+        "visual_prompt": str(scenario.get("visual_prompt", "")),
+        "icon_key": str(scenario.get("icon_key", "")),
+        "content_lane": str(scenario.get("content_lane", "")),
+        "estimated_minutes": str(scenario.get("estimated_minutes", "")),
+        "trial_type": trial_type,
+        "trial_prompt": str(scenario.get("trial_prompt", "")),
+        "stat_check_label": stat_check_label,
+        "gear_tags": str(scenario.get("gear_tags", "")),
+        "monster_tags": str(scenario.get("monster_tags", "")),
         "scene_type": str(scenario.get("scene_type", "")),
         "primary_stat": primary_stat,
         "dc": dc,
+        "success_consequence": str(scenario.get("success_consequence", "")),
+        "partial_consequence": str(scenario.get("partial_consequence", "")),
+        "failure_consequence": str(scenario.get("failure_consequence", "")),
+        "reward_summary": reward_summary,
+        "world_effect": str(scenario.get("world_effect", "")),
+        "quest_flow_version": str(scenario.get("quest_flow_version", "")),
+        "board_description": str(scenario.get("board_description", "")),
+        "scan_reveal": str(scenario.get("scan_reveal", "")),
+        "choice_prompt": str(scenario.get("choice_prompt", "")),
+        "choice_options_json": str(scenario.get("choice_options_json", "")),
+        "encounter_steps_json": str(scenario.get("encounter_steps_json", "")),
+        "victory_rule": victory_rule,
+        "branch_reward_policy": str(scenario.get("branch_reward_policy", "")),
+        "reputation_hint": str(scenario.get("reputation_hint", "")),
         "success_text": success_text,
         "failure_text": str(scenario.get("failure_text", "")),
         "timeout_outcome": str(scenario.get("timeout_outcome", "")),

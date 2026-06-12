@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import json
@@ -207,7 +207,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A1-K7Q2",
+                "code": "QR-A1-TRV-001-K7Q2",
                 "device_id": "phone-wolf",
                 "physical_presence_confirmed": True,
             },
@@ -468,7 +468,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A1-K7Q2",
+                "code": "QR-A1-TRV-001-K7Q2",
                 "device_id": "device-test",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -481,6 +481,20 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["event_type"], "qr_scene_started")
         self.assertEqual(payload["qr"]["qr_mode"], "repeatable_scene")
         self.assertEqual(payload["scenario"]["scenario_id"], "scn_a1_001")
+        self.assertEqual(
+            payload["scenario"]["scenario_title"],
+            "Дети болотной тропы: Акт 1 / scn_a1_001",
+        )
+        self.assertEqual(payload["scenario"]["trial_type"], "combat")
+        self.assertEqual(payload["scenario"]["visual_asset_id"], "pve_scn_a1_001_card")
+        self.assertEqual(payload["scenario"]["scene_type"], "monster_hunt")
+        self.assertIn("пропадать дети", payload["scenario"]["board_description"])
+        self.assertIn("летнего солнцестояния", payload["scenario"]["scan_reveal"])
+        self.assertGreaterEqual(len(json.loads(payload["scenario"]["choice_options_json"])), 2)
+        self.assertEqual(len(json.loads(payload["scenario"]["encounter_steps_json"])), 3)
+        self.assertIn("2 успешные проверки из 3", payload["scenario"]["victory_rule"])
+        self.assertNotIn("choice_morality_json", payload["scenario"])
+        self.assertIn("XP", payload["scenario"]["reward_summary"])
         self.assertEqual(payload["event_context"]["player_id"], "p_witcher_1")
         self.assertEqual(payload["event_context"]["qr_mode"], "repeatable_scene")
         self.assertTrue(payload["event_context"]["physical_presence_confirmed"])
@@ -494,7 +508,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/mobile/qr-order-check",
             headers=WITCHER_HEADERS,
             json={
-                "code": "witcher-larp://qr?code=QR-A1-X3L5",
+                "code": "witcher-larp://qr?code=QR-A1-EAZ-006-X3L5",
                 "device_id": "phone-wolf",
                 "source": "qr_scan",
             },
@@ -508,14 +522,25 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(matched_payload["order"]["order_id"], "order_north_public_1")
         self.assertEqual(matched_payload["order"]["object_label"], "Пехотная грамота")
         self.assertEqual(matched_payload["order"]["object_type"], "card")
-        self.assertEqual(matched_payload["quest"]["scene_type"], "order_object")
+        self.assertEqual(matched_payload["quest"]["scene_type"], "monster_hunt")
         self.assertEqual(matched_payload["quest"]["primary_stat"], "Сила")
+        self.assertEqual(
+            matched_payload["quest"]["scenario_title"],
+            "Невеста из колодца: Акт 1 / scn_a1_006",
+        )
+        self.assertEqual(matched_payload["quest"]["trial_type"], "combat")
+        self.assertEqual(matched_payload["quest"]["visual_asset_id"], "pve_scn_a1_006_card")
+        self.assertIn("Вода светлеет", matched_payload["quest"]["success_text"])
+        self.assertIn("2 успешные проверки из 3", matched_payload["quest"]["victory_rule"])
+        self.assertEqual(len(json.loads(matched_payload["quest"]["encounter_steps_json"])), 3)
+        self.assertNotIn("choice_morality_json", matched_payload["quest"])
+        self.assertIn("XP", matched_payload["quest"]["reward_summary"])
 
         not_taken = client.post(
             "/api/mobile/qr-order-check",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A1-L2G6",
+                "code": "QR-A1-WOS-011-L2G6",
                 "device_id": "phone-wolf",
                 "source": "manual_id",
             },
@@ -538,7 +563,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A2-B4K8",
+                "code": "QR-A2-TRV-013-B4K8",
                 "device_id": "device-future",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -571,7 +596,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A2-B4K8",
+                "code": "QR-A2-TRV-013-B4K8",
                 "device_id": "device-future",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -589,7 +614,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A2-B4K8",
+                "code": "QR-A2-TRV-013-B4K8",
                 "device_id": "device-future",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -639,9 +664,9 @@ class FastApiContractTests(unittest.TestCase):
         )
         client = TestClient(create_app(settings))
         cases = (
-            ("QR-A1-K7Q2", "manual_id", "repeatable_scene"),
-            ("witcher-larp://qr?code=QR-A1-V8N1", "qr_scan", "always_available_scene"),
-            ("QR-A1-X3L5", "manual_id", "unique_object"),
+            ("QR-A1-TRV-001-K7Q2", "manual_id", "repeatable_scene"),
+            ("witcher-larp://qr?code=QR-A1-MAG-005-V8N1", "qr_scan", "always_available_scene"),
+            ("QR-A1-EAZ-006-X3L5", "manual_id", "unique_object"),
         )
 
         for code, source, expected_mode in cases:
@@ -680,7 +705,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "witcher-larp://qr?code=QR-A1-X3L5",
+                "code": "witcher-larp://qr?code=QR-A1-EAZ-006-X3L5",
                 "device_id": "device-review",
                 "source": "qr_scan",
                 "physical_presence_confirmed": False,
@@ -694,7 +719,7 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["event_context"]["qr_mode"], "unique_object")
         self.assertEqual(
             payload["event_context"]["offline_instruction"],
-            "success_take_physical_qr_failure_leave_it",
+            "story_slot_complete_once_leave_printed_qr_on_board",
         )
 
     def test_qr_lookup_rate_limits_unknown_manual_ids(self) -> None:
@@ -771,7 +796,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A1-K7Q2",
+                "code": "QR-A1-TRV-001-K7Q2",
                 "player_id": "p_witcher_2",
                 "device_id": "device-forged-player",
                 "source": "manual_id",

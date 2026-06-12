@@ -19,6 +19,9 @@ from .building_effects import building_effect_labels
 from .lord_runtime import ACTIVE_ORDER_STATUSES
 from .lord_runtime import active_pending_lord_move, build_lord_map_intel
 from .lord_runtime import anti_snowball_cut_for_domain, build_diplomacy_signals
+from .lord_runtime import building_flat_income_bonus_for_domain
+from .lord_runtime import building_territory_income_bonus_percent_for_domain
+from .lord_runtime import building_treasury_income_floor_percent_for_domain
 from .lord_runtime import ensure_lord_runtime_state, reconcile_pending_lord_moves
 from .lord_runtime import raid_order_public_cap_penalty_for_domain
 from .lord_runtime import raid_defense_summary, raid_income_multiplier_for_territory
@@ -27,6 +30,8 @@ from .lord_runtime import raid_token_surcharge_for_domain
 from .lord_runtime import recruit_growth_per_hour_for_unit_class
 from .lord_battle_service import list_lord_battles
 from .repository import fetch_table, latest_snapshot_version
+from .territory_bonuses import territory_bonus_payloads
+from .territory_bonuses import territory_numeric_bonus
 
 LORD_MAP_LAYOUT_PATH = (
     Path(__file__).resolve().parents[2]
@@ -323,16 +328,35 @@ def build_lord_state(
         if reward.get("domain_id") == domain_id or reward.get("territory_id") in owned_ids
     ]
     anti_snowball = anti_snowball_cut_for_domain(connection, domain_id)
-    territory_income = sum(
-        _territory_income_per_hour(connection, territory) for territory in owned_territories
+    flat_building_income = building_flat_income_bonus_for_domain(connection, domain_id)
+    territory_bonus_percent = building_territory_income_bonus_percent_for_domain(
+        connection, domain_id
     )
-    raw_income = _int_value(domain_payload.get("base_income")) + territory_income
+    treasury_floor_percent = building_treasury_income_floor_percent_for_domain(
+        connection, domain_id
+    )
+    territory_income = sum(
+        _territory_income_per_hour(
+            connection,
+            territory,
+            bonus_percent=territory_bonus_percent,
+        )
+        for territory in owned_territories
+    )
+    raw_income = flat_building_income + territory_income
     income_cut_percent = _int_value(anti_snowball.get("income_cut_percent"))
     income = (raw_income * (100 - income_cut_percent)) // 100
+    if treasury_floor_percent:
+        income = max(income, (raw_income * treasury_floor_percent) // 100)
     active_army_slots_used = _active_stack_count(active_army)
     active_army_capacity = _int_value(domain_payload.get("active_army_capacity"))
     domain_payload = {
         **domain_payload,
+        "configured_base_income": _int_value(domain_payload.get("base_income")),
+        "base_income": flat_building_income,
+        "flat_building_income": flat_building_income,
+        "territory_income_bonus_percent": territory_bonus_percent,
+        "treasury_income_floor_percent": treasury_floor_percent,
         "territory_income_per_hour": territory_income,
         "raw_income_per_hour": raw_income,
         "income_per_hour": income,
@@ -473,6 +497,7 @@ def build_lord_summary_state(
         "current_mp": _int_value(domain_payload.get("current_mp")),
         "mp_cap": _int_value(domain_payload.get("mp_cap")),
     }
+    timer_summary = _timer_summary(connection)
     return {
         "snapshot_version": latest_snapshot_version(connection),
         "lord": _lord_payload(lord, domain_id),
@@ -490,6 +515,7 @@ def build_lord_summary_state(
             "active_battles": len(battles),
         },
         "battles": battles,
+        "timer_summary": timer_summary,
     }
 
 
@@ -1473,6 +1499,7 @@ def _territory_payload(
         "node_name": node.get("name", territory["name"]),
         "node_type": node.get("node_type", ""),
         "income_per_hour": _territory_income_per_hour(connection, territory),
+        "bonuses": territory_bonus_payloads(connection, territory_id),
         "fort": fort,
         "garrisons": garrisons,
         "pending_rewards": [
@@ -1963,6 +1990,7 @@ def _territory_view_payloads(
                 "lock_reasons": lock_reasons,
                 "lock_reason": select_lock_reason,
                 "income_per_hour": _int_value(territory.get("income_per_hour")),
+                "bonuses": territory.get("bonuses") or [],
                 "fort": fort,
                 "garrisons": garrisons,
                 "garrison_stacks": garrisons,
@@ -2517,9 +2545,11 @@ def _visible_claims(connection: sqlite3.Connection, domain_id: str) -> list[dict
     ).fetchall()
     payloads = []
     for row in rows:
+        status = str(row["status"] or "")
         claim = {
             **dict(row),
-            "battle_required": bool(row["battle_required"]),
+            "battle_required": bool(row["battle_required"])
+            and status not in {"awaiting_garrison", "capture_pending_garrison"},
         }
         claim["cta"] = _claim_cta_payload(claim, domain_id)
         claim["alert_level"] = _claim_alert_level(claim)
@@ -2722,13 +2752,23 @@ def _table(connection: sqlite3.Connection, table_name: str) -> list[dict[str, st
 
 
 def _territory_income_per_hour(
-    connection: sqlite3.Connection, territory: dict[str, Any]
+    connection: sqlite3.Connection,
+    territory: dict[str, Any],
+    *,
+    bonus_percent: int = 0,
 ) -> int:
-    income_by_tier = {1: 8, 2: 14, 3: 22}
+    income_by_tier = {1: 8, 2: 15, 3: 24}
     base_income = income_by_tier.get(_int_value(territory.get("tier")), 0)
     territory_id = str(territory.get("territory_id") or "")
     if not territory_id:
         return base_income
+    base_income += territory_numeric_bonus(
+        connection,
+        territory_id,
+        "income_flat",
+    )
+    if bonus_percent:
+        base_income += (base_income * bonus_percent) // 100
     multiplier = raid_income_multiplier_for_territory(connection, territory_id)
     return (base_income * multiplier) // 100
 

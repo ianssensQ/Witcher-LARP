@@ -438,6 +438,63 @@ textarea {
   padding: 12px;
 }
 
+.entity-card[data-alignment="light"] {
+  border-left: 4px solid var(--moss);
+}
+
+.entity-card[data-alignment="dark"] {
+  border-left: 4px solid var(--red);
+}
+
+.entity-card[data-alignment="neutral"] {
+  border-left: 4px solid var(--blue);
+}
+
+.reputation-scale {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(53, 95, 122, 0.22);
+  border-radius: 8px;
+  background: #f5f8f7;
+}
+
+.reputation-segment {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.reputation-segment b,
+.reputation-segment small {
+  display: block;
+}
+
+.reputation-segment small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.reputation-segment.light {
+  border-color: rgba(66, 108, 82, 0.34);
+  background: #edf6ee;
+}
+
+.reputation-segment.dark {
+  border-color: rgba(143, 52, 48, 0.32);
+  background: #fff0ef;
+}
+
+.reputation-segment.neutral {
+  border-color: rgba(53, 95, 122, 0.28);
+  background: #eef5f8;
+}
+
 .lord-command-panel {
   gap: 14px;
 }
@@ -553,6 +610,194 @@ textarea {
 
 .lord-edit-panel {
   margin-top: 12px;
+}
+
+.lord-live-map-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(53, 95, 122, 0.28);
+  border-radius: 8px;
+  background: #f3f8fb;
+}
+
+.lord-live-map {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-height: 620px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.lord-map-node {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+  min-height: 188px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--blue);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.lord-map-node.neutral {
+  border-left-color: var(--muted);
+}
+
+.lord-map-node.attention {
+  border-left-color: var(--gold);
+  background: #fffdfa;
+}
+
+.lord-map-node.has-presence {
+  box-shadow: inset 0 0 0 2px rgba(66, 108, 82, 0.14);
+}
+
+.lord-map-node header,
+.deck-card-header {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.lord-map-node h5,
+.deck-card-header h4 {
+  margin: 0;
+}
+
+.lord-map-node-facts,
+.deck-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.lord-map-node-facts span,
+.deck-stat-grid span,
+.deck-leader {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7f8f7;
+  overflow-wrap: anywhere;
+}
+
+.lord-map-node-facts b,
+.deck-stat-grid b,
+.deck-leader b {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.deck-stat-grid b {
+  color: var(--ink);
+  font-size: 1.05rem;
+  text-transform: none;
+}
+
+.lord-map-presence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lord-map-presence span {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid rgba(66, 108, 82, 0.28);
+  border-radius: 999px;
+  background: #edf6ee;
+  color: var(--moss);
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.deck-watch-panel {
+  gap: 14px;
+}
+
+.deck-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.deck-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--blue);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.deck-card.attention {
+  border-left-color: var(--gold);
+  background: #fffdfa;
+}
+
+.deck-warning {
+  padding: 8px;
+  border: 1px solid rgba(166, 120, 47, 0.28);
+  border-radius: 6px;
+  background: #fff7e7;
+  color: var(--gold);
+  font-weight: 800;
+}
+
+.deck-card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.deck-card-chip {
+  display: grid;
+  gap: 2px;
+  min-width: 128px;
+  max-width: 180px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7f8f7;
+}
+
+.deck-card-chip.leader {
+  border-color: rgba(166, 120, 47, 0.34);
+  background: #fff7e7;
+}
+
+.deck-card-chip.special {
+  border-color: rgba(53, 95, 122, 0.28);
+  background: #eef5f8;
+}
+
+.deck-card-chip b,
+.deck-card-chip small {
+  overflow-wrap: anywhere;
+}
+
+.deck-card-chip b {
+  font-size: 0.8rem;
+}
+
+.deck-card-chip small {
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 .code-card {
@@ -887,6 +1132,10 @@ tbody tr:last-child td {
     .metric-strip,
     .compact-summary,
     .command-grid,
+    .deck-grid,
+    .deck-stat-grid,
+    .lord-live-map,
+    .lord-map-node-facts,
     .lord-command-grid,
     .lord-stat-grid,
     .lord-roster,

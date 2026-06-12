@@ -61,6 +61,8 @@ prototypes/stage2b-v2/src/assets/generated/mobile/m1-journal-v2/portrait-frame-v
 data/*
 !data/seed/
 !data/seed/**
+!data/authoring/
+!data/authoring/**
 !data/snapshots/
 data/snapshots/*
 !data/snapshots/.gitkeep

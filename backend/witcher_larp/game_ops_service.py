@@ -216,6 +216,7 @@ def build_master_state(
         },
         "reward_approvals": rewards,
         "lord_map": _lord_map_state(connection),
+        "player_decks": _player_deck_state(connection),
         "visibility_audit": build_visibility_audit(connection),
         "pvp": {
             **pvp,
@@ -788,6 +789,132 @@ def _lord_order_rows(connection: sqlite3.Connection) -> list[dict[str, Any]]:
         table_name="order_runtime_state",
     )
     return [row for row in rows if row.get("domain_id")]
+
+
+def _player_deck_state(connection: sqlite3.Connection) -> dict[str, Any]:
+    if not _table_exists(connection, "gwent_decks"):
+        return _empty_player_deck_state()
+
+    cards_by_id = {
+        str(row.get("card_id") or ""): row
+        for row in _table(connection, "gwent_cards")
+        if row.get("card_id")
+    }
+    if _table_exists(connection, "players"):
+        deck_rows = _rows(
+            connection,
+            """
+            SELECT
+                deck.deck_id,
+                deck.player_id,
+                deck.leader_card_id,
+                deck.card_ids,
+                player.display_name,
+                player.role_type
+            FROM gwent_decks deck
+            JOIN players player ON player.player_id = deck.player_id
+            WHERE player.role_type IN ('witcher', 'sorceress')
+            ORDER BY
+                CASE player.role_type
+                    WHEN 'witcher' THEN 1
+                    WHEN 'sorceress' THEN 2
+                    ELSE 3
+                END,
+                deck.player_id
+            """,
+            table_name="gwent_decks",
+        )
+    else:
+        deck_rows = _rows(
+            connection,
+            """
+            SELECT deck_id, player_id, leader_card_id, card_ids
+            FROM gwent_decks
+            ORDER BY player_id
+            """,
+            table_name="gwent_decks",
+        )
+
+    items = []
+    for deck in deck_rows:
+        card_ids = _split_ids(deck.get("card_ids"))
+        leader_card_id = str(deck.get("leader_card_id") or "").strip()
+        cards = [_gwent_card_payload(cards_by_id.get(card_id), card_id) for card_id in card_ids]
+        leader = _gwent_card_payload(cards_by_id.get(leader_card_id), leader_card_id)
+        missing_card_ids = [
+            card["card_id"]
+            for card in [leader, *cards]
+            if card.get("missing") and card.get("card_id")
+        ]
+        items.append(
+            {
+                **deck,
+                "display_name": _display_name(
+                    deck.get("display_name"),
+                    fallback=deck.get("player_id"),
+                ),
+                "role_type": deck.get("role_type") or "unknown",
+                "leader": leader,
+                "cards": cards,
+                "card_id_list": card_ids,
+                "total_cards": len(cards),
+                "unit_count": sum(1 for card in cards if card.get("type") == "unit"),
+                "special_count": sum(1 for card in cards if card.get("type") == "special"),
+                "strength_total": sum(_to_int(card.get("strength")) for card in cards),
+                "row_counts": _gwent_card_counts(cards, "row"),
+                "type_counts": _gwent_card_counts(cards, "type"),
+                "rarity_counts": _gwent_card_counts(cards, "rarity"),
+                "missing_card_ids": missing_card_ids,
+            }
+        )
+
+    return {
+        "items": items,
+        "summary": {
+            "total": len(items),
+            "witcher": sum(1 for item in items if item.get("role_type") == "witcher"),
+            "sorceress": sum(1 for item in items if item.get("role_type") == "sorceress"),
+            "missing_cards": sum(len(item.get("missing_card_ids") or []) for item in items),
+        },
+    }
+
+
+def _empty_player_deck_state() -> dict[str, Any]:
+    return {
+        "items": [],
+        "summary": {
+            "total": 0,
+            "witcher": 0,
+            "sorceress": 0,
+            "missing_cards": 0,
+        },
+    }
+
+
+def _gwent_card_payload(row: dict[str, Any] | None, fallback_card_id: str) -> dict[str, Any]:
+    if row is None:
+        return {
+            "card_id": fallback_card_id,
+            "missing": True,
+        }
+    return {
+        "card_id": row.get("card_id") or fallback_card_id,
+        "faction": row.get("faction") or "",
+        "row": row.get("row") or "",
+        "type": row.get("type") or "",
+        "strength": _to_int(row.get("strength")),
+        "effect": row.get("effect") or "",
+        "rarity": row.get("rarity") or "",
+        "missing": False,
+    }
+
+
+def _gwent_card_counts(cards: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for card in cards:
+        value = str(card.get(key) or "unknown")
+        counts[value] = counts.get(value, 0) + 1
+    return counts
 
 
 def _economy_recovery_state(connection: sqlite3.Connection) -> dict[str, Any]:

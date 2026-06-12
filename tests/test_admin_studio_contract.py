@@ -52,12 +52,14 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("/api/master/content/import", script.text)
         self.assertIn("/api/master/content/import-report/latest", script.text)
         self.assertIn("/api/master/content/qr-checklist", script.text)
+        self.assertIn("/api/master/content/pve-authoring", script.text)
         self.assertIn("/api/master/content/handout-checklist", script.text)
         self.assertIn("/api/master/state", script.text)
         self.assertIn("/api/master/acts/elapsed", script.text)
         self.assertIn("/api/master/game-ops/corrections", script.text)
         self.assertIn("/api/master/timers/lord-income-tick", script.text)
         self.assertIn("/api/master/player-codes", script.text)
+        self.assertIn("/api/master/reputation", script.text)
         self.assertIn("/api/lord-battles", script.text)
         self.assertIn("const ADMIN_AUTO_REFRESH_MS = 10_000;", script.text)
         self.assertIn('refreshAll({ source: "auto", scope: "overview" })', script.text)
@@ -67,11 +69,18 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("/api/events/", script.text)
         self.assertIn("/api/master/reward-approvals/", script.text)
         self.assertIn("Пульт игры", script.text)
+        self.assertIn("Добро/Зло", script.text)
         self.assertIn("Запустить акт", script.text)
         self.assertIn("Поставить время акта", script.text)
         self.assertIn("Начислить тик лордам", script.text)
-        self.assertIn("Пульт лордов", script.text)
+        self.assertIn("Слежение: лорды", script.text)
+        self.assertIn("Слежение: колоды", script.text)
         self.assertIn("Пульт наблюдения за лордами", script.text)
+        self.assertIn("Актуальная карта лордов", script.text)
+        self.assertIn("Колоды ведьмаков и чародеек", script.text)
+        self.assertIn("Игроки без лордов", script.text)
+        self.assertIn("player_decks", script.text)
+        self.assertIn("nonLordPlayers()", script.text)
         self.assertIn("Требуют внимания", script.text)
         self.assertIn("+50 золота", script.text)
         self.assertIn("MP максимум", script.text)
@@ -113,8 +122,8 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("<span>Игроки</span>", page.text)
         self.assertIn("<span>Лорды</span>", page.text)
         self.assertIn("<span>Ревью</span>", page.text)
-        self.assertIn("/static/admin/admin.css?v=20260611-performance-1", page.text)
-        self.assertIn("/static/admin/admin.js?v=20260611-performance-1", page.text)
+        self.assertIn("/static/admin/admin.css?v=20260612-admin-watch-1", page.text)
+        self.assertIn("/static/admin/admin.js?v=20260612-admin-watch-1", page.text)
         self.assertIn('id="dashboard-status"', page.text)
         self.assertFalse(
             (PROJECT_ROOT / "backend" / "witcher_larp" / "web" / "package.json").exists()
@@ -279,7 +288,8 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("state.resources?.gold", app_source)
         self.assertIn("selectedActiveArmyLockReason", app_source)
         self.assertIn("selectedBuildingNodeIdSet", app_source)
-        self.assertIn("territoryIncomeResourceLabel", app_source)
+        self.assertIn("incomeResourceLabel", app_source)
+        self.assertNotIn("territoryIncomeResourceLabel", app_source)
         self.assertNotIn('demoResourceLabel("17")', app_source)
         self.assertNotIn('demoResourceLabel("63")', app_source)
         self.assertNotIn('demoResourceLabel("42")', app_source)
@@ -339,6 +349,10 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertEqual(
             self._actions(sections["game-ops"])["visibility_audit"]["endpoint"],
             "/api/master/visibility-audit",
+        )
+        self.assertEqual(
+            self._actions(sections["game-ops"])["reputation_control"]["endpoint"],
+            "/api/master/reputation",
         )
         self.assertEqual(
             self._actions(sections["game-ops"])["game_ops_correction"]["endpoint"],
@@ -448,6 +462,12 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("recent", payload["events"])
         self.assertIn("sync_statuses", payload["events"])
         self.assertIn("economy", payload)
+        self.assertIn("player_decks", payload)
+        self.assertEqual(payload["player_decks"]["summary"]["total"], 9)
+        self.assertEqual(
+            {deck["role_type"] for deck in payload["player_decks"]["items"]},
+            {"witcher", "sorceress"},
+        )
         self.assertEqual(payload["events"]["review"]["critical_open_count"], 1)
         self.assertEqual(payload["reward_approvals"]["pending"][0]["severity"], "P1")
         self.assertTrue(
@@ -768,11 +788,19 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertEqual(qr.status_code, 200, qr.text)
         qr_payload = qr.json()
         self.assertEqual(qr_payload["snapshot_version"], valid_report["snapshot_version"])
-        self.assertEqual(qr_payload["total"], 40)
+        self.assertEqual(qr_payload["total"], 72)
         self.assertTrue(qr_payload["policy"]["qr_honesty"])
         self.assertIn("manual_code", qr_payload["items"][0])
         self.assertIn("mode", qr_payload["items"][0])
         self.assertIn("location_node_id", qr_payload["items"][0])
+
+        authoring = client.get("/api/master/content/pve-authoring", headers=MASTER_HEADERS)
+        self.assertEqual(authoring.status_code, 200, authoring.text)
+        authoring_payload = authoring.json()
+        self.assertEqual(authoring_payload["total"], 72)
+        self.assertEqual(authoring_payload["scenarios"], 72)
+        self.assertEqual(authoring_payload["by_act"]["final_act"], 8)
+        self.assertIn("manual_code", authoring_payload["items"][0])
 
         handouts = client.get("/api/master/content/handout-checklist", headers=MASTER_HEADERS)
         self.assertEqual(handouts.status_code, 200, handouts.text)
