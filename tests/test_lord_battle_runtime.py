@@ -80,10 +80,17 @@ class LordBattleRuntimeTests(unittest.TestCase):
         self.assertEqual(battle["status"], "deployment")
         self.assertEqual(battle["board"]["width"], 5)
         self.assertEqual(battle["board"]["height"], 6)
+        self.assertEqual(battle["board"]["hero_cells"]["attacker"], {"x": 2, "y": 0})
+        self.assertEqual(battle["board"]["hero_cells"]["defender"], {"x": 2, "y": 5})
+        self.assertEqual(battle["board"]["start_lines"], {"attacker": 0, "defender": 5})
         self.assertIn("deployment_started", [entry["entry_type"] for entry in battle["battle_log"]])
         self.assertEqual(battle["deployment"]["hand"]["attacker"][0]["card_id"], "unit_infantry_t1")
         self.assertEqual(battle["deployment"]["hand"]["defender"], [])
         self.assertFalse(any(stack["side"] == "defender" for stack in battle["board"]["stacks"]))
+        self._set_battle_start_lines(settings, "battle_neutral_field", {"attacker": 1, "defender": 4})
+        legacy_view = client.get("/api/lord-battles/battle_neutral_field", headers=MASTER_HEADERS)
+        self.assertEqual(legacy_view.status_code, 200, legacy_view.text)
+        self.assertEqual(legacy_view.json()["board"]["start_lines"], {"attacker": 0, "defender": 5})
 
         invalid_deploy = client.post(
             "/api/lord-battles/battle_neutral_field/actions",
@@ -686,6 +693,8 @@ class LordBattleRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(created.status_code, 200)
         self._start_battle_after_deployment(client, "battle_los_damage")
+        self._place_battle_stack(settings, "battle_los_damage", "A1", x=0, y=1)
+        self._place_battle_stack(settings, "battle_los_damage", "D1", x=0, y=4)
         with connect(settings) as connection:
             connection.execute(
                 """
@@ -732,6 +741,7 @@ class LordBattleRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(created.status_code, 200)
         self._start_battle_after_deployment(client, "battle_retaliation")
+        self._place_battle_stack(settings, "battle_retaliation", "D1", x=0, y=4)
         with connect(settings) as connection:
             connection.execute(
                 """
@@ -1639,6 +1649,75 @@ class LordBattleRuntimeTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(dict(neutral_pending), {"status": "voided", "awarded_to_domain_id": None})
 
+    def test_neutral_defeat_retreats_lord_home_even_when_active_army_burns(self) -> None:
+        settings = self._settings("lord_battle_neutral_retreat_home")
+        self._import_seed(settings)
+        self._set_active_armies(
+            settings,
+            current_nodes={"domain_north": "node_field_oats"},
+            rows=[
+                ("army_north_neutral_full_loss", "domain_north", "unit_infantry_t1", 1, "node_field_oats"),
+            ],
+            clear_existing=True,
+        )
+        client = TestClient(create_app(settings))
+        created = client.post(
+            "/api/lord-battles",
+            headers=self._headers("north"),
+            json={
+                "battle_id": "battle_neutral_retreat_home",
+                "attacker_domain_id": "domain_north",
+                "territory_id": "territory_field_oats",
+                "seed": "neutral-retreat-home",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        self._start_battle_after_deployment(client, "battle_neutral_retreat_home")
+
+        resolved = client.post(
+            "/api/lord-battles/battle_neutral_retreat_home/actions",
+            headers=self._headers("north"),
+            json={
+                "action_id": "auto-neutral-retreat-home",
+                "action_type": "auto_resolve",
+                "actor_side": "attacker",
+            },
+        )
+        self.assertEqual(resolved.status_code, 200, resolved.text)
+        result = resolved.json()["battle"]["result"]
+
+        self.assertEqual(result["winner_side"], "defender")
+        self.assertEqual(
+            result["retreat"],
+            {"domain_id": "domain_north", "to_node_id": "node_res_north", "status": "retreated"},
+        )
+        with connect(settings) as connection:
+            domain = connection.execute(
+                """
+                SELECT current_node_id
+                FROM domain_runtime_state
+                WHERE domain_id = 'domain_north'
+                """
+            ).fetchone()
+            army = connection.execute(
+                """
+                SELECT count, status, location_node_id
+                FROM active_army_runtime
+                WHERE army_id = 'army_north_neutral_full_loss'
+                """
+            ).fetchone()
+        self.assertEqual(domain["current_node_id"], "node_res_north")
+        self.assertEqual(army["count"], 0)
+        self.assertEqual(army["status"], "burned")
+        self.assertEqual(army["location_node_id"], "node_field_oats")
+
+        state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers=self._headers("north"),
+        )
+        self.assertEqual(state.status_code, 200, state.text)
+        self.assertEqual(state.json()["movement"]["current_node_id"], "node_res_north")
+
     def test_expired_turn_timer_is_applied_before_ordinary_action(self) -> None:
         settings = self._settings("lord_battle_proactive_timeout")
         self._import_seed(settings)
@@ -1837,6 +1916,56 @@ class LordBattleRuntimeTests(unittest.TestCase):
             if isinstance(ready.json().get("battle"), dict):
                 battle = ready.json()["battle"]
         return client.get(f"/api/lord-battles/{battle_id}", headers=MASTER_HEADERS).json()
+
+    def _place_battle_stack(self, settings: Settings, battle_id: str, stack_id: str, *, x: int, y: int) -> None:
+        with connect(settings) as connection:
+            row = connection.execute(
+                """
+                SELECT board_json
+                FROM lord_battles
+                WHERE battle_id = ?
+                """,
+                (battle_id,),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            board = json.loads(row["board_json"])
+            for stack in board["stacks"]:
+                if stack["stack_id"] == stack_id:
+                    stack["x"] = x
+                    stack["y"] = y
+                    break
+            else:
+                self.fail(f"Missing battle stack {stack_id}")
+            connection.execute(
+                """
+                UPDATE lord_battles
+                SET board_json = ?
+                WHERE battle_id = ?
+                """,
+                (json.dumps(board, ensure_ascii=False, sort_keys=True), battle_id),
+            )
+
+    def _set_battle_start_lines(self, settings: Settings, battle_id: str, start_lines: dict[str, int]) -> None:
+        with connect(settings) as connection:
+            row = connection.execute(
+                """
+                SELECT board_json
+                FROM lord_battles
+                WHERE battle_id = ?
+                """,
+                (battle_id,),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            board = json.loads(row["board_json"])
+            board["start_lines"] = start_lines
+            connection.execute(
+                """
+                UPDATE lord_battles
+                SET board_json = ?
+                WHERE battle_id = ?
+                """,
+                (json.dumps(board, ensure_ascii=False, sort_keys=True), battle_id),
+            )
 
     @staticmethod
     def _deployment_cell(board: dict[str, object], side: str, index: int) -> tuple[int, int]:

@@ -939,6 +939,99 @@ class LordRuntimeTests(unittest.TestCase):
         completed = self._complete_pending_moves(settings)
         self.assertEqual(completed[0]["claim"]["territory_id"], "territory_fort_east")
 
+    def test_movement_from_neutral_front_cannot_advance_to_another_neutral(self) -> None:
+        settings = self._settings("lord_map_neutral_front_lock")
+        self._import_seed(settings)
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute("DELETE FROM active_army_runtime")
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET current_node_id = 'node_forest_dark',
+                    current_mp = 3,
+                    updated_at = '2026-06-02T10:00:00+00:00'
+                WHERE domain_id = 'domain_north'
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO active_army_runtime (
+                    army_id, domain_id, card_id, count,
+                    location_node_id, status, updated_at
+                )
+                VALUES (
+                    'army_north_front_lock',
+                    'domain_north',
+                    'unit_infantry_t1',
+                    3,
+                    'node_forest_dark',
+                    'active',
+                    '2026-06-02T10:00:00+00:00'
+                )
+                """
+            )
+        client = TestClient(create_app(settings))
+
+        direct_preview = client.post(
+            "/api/lords/p_lord_1/route-preview",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_swamp_black"},
+        )
+        self.assertEqual(direct_preview.status_code, 200, direct_preview.text)
+        direct_payload = direct_preview.json()
+        self.assertEqual(direct_payload["status"], "blocked")
+        self.assertFalse(direct_payload["can_move"])
+        self.assertEqual(direct_payload["reason_code"], "front_locked")
+        self.assertEqual(direct_payload["route"], ["node_forest_dark", "node_swamp_black"])
+
+        stopped_preview = client.post(
+            "/api/lords/p_lord_1/route-preview",
+            headers=self._headers("north"),
+            json={
+                "to_node_id": "node_fort_west",
+                "route_node_ids": [
+                    "node_forest_dark",
+                    "node_field_west_large",
+                    "node_fort_west",
+                ],
+            },
+        )
+        self.assertEqual(stopped_preview.status_code, 200, stopped_preview.text)
+        stopped_payload = stopped_preview.json()
+        self.assertEqual(stopped_payload["status"], "blocked")
+        self.assertFalse(stopped_payload["can_move"])
+        self.assertEqual(stopped_payload["reason_code"], "front_locked")
+        self.assertEqual(stopped_payload["requested_to_node_id"], "node_fort_west")
+        self.assertEqual(stopped_payload["to_node_id"], "node_field_west_large")
+        self.assertEqual(stopped_payload["route"], ["node_forest_dark", "node_field_west_large"])
+
+        moved = client.post(
+            "/api/lords/p_lord_1/move",
+            headers=self._headers("north"),
+            json={"to_node_id": "node_swamp_black"},
+        )
+        self.assertEqual(moved.status_code, 400, moved.text)
+        self.assertEqual(moved.json()["detail"]["code"], "front_locked")
+        with connect(settings) as connection:
+            domain = connection.execute(
+                """
+                SELECT current_node_id, current_mp
+                FROM domain_runtime_state
+                WHERE domain_id = 'domain_north'
+                """
+            ).fetchone()
+            pending_moves = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM pending_lord_moves
+                WHERE domain_id = 'domain_north'
+                """
+            ).fetchone()[0]
+        self.assertEqual(domain["current_node_id"], "node_forest_dark")
+        self.assertEqual(domain["current_mp"], 3)
+        self.assertEqual(pending_moves, 0)
+
     def test_lord_map_intel_redacts_adjacent_enemy_army_until_revealed(self) -> None:
         settings = self._settings("lord_map_enemy_intel")
         self._import_seed(settings)

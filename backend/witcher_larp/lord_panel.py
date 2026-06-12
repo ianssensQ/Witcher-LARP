@@ -1884,13 +1884,16 @@ def _territory_view_payloads(
         is_owned = owner_domain_id == domain_id
         is_residence = _is_residence_territory(territory)
         is_selectable = is_owned
-        active_army_present = (
+        hero_here = (
             is_owned
-            and active_army_has_units
             and bool(active_node_id)
             and active_node_id == node_id
             and pending_move is None
             and status not in LOCKED_TERRITORY_HOME_STATUSES
+        )
+        active_army_present = (
+            hero_here
+            and active_army_has_units
         )
         lock_reasons = _territory_lock_reasons(
             connection,
@@ -1898,6 +1901,7 @@ def _territory_view_payloads(
             domain_id=domain_id,
             is_owned=is_owned,
             active_army_present=active_army_present,
+            hero_here=hero_here,
             pending_move=pending_move,
         )
         active_army_lock_reason = _active_army_lock_reason(
@@ -1955,7 +1959,7 @@ def _territory_view_payloads(
                 "is_owned": is_owned,
                 "is_selectable": is_selectable,
                 "is_residence": is_residence,
-                "hero_here": active_army_present,
+                "hero_here": hero_here,
                 "lock_reasons": lock_reasons,
                 "lock_reason": select_lock_reason,
                 "income_per_hour": _int_value(territory.get("income_per_hour")),
@@ -2030,8 +2034,6 @@ def _active_army_lock_reason(
 ) -> str:
     if pending_move is not None:
         return "Армия в пути до прибытия"
-    if not active_army_has_units:
-        return "Нет активной армии героя"
     if not is_owned:
         return "Активная армия действует только в своих владениях"
     status = str(territory.get("status") or "")
@@ -2039,6 +2041,8 @@ def _active_army_lock_reason(
         return "Спорная территория заблокирована до решения конфликта"
     node_id = str(territory.get("node_id") or "")
     if not active_node_id or active_node_id != node_id:
+        if not active_army_has_units and not active_node_id:
+            return "Нет активной армии героя"
         return f"Герой сейчас в локации: {active_label}"
     return ""
 
@@ -2063,6 +2067,7 @@ def _territory_lock_reasons(
     domain_id: str,
     is_owned: bool,
     active_army_present: bool,
+    hero_here: bool,
     pending_move: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     reasons: list[dict[str, Any]] = []
@@ -2093,7 +2098,7 @@ def _territory_lock_reasons(
                 ["building", "recruit", "transfer", "raid"],
             )
         )
-    if is_owned and not active_army_present:
+    if is_owned and not active_army_present and not hero_here:
         reasons.append(
             _lock_reason(
                 "active_army_not_here",

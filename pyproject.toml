@@ -18,6 +18,7 @@ dev = [
 [tool.uv]
 package = false
 default-groups = ["dev"]
+cache-dir = ".tmp/uv-cache"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

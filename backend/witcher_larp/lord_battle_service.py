@@ -1135,26 +1135,27 @@ def _apply_retreat(
     loser_domain_id = _domain_for_side(state, loser_side)
     if not loser_domain_id:
         return None
-    surviving_active = [
+    active_stacks = [
         stack
         for stack in state["board"]["stacks"]
         if stack["side"] == loser_side
         and stack["source_type"] == "active_army"
-        and int(stack["count_alive"]) > 0
     ]
-    if not surviving_active:
+    if not active_stacks:
         return None
+    surviving_active = [stack for stack in active_stacks if int(stack["count_alive"]) > 0]
     retreat_node = _retreat_node(connection, loser_domain_id)
     if retreat_node is None:
         return {"domain_id": loser_domain_id, "status": "no_retreat_node"}
-    connection.execute(
-        """
-        UPDATE active_army_runtime
-        SET location_node_id = ?, updated_at = ?
-        WHERE domain_id = ? AND status = 'active' AND count > 0
-        """,
-        (retreat_node, _iso(now), loser_domain_id),
-    )
+    if surviving_active:
+        connection.execute(
+            """
+            UPDATE active_army_runtime
+            SET location_node_id = ?, updated_at = ?
+            WHERE domain_id = ? AND status = 'active' AND count > 0
+            """,
+            (retreat_node, _iso(now), loser_domain_id),
+        )
     connection.execute(
         """
         UPDATE domain_runtime_state
@@ -1396,8 +1397,8 @@ def _build_initial_board(
             "defender": {"x": 2, "y": int(rule["grid_height"]) - 1},
         },
         "start_lines": {
-            "attacker": 1,
-            "defender": int(rule["grid_height"]) - 2,
+            "attacker": 0,
+            "defender": int(rule["grid_height"]) - 1,
         },
         "stacks": [],
         "rules": {
@@ -1445,9 +1446,9 @@ def _stack_from_source(source: dict[str, Any], *, side: str, index: int) -> dict
 def _deployment_position(side: str, index: int) -> tuple[int, int]:
     x_order = [0, 1, 3, 4, 2]
     if side == "attacker":
-        y_order = [1, 1, 1, 1, 2]
+        y_order = [0, 0, 0, 0, 1]
     else:
-        y_order = [4, 4, 4, 4, 3]
+        y_order = [5, 5, 5, 5, 4]
     return x_order[index], y_order[index]
 
 
@@ -1456,6 +1457,25 @@ def _deployment_rows(board: dict[str, Any], side: str) -> set[int]:
     if side == "attacker":
         return {start_line, min(int(board["height"]) - 1, start_line + 1)}
     return {start_line, max(0, start_line - 1)}
+
+
+def _normalize_board_start_lines(board: dict[str, Any]) -> dict[str, Any]:
+    height = max(1, int(board.get("height") or 1))
+    hero_cells = board.get("hero_cells")
+    start_lines = board.get("start_lines")
+    if not isinstance(hero_cells, dict):
+        return board
+    normalized = dict(start_lines) if isinstance(start_lines, dict) else {}
+    attacker_cell = hero_cells.get("attacker")
+    defender_cell = hero_cells.get("defender")
+    normalized["attacker"] = (
+        int(attacker_cell.get("y", 0)) if isinstance(attacker_cell, dict) else 0
+    )
+    normalized["defender"] = (
+        int(defender_cell.get("y", height - 1)) if isinstance(defender_cell, dict) else height - 1
+    )
+    board["start_lines"] = normalized
+    return board
 
 
 def _assert_can_deploy_to_cell(board: dict[str, Any], side: str, x: int, y: int) -> None:
@@ -2083,7 +2103,8 @@ def _retreat_node(connection: sqlite3.Connection, domain_id: str) -> str | None:
 
 
 def _state_from_row(row: sqlite3.Row) -> dict[str, Any]:
-    rule = _json_loads(str(row["board_json"]), {}).get("rules", {})
+    board = _normalize_board_start_lines(_json_loads(str(row["board_json"]), {}))
+    rule = board.get("rules", {})
     return {
         "battle_id": row["battle_id"],
         "battle_type": row["battle_type"],
@@ -2100,7 +2121,7 @@ def _state_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "turn_started_at": row["turn_started_at"],
         "timeout_at": row["timeout_at"],
         "timeout_counts": _json_loads(str(row["timeout_counts_json"]), {}),
-        "board": _json_loads(str(row["board_json"]), {}),
+        "board": board,
         "hero_hp": _json_loads(str(row["hero_hp_json"]), {}),
         "deployment": _json_loads(str(row["deployment_json"]), {}),
         "initiative_order": _json_loads(str(row["initiative_json"]), []),

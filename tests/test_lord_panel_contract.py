@@ -693,6 +693,39 @@ class LordPanelContractTests(unittest.TestCase):
             "Здания строятся в главном замке",
         )
 
+    def test_empty_active_army_keeps_current_residence_usable_for_transfer(self) -> None:
+        settings = self._settings("lord_empty_active_army_home")
+        self._import_valid_seed(settings)
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                "DELETE FROM active_army_runtime WHERE domain_id = 'domain_north'"
+            )
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET current_node_id = 'node_res_north'
+                WHERE domain_id = 'domain_north'
+                """
+            )
+        client = TestClient(create_app(settings))
+
+        state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+        )
+
+        self.assertEqual(state.status_code, 200, state.text)
+        payload = state.json()
+        residence = self._territory(payload["territory_views"], "territory_res_north")
+        self.assertTrue(residence["hero_here"])
+        self.assertFalse(residence["active_army_present"])
+        self.assertEqual(residence["active_army_lock_reason"], "")
+        self.assertNotIn(
+            "active_army_not_here",
+            {reason["reason_code"] for reason in residence["lock_reasons"]},
+        )
+
     def test_all_four_lord_panels_can_load_their_own_state(self) -> None:
         settings = self._settings("lord_four_panels")
         self._import_valid_seed(settings)

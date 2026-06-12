@@ -97,6 +97,10 @@ BLOCKING_ROUTE_STATUSES = {
     "awaiting_garrison",
 }
 LORD_MOVE_SECONDS_PER_EDGE = 1
+FRONT_LOCKED_ROUTE_MESSAGE = (
+    "Army is already on a neutral, foreign, or contested front; resolve that front "
+    "or return to controlled territory before moving to another front."
+)
 DEFAULT_ACTIVE_ARMY_STACK_CAPACITY = 5
 BASE_RAID_TOKEN_CAP = 1
 RAID_TOKEN_REFILL_PER_TICK = 1
@@ -407,6 +411,14 @@ def move_lord(
         )
 
     target_node_id = route[-1]
+    front_lock_reason = _front_locked_movement_reason(
+        connection,
+        str(domain["domain_id"]),
+        current_node_id=current_node_id,
+        target_node_id=target_node_id,
+    )
+    if front_lock_reason is not None:
+        raise LordRuntimeError("front_locked", front_lock_reason)
     if _movement_requires_active_army(connection, str(domain["domain_id"]), target_node_id):
         if not _active_army_at_node(connection, str(domain["domain_id"]), current_node_id):
             raise LordRuntimeError(
@@ -552,6 +564,12 @@ def preview_lord_route(
     cost = _route_cost(connection, route)
     target_node_id = route[-1]
     arrival_at = _iso(datetime.now(UTC) + timedelta(seconds=_movement_duration_seconds(route)))
+    front_lock_reason = _front_locked_movement_reason(
+        connection,
+        domain_id,
+        current_node_id=current_node_id,
+        target_node_id=target_node_id,
+    )
     requires_active_army = _movement_requires_active_army(connection, domain_id, target_node_id)
     active_army_ready = (
         not requires_active_army
@@ -570,12 +588,15 @@ def preview_lord_route(
     if not active_army_ready:
         reason_code = "missing_active_army"
         reason = "Contesting or capturing territory requires an active army at the moving node."
+    if front_lock_reason is not None:
+        reason_code = "front_locked"
+        reason = front_lock_reason
 
     return {
-        "status": "blocked" if reason_code in {"insufficient_mp", "missing_active_army"} else (
+        "status": "blocked" if reason_code in {"insufficient_mp", "missing_active_army", "front_locked"} else (
             "stopped" if stopped else "ready"
         ),
-        "can_move": affordable and active_army_ready,
+        "can_move": affordable and active_army_ready and front_lock_reason is None,
         "domain_id": domain_id,
         "lord_id": lord_id,
         "from_node_id": current_node_id,
@@ -2968,6 +2989,20 @@ def _node_blocks_route(
     if _optional(node["contested_by_domain_id"]) is not None:
         return True
     return str(node["status"]) in BLOCKING_ROUTE_STATUSES
+
+
+def _front_locked_movement_reason(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    *,
+    current_node_id: str,
+    target_node_id: str,
+) -> str | None:
+    if not _node_blocks_route(connection, domain_id, current_node_id):
+        return None
+    if not _node_blocks_route(connection, domain_id, target_node_id):
+        return None
+    return FRONT_LOCKED_ROUTE_MESSAGE
 
 
 def _route_cost(connection: sqlite3.Connection, route: list[str]) -> int:
