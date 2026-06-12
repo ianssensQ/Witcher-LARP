@@ -5,12 +5,14 @@ final class EventQueueStore {
 
     private let fileManager = FileManager.default
     private let queueURL: URL
+    private let sequenceURL: URL
 
     private init() {
         let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let folder = documents.appendingPathComponent("WitcherLARP", isDirectory: true)
         try? fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
         queueURL = folder.appendingPathComponent("event_queue.json")
+        sequenceURL = folder.appendingPathComponent("client_sequence.json")
     }
 
     func loadEvents() -> [QueuedEvent] {
@@ -22,6 +24,28 @@ final class EventQueueStore {
         var events = loadEvents()
         events.append(event)
         save(events)
+    }
+
+    func replaceEvents(_ events: [QueuedEvent]) {
+        save(events)
+    }
+
+    func clear() {
+        try? fileManager.removeItem(at: queueURL)
+        try? fileManager.removeItem(at: sequenceURL)
+    }
+
+    func makeEvent(
+        playerId: String,
+        eventType: String,
+        payload: [String: JSONValue]
+    ) -> QueuedEvent {
+        QueuedEvent(
+            playerId: playerId,
+            clientSequence: nextClientSequence(),
+            eventType: eventType,
+            payload: payload
+        )
     }
 
     func applySyncResults(_ results: [SyncEventResult]) {
@@ -37,6 +61,22 @@ final class EventQueueStore {
         let data = try? JSONEncoder().encode(events)
         try? data?.write(to: queueURL, options: [.atomic])
     }
+
+    private func nextClientSequence() -> Int {
+        let current: Int
+        if
+            let data = try? Data(contentsOf: sequenceURL),
+            let saved = try? JSONDecoder().decode(Int.self, from: data)
+        {
+            current = saved
+        } else {
+            current = 0
+        }
+        let next = current + 1
+        let data = try? JSONEncoder().encode(next)
+        try? data?.write(to: sequenceURL, options: [.atomic])
+        return next
+    }
 }
 
 struct QueuedEvent: Codable, Identifiable, Equatable {
@@ -45,15 +85,15 @@ struct QueuedEvent: Codable, Identifiable, Equatable {
     let clientSequence: Int
     let createdAt: Date
     let eventType: String
-    let payload: [String: String]
+    let payload: [String: JSONValue]
 
     init(
         id: UUID = UUID(),
         playerId: String,
-        clientSequence: Int = Int(Date().timeIntervalSince1970),
+        clientSequence: Int,
         createdAt: Date = Date(),
         eventType: String,
-        payload: [String: String]
+        payload: [String: JSONValue]
     ) {
         self.id = id
         self.playerId = playerId

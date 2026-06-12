@@ -30,12 +30,35 @@ final class LocalStore {
         save(url.absoluteString, as: "server_url.json")
     }
 
+    func loadPlayerCode() -> String? {
+        load("player_code.json")
+    }
+
+    func savePlayerCode(_ code: String) {
+        save(code, as: "player_code.json")
+    }
+
     func loadSnapshot() -> PlayerSnapshot? {
         load("snapshot.json")
     }
 
     func saveSnapshot(_ snapshot: PlayerSnapshot) {
         save(snapshot, as: "snapshot.json")
+    }
+
+    func clearPlayerSession() {
+        remove("player_code.json")
+        remove("snapshot.json")
+        remove("unlocked_act_ids.json")
+    }
+
+    func loadUnlockedActIds() -> Set<String> {
+        let saved: [String]? = load("unlocked_act_ids.json")
+        return Set(saved ?? [])
+    }
+
+    func saveUnlockedActIds(_ actIds: Set<String>) {
+        save(actIds.sorted(), as: "unlocked_act_ids.json")
     }
 
     private func load<T: Decodable>(_ fileName: String) -> T? {
@@ -48,5 +71,10 @@ final class LocalStore {
         let url = baseDirectory.appendingPathComponent(fileName)
         let data = try? JSONEncoder().encode(value)
         try? data?.write(to: url, options: [.atomic])
+    }
+
+    private func remove(_ fileName: String) {
+        let url = baseDirectory.appendingPathComponent(fileName)
+        try? fileManager.removeItem(at: url)
     }
 }

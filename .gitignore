@@ -8,6 +8,7 @@ node_modules/
 dist/
 .tmp/
 ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
 ios/*.xcworkspace/xcuserdata/
 ios/DerivedData/
 ios/build/
