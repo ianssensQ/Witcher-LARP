@@ -37,16 +37,41 @@ instead of a manually created virtual environment.
 FastAPI/SQLite процесс на мастерском ноутбуке, запущенный на `0.0.0.0:8002`.
 Он одновременно раздает Admin Studio, игру лордов и API над одной базой:
 
-- Admin Studio: `http://192.168.0.103:8002/admin`;
-- вход лордов: `http://192.168.0.103:8002/lords/login`;
-- игровые экраны лордов: `http://192.168.0.103:8002/lords/...`;
-- API: `http://192.168.0.103:8002/api/...`.
+- Admin Studio: `http://192.168.0.150:8002/admin`;
+- вход лордов: `http://192.168.0.150:8002/lords/login`;
+- игровые экраны лордов: `http://192.168.0.150:8002/lords/...`;
+- API: `http://192.168.0.150:8002/api/...`.
 
 Если локальный IP мастерского ноутбука изменился, заменяй только host
-`192.168.0.103` на новый LAN IPv4, но сохраняй port `8002` и единый сервер.
+`192.168.0.150` на новый LAN IPv4, но сохраняй port `8002` и единый сервер.
 Dev/Vite ports such as `5174`, `5178` or similar are not production servers and
 must not be used for master/lord gameplay unless the user explicitly asks for
 visual frontend development.
+
+## Windows server restart safety
+
+When restarting the production FastAPI server from Codex on Windows, avoid
+inline launch experiments that can leave the tool call looking hung.
+
+- Do not run long-lived server commands in the foreground from a Codex shell
+  (`uv run python -m backend.witcher_larp`, `uvicorn ...`, etc.) unless the user
+  explicitly asks for an attached server session. Use a bounded launch helper
+  and return control to the user quickly.
+- Do not use `cmd.exe /c start /B ...` for backend launches from Codex tools.
+  It can stay attached to the current console and make the command appear to
+  hang even when the child process exists.
+- On Windows, `Start-Process` can fail if the current process environment has
+  both `Path` and `PATH`. Before using `Start-Process`, normalize the process
+  environment with `[System.Environment]::SetEnvironmentVariable('PATH',$null,'Process')`
+  and keep only `Path`. Do not use `Get-ChildItem Env:` after seeing the
+  duplicate-key failure; it can throw the same exception.
+- A server restart attempt must have a short verification window: wait no more
+  than 10-15 seconds, then verify the exact listener with `Get-NetTCPConnection`
+  and `/health`. If no listener appears, stop only the PIDs created by that
+  attempt, capture the log or error, and report the blocker. Do not keep trying
+  new launch variants in the same turn.
+- If a reusable safe restart script does not exist yet, prefer adding one to
+  the repo before doing more manual Windows process-control experiments.
 
 ## Frontend UX/UI Screen Work
 

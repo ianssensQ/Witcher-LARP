@@ -80,7 +80,7 @@ Production profile для всех этапов: 15 человек всего, 1
 - PvP refusal/safety table: active scene/deferred, unsafe route/force majeure, safety stop, valid-ignore review and overload throttle behavior;
 - чародейки: PvE/PvP, hourly mana regen, wholesale/resale potion market, зелья, заклинания, primary/secondary фавориты, `sorceress_alignment`, locked magical intent;
 - favorites lifecycle: consent, 1 primary + 1 secondary, max 2 sorceresses per favored player, 1 change per act, no passive runtime bonus;
-- репутация Добро/Зло с диапазоном -5..+5, стартом 0 и thresholds Тьма/Запятнанный/Нейтральный/Добро/Свет, NPC Король/Свет, Странник/Тьма-Дьявол, NPC deal capture;
+- репутация Добро/Зло с диапазоном -12..+12, стартом 0 и thresholds Тьма/Запятнанный/Нейтральный/Добро/Свет, NPC Король/Свет, Странник/Тьма-Дьявол, NPC deal capture;
 - NPC-led final tournament summary runtime: evidence по ролям, missing locks, pending disputes, NPC prices, locked magical intent, personal hooks, final lock and export snapshot без автоматического объявления победителей.
 - 7:30-9:30 master-led Final Act runbook with NPC-led tournament, review severity P0/P1/P2/P3 and game-day ops checklist hooks.
 
@@ -368,7 +368,7 @@ Gate: `TASK-032`.
 
 Что входит:
 
-- 40+ QR/PvE-сцен: минимум 15 always-available/repeatable сцен и 25+ unique objects;
+- 72 QR/PvE-сцены: 24 always-available/repeatable сцены и 48 unique objects;
 - из них минимум 15 always-available/repeatable сцен и 25+ уникальных объектов;
 - content matrix: Act 1 = 12 слотов, Act 2 = 14, Act 3 = 14;
 - balanced mix: монстры, расследования, моральные выборы, задачки, артефакты, заказы;
@@ -398,9 +398,9 @@ Gate: `TASK-032`.
 
 Чем подтверждаем:
 
-- минимум 40 QR/PvE entries;
-- coverage report подтверждает минимум 15 always-available/repeatable сцен и 25+ unique objects;
-- coverage report подтверждает Act 1/2/3 = 12/14/14 slots and per-act scene hooks;
+- 72 QR/PvE entries;
+- coverage report подтверждает 24 always-available/repeatable сцены и 48 unique objects;
+- coverage report подтверждает Act 1/2/3/Final = 20/22/22/8 slots and per-act scene hooks;
 - каждый QR имеет act, location, tier, scene type, QR mode, reward budget, success/failure text и sync outcome;
 - каждый QR имеет check policy `single_d20`, modifier sources и physical-presence honesty policy;
 - каждый QR имеет act unlock policy, reward approval policy and ops checklist tag, если это физический prop;
@@ -476,7 +476,7 @@ Gate: `TASK-037`.
 - custom Gwent decks имеют читаемую row/special/leader distribution and no single card family creates a dominant or overlong match pattern;
 - PvP throttle normal/limited/paused, 2 pvp tables, queued challenges and per-act match cap do not create deadlocks;
 - trade_transfers не создают double ownership, lost assets или конфликтные locks;
-- 15 always-available/repeatable сцен и 25+ unique objects не создают idle risk для 9 мобильных ролей;
+- 24 always-available/repeatable сцены и 48 unique objects не создают idle risk для 12 QR-активных игроков;
 - offline act unlock and pending reward approval do not create idle risk or cascade exploits;
 - лордам интересно двигаться по карте, атаковать, защищаться, перебрасывать войска в тематические форты и обратно, гарнизонить, строиться, рейдить, нанимать войска и создавать заказы;
 - movement по карте участка остается играбельным для лордов без GPS/интернета/QR: illustrated map, route costs, physical route assumptions and paper fallback agree with runtime map data;

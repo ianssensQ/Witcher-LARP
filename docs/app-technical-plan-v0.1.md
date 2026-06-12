@@ -37,13 +37,14 @@ Production profile текущей игры: 15 человек всего = 13 и
 
 - fixed schedule: 0:00-0:30 registration/snapshot, 0:30-2:15 Act 1, 2:15-2:30 buffer, 2:30-4:45 Act 2, 4:45-5:00 buffer, 5:00-7:15 Act 3, 7:15-7:30 final lock, 7:30-9:30 Final Act, 9:30-10:00 debrief/export/emergency buffer;
 - offline act unlock: телефоны открывают новый акт через sync в доме или мастерский `act_unlock_code`/QR, раскрываемый только после старта акта и физического объявления акта голосом/криком на участке;
-- QR/manual ID имеет жесткое правило честности: запуск сцены разрешен только при физическом присутствии у prop/локации;
-- PvE checks используют `single_d20`: одна проверка = один app-generated d20, а преимущества/помехи/зелья/магия/предметы считаются как системные modifiers с логом;
+- QR/manual ID является слотом общей доски заказов: код не указывает физический prop/локацию, а спорные запуски и угадывание manual ID уходят в master review;
+- PvE checks используют серию проверок: каждый шаг = один app-generated `single_d20`, а преимущества/помехи/зелья/магия/предметы считаются как системные modifiers с логом; базовая победа = минимум 2 успеха из 3;
+- каждый PvE choice имеет hidden `choice_morality_json`: `good_evil_delta` применяется к шкале Добро/Зло только server/master-side и не попадает в player-facing QR payload или mobile snapshot;
 - NPC-мастера работают roleplay first; admin-review закрывается в буферах, кроме P0/P1 блокеров;
 - P0/P1 означают срочность review: P0 - остановить и решить сейчас, P1 - решить до следующего акта или финала;
 - `personal_goals`, `goal_tracks`, `goal_flags`, `final_hooks`: игрок видит известные цели и прогресс, мастер видит hidden flags;
-- QR modes: `unique_object`, `repeatable_scene`, `always_available_scene`; full pack 40+ QR/PvE, минимум 15 repeatable/always-available и 25+ unique objects;
-- content matrix V0: Act 1 = 12 слотов, Act 2 = 14, Act 3 = 14; каждый акт покрывает monster hunt, investigation, moral choice, puzzle/check, order object, artifact/rare card, sorceress magic hook и lord strategic hook;
+- QR modes: `unique_object`, `repeatable_scene`, `always_available_scene`; full pack V1 = 72 QR/PvE, 24 repeatable/always-available и 48 story quests; `unique_object` означает runtime consume-once/story slot, а не физический объект;
+- content matrix V1: Act 1 = 20 слотов, Act 2 = 22, Act 3 = 22, Final Act = 8; сцены ограничены Witcher-style monster hunt/combat, puzzle/ritual check и moral choice;
 - V0 balance defaults: XP thresholds `0,10,25,45,70,100,135,175,220,270`, PvE DC T1/T2/T3/T4 = `10-12/13-15/16-18/19-21`, rewards T1/T2/T3/T4 = `10g/20g/35g/55g` и `3-5/6-9/10-14/15-20XP`;
 - failure cooldown 30 минут на конкретный QR для конкретного игрока;
 - cascade-prone offline rewards получают `pending_master_approval` и не могут быть потрачены/переданы/засчитаны в финал до мастерского подтверждения;
@@ -55,17 +56,17 @@ Production profile текущей игры: 15 человек всего = 13 и
 - venue map v1: 4 резиденции/замка лордов находятся в центральном активном доме и являются raid-only зонами; центральный дом не является capturable territory, а optional route waypoints у дома/дорожек могут существовать только как технические узлы строгой схемы участка без владельца/гарнизона/дохода/боя; старый дом и соседний сарай исключены из игры; лордский weighted graph использует 19 capturable territories: беседки-крепости, поля, деревни-сараи, колодец-город ресурсодобычи, испанский уголок-город магии, двухэтажный сарай-город науки, леса, озера, болото и горы;
 - territory forts v1: каждая игровая территория, включая резиденцию, имеет тематический форт с одной original/local/generated картинкой/карточкой; `garrison_capacity` считает слоты пачек, а не количество солдат внутри стека, V1 default диапазон = `5..8`; transfer active army <-> fort разрешен, если активная армия находится на своей не-contested территории;
 - visual direction v1: `TASK-067` фиксирует IP-safe лордскую поверхность `/lords/home` как главный экран замка/выбранной территории, максимально близкий к принятому Heroes-like референсу: full-screen background, thin top resource strip, left circular action dock, bottom-left minimap, bottom-center active-army/garrison/recruit lanes, bottom-right act plaque and MP semicircle. Захваченные территории используют тот же UI с другим фоном, локальным доходом, гарнизоном, накопительным наймом и минимальным деревом построек; если герой-армия не в выбранной локации, верхняя линия армии пустая и locked. Отдельно остается большая Olden Era-like illustrated fantasy strategy map для лордского `venue_map_v1`: панорамируемая painted fantasy-over-real карта по строгой адаптированной схеме участка, полностью видимый граф дорог/территорий, скрытые детали чужих армий/гарнизонов, bottom-left minimap, right hero/action rail, bottom army strip, tactical popups, click target -> shortest route preview -> confirm -> fast horse animation -> server-authoritative arrival. Также отдельно остаются thematic territory forts/cards, Witcher 3 Gwent-like table grammar для личного PvP ведьмаков/чародеек и visually distinct 5x6 lord battle board; это layout/interaction references only, все production assets должны быть original/local/generated, без копирования официальных артов, логотипов, скриншотов или gallery images;
-- map tech rule: иллюстрированная карта участка является UI-слоем поверх `map_nodes`/`map_edges`, `territories`, `territory_forts`, `movement_pools`, `pending_lord_moves`, `lord_map_intel` and route costs для лордского графа перемещения героев/армий; V1 MP defaults = cap `6`, refill `+3/hour`; лорды видят весь граф, но чужие army/garrison details редактируются по intel visibility; лорды не используют QR, GPS или интернет-зависимый tracking, а QR/manual physical-presence confirmation относится к ведьмакам и чародейкам на локациях и не требует online-карты;
+- map tech rule: иллюстрированная карта участка является UI-слоем поверх `map_nodes`/`map_edges`, `territories`, `territory_forts`, `movement_pools`, `pending_lord_moves`, `lord_map_intel` and route costs для лордского графа перемещения героев/армий; V1 MP defaults = cap `6`, refill `+3/hour`; лорды видят весь граф, но чужие army/garrison details редактируются по intel visibility; лорды не используют QR, GPS или интернет-зависимый tracking, а QR/manual board-slot confirmation относится к ведьмакам и чародейкам на общей доске заказов и не требует online-карты;
 - lord map implementation order: текущая реализация ведется через React/Vite lord frontend; backend layout contract хранится в `data/seed/lord_map_layout.json`, а удаленный FastAPI-static lord UI больше не является рабочим направлением;
 - deterministic lord battle 5x6: `attack`, `defense`, `hp`, `initiative`, `move_range`, `attack_range`, `tier`, `unit_class`, damage `count_alive * max(1, attack - defense + modifiers)`, 60s turn timer, auto-resolve;
 - lord battle appendix: V1 фиксирует `unit_power`, `deployed_army_power`, `domain_army_power`, partial stack wounds, deployment caps, line of sight, hero targeting, neutral AI priority and auto-resolve score;
-- lord defaults: старт `80g`, base income `25g/hour`, territory income T1/T2/T3 = `8/14/22g`, building cost T1/T2/T3/T4 = `40/75/120/180g`, lord HP `clamp(30 + floor(deployed_army_power / 10), 35, 70)`, anti-snowball `>=130%/-30%` и `>=170%/-50%`;
+- lord defaults: старт `80g`, base income `0g/hour`, territory income T1/T2/T3 = `8/15/24g`, building cost T1/T2/T3/T4 = `40/75/120/180g`, lord HP `clamp(30 + floor(deployed_army_power / 10), 35, 70)`, anti-snowball `>=130%/-30%` и `>=170%/-50%`;
 - favorites lifecycle: consent, max 1 primary + 1 secondary per sorceress, max 2 sorceresses per favored player, change 1 per act, no passive runtime bonus by default;
 - sorceress alignment: стартовая связь с лордом не запрещает интригу, двойную игру, нового патрона или открытое предательство; финал считает evidence фактической лояльности;
 - mana defaults: maximum mana `6 + level`, hourly regen `2 + floor(level/3) + bonuses`, spell cost T1/T2/T3/T4 = `1/2/3/4`;
 - spell/potion V0 catalog: T1-T4 spell roles для hint/boost/reveal/ward/curse/ritual, potion wholesale `8g/18g/40g`, resale bands `12-15g/25-30g/55-70g`, стартовое золото ведьмаков `20g`, чародеек `30g`, max 1 potion per scene by default;
 - rarity model: `Common/Uncommon/Rare/Legendary`, rare Gwent cards 6 всего и максимум 2 на акт, artifacts 8 всего, legendary artifacts 2 всего не раньше Act 2, plot/strategic keys 6 всего;
-- reputation thresholds: `-5..-4` Тьма, `-3..-2` Запятнанный, `-1..+1` Нейтральный, `+2..+3` Добро, `+4..+5` Свет;
+- reputation thresholds: `-12..-9` Тьма, `-8..-4` Запятнанный, `-3..+3` Нейтральный, `+4..+8` Добро, `+9..+12` Свет; PvE choice deltas are usually `-1/0/+1`, strong moral deltas are `-2/+2`, larger NPC shifts require review;
 - финал содержит NPC-led турнир: система готовит `final_summary`, missing evidence, locks, NPC prices, locked magical intent, personal hooks и export, но сетку, веса evidence, спорные трактовки, победителей и объявления решают NPC-мастера;
 - Final Act идет как master-led процедура 7:30-9:30: final lock, NPC-led турнир с 1-3 выбранными сценами/станциями, P0/P1 review, master ruling, личные эпилоги и export snapshot;
 - immediate paper fallback: если конкретное критичное действие нельзя провести в приложении/сети, мастер сразу фиксирует его на бумаге и после восстановления вносит как `source=paper_recovered`; если падает Wi-Fi или сервер, лорды продолжают играть на бумаге с ведьмаками через листы владения, армии, заказов, рейдов и боев.
@@ -117,9 +118,9 @@ Production profile текущей игры: 15 человек всего = 13 и
 - локальное сохранение состояния в `user://`;
 - отображение известных personal_goals, goal_tracks, описательной репутации и скрытых от игрока final hooks только после раскрытия;
 - сканирование QR или ручной ввод QR-ID;
-- подтверждение physical-presence-only перед запуском QR/manual ID;
+- подтверждение честного запуска QR/manual ID с общей доски заказов;
 - ввод мастерского act unlock code/QR для открытия следующего акта вне Wi-Fi;
-- PvE-бои с QR modes `unique_object`, `repeatable_scene`, `always_available_scene`;
+- PvE-сцены с QR modes `unique_object`, `repeatable_scene`, `always_available_scene`;
 - отображение locked/pending статуса для наград, которым нужен master approval;
 - раздельные разделы мобильного имущества: инвентарь/экипировка
   (оружие, защита, активное снаряжение), сумка (предметы, зелья, артефакты,
@@ -152,13 +153,13 @@ URL/IP подключения является скрытой мастерско
 `0.0.0.0:8002`, который одновременно раздает Admin Studio, лордские экраны и
 API над одной базой. Для текущей локальной сети адреса такие:
 
-- Admin Studio мастера: `http://192.168.0.103:8002/admin`;
-- вход лордов: `http://192.168.0.103:8002/lords/login`;
-- игровые экраны лордов: `http://192.168.0.103:8002/lords/...`;
-- API: `http://192.168.0.103:8002/api/...`.
+- Admin Studio мастера: `http://192.168.0.150:8002/admin`;
+- вход лордов: `http://192.168.0.150:8002/lords/login`;
+- игровые экраны лордов: `http://192.168.0.150:8002/lords/...`;
+- API: `http://192.168.0.150:8002/api/...`.
 
 Если IPv4 мастерского ноутбука изменился, меняется только host
-`192.168.0.103`; порт `8002` и единый сервер остаются production path.
+`192.168.0.150`; порт `8002` и единый сервер остаются production path.
 Dev/Vite-порты вроде `5174`, `5178` и похожих не являются
 продакшен-серверами и не должны использоваться для мастерской/лордской игры.
 
@@ -297,7 +298,7 @@ recovery, но не считается заменой отсутствующег
 - После успешной синхронизации клиент оставляет событие в локальном логе до конца игры.
 - Если сервер недоступен, клиент продолжает игру и повторяет синхронизацию позже.
 
-QR-конфликты по уникальным PvE в базовой модели не должны возникать: если игрок победил моба, он забирает физический QR с локации; если проиграл, оставляет QR на месте и получает личный cooldown 30 минут.
+QR-конфликты по уникальным PvE решаются runtime-состоянием, а не физическим снятием бумажки: если игрок победил сцену, story slot закрывается по правилам `consume_once`; если проиграл, получает личный cooldown 30 минут.
 
 ## Боевые системы
 
@@ -389,7 +390,7 @@ PvE combat v1 не использует постоянное здоровье п
 - `personal_goals.csv`, `goal_tracks.csv`, `goal_flags.csv`, `final_hooks.csv` - сюжетные цели, прогресс, hidden flags и финальные связи.
 - `mobs.csv` - монстры, HP, урон, награды, QR-ID, сценарий.
 - `pve_scenarios.csv` - шаги PvE-сцен, проверки, тексты, переходы.
-- `qr_objects.csv` - QR-ID, `qr_mode`, act availability, linked scenario/object, cooldown.
+- `qr_objects.csv` - QR-ID, `qr_mode`, act availability, linked scenario/story slot, cooldown.
 - `act_unlock_codes.csv` - offline unlock codes/QR для Act 2, Act 3 и Final Act.
 - `physical_announcements.csv` или runbook manifest - кто и как объявляет старт каждого акта в физическом мире.
 - `reward_approval_rules.csv` - `auto_approve_safe` и `master_approval_required` для offline rewards.
@@ -398,11 +399,11 @@ PvE combat v1 не использует постоянное здоровье п
 - `gwent_cards.csv`, `gwent_decks.csv`, `gwent_matches.csv` - full Gwent карты, колоды, матчевые fixtures.
 - `pvp_tables.csv`, `pvp_throttle_rules.csv` - столы, очереди, throttle modes and final lock behavior.
 - `army_unit_cards.csv` - карты-отряды лордов с параметрами 5x6.
-- `territories.csv`, `territory_forts.csv`, `map_nodes.csv`, `map_edges.csv`, `movement_rules.csv` - территории, тематические форты/гарнизонные stack-slot capacity, граф, доходы, защита, владелец.
+- `territories.csv`, `territory_bonuses.csv`, `territory_forts.csv`, `map_nodes.csv`, `map_edges.csv`, `movement_rules.csv` - территории, индивидуальные стратегические баффы, тематические форты/гарнизонные stack-slot capacity, граф, доходы, защита, владелец.
 - `orders.csv` - шаблоны заказов, escrow, order caps и object conflict.
 - `trade_transfers.csv` - online-only transfer rules, pending locks and audit.
 - `favorite_rules.csv` - consent, caps, change limits and final trace.
-- `reputation_rules.csv` - range -5..+5, start 0, thresholds and visibility.
+- `reputation_rules.csv` - range -12..+12, start 0, thresholds and visibility.
 - `final_summary.csv` или runtime view, `final_master_notes.csv`, `final_procedures.csv` - финальные evidence inputs, missing locks, master notes and export fields.
 - `ops_checklists.csv` или runbook manifest - game-day ops checklist.
 - `player_handouts.csv` или runbook manifest - общие правила, single-d20, QR honesty policy, памятки ролей, PvP/refusal и NPC scene book.
@@ -511,7 +512,7 @@ Sideloadly или аналогичные инструменты можно де�
 
 ### Platform/network spike и текущие launch risks
 
-Дата последней локальной проверки продакшен-сервера: 2026-06-10. Локальная
+Дата последней локальной проверки продакшен-сервера: 2026-06-12. Локальная
 backend-часть готова для smoke-проверок на одном сервере `8002`: Admin Studio
 и лордские экраны подключены к одной FastAPI/SQLite базе. Для Stage 1 реальные
 телефоны, Mac/Xcode и Wi-Fi площадки могли оставаться launch-risk, но Stage 2B
@@ -523,7 +524,7 @@ Android/iOS install-launch-auto-connect-code-login-snapshot-restart-sync дол�
 
 - `uv 0.11.14`;
 - Python через `uv`: `3.12.10`;
-- текущий IPv4 мастерского ноутбука в локальной сети: `192.168.0.103`;
+- текущий IPv4 мастерского ноутбука в локальной сети: `192.168.0.150`;
 - production port сервера: `8002`;
 - canonical command path:
 
@@ -539,13 +540,13 @@ Health URLs для smoke:
 
 - мастерский ноутбук: `http://127.0.0.1:8002/health`;
 - телефоны и лордские ноутбуки в той же Wi-Fi-сети:
-  `http://192.168.0.103:8002/health` для текущего IP; на репетиции IP
+  `http://192.168.0.150:8002/health` для текущего IP; на репетиции IP
   нужно заменить на фактический адрес game-day ноутбука.
 
 Gameplay URLs для smoke:
 
-- мастер: `http://192.168.0.103:8002/admin`;
-- лорды: `http://192.168.0.103:8002/lords/login`;
+- мастер: `http://192.168.0.150:8002/admin`;
+- лорды: `http://192.168.0.150:8002/lords/login`;
 - проверка, что админка и лорды связаны: действие мастера в Admin Studio должно
   отражаться в лордском экране, потому что оба идут через тот же `8002` и ту же
   SQLite базу.
@@ -668,8 +669,8 @@ Core Game Engine должен закрыть:
 - FastAPI/SQLite scaffold, health endpoint, event log, backup hooks and restart recovery;
 - runtime CSV/schema/import/snapshot pipeline;
 - player codes, role tokens, Godot mobile shell, local storage, event_queue and sync status;
-- QR/manual ID flow с opaque IDs, physical-presence honesty policy, rate limit and review path;
-- offline PvE engine: app-generated `single_d20`, temporary `scene_hp`, tier defaults, 30-minute failure cooldown, reward approval locks and order/object outcomes;
+- QR/manual ID flow с opaque IDs, board-slot honesty policy, rate limit and review path;
+- offline PvE engine: app-generated d20-серия, temporary `scene_hp`, tier defaults, 30-minute failure cooldown, reward approval locks and story outcomes;
 - personal goals, goal_tracks, hidden goal_flags and final_hooks visibility;
 - online-only trade_transfers with two confirmations, pending asset locks and atomic owner change;
 - lord runtime panel shell, `/lords/home` castle/selected-territory UI, weighted map, MP, territories, thematic forts with active army <-> fort transfer, garrisons, accumulated recruit stock UI, named Olden Era-like residence building tree plus minimal territory trees, orders status machine, raids and anti-snowball;

@@ -141,7 +141,7 @@ Test Steps:
 - On Mac: generate/open Xcode project, build native iOS app and install on a real iPhone through Xcode/free provisioning, TestFlight or chosen path
 - iPhone UX smoke: launch app and verify the player-facing first screen is code login with connection/offline badge, not manual server URL entry
 - iPhone smoke: login WC-WOLF-6GF4, load snapshot, restart and verify persistence
-- Run QR-A1-K7Q2 camera/manual PvE success, QR honesty negative and future-act blocked state from UI
+- Run QR-A1-TRV-001-K7Q2 camera/manual PvE success, QR honesty negative and future-act blocked state from UI
 - Create offline pve_completed event, restart app, sync queue and verify accepted/pending/review states
 - Run QR/manual location smoke with physical-presence confirmation and verify the flow does not require an online map
 - Run order accept/submit and trade transfer accept/decline UI smoke in online zone
@@ -634,7 +634,7 @@ Interfaces: The generator remains inside Admin Studio and uses the existing impo
 Failure/review paths: Stage 3 blocks if generated content needs manual DB edits or a separate importer.
 Required tests: Browser/API generated pack smoke, sample PvE flow and TaskOS validate/sync/doctor.
 
-### TASK-029 - Сгенерировать 40+ QR/PvE-сцен
+### TASK-029 - Сгенерировать 72 QR/PvE-сцены
 
 - Status: `pending`
 - Priority: `P1`
@@ -646,11 +646,11 @@ Required tests: Browser/API generated pack smoke, sample PvE flow and TaskOS val
 
 Goal:
 
-Использовать Stage 3 generator для первичного набора 40+ самостоятельных QR/PvE сцен на 10 часов.
+Использовать Stage 3 generator для первичного набора 72 самостоятельных QR/PvE сцен на 10 часов.
 
 Scope:
-- 40+ QR/PvE entries for 10-hour 15-person profile
-- Target mix: minimum 15 repeatable_scene/always_available_scene entries and 25+ unique_object entries
+- 72 QR/PvE entries for 10-hour game and 12 QR-active players
+- Target mix: 24 repeatable_scene/always_available_scene entries and 48 unique_object entries
 - Balanced mix: always-available ordinary QR, monsters, investigations, moral choices, puzzles, artifacts, orders, rare cards, plot keys and strategic items
 - Tiers 1-4 by acts
 - Stat distribution across 5 stats
@@ -663,18 +663,18 @@ Scope:
 - PvE failure text with 30-minute cooldown clarity
 
 Acceptance:
-- Есть минимум 40 generated quest drafts
+- Есть 72 generated quest drafts
 - Каждый draft имеет act, location, tier, scene_type, hook, reward_budget, QR mode, check_policy single_d20, modifier sources, honesty policy and success/failure text with 30-minute cooldown clarity
 - Coverage report не показывает пустые tiers/roles/major scene types
-- Pack includes at least 15 repeatable_scene/always_available_scene QR scenes and 25+ unique_object entries
+- Pack includes 24 repeatable_scene/always_available_scene QR scenes and 48 unique_object entries
 - Pack includes personal goal hooks, hidden goal_flags, final_hooks and role-load tags for Stage 5
 - Pack contains enough always-available ordinary QR quests to prevent idle players
 - Coverage explicitly checks idle risk for 5 witchers + 4 hybrid field sorceresses
 
 Test Steps:
 - Generate full draft pack
-- Check content mix: count>=40, repeatable_scene+always_available_scene>=15, unique_object>=25, 9 mobile role idle coverage
-- Проверить coverage report: count>=40, tiers 1-4, scene mix, stat mix, always-available QR count
+- Check content mix: count=72, repeatable_scene+always_available_scene=24, unique_object=48, 12 QR-active player idle coverage
+- Проверить coverage report: count=72, tiers 1-4, scene mix, stat mix, always-available QR count
 - Проверить QR modes, locations, personal goal hooks, goal_flags and final_hooks
 - Проверить single_d20 policy, no reroll effects and physical-presence honesty policy
 - uv run python scripts\taskctl.py validate
@@ -683,9 +683,9 @@ Notes:
 
 Contract:
 Inputs: Accepted generator, content matrix, production profile and role-load goals.
-Outputs: 40+ generated QR/PvE drafts with coverage report.
+Outputs: 72 generated QR/PvE drafts with coverage report.
 Implementation path: Generate drafts through Admin generator; do not hand-create runtime DB state.
-Interfaces: Output artifact is generator draft set plus compiler report; must target minimum 15 repeatable/always_available and 25 unique_object entries across Act 1/2/3 = 12/14/14.
+Interfaces: Output artifact is generator draft set plus compiler report; must target 24 repeatable/always_available and 48 unique_object entries across Act 1/2/3/Final = 20/22/22/8.
 Failure/review paths: Coverage gaps block this task; weak prose is allowed here only if marked for TASK-030 manual polish.
 Required tests: Generator coverage report for acts, tiers, stats, scene types, role_load_tags, reward budgets, QR modes and idle-risk.
 
@@ -717,7 +717,7 @@ Acceptance:
 - Последствия явно связаны с reward/reputation/order/artifact/final
 
 Test Steps:
-- Manual review checklist for all 40+ quests
+- Manual review checklist for all 72 quests
 - Spot-playtest минимум 8 сцен разных типов
 - Проверить success/failure clarity
 - uv run python scripts\taskctl.py validate
@@ -748,7 +748,7 @@ Goal:
 
 Scope:
 - Production profile content: 4 lords, 4 sorceresses, 5 witchers, 2 NPC masters
-- QR mix lock: minimum 15 repeatable_scene/always_available_scene entries and 25+ unique_object entries
+- QR mix lock: 24 repeatable_scene/always_available_scene entries and 48 unique_object entries
 - Personal goal hooks, goal_flags, final_hooks and role-load tags aligned with quests
 - Act unlock policy, reward approval policy, final score category, PvP throttle tags and ops checklist tags aligned with quests/props
 - Physical act announcement runbook aligned with Act 1/2/3/Final Act unlock flow
@@ -785,7 +785,7 @@ Scope:
 
 Acceptance:
 - Full content pack matches 4/4/5 + 2 NPC production profile
-- QR/PvE content contains at least 15 repeatable_scene/always_available_scene entries and 25+ unique_object entries
+- QR/PvE content contains 24 repeatable_scene/always_available_scene entries and 48 unique_object entries
 - Full content pack contains personal_goals hooks, hidden goal_flags, final_hooks and custom full Gwent card content
 - Custom Gwent card pack covers rows, leaders, weather/special effects, rarity/power budget and original art prompts without copying official Witcher 3 card art or names where rights are unclear
 - Every relevant QR/prop has act unlock policy, reward approval policy and ops checklist tag
@@ -808,14 +808,14 @@ Acceptance:
 - Spell/potion content covers V0 roles, wholesale defaults, resale defaults, max 1 potion per scene default and rare potion caps
 - Final summary content содержит NPC-led final tournament/final_summary fields/load plan, optional final scene hooks, locked magical intent/alignment evidence and personal final hooks
 - QR/manual checklist пригоден setup operator
-- Content pack follows Act 1/2/3 slot matrix 12/14/14 and covers monster hunt, investigation, moral choice, puzzle/check, order object, artifact/rare card, sorceress magic hook and lord strategic hook in each act
+- Content pack follows Act 1/2/3/Final slot matrix 20/22/22/8 and covers monster hunt, investigation, moral choice, puzzle/check, order object, artifact/rare card, sorceress magic hook and lord strategic hook in each act
 - Rarity caps pass: rare Gwent cards 6 total/max 2 per act, artifacts 8 total, legendary artifacts 2 total/not before Act 2, potion caps by tier and plot/strategic keys 6 total
 - Paper fallback forms are ready for QR/PvE result, PvP stake, order resolution, NPC deal and final evidence
 - Player-facing handouts are ready for print and match runtime rules
 
 Test Steps:
 - Run CSV import on full content pack
-- Check production profile 4/4/5 + 2 NPC and QR mix 15+ repeatable_scene/always_available_scene + 25+ unique_object
+- Check production profile 4/4/5 + 2 NPC and QR mix 24 repeatable_scene/always_available_scene + 48 unique_object
 - Проверить personal_goals hooks, goal_flags, final_hooks and custom full Gwent cards
 - Проверить custom Gwent card taxonomy: rows, leader cards, weather/special effects, rarity, deck limits, power budget and original art prompts
 - Проверить building catalog, army unit catalog, territory fort catalog и territory recruit source coverage
@@ -832,7 +832,7 @@ Test Steps:
 - Check NPC split: roleplay-first King/order/admin-review vs Wanderer/deals/field interventions with buffer review
 - Проверить artifact flow find -> owner/master visibility -> reveal/delivery/stake
 - uv run python scripts\taskctl.py validate
-- Check content matrix Act 1/2/3 = 12/14/14 and required per-act scene hooks
+- Check content matrix Act 1/2/3/Final = 20/22/22/8 and required per-act scene hooks
 - Run rarity coverage report for rare cards, artifacts, legendary artifacts, potions and plot/strategic keys
 - Review paper fallback forms/checklist against content actions and final evidence needs
 - Review player-facing handouts and NPC scene book against canonical runtime rules
@@ -863,14 +863,14 @@ Goal:
 
 Scope:
 - Full content import
-- 40+ QR/PvE verification with 15+ always-available/repeatable and 25+ unique objects
+- 72 QR/PvE verification with 24 always-available/repeatable and 48 unique objects
 - Digital orders, object conflict and escrow smoke
 - Order cap, favorites cap and final_summary content smoke
 - Lord building/unit/recruit source smoke
 - Artifacts and visibility smoke
 - NPC/reputation/final summary smoke
 - QR print/setup checklist
-- 40-slot matrix verification: Act 1/2/3 = 12/14/14 with required hooks per act
+- 72-slot matrix verification: Act 1/2/3/Final = 20/22/22/8 with required hooks per act
 - Rarity cap verification for cards, artifacts, potions, plot keys and strategic items
 - Paper fallback forms/readiness smoke
 - Player-facing handouts and NPC scene book readiness smoke
@@ -882,15 +882,15 @@ Scope:
 Acceptance:
 - Stage 4 можно тестировать отдельно от balance simulation
 - Полный контент-пак импортируется без ошибок
-- 40+ QR/PvE entries покрывают tiers, roles, scene mix, stat mix and reward budgets
-- 40+ QR/PvE entries include minimum 15 always-available/repeatable scenes and 25+ unique objects
+- 72 QR/PvE entries покрывают tiers, roles, scene mix, stat mix and reward budgets
+- 72 QR/PvE entries include 24 always-available/repeatable scenes and 48 unique objects
 - Army unit catalog покрывает 6 unit classes, а recruit sources связаны со зданиями/территориями
 - Content smoke подтверждает основные игровые цепочки
 - Content pack содержит unique objects по актам: artifacts, rare cards, gold, plot keys and strategic items
 - Content smoke includes order cap 2 public + 1 addressed per lord and favorite primary/secondary caps
 - Final summary inputs готовы для optional lord final scene, optional witcher final scenes/evidence for 5 witchers, sorceress favorites/alignment evidence and personal finals
 - Final summary inputs include master load plan for two NPC masters
-- Coverage report confirms Act 1/2/3 = 12/14/14 slots and required per-act scene hooks
+- Coverage report confirms Act 1/2/3/Final = 20/22/22/8 slots and required per-act scene hooks
 - Coverage report confirms rarity caps, power budget, visibility and counterplay for Rare/Legendary rewards
 - Critical paper fallback forms exist and are usable by setup/operator
 - Player-facing handouts are printable and match runtime rules
@@ -900,14 +900,14 @@ Acceptance:
 
 Test Steps:
 - Импортировать full content pack
-- Проверить count>=40 and coverage report
+- Проверить count=72 and coverage report
 - Проверить QR mix: always_available_or_repeatable>=15 and unique_objects>=25
 - Проверить building/unit/recruit source coverage report
 - Пройти content smoke: generated PvE -> sync -> order cap/conflict/close -> favorite primary/secondary cap -> lord recruit flavor offer -> artifact/rare card/plot key reveal -> NPC/reputation event -> final_summary hook
 - Проверить QR print/manual checklist, honesty policy and single_d20/no-reroll coverage
 - uv run python scripts\taskctl.py validate
 - uv run python scripts\taskctl.py doctor
-- Check coverage report for 40-slot matrix Act 1/2/3 = 12/14/14 and required hooks
+- Check coverage report for 72-slot matrix Act 1/2/3/Final = 20/22/22/8 and required hooks
 - Check rarity cap report for rare Gwent cards, artifacts, legendary artifacts, potions and plot/strategic keys
 - Smoke paper fallback forms for QR/PvE, PvP stake, lord action, lord battle, order resolution, NPC deal and final evidence
 - Review player-facing handouts, NPC scene book, physical act announcement runbook and NPC-led Final Act tournament load plan
@@ -1011,7 +1011,7 @@ Acceptance:
 Test Steps:
 - Run progression simulations across archetypes
 - Check level-up +1 stat/max 7 in progression report
-- Check 15-person/9-mobile-role role-load idle-risk report against 15+ repeatable_scene/always_available_scene + 25+ unique_object QR mix and non-QR actions
+- Check 12 QR-active player role-load idle-risk report against 24 repeatable_scene/always_available_scene + 48 unique_object QR mix and non-QR actions
 - Проверить level distribution and reward value report
 - Проверить XP source distribution and slowed leveling curve
 - Tune content tables if thresholds fail
@@ -1233,7 +1233,7 @@ Scope:
 Acceptance:
 - Simulation confirms pacing, rewards and role interest
 - Simulation and rehearsal confirm 15-person profile: 4 lords, 4 hybrid sorceresses, 5 witchers and 2 NPC masters
-- 9 mobile role idle risk is acceptable with 15+ repeatable_scene/always_available_scene QR scenes, 25+ unique_object entries and non-QR role actions
+- 12 QR-active player idle risk is acceptable with 24 repeatable_scene/always_available_scene QR scenes, 48 unique_object entries and non-QR role actions
 - Offline act unlock and reward approval locks do not create idle risk or cascade exploits
 - Active player level target 7-9 holds; level 10 remains rare
 - Lord strategy simulation confirms movement, territory control, thematic fort transfer, named building tree, accumulated recruit stock/rates, unit class roster, raid pacing/loot and anti-snowball 30/50 are interesting without runaway snowball
