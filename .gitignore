@@ -65,4 +65,5 @@ data/backups/*
 !data/backups/.gitkeep
 *.db
 *.sqlite3
+docs/ui/screenshots/*/server.log
 .coverage
