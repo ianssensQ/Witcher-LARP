@@ -21,15 +21,16 @@ import {
 } from "lucide-react";
 import lordHomeActionBattleIcon from "../assets/generated/lords-home/actions/action-battle-v1.png";
 import lordHomeActionBuildingsIcon from "../assets/generated/lords-home/actions/action-buildings-v1.png";
+import lordHomeActionCastleIcon from "../assets/generated/lords-home/actions/action-castle-v1.png";
 import lordHomeActionMapIcon from "../assets/generated/lords-home/actions/action-map-v1.png";
 import lordHomeActionOrdersIcon from "../assets/generated/lords-home/actions/action-orders-v1.png";
 import lordHomeActionRaidsIcon from "../assets/generated/lords-home/actions/action-raids-v1.png";
-import unitCavalryIcon from "../assets/generated/lords-home/units/unit-cavalry-v1.png";
-import unitGuardIcon from "../assets/generated/lords-home/units/unit-guard-v1.png";
-import unitHeavySiegeIcon from "../assets/generated/lords-home/units/unit-heavy-siege-v1.png";
-import unitInfantryIcon from "../assets/generated/lords-home/units/unit-infantry-v1.png";
-import unitRangedIcon from "../assets/generated/lords-home/units/unit-ranged-v1.png";
-import unitSpecialistIcon from "../assets/generated/lords-home/units/unit-specialist-v1.png";
+import unitCavalryIcon from "../assets/generated/lords-home/units/unit-cavalry-v1.jpg";
+import unitGuardIcon from "../assets/generated/lords-home/units/unit-guard-v1.jpg";
+import unitHeavySiegeIcon from "../assets/generated/lords-home/units/unit-heavy-siege-v1.jpg";
+import unitInfantryIcon from "../assets/generated/lords-home/units/unit-infantry-v1.jpg";
+import unitRangedIcon from "../assets/generated/lords-home/units/unit-ranged-v1.jpg";
+import unitSpecialistIcon from "../assets/generated/lords-home/units/unit-specialist-v1.jpg";
 import lordMapStrictV6BakedRoads from "../assets/generated/lords-map/lord-map-ai-strict-v6-baked-roads.webp";
 import lordMapStrictV6RoadlessBase from "../assets/generated/lords-map/lord-map-ai-strict-v6-roadless-base.webp";
 import { LordMpHud } from "../LordMpHud";
@@ -62,6 +63,16 @@ type LordHomeBackendStack = {
   status?: string;
   hidden?: boolean;
 };
+type LordMapTerritoryBonus = {
+  bonus_id?: string;
+  territory_id?: string;
+  effect_type?: string;
+  effect_value?: string | number;
+  effect_value_int?: number;
+  public_label?: string;
+  strategic_role?: string;
+  stacking_rule?: string;
+};
 type LordHomeBackendTerritory = {
   territory_id?: string;
   name?: string;
@@ -81,6 +92,7 @@ type LordHomeBackendTerritory = {
   contested_by_domain_id?: string | null;
   income_per_hour?: number;
   bonus_label?: string;
+  bonuses?: LordMapTerritoryBonus[] | "" | null;
   fort?: {
     garrison_capacity?: number;
     garrison_slots_used?: number;
@@ -375,6 +387,11 @@ const lordHomeBaseActionDock = [
   { id: "battle", label: "Бой", icon: lordHomeActionBattleIcon, tone: "red", alert: true }
 ] as const;
 
+const lordHomeActionDock = [
+  { id: "castle", label: "Главный замок", icon: lordHomeActionCastleIcon, tone: "blue" },
+  ...lordHomeBaseActionDock
+] as const;
+
 const getLordHomeApiErrorMessage = (payload: unknown, fallback: string) => getLordApiErrorMessage(payload, fallback);
 const getLordHomeCaughtErrorMessage = (error: unknown, fallback: string) => getLordClientErrorMessage(error, fallback);
 
@@ -617,6 +634,7 @@ type LordMapSocket = {
   uiTarget?: boolean;
   tier?: number;
   bonusLabel?: string;
+  bonuses?: LordMapTerritoryBonus[];
   incomePerHour?: number;
   garrisonCapacity?: number;
   garrisonSlotsUsed?: number;
@@ -628,6 +646,19 @@ type LordMapTravelEdge = {
   to: string;
   cost: number;
   points: readonly LordMapRoadPoint[];
+};
+
+type LordMapTerritoryProfile = {
+  tier: string;
+  control: string;
+  bonuses: string[];
+  income?: string;
+  garrison?: string;
+};
+
+type LordMapTerritoryInfoRow = {
+  label: string;
+  value: string;
 };
 
 const lordMapModeButtons = [
@@ -667,160 +698,124 @@ const lordMapSockets: LordMapSocket[] = [
   { id: "node_lake_south_pond", name: "Лунная заводь", x: 85.12, y: 84.43, tone: "neutral", owner: "нейтрально", route: "1 MP" }
 ];
 
-type LordMapTerritoryProfile = {
-  tier: string;
-  bonus: string;
-  income: string;
-  hire: string;
-  magic: string;
-  orders: string;
-  defense: string;
-  garrison: string;
-  neutralDefense: string;
-  raidEffects: string;
+const lordMapTerritoryBonus = (
+  territoryId: string,
+  effectType: string,
+  publicLabel: string,
+  effectValue: string | number = 0
+): LordMapTerritoryBonus => ({
+  territory_id: territoryId,
+  effect_type: effectType,
+  effect_value: effectValue,
+  public_label: publicLabel
+});
+
+const lordMapFallbackTerritoryBonusesBySocketId: Record<string, LordMapTerritoryBonus[]> = {
+  node_res_north: [lordMapTerritoryBonus("territory_res_north", "home_base", "Дом Севера")],
+  node_res_river: [lordMapTerritoryBonus("territory_res_river", "home_base", "Речные ворота")],
+  node_res_forest: [lordMapTerritoryBonus("territory_res_forest", "home_base", "Лесной марш")],
+  node_res_hill: [lordMapTerritoryBonus("territory_res_hill", "home_base", "Холмовая корона")],
+  node_fort_east: [lordMapTerritoryBonus("territory_fort_east", "raid_defense_flat", "Укрепленная застава +1 к защите от рейдов", 1)],
+  node_fort_west: [lordMapTerritoryBonus("territory_fort_west", "raid_token_cap", "Западный плацдарм +1 предел жетонов рейда", 1)],
+  node_fort_southwest: [lordMapTerritoryBonus("territory_fort_southwest", "raid_defense_flat", "Южный редут +2 к защите от рейдов", 2)],
+  node_field_oats: [lordMapTerritoryBonus("territory_field_oats", "income_flat", "Овсяные поля +3 золота в час", 3)],
+  node_field_west_large: [lordMapTerritoryBonus("territory_field_west_large", "income_flat", "Левобережные пашни +4 золота в час", 4)],
+  node_field_east_large: [lordMapTerritoryBonus("territory_field_east_large", "recruit_card_unlock", "Восточные сборы открывают пехоту", "unit_infantry_t1")],
+  node_village_barn: [lordMapTerritoryBonus("territory_village_barn", "influence_flat", "Сенной посад +1 влияние в час", 1)],
+  node_village_east_shed: [lordMapTerritoryBonus("territory_village_east_shed", "recruit_card_unlock", "Восточная слобода открывает стражу", "unit_guard_t1")],
+  node_well_city: [lordMapTerritoryBonus("territory_well_city", "income_flat", "Колодезный торг +5 золота в час", 5)],
+  node_spanish_magic: [lordMapTerritoryBonus("territory_magic_corner", "recruit_card_unlock", "Чародейский угол открывает специалистов", "unit_specialist_t3")],
+  node_science_barn: [lordMapTerritoryBonus("territory_science_barn", "influence_flat", "Мануфактура +2 влияния в час", 2)],
+  node_forest_dark: [lordMapTerritoryBonus("territory_forest_dark", "raid_token_cap", "Травничья роща +1 предел жетонов рейда", 1)],
+  node_forest_south_garden: [lordMapTerritoryBonus("territory_forest_south_garden", "income_flat", "Нижний сад +2 золота в час", 2)],
+  node_lake_mist: [lordMapTerritoryBonus("territory_lake_mist", "mp_refill_flat", "Зеркальный пруд +1 MP при тике", 1)],
+  node_lake_south_pond: [lordMapTerritoryBonus("territory_lake_south_pond", "influence_flat", "Лунная заводь +1 влияние в час", 1)],
+  node_swamp_black: [lordMapTerritoryBonus("territory_swamp_black", "raid_defense_flat", "Черная топь +2 к защите от рейдов", 2)],
+  node_mountain_north_alpine: [lordMapTerritoryBonus("territory_mountain_north_alpine", "raid_defense_flat", "Северный кряж +3 к защите от рейдов", 3)],
+  node_mountain_gray: [lordMapTerritoryBonus("territory_mountain_gray", "influence_flat", "Серый дозор +2 влияния в час", 2)],
+  node_mountain_west_alpine: [lordMapTerritoryBonus("territory_mountain_west_alpine", "raid_token_cap", "Волчий утес +1 предел жетонов рейда", 1)]
 };
 
-const lordMapTerritoryProfileOverrides: Record<string, Partial<LordMapTerritoryProfile>> = {
-  node_fort_east: {
-    tier: "T2",
-    bonus: "северный рубеж, оборона дорог",
-    income: "+8 золота/тик",
-    hire: "стража T1",
-    magic: "нет",
-    orders: "перехват на северной дороге",
-    defense: "+2 к обороне",
-    garrison: "6 отрядов",
-    neutralDefense: "стража заставы, остановка при входе"
-  },
-  node_fort_west: {
-    tier: "T2",
-    bonus: "западный рубеж, контроль пашен",
-    income: "+8 золота/тик",
-    hire: "копейщики T1",
-    defense: "+2 к обороне",
-    garrison: "6 отрядов",
-    neutralDefense: "острожная стража, остановка при входе"
-  },
-  node_fort_southwest: {
-    tier: "T2",
-    bonus: "южный рубеж, дорога к утесу",
-    income: "+7 золота/тик",
-    hire: "ополчение T1",
-    defense: "+2 к обороне",
-    garrison: "6 отрядов",
-    neutralDefense: "нейтральная крепь, остановка при входе"
-  },
-  node_spanish_magic: {
-    tier: "T2",
-    bonus: "магический спор",
-    income: "+1 знак/тик",
-    magic: "ритуальный узел",
-    orders: "заявка магам",
-    neutralDefense: "нестабильная зона, остановка при входе"
-  },
-  node_science_barn: {
-    tier: "T2",
-    bonus: "мануфактура",
-    income: "+10 золота/тик",
-    hire: "нет",
-    orders: "ремесленный заказ"
-  }
+function normalizeLordMapTerritoryBonuses(
+  bonuses: LordMapTerritoryBonus[] | "" | null | undefined
+): LordMapTerritoryBonus[] {
+  return (Array.isArray(bonuses) ? bonuses : []).filter((bonus) =>
+    Boolean(String(bonus.public_label || bonus.effect_type || "").trim())
+  );
+}
+
+const getLordMapTerritoryBonuses = (socket: LordMapSocket) => {
+  const socketBonuses = normalizeLordMapTerritoryBonuses(socket.bonuses);
+  return socketBonuses.length > 0 ? socketBonuses : lordMapFallbackTerritoryBonusesBySocketId[socket.id] ?? [];
 };
 
-const getLordMapDefaultTerritoryProfile = (socket: LordMapSocket): LordMapTerritoryProfile => {
-  if (isLordMapResidenceSocket(socket)) {
-    return {
-      tier: "T3",
-      bonus: "резиденция дома",
-      income: "+18 золота/тик",
-      hire: "основной набор",
-      magic: "придворная поддержка",
-      orders: "приказы дома",
-      defense: "+3 к обороне",
-      garrison: "8 отрядов",
-      neutralDefense: "нет",
-      raidEffects: "нет видимых эффектов"
-    };
+const getLordMapTerritoryBonusLabels = (socket: LordMapSocket) => {
+  const labels = getLordMapTerritoryBonuses(socket)
+    .map((bonus) => String(bonus.public_label || "").trim())
+    .filter(Boolean);
+
+  return [...new Set(labels)];
+};
+
+const getLordMapTerritoryControlLabel = (socket: LordMapSocket) => {
+  if (socket.contestedByDomainId) {
+    return "оспаривается";
   }
 
-  if (socket.id.includes("field") || socket.id.includes("oats")) {
-    return {
-      tier: "T1",
-      bonus: "зерно и доход",
-      income: "+6 золота/тик",
-      hire: "ополчение T1",
-      magic: "нет",
-      orders: "снабжение",
-      defense: "+0 к обороне",
-      garrison: "4 отряда",
-      neutralDefense: "местная стража, остановка при входе",
-      raidEffects: "нет видимых эффектов"
-    };
+  const status = String(socket.status || "").toLowerCase();
+  if (status === "controlled") return "под контролем";
+  if (status === "neutral") return "нейтральная";
+  if (status === "contested") return "оспаривается";
+  if (status) return status;
+  return socket.ownerDomainId ? "под контролем" : "нейтральная";
+};
+
+const getLordMapGarrisonSummary = (socket: LordMapSocket) => {
+  const capacity = Number(socket.garrisonCapacity);
+  if (!Number.isFinite(capacity) || capacity <= 0) {
+    return undefined;
   }
 
-  if (socket.id.includes("village") || socket.id.includes("barn") || socket.id.includes("well")) {
-    return {
-      tier: "T1",
-      bonus: "люди и торговля",
-      income: "+5 золота/тик",
-      hire: "ополчение T1",
-      magic: "нет",
-      orders: "посыльные",
-      defense: "+1 к обороне",
-      garrison: "4 отряда",
-      neutralDefense: "деревенская стража, остановка при входе",
-      raidEffects: "нет видимых эффектов"
-    };
+  const used = Number(socket.garrisonSlotsUsed);
+  if (Number.isFinite(used)) {
+    return `${Math.max(0, used)}/${capacity} слотов занято`;
   }
 
-  if (socket.id.includes("mountain")) {
-    return {
-      tier: "T2",
-      bonus: "трудный перевал",
-      income: "+4 золота/тик",
-      hire: "егеря T1",
-      magic: "нет",
-      orders: "дозор",
-      defense: "+2 к обороне",
-      garrison: "5 отрядов",
-      neutralDefense: "горный дозор, остановка при входе",
-      raidEffects: "нет видимых эффектов"
-    };
+  const free = Number(socket.garrisonSlotsFree);
+  if (Number.isFinite(free)) {
+    return `${Math.max(0, free)} свободно из ${capacity}`;
   }
 
-  if (socket.id.includes("lake") || socket.id.includes("swamp") || socket.id.includes("forest")) {
-    return {
-      tier: "T1",
-      bonus: "укрытия и разведка",
-      income: "+4 золота/тик",
-      hire: "следопыты T1",
-      magic: socket.id.includes("swamp") ? "слабый знак" : "нет",
-      orders: "засада",
-      defense: "+1 к обороне",
-      garrison: "4 отряда",
-      neutralDefense: "местные дозоры, остановка при входе",
-      raidEffects: "нет видимых эффектов"
-    };
-  }
+  return `${capacity} слотов`;
+};
+
+const getLordMapTerritoryProfile = (socket: LordMapSocket): LordMapTerritoryProfile => {
+  const tier = Number(socket.tier);
+  const incomePerHour = Number(socket.incomePerHour);
+  const bonusLabels = getLordMapTerritoryBonusLabels(socket);
 
   return {
-    tier: "T1",
-    bonus: "локальный доход",
-    income: "+5 золота/тик",
-    hire: "ополчение T1",
-    magic: "нет",
-    orders: "снабжение",
-    defense: "+1 к обороне",
-    garrison: "4 отряда",
-    neutralDefense: "нейтральная стража, остановка при входе",
-    raidEffects: "нет видимых эффектов"
+    tier: Number.isFinite(tier) && tier > 0 ? `T${tier}` : isLordMapResidenceSocket(socket) ? "T3" : "T1",
+    control: getLordMapTerritoryControlLabel(socket),
+    bonuses: bonusLabels.length > 0 ? bonusLabels : ["нет открытого бонуса"],
+    income: Number.isFinite(incomePerHour) ? `+${incomePerHour} золота в час` : undefined,
+    garrison: getLordMapGarrisonSummary(socket)
   };
 };
 
-const getLordMapTerritoryProfile = (socket: LordMapSocket): LordMapTerritoryProfile => ({
-  ...getLordMapDefaultTerritoryProfile(socket),
-  ...(lordMapTerritoryProfileOverrides[socket.id] ?? {})
-});
+const getLordMapTerritoryInfoRows = (socket: LordMapSocket): LordMapTerritoryInfoRow[] => {
+  const profile = getLordMapTerritoryProfile(socket);
+  const rows: Array<LordMapTerritoryInfoRow | null> = [
+    { label: "Владелец", value: socket.owner || "нейтрально" },
+    { label: "Состояние", value: profile.control },
+    { label: "Уровень", value: profile.tier },
+    { label: profile.bonuses.length > 1 ? "Бонусы" : "Бонус", value: profile.bonuses.join("; ") },
+    profile.income ? { label: "Доход", value: profile.income } : null,
+    profile.garrison ? { label: "Форт", value: profile.garrison } : null
+  ];
+
+  return rows.filter((row): row is LordMapTerritoryInfoRow => Boolean(row?.value.trim()));
+};
 
 const lordMapRoadViewBox = { width: 3172, height: 1984 } as const;
 
@@ -1005,6 +1000,7 @@ const buildLordMapRuntimeSockets = (
         uiTarget: isUiTarget,
         tier: Number.isFinite(Number(territory?.tier)) ? Number(territory?.tier) : fallbackSocket?.tier,
         bonusLabel: territory?.bonus_label || fallbackSocket?.bonusLabel,
+        bonuses: normalizeLordMapTerritoryBonuses(territory?.bonuses),
         incomePerHour: Number.isFinite(Number(territory?.income_per_hour))
           ? Number(territory?.income_per_hour)
           : fallbackSocket?.incomePerHour,
@@ -1082,6 +1078,7 @@ type LordMapPendingBattleClaim = {
 };
 
 const lordMapBattleClaimStatuses = new Set(["in_battle", "contested", "contested_pending_tick"]);
+const lordMapGarrisonClaimStatuses = new Set(["awaiting_garrison", "capture_pending_garrison"]);
 const lordMapFinalBattleStatuses = new Set(["finished", "needs_master_review", "cancelled", "closed", "resolved"]);
 
 const getLordMapActiveBattleId = (state: LordMapBackendState | null | undefined) => {
@@ -1141,11 +1138,15 @@ const getLordMapPendingBattleClaim = (state: LordMapBackendState | null): LordMa
   const claim = (state.claims ?? []).find((item) => {
     const claimId = item.cta?.claim_id ?? item.claim_id;
     const territoryId = item.cta?.territory_id ?? item.territory_id;
-    const status = item.status ?? "";
+    const status = String(item.status ?? "").trim().toLowerCase();
+    const ctaAction = String(item.cta?.action ?? "").trim();
     return (
       Boolean(claimId) &&
       Boolean(territoryId) &&
-      (item.battle_required || lordMapBattleClaimStatuses.has(status)) &&
+      !lordMapGarrisonClaimStatuses.has(status) &&
+      ctaAction !== "open_garrison" &&
+      ((item.battle_required && (!ctaAction || ctaAction === "open_battle")) ||
+        lordMapBattleClaimStatuses.has(status)) &&
       (!item.claimant_domain_id || item.claimant_domain_id === domainId)
     );
   });
@@ -1820,7 +1821,12 @@ function LordMapScreen() {
   }, [hasMapSocket]);
 
   const fetchLordMapState = useCallback(async (options?: { silent?: boolean; summaryOnly?: boolean }) => {
-    if (!useDemoState && (!backendLordId || !backendRoleToken)) {
+    if (useDemoState) {
+      setMapApiState("offline");
+      return null;
+    }
+
+    if (!backendLordId || !backendRoleToken) {
       return null;
     }
 
@@ -2503,23 +2509,7 @@ function LordMapScreen() {
   const mapEnemyArmyIntel = (backendState?.lord_map_intel?.enemy_armies ?? []).filter((intel) =>
     hasMapSocket(intel.node_id)
   );
-  const territoryProfile = getLordMapTerritoryProfile(displaySocket);
-  const territoryInfoRows = [
-    { label: "Tier", value: territoryProfile.tier },
-    { label: "Бонус", value: territoryProfile.bonus },
-    { label: "Доход", value: territoryProfile.income },
-    { label: "Найм", value: territoryProfile.hire },
-    { label: "Магия", value: territoryProfile.magic },
-    { label: "Заказы", value: territoryProfile.orders },
-    { label: "Оборона", value: territoryProfile.defense },
-    { label: "Гарнизон", value: territoryProfile.garrison },
-    { label: "Нейтральная стража", value: territoryProfile.neutralDefense },
-    { label: "Набеги", value: territoryProfile.raidEffects }
-  ];
-  const territoryRoads = getLordMapNeighbors(displaySocket.id, mapTravelEdges).map((neighbor) => {
-    const neighborSocket = getMapSocket(neighbor.id);
-    return `${neighborSocket.name}: ${neighbor.cost} MP`;
-  });
+  const territoryInfoRows = getLordMapTerritoryInfoRows(displaySocket);
 
   const setLordMapMode = (mode: LordMapMode) => {
     setMapMode(mode);
@@ -2685,15 +2675,19 @@ function LordMapScreen() {
           <LordHomeTimerChip timerSummary={mapTimerSummary} nowMs={mapTimerNowMs} />
         </header>
         <nav className="lord-map-left-dock lord-home-left-dock" aria-label="Основные действия лорда">
-          {lordHomeBaseActionDock.map((action) => (
+          {lordHomeActionDock.map((action) => (
             <button
               key={action.id}
               className={`lord-home-dock-button action-${action.id} ${action.tone}${action.id === "map" ? " is-selected" : ""}${"alert" in action && action.alert && (activeBattle || mapBattleClaim) ? " is-alert" : ""}`}
               type="button"
-              aria-label={action.id === "map" ? "Вернуться на главный экран" : action.label}
+              aria-label={action.label}
               onClick={() => {
-                if (action.id === "map") {
+                if (action.id === "castle") {
                   window.location.assign(withLordRuntimeQuery(lordHomePath, apiBaseUrl));
+                  return;
+                }
+
+                if (action.id === "map") {
                   return;
                 }
 
@@ -3012,10 +3006,6 @@ function LordMapScreen() {
                     </div>
                   ))}
                 </dl>
-                <div className="lord-map-info-roads">
-                  <b>Дороги</b>
-                  <p>{territoryRoads.length > 0 ? territoryRoads.join("; ") : "нет открытых дорог"}</p>
-                </div>
               </div>
             )}
           </aside>

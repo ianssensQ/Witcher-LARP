@@ -31,7 +31,7 @@ import {
   XCircle
 } from "lucide-react";
 import buildingTreeBg from "../assets/generated/building-tree-bg-v6-holes.png";
-import castleCity from "../assets/generated/castle-city-v2.png";
+import castleCity from "../assets/generated/castle-city-v2.jpg";
 import buildingAlchemyLabIcon from "../assets/generated/lords-home/buildings/building-alchemy-lab-v1.png";
 import buildingArcheryRangeIcon from "../assets/generated/lords-home/buildings/building-archery-range-v1.png";
 import buildingBankIcon from "../assets/generated/lords-home/buildings/building-bank-v1.png";
@@ -55,24 +55,41 @@ import buildingWarCouncilIcon from "../assets/generated/lords-home/buildings/bui
 import buildingWardsIcon from "../assets/generated/lords-home/buildings/building-wards-v1.png";
 import lordHomeActionBattleIcon from "../assets/generated/lords-home/actions/action-battle-v1.png";
 import lordHomeActionBuildingsIcon from "../assets/generated/lords-home/actions/action-buildings-v1.png";
+import lordHomeActionCastleIcon from "../assets/generated/lords-home/actions/action-castle-v1.png";
 import lordHomeActionHelpIcon from "../assets/generated/lords-home/actions/action-help-v1.png";
 import lordHomeActionLogoutIcon from "../assets/generated/lords-home/actions/action-logout-v1.png";
 import lordHomeActionMapIcon from "../assets/generated/lords-home/actions/action-map-v1.png";
 import lordHomeActionOrdersIcon from "../assets/generated/lords-home/actions/action-orders-v1.png";
 import lordHomeActionRaidsIcon from "../assets/generated/lords-home/actions/action-raids-v1.png";
 import lordHomeHudOverlay from "../assets/generated/lords-home/ui/lord-home-hud-overlay-v6.png";
-import lordHomeMinimap from "../assets/generated/lords-home/minimap-v1.png";
+import lordHomeMinimap from "../assets/generated/lords-home/minimap-v1.jpg";
 import lordHomeRecruitModalFrame from "../assets/generated/lords-home/ui/recruit-modal-frame-v2.png";
-import territoryMistLakeHome from "../assets/generated/lords-home/territories/territory-home-mist-lake-v1.png";
-import territoryNorthFortHome from "../assets/generated/lords-home/territories/territory-home-north-fort-v1.png";
-import territoryRiverGateHome from "../assets/generated/lords-home/territories/territory-home-river-gate-v1.png";
-import unitCavalryIcon from "../assets/generated/lords-home/units/unit-cavalry-v1.png";
-import unitGuardIcon from "../assets/generated/lords-home/units/unit-guard-v1.png";
-import unitHeavySiegeIcon from "../assets/generated/lords-home/units/unit-heavy-siege-v1.png";
-import unitInfantryIcon from "../assets/generated/lords-home/units/unit-infantry-v1.png";
-import unitRangedIcon from "../assets/generated/lords-home/units/unit-ranged-v1.png";
-import unitSpecialistIcon from "../assets/generated/lords-home/units/unit-specialist-v1.png";
-import lordMap from "../assets/generated/lord-map-v2.png";
+import territoryBlackMireHome from "../assets/generated/lords-home/territories/territory-home-black-mire-v1.jpg";
+import territoryDarkGroveHome from "../assets/generated/lords-home/territories/territory-home-dark-grove-v1.jpg";
+import territoryEastPashniHome from "../assets/generated/lords-home/territories/territory-home-east-pashni-v1.jpg";
+import territoryEastSlobodaHome from "../assets/generated/lords-home/territories/territory-home-east-sloboda-v1.jpg";
+import territoryGrayWatchHome from "../assets/generated/lords-home/territories/territory-home-gray-watch-v1.jpg";
+import territoryHayPosadHome from "../assets/generated/lords-home/territories/territory-home-hay-posad-v1.jpg";
+import territoryMagicCornerHome from "../assets/generated/lords-home/territories/territory-home-magic-corner-v1.jpg";
+import territoryMistLakeHome from "../assets/generated/lords-home/territories/territory-home-mist-lake-v1.jpg";
+import territoryNorthAlpineRidgeHome from "../assets/generated/lords-home/territories/territory-home-north-alpine-ridge-v1.jpg";
+import territoryNorthFortHome from "../assets/generated/lords-home/territories/territory-home-north-fort-v1.jpg";
+import territoryRiverGateHome from "../assets/generated/lords-home/territories/territory-home-river-gate-v1.jpg";
+import territoryScienceManufactoryHome from "../assets/generated/lords-home/territories/territory-home-science-manufactory-v1.jpg";
+import territorySouthGardenHome from "../assets/generated/lords-home/territories/territory-home-south-garden-v1.jpg";
+import territorySouthPondHome from "../assets/generated/lords-home/territories/territory-home-south-pond-v1.jpg";
+import territorySouthwestKrepHome from "../assets/generated/lords-home/territories/territory-home-southwest-krep-v1.jpg";
+import territoryWellMarketHome from "../assets/generated/lords-home/territories/territory-home-well-market-v1.jpg";
+import territoryWestCliffsHome from "../assets/generated/lords-home/territories/territory-home-west-cliffs-v1.jpg";
+import territoryWestOstrogHome from "../assets/generated/lords-home/territories/territory-home-west-ostrog-v1.jpg";
+import territoryWestPashniHome from "../assets/generated/lords-home/territories/territory-home-west-pashni-v1.jpg";
+import unitCavalryIcon from "../assets/generated/lords-home/units/unit-cavalry-v1.jpg";
+import unitGuardIcon from "../assets/generated/lords-home/units/unit-guard-v1.jpg";
+import unitHeavySiegeIcon from "../assets/generated/lords-home/units/unit-heavy-siege-v1.jpg";
+import unitInfantryIcon from "../assets/generated/lords-home/units/unit-infantry-v1.jpg";
+import unitRangedIcon from "../assets/generated/lords-home/units/unit-ranged-v1.jpg";
+import unitSpecialistIcon from "../assets/generated/lords-home/units/unit-specialist-v1.jpg";
+import lordMap from "../assets/generated/lord-map-v2.jpg";
 import { LordMpHud } from "../LordMpHud";
 import {
   adaptLordState,
@@ -240,6 +257,7 @@ type LordHomeBackendTimerSummary = {
   status?: string;
   current_act_id?: string | null;
   active_started_at?: string | null;
+  updated_at?: string | null;
   applied_tick_count?: number;
   last_tick?: {
     timer_id?: string;
@@ -547,9 +565,28 @@ const getLordHomeLocalTerritoryId = (
 
 const lordHomeTerritoryBackgroundByBackendId: Partial<Record<string, string>> = {
   territory_res_north: castleCity,
+  territory_res_river: castleCity,
+  territory_res_forest: castleCity,
+  territory_res_hill: castleCity,
   territory_fort_east: territoryNorthFortHome,
+  territory_fort_west: territoryWestOstrogHome,
+  territory_fort_southwest: territorySouthwestKrepHome,
   territory_field_oats: territoryRiverGateHome,
-  territory_lake_mist: territoryMistLakeHome
+  territory_field_west_large: territoryWestPashniHome,
+  territory_field_east_large: territoryEastPashniHome,
+  territory_village_barn: territoryHayPosadHome,
+  territory_village_east_shed: territoryEastSlobodaHome,
+  territory_well_city: territoryWellMarketHome,
+  territory_magic_corner: territoryMagicCornerHome,
+  territory_science_barn: territoryScienceManufactoryHome,
+  territory_forest_dark: territoryDarkGroveHome,
+  territory_forest_south_garden: territorySouthGardenHome,
+  territory_lake_mist: territoryMistLakeHome,
+  territory_lake_south_pond: territorySouthPondHome,
+  territory_swamp_black: territoryBlackMireHome,
+  territory_mountain_north_alpine: territoryNorthAlpineRidgeHome,
+  territory_mountain_gray: territoryGrayWatchHome,
+  territory_mountain_west_alpine: territoryWestCliffsHome
 };
 
 const getLordHomeTerritoryBackground = (territory: LordHomeBackendTerritoryView, fallback: string) => {
@@ -875,6 +912,16 @@ const mergeLordRuntimeSummaryState = <T extends LordHomeBackendState>(
     (current as Record<string, unknown> | null)?.route_options
 }) as unknown as T;
 
+const getLordHomeStateRevisionKey = (state: LordHomeBackendState | null | undefined) => {
+  if (!state) return "";
+  const timer = state.timer_summary;
+  return [
+    state.snapshot_version ?? "",
+    timer?.current_act_id ?? "",
+    timer?.updated_at ?? ""
+  ].join("|");
+};
+
 const lordHomeSeedRecruitOffers: Record<string, LordHomeRecruitOffer> = {
   unit_infantry_t1: {
     offerId: "offer_north_infantry",
@@ -926,7 +973,7 @@ const lordHomeBaseActionDock = [
 ] as const;
 
 const lordHomeActionDock = [
-  { id: "castle", label: "Главный замок", icon: null, tone: "blue" },
+  { id: "castle", label: "Главный замок", icon: lordHomeActionCastleIcon, tone: "blue" },
   ...lordHomeBaseActionDock
 ] as const;
 
@@ -2292,8 +2339,8 @@ const getLordBuildingState = (building: LordBuildingNode, builtBuildingIds: Set<
 };
 
 const lordHomeInitialDomainStats: LordHomeDomainStats = {
-  incomePerHour: 25,
-  rawIncomePerHour: 25,
+  incomePerHour: 0,
+  rawIncomePerHour: 0,
   territoryIncomePerHour: 0,
   currentMp: 6,
   mpCap: 6,
@@ -2523,6 +2570,7 @@ function LordHomeScreen() {
   const suppressNextStackClickUntilRef = useRef(0);
   const stateFetchInFlightRef = useRef(false);
   const cachedHomeStateAppliedRef = useRef(false);
+  const lastFullStateRevisionRef = useRef<string | null>(null);
   const backgroundStateRefreshInFlightRef = useRef(false);
   const backgroundStateRefreshQueuedRef = useRef<{ source: string; refreshRecruit: boolean } | null>(null);
   const pointerDragRef = useRef<{
@@ -2629,6 +2677,7 @@ function LordHomeScreen() {
       : "Чтобы закрепить землю, приведи сюда активную армию и оставь минимум 1 отряд в гарнизоне."
     : "";
   const displayedActiveArmyLockReason = selectedTerritoryCapturePending ? "" : selectedActiveArmyLockReason;
+  const displayedRecruitLockReason = selectedTerritoryCapturePending ? "" : selectedRecruitLockReason;
   const selectedBuildingNodeIds = selectedTerritoryRuntime?.buildingNodeIds;
   const selectedBuildingNodeIdSet = useMemo(
     () => selectedBuildingNodeIds?.length ? new Set(selectedBuildingNodeIds) : null,
@@ -2662,7 +2711,7 @@ function LordHomeScreen() {
   const displayedTerritoryBubbles = homeTerritoryCatalog
     .filter((territory) => {
       const runtime = territoryRuntime[territory.id];
-      return territory.id === "castle" || runtime?.isOwned;
+      return territory.id === "castle" || runtime?.isOwned || isLordHomeCapturePendingRuntime(runtime);
     })
     .map((territory) => {
       const runtime = territoryRuntime[territory.id];
@@ -2689,6 +2738,11 @@ function LordHomeScreen() {
       ? Math.max(0, transferStack.count - 1)
       : transferStack.count
     : 0;
+  const transferIdleStatus = isSplitDraft
+    ? "Выберите размер новой пачки"
+    : selectedHeroHere
+      ? "Выберите часть пачки"
+      : selectedActiveArmyLockReason;
   const transferSliderPercent = maxTransferQty > 1
     ? ((transferQty - 1) / (maxTransferQty - 1)) * 100
     : maxTransferQty > 0 ? 100 : 0;
@@ -2757,7 +2811,6 @@ function LordHomeScreen() {
   const canShowRuntimeResources = lordUiState.hasAuthoritativeState || useDemoState;
   const goldResourceLabel = canShowRuntimeResources ? String(lordGold) : "--";
   const incomeResourceLabel = canShowRuntimeResources ? `+${domainStats.incomePerHour}/тик` : "--";
-  const territoryIncomeResourceLabel = canShowRuntimeResources ? `+${domainStats.territoryIncomePerHour}/тик` : "--";
   const raidResourceLabel = canShowRuntimeResources ? `${raidTokens}/${domainStats.raidTokenCap}` : "--/--";
   const armyResourceLabel = canShowRuntimeResources ? `${domainStats.activeArmySlotsUsed}/${domainStats.activeArmyCapacity}` : "--/--";
   const garrisonResourceLabel = canShowRuntimeResources ? `${selectedGarrisonSlotsUsed}/${selectedGarrisonCapacity}` : "--/--";
@@ -2797,6 +2850,7 @@ function LordHomeScreen() {
     if (options?.cache !== false) {
       writeLordRuntimeCachedState(apiBaseUrl, backendLordId, state);
     }
+    lastFullStateRevisionRef.current = getLordHomeStateRevisionKey(state);
     if (Array.isArray(state.building_catalog)) {
       setBackendBuildingCatalog(state.building_catalog);
     }
@@ -3117,6 +3171,9 @@ function LordHomeScreen() {
   const applyBackendSummary = useCallback((state: LordHomeBackendState) => {
     setLordUiState(adaptLordState(state, { mode: lordRuntimeMode }));
     setLordOrderReadOnlyReason("");
+    if (state.timer_summary) {
+      setTimerSummary(state.timer_summary);
+    }
 
     const nextGold = Number(state.resources?.gold ?? state.domain?.gold);
     if (Number.isFinite(nextGold)) {
@@ -3307,7 +3364,12 @@ function LordHomeScreen() {
         }
 
         if (summaryOnly) {
-          applyBackendSummary(state);
+          const nextRevision = getLordHomeStateRevisionKey(state);
+          if (nextRevision && nextRevision !== lastFullStateRevisionRef.current) {
+            await reloadLordHomeState(controller.signal);
+          } else {
+            applyBackendSummary(state);
+          }
         } else {
           applyBackendState(state);
         }
@@ -3328,7 +3390,7 @@ function LordHomeScreen() {
       window.clearInterval(intervalId);
       controller.abort();
     };
-  }, [apiBaseUrl, applyBackendState, applyBackendSummary, backendLordId, backendRoleToken, loginRedirectPath, useDemoState]);
+  }, [apiBaseUrl, applyBackendState, applyBackendSummary, backendLordId, backendRoleToken, loginRedirectPath, reloadLordHomeState, useDemoState]);
 
   useEffect(() => {
     if (!recruitUnitId) return;
@@ -4366,7 +4428,6 @@ function LordHomeScreen() {
           <LordHomeTimerChip timerSummary={timerSummary} nowMs={timerNowMs} />
           <div className="lord-home-resource-row">
             <div className="lord-home-resource gold"><Coins size={14} /><b>{goldResourceLabel}</b><span>({incomeResourceLabel})</span></div>
-            <div className="lord-home-resource wood"><Archive size={14} /><b>{territoryIncomeResourceLabel}</b><span>земли</span></div>
             <div className="lord-home-resource violet"><Route size={14} /><b>{currentMovementPoints}/{movementPointCap}</b><span>MP</span></div>
             <div className="lord-home-resource blue"><Swords size={14} /><b>{armyResourceLabel}</b><span>армия</span></div>
             <div className="lord-home-resource red"><Flame size={14} /><b>{raidResourceLabel}</b><span>рейды</span></div>
@@ -4441,7 +4502,7 @@ function LordHomeScreen() {
                   }
                 }}
               >
-                {action.icon ? <LordHomeActionIcon src={action.icon} /> : <LordHomeCastleActionIcon />}
+                <LordHomeActionIcon src={action.icon} />
                 <span className="lord-home-dock-label">{action.label}</span>
               </button>
             );
@@ -4454,18 +4515,19 @@ function LordHomeScreen() {
         </button>
 
             {homeView !== "orders" ? (
+            <>
+            {selectedCaptureGarrisonHint ? (
+              <div className="lord-home-capture-hint" role="status">
+                <Shield size={14} />
+                <span>{selectedCaptureGarrisonHint}</span>
+              </div>
+            ) : null}
+
             <section className={`lord-home-bottom-panel${selectedTerritoryCapturePending ? " is-capture-pending" : ""}`} aria-label="Армия, гарнизон и найм">
               <div className="lord-home-location-title">{selectedTerritoryName}</div>
               <div className="lord-home-local-income">
                 +{selectedIncomePerHour}/тик · Г {selectedGarrisonSlotsUsed}/{selectedGarrisonCapacity} · А {domainStats.activeArmySlotsUsed}/{domainStats.activeArmyCapacity}
               </div>
-
-              {selectedCaptureGarrisonHint ? (
-                <div className="lord-home-capture-hint" role="status">
-                  <Shield size={14} />
-                  <span>{selectedCaptureGarrisonHint}</span>
-                </div>
-              ) : null}
 
               <LordHomeLane
                 lane="army"
@@ -4510,7 +4572,7 @@ function LordHomeScreen() {
               />
 
               {displayedActiveArmyLockReason ? <div className="lord-home-army-lock">{displayedActiveArmyLockReason}</div> : null}
-              {selectedRecruitLockReason ? <div className="lord-home-army-lock">{selectedRecruitLockReason}</div> : null}
+              {displayedRecruitLockReason ? <div className="lord-home-army-lock">{displayedRecruitLockReason}</div> : null}
 
               <div className="lord-home-recruit-grid">
                 {displayedRecruitUnitIds.map((unitId, index) => {
@@ -4535,7 +4597,8 @@ function LordHomeScreen() {
                 })}
               </div>
             </section>
-            ) : null}
+            </>
+          ) : null}
 
         {homeView === "territory" ? (
             <aside className="lord-home-territory-bubbles" aria-label="Территории управления">
@@ -4698,7 +4761,7 @@ function LordHomeScreen() {
                   <p>{selectedTerritoryName}</p>
                 </div>
                 <div className="lord-home-recruit-slider">
-                  <span>Количество: {transferQty} из {transferStack.count}</span>
+                  <span>Количество: {transferQty} из {maxTransferQty}</span>
                   <div className="lord-home-recruit-slider-row">
                     <button
                       className="lord-home-recruit-step"
@@ -4741,7 +4804,7 @@ function LordHomeScreen() {
                   <small>{selectedTerritoryName}</small>
                 </div>
                 <div className="lord-home-recruit-status">
-                  {transferStatus || (transferDraft.mode === "split" ? "Выберите размер новой пачки" : selectedHeroHere ? "Выберите часть пачки" : selectedActiveArmyLockReason)}
+                  {transferStatus || transferIdleStatus}
                 </div>
                 <button className="lord-home-hire-button" type="button" onClick={submitStackTransfer} disabled={!transferCanSubmit}>
                   {isTransferSubmitting ? "Отправляю" : transferDraft.mode === "split" ? "Разделить" : "Перенести"}
@@ -4769,14 +4832,6 @@ function LordHomeActionIcon({ src }: { src: string }) {
   return (
     <span className="lord-home-action-medallion" aria-hidden="true">
       <img className="lord-home-action-icon" src={src} alt="" draggable={false} />
-    </span>
-  );
-}
-
-function LordHomeCastleActionIcon() {
-  return (
-    <span className="lord-home-action-medallion is-vector" aria-hidden="true">
-      <Castle size={34} strokeWidth={1.75} />
     </span>
   );
 }
