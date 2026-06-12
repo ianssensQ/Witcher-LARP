@@ -4,6 +4,8 @@ import Foundation
 final class AppModel: ObservableObject {
     @Published var serverURL: URL
     @Published var snapshot: PlayerSnapshot?
+    @Published var activePvEScenario: PvEScenarioCard?
+    @Published var lastQRLookup: QRLookupResponse?
     @Published var pendingEvents: [QueuedEvent] = []
     @Published var syncState: SyncState = .offline
     @Published var errorMessage: String?
@@ -12,6 +14,7 @@ final class AppModel: ObservableObject {
     private let queue = EventQueueStore.shared
     private var api: LarpAPIClient
     private let deviceId: String
+    private var playerCode: String?
 
     init() {
         let defaultURL = URL(string: "http://127.0.0.1:8000")!
@@ -19,6 +22,7 @@ final class AppModel: ObservableObject {
         self.serverURL = savedURL
         self.api = LarpAPIClient(baseURL: savedURL)
         self.deviceId = LocalStore.shared.loadDeviceId()
+        self.playerCode = LocalStore.shared.loadPlayerCode()
         self.snapshot = LocalStore.shared.loadSnapshot()
         self.pendingEvents = EventQueueStore.shared.loadEvents()
     }
@@ -34,7 +38,9 @@ final class AppModel: ObservableObject {
             syncState = .syncing
             _ = try await api.login(playerCode: playerCode, deviceId: deviceId)
             let loadedSnapshot = try await api.fetchSnapshot(playerCode: playerCode)
+            self.playerCode = playerCode
             snapshot = loadedSnapshot
+            store.savePlayerCode(playerCode)
             store.saveSnapshot(loadedSnapshot)
             syncState = .synced
             errorMessage = nil
@@ -57,6 +63,38 @@ final class AppModel: ObservableObject {
         )
         queue.append(event)
         pendingEvents = queue.loadEvents()
+    }
+
+    func lookupQRCode(_ code: String, source: QRInputSource) async {
+        guard let snapshot else { return }
+        guard let playerCode else {
+            appendQRAttempt(qrId: code, source: source)
+            errorMessage = "Player code is required for online QR lookup."
+            syncState = .needsReview
+            return
+        }
+
+        do {
+            syncState = .syncing
+            let response = try await api.lookupQR(
+                code: code,
+                playerCode: playerCode,
+                playerId: snapshot.playerId,
+                deviceId: deviceId,
+                source: source.rawValue,
+                physicalPresenceConfirmed: true
+            )
+            lastQRLookup = response
+            if let scenario = response.scenario {
+                activePvEScenario = scenario
+            }
+            syncState = response.status == "ok" ? .synced : .needsReview
+            errorMessage = response.status == "ok" ? nil : (response.message ?? response.reason ?? response.status)
+        } catch {
+            appendQRAttempt(qrId: code, source: source)
+            syncState = .needsReview
+            errorMessage = "QR lookup is queued for sync: \(error.localizedDescription)"
+        }
     }
 
     func syncPendingEvents() async {
@@ -89,6 +127,6 @@ enum SyncState: String {
 }
 
 enum QRInputSource: String {
-    case camera
-    case manual
+    case camera = "qr_scan"
+    case manual = "manual_id"
 }

@@ -12,6 +12,10 @@ struct HomeView: View {
                         characterCard(snapshot)
                     }
 
+                    if let quest = model.activePvEScenario {
+                        questCard(quest)
+                    }
+
                     Button {
                         showQR = true
                     } label: {
@@ -53,6 +57,76 @@ struct HomeView: View {
                 Text(snapshot.reputationLabel)
             }
             .font(.footnote)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func questCard(_ quest: PvEScenarioCard) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label(
+                    quest.contentLane == "anti_idle" ? "Быстрая сцена" : "Заказ",
+                    systemImage: quest.contentLane == "anti_idle" ? "bolt" : "scroll"
+                )
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if let minutes = quest.estimatedMinutes {
+                    Text("\(minutes) мин.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text(quest.displayTitle)
+                .font(.headline)
+
+            if !quest.displayBrief.isEmpty {
+                Text(quest.displayBrief)
+                    .font(.subheadline)
+            }
+
+            if let trialPrompt = quest.trialPrompt {
+                Text(trialPrompt)
+                    .font(.callout)
+            }
+
+            if let choicePrompt = quest.choicePrompt {
+                Text(choicePrompt)
+                    .font(.callout)
+            }
+
+            if !quest.displayCheck.isEmpty {
+                Label(quest.displayCheck, systemImage: "dice")
+                    .font(.footnote)
+            }
+
+            if let victoryRule = quest.victoryRule {
+                Label(victoryRule, systemImage: "checkmark.seal")
+                    .font(.footnote)
+            }
+
+            if let reward = quest.rewardSummary {
+                Label(reward, systemImage: "seal")
+                    .font(.footnote)
+            }
+
+            if let rewardPolicy = quest.branchRewardPolicy {
+                Text(rewardPolicy)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let consequence = quest.worldEffect {
+                Text(consequence)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)

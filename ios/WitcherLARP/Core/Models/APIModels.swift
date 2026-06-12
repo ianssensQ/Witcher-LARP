@@ -59,3 +59,57 @@ struct SyncEventResult: Codable, Identifiable {
         case serverEventId = "server_event_id"
     }
 }
+
+struct QRLookupRequest: Encodable {
+    let code: String
+    let playerId: String?
+    let deviceId: String
+    let source: String
+    let physicalPresenceConfirmed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case playerId = "player_id"
+        case deviceId = "device_id"
+        case source
+        case physicalPresenceConfirmed = "physical_presence_confirmed"
+    }
+}
+
+struct QRLookupResponse: Decodable, Equatable {
+    let status: String
+    let eventType: String?
+    let reason: String?
+    let message: String?
+    let qr: QRLookupQRPayload?
+    let scenario: PvEScenarioCard?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case eventType = "event_type"
+        case reason
+        case message
+        case qr
+        case scenario
+    }
+}
+
+struct QRLookupQRPayload: Decodable, Equatable {
+    let qrId: String?
+    let manualCode: String?
+    let scenarioId: String?
+    let qrMode: String?
+    let actId: String?
+    let locationNodeId: String?
+    let locked: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case qrId = "qr_id"
+        case manualCode = "manual_code"
+        case scenarioId = "scenario_id"
+        case qrMode = "qr_mode"
+        case actId = "act_id"
+        case locationNodeId = "location_node_id"
+        case locked
+    }
+}

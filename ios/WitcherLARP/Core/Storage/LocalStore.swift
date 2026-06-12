@@ -30,6 +30,14 @@ final class LocalStore {
         save(url.absoluteString, as: "server_url.json")
     }
 
+    func loadPlayerCode() -> String? {
+        load("player_code.json")
+    }
+
+    func savePlayerCode(_ code: String) {
+        save(code, as: "player_code.json")
+    }
+
     func loadSnapshot() -> PlayerSnapshot? {
         load("snapshot.json")
     }

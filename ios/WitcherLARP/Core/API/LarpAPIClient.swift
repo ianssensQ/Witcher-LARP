@@ -29,6 +29,29 @@ struct LarpAPIClient {
         return try await decode(SyncResponse.self, from: request)
     }
 
+    func lookupQR(
+        code: String,
+        playerCode: String,
+        playerId: String?,
+        deviceId: String,
+        source: String,
+        physicalPresenceConfirmed: Bool = true
+    ) async throws -> QRLookupResponse {
+        var request = try jsonRequest(
+            path: "/api/qr/lookup",
+            method: "POST",
+            body: QRLookupRequest(
+                code: code,
+                playerId: playerId,
+                deviceId: deviceId,
+                source: source,
+                physicalPresenceConfirmed: physicalPresenceConfirmed
+            )
+        )
+        request.setValue(playerCode, forHTTPHeaderField: "X-Player-Code")
+        return try await decode(QRLookupResponse.self, from: request)
+    }
+
     private func jsonRequest<T: Encodable>(path: String, method: String, body: T) throws -> URLRequest {
         let url = endpoint(path)
         var request = URLRequest(url: url)
