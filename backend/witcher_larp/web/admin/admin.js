@@ -613,11 +613,13 @@ function renderPlayersView() {
   grid.id = "players-grid";
   panel.append(grid);
   panel.append(playerEditForm(players));
+  panel.append(playerGoalEditForm(players));
   els.workspace.append(panel);
   setupPlayerFilter(panel, players);
 }
 
 function playerCard(player) {
+  const goal = playerGoalsFor(player.player_id)[0];
   return entityCard(playerTitle(player), [
     ["Роль", roleLabel(player.role_type)],
     ["Уровень", player.level ?? 1],
@@ -625,6 +627,7 @@ function playerCard(player) {
     ["XP", player.xp ?? 0],
     ["Мана", `${player.mana ?? 0}/${player.max_mana ?? 0}`],
     ["Вызовы", player.challenge_tokens ?? 0],
+    ["Цель", goal?.public_text || "не задана"],
   ], { role: player.role_type });
 }
 
@@ -691,6 +694,87 @@ function playerEditForm(players) {
           xp: "XP",
           mana: "Мана",
         }),
+      }
+    );
+  });
+  return form;
+}
+
+function playerGoalEditForm(players) {
+  const goals = playerGoalsList();
+  const playersWithGoals = players.filter((player) => playerGoalsFor(player.player_id).length);
+  const form = document.createElement("form");
+  form.className = "form-grid quick-form";
+  if (!playersWithGoals.length || !goals.length) {
+    form.innerHTML = `
+      <div class="field wide">
+        <span>Цели</span>
+        <p class="status-line">Для игроков пока нет заведённых целей.</p>
+      </div>
+    `;
+    return form;
+  }
+  form.innerHTML = `
+    <label class="field wide">
+      <span>Игрок для цели</span>
+      <select id="goal-player-id">${options(playersWithGoals.map((player) => [
+        player.player_id,
+        `${playerTitle(player)} · ${roleLabel(player.role_type)}`,
+      ]))}</select>
+    </label>
+    <label class="field">
+      <span>Цель</span>
+      <select id="goal-id"></select>
+    </label>
+    <label class="field wide">
+      <span>Текст цели</span>
+      <textarea id="goal-public-text" maxlength="600" required></textarea>
+    </label>
+    <button type="submit">Сохранить цель</button>
+  `;
+  const playerSelect = form.querySelector("#goal-player-id");
+  const goalSelect = form.querySelector("#goal-id");
+  const textArea = form.querySelector("#goal-public-text");
+  const fillGoalText = () => {
+    const goal = goals.find((item) => item.goal_id === goalSelect.value);
+    textArea.value = goal?.public_text || "";
+  };
+  const fillGoalOptions = () => {
+    const playerGoals = playerGoalsFor(playerSelect.value);
+    goalSelect.replaceChildren(...playerGoals.map((goal) => {
+      const option = document.createElement("option");
+      option.value = goal.goal_id;
+      option.textContent = `${actLabel(goal.act_id)} · ${goal.public_text || goal.goal_id}`;
+      return option;
+    }));
+    fillGoalText();
+  };
+  playerSelect.addEventListener("change", fillGoalOptions);
+  goalSelect.addEventListener("change", fillGoalText);
+  fillGoalOptions();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const goal = goals.find((item) => item.goal_id === goalSelect.value);
+    if (!goal) {
+      setDashboardStatus("Выберите цель для правки");
+      return;
+    }
+    const nextText = textArea.value.trim();
+    if (!nextText) {
+      setDashboardStatus("Текст цели не должен быть пустым");
+      return;
+    }
+    const previousText = String(goal.public_text || "");
+    const patch = nextText === previousText ? {} : { public_text: nextText };
+    await saveCorrection(
+      "personal_goal",
+      goal.goal_id,
+      patch,
+      "ручная правка текста цели",
+      "Цель сохранена",
+      {
+        title: `Сохранить цель: ${playerTitleById(goal.player_id)}?`,
+        details: [["Текст цели", `${previousText || "-"} -> ${nextText}`]],
       }
     );
   });
@@ -1297,6 +1381,14 @@ function emptyLine(text) {
 
 function playersList() {
   return masterState?.economy?.player_economy || [];
+}
+
+function playerGoalsList() {
+  return masterState?.economy?.personal_goals || [];
+}
+
+function playerGoalsFor(playerId) {
+  return playerGoalsList().filter((goal) => goal.player_id === playerId);
 }
 
 function lordDomains() {

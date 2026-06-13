@@ -218,6 +218,34 @@ REQUIRED_HEADERS = {
         "stat_requirement_json",
         "effect_json",
     ],
+    "materials.csv": [
+        "material_id",
+        "display_name",
+        "rarity",
+        "category",
+        "base_drop_weight",
+        "description",
+        "effect_json",
+    ],
+    "material_markets.csv": [
+        "market_id",
+        "material_id",
+        "base_price",
+        "min_price",
+        "max_price",
+        "target_stock",
+        "trend_window",
+    ],
+    "material_drop_rules.csv": [
+        "rule_id",
+        "material_id",
+        "scene_type",
+        "tier",
+        "weight",
+        "min_quantity",
+        "max_quantity",
+        "result_filter",
+    ],
     "qr_policies.csv": [
         "policy_id",
         "physical_presence_required",
@@ -286,6 +314,10 @@ REQUIRED_HEADERS = {
         "name_group",
         "bond_group",
         "muster_group",
+        "display_name",
+        "effect_text",
+        "deck_limit",
+        "source_set",
     ],
     "gwent_decks.csv": ["deck_id", "player_id", "leader_card_id", "card_ids"],
     "gwent_matches.csv": [
@@ -799,8 +831,29 @@ class SeedContractTests(unittest.TestCase):
         self.assertEqual(int(gwent_rules["row_count"]), 3)
 
         cards = {row["card_id"]: row for row in self.rows["gwent_cards.csv"]}
-        rare_cards = [row for row in cards.values() if row["rarity"] == "Rare"]
-        self.assertEqual(len(rare_cards), 6)
+        rare_cards = {
+            card_id: row
+            for card_id, row in cards.items()
+            if card_id.startswith("rare_gwent_")
+        }
+        self.assertEqual(
+            set(rare_cards),
+            {
+                "rare_gwent_01",
+                "rare_gwent_02",
+                "rare_gwent_03",
+                "rare_gwent_04",
+                "rare_gwent_05",
+                "rare_gwent_06",
+            },
+        )
+        self.assertEqual(rare_cards["rare_gwent_04"]["display_name"], "Таинственный эльф")
+        self.assertEqual(rare_cards["rare_gwent_04"]["effect"], "hero")
+        self.assertEqual(rare_cards["rare_gwent_04"]["ability_tags"], "spy")
+        self.assertEqual(rare_cards["rare_gwent_06"]["display_name"], "Лютик")
+        self.assertEqual(rare_cards["rare_gwent_06"]["effect"], "commanders_horn")
+        for card in rare_cards.values():
+            self.assertEqual(int(card["deck_limit"]), 1)
         deck = self.rows["gwent_decks.csv"][0]
         deck_cards = [cards[card_id] for card_id in split_ids(deck["card_ids"])]
         self.assertGreaterEqual(
@@ -881,6 +934,19 @@ class SeedContractTests(unittest.TestCase):
         self.assertEqual(int(potion_costs["Uncommon"]["wholesale_cost"]), 18)
         self.assertEqual(int(potion_costs["Rare"]["wholesale_cost"]), 40)
         self.assertEqual({row["seller_role"] for row in self.rows["potion_markets.csv"]}, {"sorceress"})
+
+        material_ids = {row["material_id"] for row in self.rows["materials.csv"]}
+        self.assertEqual(len(material_ids), 8)
+        self.assertEqual({row["item_type"] for row in self.rows["items.csv"]} & {"material", "equipment"}, set())
+        self.assertEqual({row["material_id"] for row in self.rows["material_markets.csv"]}, material_ids)
+        self.assertEqual(
+            {row["material_id"] for row in self.rows["material_drop_rules.csv"]},
+            material_ids,
+        )
+        for market in self.rows["material_markets.csv"]:
+            self.assertLessEqual(int(market["min_price"]), int(market["base_price"]))
+            self.assertLessEqual(int(market["base_price"]), int(market["max_price"]))
+            self.assertGreater(int(market["target_stock"]), 0)
 
         spell_roles = {row["role"] for row in self.rows["spells.csv"]}
         self.assertTrue({"hint", "boost", "reveal", "ward", "curse", "ritual"}.issubset(spell_roles))

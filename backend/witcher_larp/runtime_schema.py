@@ -47,6 +47,7 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             xp INTEGER NOT NULL DEFAULT 0,
             gold INTEGER NOT NULL DEFAULT 0,
             stats_json TEXT NOT NULL DEFAULT '{}',
+            unspent_stat_points INTEGER NOT NULL DEFAULT 0,
             mana INTEGER NOT NULL DEFAULT 0,
             max_mana INTEGER NOT NULL DEFAULT 0,
             challenge_tokens INTEGER NOT NULL DEFAULT 0,
@@ -591,6 +592,49 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             UNIQUE(player_id, scene_id)
         );
 
+        CREATE TABLE IF NOT EXISTS material_market_state (
+            market_id TEXT PRIMARY KEY,
+            material_id TEXT NOT NULL,
+            base_price INTEGER NOT NULL DEFAULT 0,
+            min_price INTEGER NOT NULL DEFAULT 0,
+            max_price INTEGER NOT NULL DEFAULT 0,
+            target_stock INTEGER NOT NULL DEFAULT 1,
+            trend_window INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS material_inventory (
+            inventory_id TEXT PRIMARY KEY,
+            player_id TEXT NOT NULL,
+            material_id TEXT NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            UNIQUE(player_id, material_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS material_drop_log (
+            drop_id TEXT PRIMARY KEY,
+            source_event_id INTEGER NOT NULL UNIQUE,
+            player_id TEXT NOT NULL,
+            scenario_id TEXT NOT NULL,
+            material_id TEXT NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            rule_id TEXT NOT NULL,
+            result TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS material_market_sales (
+            sale_id TEXT PRIMARY KEY,
+            player_id TEXT NOT NULL,
+            material_id TEXT NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            unit_price INTEGER NOT NULL DEFAULT 0,
+            total_gold INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS trade_transfer_runtime (
             transfer_id TEXT PRIMARY KEY,
             from_player_id TEXT NOT NULL,
@@ -742,6 +786,7 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
         {
             "xp": "INTEGER NOT NULL DEFAULT 0",
             "stats_json": "TEXT NOT NULL DEFAULT '{}'",
+            "unspent_stat_points": "INTEGER NOT NULL DEFAULT 0",
         },
     )
     _ensure_columns(

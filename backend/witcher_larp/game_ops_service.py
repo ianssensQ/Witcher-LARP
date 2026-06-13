@@ -96,12 +96,18 @@ CORRECTION_TARGETS: dict[str, dict[str, object]] = {
             "xp",
             "gold",
             "stats_json",
+            "unspent_stat_points",
             "mana",
             "max_mana",
             "challenge_tokens",
         },
-        "ints": {"level", "xp", "gold", "mana", "max_mana", "challenge_tokens"},
+        "ints": {"level", "xp", "gold", "unspent_stat_points", "mana", "max_mana", "challenge_tokens"},
         "json": {"stats_json"},
+    },
+    "personal_goal": {
+        "table": "personal_goals",
+        "pk": "goal_id",
+        "allowed": {"public_text"},
     },
     "garrison": {
         "table": "garrison_runtime_state",
@@ -834,6 +840,19 @@ def _economy_recovery_state(connection: sqlite3.Connection) -> dict[str, Any]:
         """,
         table_name="player_runtime_state",
     )
+    personal_goals = _rows(
+        connection,
+        """
+        SELECT goals.goal_id, goals.player_id, goals.act_id, goals.public_text,
+               goals.progress_type, goals.final_hook_id,
+               tracks.track_id, tracks.state AS track_state,
+               tracks.current_value, tracks.target_value, tracks.visibility
+        FROM personal_goals goals
+        LEFT JOIN goal_tracks tracks ON tracks.goal_id = goals.goal_id
+        ORDER BY goals.player_id, goals.act_id, goals.goal_id
+        """,
+        table_name="personal_goals",
+    )
     for player in players:
         player["display_name"] = _display_name(
             player.get("display_name"),
@@ -844,6 +863,7 @@ def _economy_recovery_state(connection: sqlite3.Connection) -> dict[str, Any]:
         "potion_inventory": inventory,
         "trade_transfers": transfers,
         "player_economy": players,
+        "personal_goals": personal_goals,
         "summary": {
             "potion_markets": len(markets),
             "potion_inventory_rows": len(inventory),
@@ -1223,6 +1243,8 @@ def _normalize_target_type(value: str) -> str:
         "trade": "trade_transfer",
         "trade_transfer_runtime": "trade_transfer",
         "economy_player": "player",
+        "goal": "personal_goal",
+        "player_goal": "personal_goal",
     }
     return aliases.get(normalized, normalized)
 

@@ -9,6 +9,7 @@ from pathlib import Path
 import sqlite3
 
 from .csv_loader import SeedPack
+from .material_market_service import material_inventory_rows, material_market_rows
 from .repository import fetch_table
 from .reputation_service import ReputationError, get_reputation_view
 
@@ -29,6 +30,9 @@ SNAPSHOT_TABLES = (
     "xp_rules",
     "balance_defaults",
     "items",
+    "materials",
+    "material_markets",
+    "material_drop_rules",
     "cards",
     "gwent_cards",
     "gwent_decks",
@@ -73,6 +77,8 @@ PLAYER_PUBLIC_ORDER_STATUSES = {
 RUNTIME_PLAYER_SNAPSHOT_KEYS = (
     "asset_ownership",
     "potion_inventory",
+    "material_inventory",
+    "material_market",
     "trade_transfers",
     "reward_approvals",
 )
@@ -274,6 +280,9 @@ def _payload_from_tables(
             "balance_defaults": tables["balance_defaults"],
         },
         "items": tables["items"],
+        "materials": tables["materials"],
+        "material_markets": tables["material_markets"],
+        "material_drop_rules": tables["material_drop_rules"],
         "cards": tables["cards"],
         "gwent_cards": tables["gwent_cards"],
         "gwent_decks": tables["gwent_decks"],
@@ -753,6 +762,8 @@ def _fetch_runtime_snapshot_rows(connection: sqlite3.Connection) -> dict[str, li
     return {
         "asset_ownership": _fetch_asset_ownership_rows(connection),
         "potion_inventory": _fetch_potion_inventory_rows(connection),
+        "material_inventory": material_inventory_rows(connection),
+        "material_market": material_market_rows(connection),
         "trade_transfers": _fetch_trade_transfer_rows(connection),
         "reward_approvals": _fetch_reward_approval_rows(connection),
     }
@@ -880,6 +891,11 @@ def _scope_runtime_player_content(payload: dict[str, object], player_id: str) ->
         for row in _dict_rows(payload.get("potion_inventory"))
         if str(row.get("player_id", "")) == player_id
     ]
+    payload["material_inventory"] = [
+        row
+        for row in _dict_rows(payload.get("material_inventory"))
+        if str(row.get("player_id", "")) == player_id
+    ]
     payload["trade_transfers"] = [
         row
         for row in _dict_rows(payload.get("trade_transfers"))
@@ -904,7 +920,7 @@ def _merge_runtime_player_rows(
         return list(players)
     rows = connection.execute(
         """
-        SELECT player_id, level, xp, gold, stats_json, mana, max_mana,
+        SELECT player_id, level, xp, gold, stats_json, unspent_stat_points, mana, max_mana,
                challenge_tokens, updated_at
         FROM player_runtime_state
         """

@@ -1,42 +1,199 @@
-card_id,faction,row,type,strength,effect,rarity,ability_tags,name_group,bond_group,muster_group
-gwent_leader_wolf,northern,leader,leader,0,leader_foltest_clear_weather,Uncommon,,leader_foltest,,
-gwent_leader_nilfgaard,nilfgaard,leader,leader,0,leader_emhyr_graveyard_theft,Uncommon,,leader_emhyr,,
-gwent_leader_scoiatael,scoiatael,leader,leader,0,leader_francesca_ranged_horn,Uncommon,,leader_francesca,,
-gwent_leader_monsters,monsters,leader,leader,0,leader_eredin_melee_horn,Uncommon,,leader_eredin,,
-gwent_leader_skellige,skellige,leader,leader,0,leader_crach_graveyard_shuffle,Uncommon,,leader_crach,,
-gwent_unit_01,northern,melee,unit,4,none,Common,,silver_blade,,
-gwent_unit_02,northern,melee,unit,4,none,Common,,kaer_morhen_tracker,,
-gwent_unit_03,northern,melee,unit,5,tight_bond,Common,,blue_stripes_soldier,blue_stripes,
-gwent_unit_04,northern,melee,unit,5,tight_bond,Common,,blue_stripes_soldier,blue_stripes,
-gwent_unit_05,northern,melee,unit,6,morale,Uncommon,,temerian_standard,,
-gwent_unit_06,northern,melee,unit,6,spy,Uncommon,,kaedweni_spy,,
-gwent_unit_07,northern,ranged,unit,4,none,Common,,blue_stripes_archer,,
-gwent_unit_08,northern,ranged,unit,4,none,Common,,siege_spotter,,
-gwent_unit_09,northern,ranged,unit,5,medic,Uncommon,,field_medic,,
-gwent_unit_10,northern,ranged,unit,5,morale,Uncommon,,ranged_banner,,
-gwent_unit_11,northern,ranged,unit,6,none,Common,,veteran_archer,,
-gwent_unit_12,northern,ranged,unit,6,tight_bond,Uncommon,,crinfrid_reaver,crinfrid_reavers,
-gwent_unit_13,northern,siege,unit,4,none,Common,,ballista_crew,,
-gwent_unit_14,northern,siege,unit,5,none,Common,,trebuchet_crew,,
-gwent_unit_15,northern,siege,unit,6,morale,Uncommon,,siege_captain,,
-gwent_unit_16,northern,siege,unit,7,scorch_siege,Uncommon,,siege_scorcher,,
-gwent_unit_17,scoiatael,melee,unit,5,agile,Uncommon,,elven_vanguard,,
-gwent_unit_18,scoiatael,ranged,unit,5,agile,Uncommon,,dwarven_skirmisher,,
-gwent_unit_19,monsters,melee,unit,6,muster,Uncommon,,nekker_pack,,nekker_pack
-gwent_unit_20,monsters,melee,unit,6,muster,Uncommon,,nekker_pack,,nekker_pack
-gwent_unit_21,nilfgaard,ranged,unit,7,spy,Uncommon,,imperial_informant,,
-gwent_unit_22,nilfgaard,siege,unit,8,medic,Uncommon,,imperial_medic,,
-rare_gwent_01,northern,melee,unit,10,hero,Rare,morale,legendary_commander,,
-rare_gwent_02,northern,ranged,unit,10,hero,Rare,,legendary_archer,,
-rare_gwent_03,northern,siege,unit,10,hero,Rare,,legendary_siege,,
-gwent_weather_frost,neutral,weather,special,0,weather_melee,Common,,biting_frost,,
-gwent_weather_fog,neutral,weather,special,0,weather_ranged,Common,,impenetrable_fog,,
-gwent_weather_rain,neutral,weather,special,0,weather_siege,Common,,torrential_rain,,
-gwent_clear_weather,neutral,special,special,0,clear_weather,Common,,clear_weather,,
-gwent_decoy,neutral,special,special,0,decoy,Uncommon,,decoy,,
-gwent_scorch,neutral,special,special,0,scorch,Uncommon,,scorch,,
-gwent_horn,neutral,special,special,0,commanders_horn,Uncommon,,commanders_horn,,
-gwent_larp_banner,neutral,special,special,0,custom_larp_order_banner,Uncommon,,larp_order_banner,,
-rare_gwent_04,neutral,special,special,0,custom_larp_spyglass,Rare,,larp_spyglass,,
-rare_gwent_05,neutral,special,special,0,custom_larp_oathbreak,Rare,,larp_oathbreak,,
-rare_gwent_06,neutral,special,special,0,custom_larp_last_stand,Rare,,larp_last_stand,,
+card_id,faction,row,type,strength,effect,rarity,ability_tags,name_group,bond_group,muster_group,display_name,effect_text,deck_limit,source_set
+gwent_leader_foltest_king,northern,leader,leader,0,leader_foltest_fog,Leader,,gwent_leader_foltest_king,,,Фольтест: Король Темерии,Лидер: достает из колоды Непроницаемый туман и сразу применяет его.,1,witcher3_base
+gwent_leader_wolf,northern,leader,leader,0,leader_foltest_clear_weather,Leader,,gwent_leader_wolf,,,Фольтест: Предводитель Севера,Лидер: убирает все погодные эффекты со стола.,1,witcher3_base
+gwent_leader_foltest_siegemaster,northern,leader,leader,0,leader_foltest_siege_horn,Leader,,gwent_leader_foltest_siegemaster,,,Фольтест: Мастер осады,Лидер: удваивает силу вашего осадного ряда как командирский рог.,1,witcher3_base
+gwent_leader_foltest_steel_forged,northern,leader,leader,0,leader_foltest_siege_scorch,Leader,,gwent_leader_foltest_steel_forged,,,Фольтест: Закаленный сталью,Лидер: казнит сильнейшие обычные карты осадного ряда соперника при сумме ряда 10+.,1,witcher3_base
+gwent_leader_emhyr_emperor,nilfgaard,leader,leader,0,leader_emhyr_spy_hand,Leader,,gwent_leader_emhyr_emperor,,,Эмгыр вар Эмрейс: Император Нильфгаарда,Лидер: смотрит три случайные карты в руке соперника.,1,witcher3_base
+gwent_leader_emhyr_imperial,nilfgaard,leader,leader,0,leader_emhyr_rain,Leader,,gwent_leader_emhyr_imperial,,,Эмгыр вар Эмрейс: Его императорское величество,Лидер: достает из колоды Ливень и сразу применяет его.,1,witcher3_base
+gwent_leader_nilfgaard,nilfgaard,leader,leader,0,leader_emhyr_graveyard_theft,Leader,,gwent_leader_nilfgaard,,,Эмгыр вар Эмрейс: Неумолимый,Лидер: берет одну обычную карту из сброса соперника в вашу руку.,1,witcher3_base
+gwent_leader_emhyr_white_flame,nilfgaard,leader,leader,0,leader_emhyr_cancel_leader,Leader,,gwent_leader_emhyr_white_flame,,,Эмгыр вар Эмрейс: Белое Пламя,Лидер: запрещает сопернику использовать способность его лидера.,1,witcher3_base
+gwent_leader_francesca_daisy,scoiatael,leader,leader,0,leader_francesca_draw,Leader,,gwent_leader_francesca_daisy,,,Францеска Финдабаир: Маргаритка из Долин,Лидер: дает одну дополнительную карту в начале партии.,1,witcher3_base
+gwent_leader_francesca_pureblood,scoiatael,leader,leader,0,leader_francesca_frost,Leader,,gwent_leader_francesca_pureblood,,,Францеска Финдабаир: Чистокровная эльфка,Лидер: достает из колоды Мороз и сразу применяет его.,1,witcher3_base
+gwent_leader_francesca_queen,scoiatael,leader,leader,0,leader_francesca_melee_scorch,Leader,,gwent_leader_francesca_queen,,,Францеска Финдабаир: Королева Дол Блатанны,Лидер: казнит сильнейшие обычные карты ближнего ряда соперника при сумме ряда 10+.,1,witcher3_base
+gwent_leader_scoiatael,scoiatael,leader,leader,0,leader_francesca_ranged_horn,Leader,,gwent_leader_scoiatael,,,Францеска Финдабаир: Прекрасная,Лидер: удваивает силу вашего дальнего ряда как командирский рог.,1,witcher3_base
+gwent_leader_eredin_bringer,monsters,leader,leader,0,leader_eredin_graveyard_return,Leader,,gwent_leader_eredin_bringer,,,Эредин: Несущий смерть,Лидер: возвращает одну обычную карту из вашего сброса в руку.,1,witcher3_base
+gwent_leader_monsters,monsters,leader,leader,0,leader_eredin_melee_horn,Leader,,gwent_leader_monsters,,,Эредин: Командир Красных Всадников,Лидер: удваивает силу вашего ближнего ряда как командирский рог.,1,witcher3_base
+gwent_leader_eredin_destroyer,monsters,leader,leader,0,leader_eredin_discard_draw,Leader,,gwent_leader_eredin_destroyer,,,Эредин: Разрушитель миров,Лидер: сбрасывает две карты из руки и добирает одну карту из колоды.,1,witcher3_base
+gwent_leader_eredin_king,monsters,leader,leader,0,leader_eredin_weather,Leader,,gwent_leader_eredin_king,,,Эредин: Король Дикой Охоты,Лидер: достает из колоды первую погодную карту и сразу применяет ее.,1,witcher3_base
+gwent_unit_13,northern,siege,unit,6,none,Common,,gwent_unit_13,,,Баллиста,Без особого эффекта.,1,witcher3_base
+gwent_unit_03,northern,melee,unit,4,tight_bond,Common,,blue_stripes_commando,blue_stripes_commando,,Боец Синих Полос,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+nr_blue_stripes_commando_2,northern,melee,unit,4,tight_bond,Common,,blue_stripes_commando,blue_stripes_commando,,Боец Синих Полос,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+nr_blue_stripes_commando_3,northern,melee,unit,4,tight_bond,Common,,blue_stripes_commando,blue_stripes_commando,,Боец Синих Полос,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+gwent_unit_16,northern,siege,unit,8,tight_bond,Common,,catapult,catapult,,Катапульта,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+nr_catapult_2,northern,siege,unit,8,tight_bond,Common,,catapult,catapult,,Катапульта,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+gwent_unit_12,northern,ranged,unit,5,tight_bond,Common,,crinfrid_reavers_dragon_hunter,crinfrid_reavers_dragon_hunter,,Охотник на драконов из Кринфрида,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+nr_crinfrid_reavers_dragon_hunter_2,northern,ranged,unit,5,tight_bond,Common,,crinfrid_reavers_dragon_hunter,crinfrid_reavers_dragon_hunter,,Охотник на драконов из Кринфрида,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+nr_crinfrid_reavers_dragon_hunter_3,northern,ranged,unit,5,tight_bond,Common,,crinfrid_reavers_dragon_hunter,crinfrid_reavers_dragon_hunter,,Охотник на драконов из Кринфрида,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+gwent_unit_10,northern,ranged,unit,6,none,Common,,gwent_unit_10,,,Детмольд,Без особого эффекта.,1,witcher3_base
+gwent_unit_09,northern,siege,unit,5,medic,Uncommon,,gwent_unit_09,,,Лекарь Бурой Хоругви,Лекарь: выбирает обычную карту из вашего сброса и сразу играет ее.,1,witcher3_base
+nr_esterad_thyssen,northern,melee,unit,10,hero,Hero,,nr_esterad_thyssen,,,Эстерад Тиссен,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+nr_john_natalis,northern,melee,unit,10,hero,Hero,,nr_john_natalis,,,Ян Наталис,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+gwent_unit_05,northern,siege,unit,1,morale,Common,,nr_kaedweni_siege_expert,,,Каэдвенский осадный мастер,Боевой дух: дает +1 всем другим обычным картам в этом ряду.,1,witcher3_base
+nr_kaedweni_siege_expert_2,northern,siege,unit,1,morale,Common,,nr_kaedweni_siege_expert,,,Каэдвенский осадный мастер,Боевой дух: дает +1 всем другим обычным картам в этом ряду.,1,witcher3_base
+nr_kaedweni_siege_expert_3,northern,siege,unit,1,morale,Common,,nr_kaedweni_siege_expert,,,Каэдвенский осадный мастер,Боевой дух: дает +1 всем другим обычным картам в этом ряду.,1,witcher3_base
+gwent_unit_07,northern,ranged,unit,5,none,Common,,gwent_unit_07,,,Кейра Мец,Без особого эффекта.,1,witcher3_base
+nr_philippa_eilhart,northern,ranged,unit,10,hero,Hero,,nr_philippa_eilhart,,,Филиппа Эйльхарт,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+nr_poor_fucking_infantry_1,northern,melee,unit,1,tight_bond,Common,,poor_fucking_infantry,poor_fucking_infantry,,Проклятая пехота,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+nr_poor_fucking_infantry_2,northern,melee,unit,1,tight_bond,Common,,poor_fucking_infantry,poor_fucking_infantry,,Проклятая пехота,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+nr_poor_fucking_infantry_3,northern,melee,unit,1,tight_bond,Common,,poor_fucking_infantry,poor_fucking_infantry,,Проклятая пехота,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+gwent_unit_06,northern,melee,unit,5,spy,Uncommon,,gwent_unit_06,,,Принц Стеннис,Шпион: кладется на сторону соперника и дает вам добор двух карт.,1,witcher3_base
+gwent_unit_01,northern,melee,unit,1,none,Common,,gwent_unit_01,,,Реданский пехотинец,Без особого эффекта.,1,witcher3_base
+gwent_unit_08,northern,ranged,unit,4,none,Common,,gwent_unit_08,,,Сабрина Глевиссиг,Без особого эффекта.,1,witcher3_base
+nr_sheldon_skaggs,northern,ranged,unit,4,none,Common,,nr_sheldon_skaggs,,,Шелдон Скаггс,Без особого эффекта.,1,witcher3_base
+gwent_unit_11,northern,siege,unit,6,none,Common,,gwent_unit_11,,,Осадная башня,Без особого эффекта.,1,witcher3_base
+gwent_unit_02,northern,melee,unit,5,none,Common,,gwent_unit_02,,,Зигфрид из Денесле,Без особого эффекта.,1,witcher3_base
+nr_sigismund_dijkstra,northern,melee,unit,4,spy,Uncommon,,nr_sigismund_dijkstra,,,Сигизмунд Дийкстра,Шпион: кладется на сторону соперника и дает вам добор двух карт.,1,witcher3_base
+nr_sile_de_tansarville,northern,ranged,unit,5,none,Common,,nr_sile_de_tansarville,,,Шеала де Тансервилль,Без особого эффекта.,1,witcher3_base
+nr_thaler,northern,siege,unit,1,spy,Uncommon,,nr_thaler,,,Талер,Шпион: кладется на сторону соперника и дает вам добор двух карт.,1,witcher3_base
+gwent_unit_14,northern,siege,unit,6,none,Common,,nr_trebuchet,,,Требушет,Без особого эффекта.,1,witcher3_base
+nr_trebuchet_2,northern,siege,unit,6,none,Common,,nr_trebuchet,,,Требушет,Без особого эффекта.,1,witcher3_base
+nr_vernon_roche,northern,melee,unit,10,hero,Hero,,nr_vernon_roche,,,Вернон Роше,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+nr_ves,northern,melee,unit,5,none,Common,,nr_ves,,,Вес,Без особого эффекта.,1,witcher3_base
+nr_yarpen_zigrin,northern,melee,unit,2,none,Common,,nr_yarpen_zigrin,,,Ярпен Зигрин,Без особого эффекта.,1,witcher3_base
+ng_albrich,nilfgaard,ranged,unit,2,none,Common,,ng_albrich,,,Альбрых,Без особого эффекта.,1,witcher3_base
+ng_assire_var_anahid,nilfgaard,ranged,unit,6,none,Common,,ng_assire_var_anahid,,,Ассирэ вар Анагыд,Без особого эффекта.,1,witcher3_base
+ng_black_infantry_archer_1,nilfgaard,ranged,unit,10,none,Common,,ng_black_infantry_archer,,,Лучник Черной пехоты,Без особого эффекта.,1,witcher3_base
+ng_black_infantry_archer_2,nilfgaard,ranged,unit,10,none,Common,,ng_black_infantry_archer,,,Лучник Черной пехоты,Без особого эффекта.,1,witcher3_base
+ng_cahir,nilfgaard,melee,unit,6,none,Common,,ng_cahir,,,Кагыр Маур Дыффин аэп Кеаллах,Без особого эффекта.,1,witcher3_base
+ng_cynthia,nilfgaard,ranged,unit,4,none,Common,,ng_cynthia,,,Цинтия,Без особого эффекта.,1,witcher3_base
+ng_etolian_auxiliary_archers_1,nilfgaard,ranged,unit,1,medic,Common,,ng_etolian_auxiliary_archers,,,Этолийские вспомогательные лучники,Лекарь: выбирает обычную карту из вашего сброса и сразу играет ее.,1,witcher3_base
+ng_etolian_auxiliary_archers_2,nilfgaard,ranged,unit,1,medic,Common,,ng_etolian_auxiliary_archers,,,Этолийские вспомогательные лучники,Лекарь: выбирает обычную карту из вашего сброса и сразу играет ее.,1,witcher3_base
+ng_fringilla_vigo,nilfgaard,ranged,unit,6,none,Common,,ng_fringilla_vigo,,,Фрингилья Виго,Без особого эффекта.,1,witcher3_base
+ng_heavy_zerrikanian_fire_scorpion,nilfgaard,siege,unit,10,none,Common,,ng_heavy_zerrikanian_fire_scorpion,,,Тяжелый зэрриканский огненный скорпион,Без особого эффекта.,1,witcher3_base
+ng_impera_brigade_guard_1,nilfgaard,melee,unit,3,tight_bond,Common,,impera_brigade_guard,impera_brigade_guard,,Гвардеец бригады Импера,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+ng_impera_brigade_guard_2,nilfgaard,melee,unit,3,tight_bond,Common,,impera_brigade_guard,impera_brigade_guard,,Гвардеец бригады Импера,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+ng_impera_brigade_guard_3,nilfgaard,melee,unit,3,tight_bond,Common,,impera_brigade_guard,impera_brigade_guard,,Гвардеец бригады Импера,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+ng_impera_brigade_guard_4,nilfgaard,melee,unit,3,tight_bond,Common,,impera_brigade_guard,impera_brigade_guard,,Гвардеец бригады Импера,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+ng_letho_of_gulet,nilfgaard,melee,unit,10,hero,Hero,,ng_letho_of_gulet,,,Лето из Гулеты,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+ng_menno_coehoorn,nilfgaard,melee,unit,10,hero,Hero,medic,ng_menno_coehoorn,,,Менно Коегоорн,"Герой: не подвержен погоде, казни, рогу и большинству способностей.; Лекарь: выбирает обычную карту из вашего сброса и сразу играет ее.",1,witcher3_base
+ng_morteisen,nilfgaard,melee,unit,3,none,Common,,ng_morteisen,,,Мортейзен,Без особого эффекта.,1,witcher3_base
+ng_morvran_voorhis,nilfgaard,siege,unit,10,hero,Hero,,ng_morvran_voorhis,,,Морвран Воорхис,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+ng_nausicaa_cavalry_rider_1,nilfgaard,melee,unit,2,tight_bond,Common,,nausicaa_cavalry_rider,nausicaa_cavalry_rider,,Всадник кавалерии Наузикаа,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+ng_nausicaa_cavalry_rider_2,nilfgaard,melee,unit,2,tight_bond,Common,,nausicaa_cavalry_rider,nausicaa_cavalry_rider,,Всадник кавалерии Наузикаа,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+ng_nausicaa_cavalry_rider_3,nilfgaard,melee,unit,2,tight_bond,Common,,nausicaa_cavalry_rider,nausicaa_cavalry_rider,,Всадник кавалерии Наузикаа,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+ng_puttkammer,nilfgaard,ranged,unit,3,none,Common,,ng_puttkammer,,,Путткамер,Без особого эффекта.,1,witcher3_base
+ng_rainfarn,nilfgaard,melee,unit,4,none,Common,,ng_rainfarn,,,Райнфарн,Без особого эффекта.,1,witcher3_base
+ng_renuald_aep_matsen,nilfgaard,ranged,unit,5,none,Common,,ng_renuald_aep_matsen,,,Ренуальд аэп Матсен,Без особого эффекта.,1,witcher3_base
+ng_rotten_mangonel,nilfgaard,siege,unit,3,none,Common,,ng_rotten_mangonel,,,Гнилая мангонель,Без особого эффекта.,1,witcher3_base
+gwent_unit_21,nilfgaard,melee,unit,7,spy,Uncommon,,gwent_unit_21,,,Шилярд Фиц-Эстерлен,Шпион: кладется на сторону соперника и дает вам добор двух карт.,1,witcher3_base
+ng_siege_engineer_1,nilfgaard,siege,unit,6,none,Common,,ng_siege_engineer,,,Осадный инженер,Без особого эффекта.,1,witcher3_base
+ng_siege_engineer_2,nilfgaard,siege,unit,6,none,Common,,ng_siege_engineer,,,Осадный инженер,Без особого эффекта.,1,witcher3_base
+gwent_unit_22,nilfgaard,siege,unit,0,medic,Uncommon,,gwent_unit_22,,,Осадный техник,Лекарь: выбирает обычную карту из вашего сброса и сразу играет ее.,1,witcher3_base
+ng_stefan_skellen,nilfgaard,melee,unit,9,spy,Uncommon,,ng_stefan_skellen,,,Стефан Скеллен,Шпион: кладется на сторону соперника и дает вам добор двух карт.,1,witcher3_base
+ng_sweers,nilfgaard,ranged,unit,2,none,Common,,ng_sweers,,,Свирс,Без особого эффекта.,1,witcher3_base
+ng_tibor_eggebracht,nilfgaard,ranged,unit,10,hero,Hero,,ng_tibor_eggebracht,,,Тибор Эггебрахт,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+ng_vanhemar,nilfgaard,ranged,unit,4,none,Common,,ng_vanhemar,,,Вангемар,Без особого эффекта.,1,witcher3_base
+ng_vattier_de_rideaux,nilfgaard,melee,unit,4,spy,Uncommon,,ng_vattier_de_rideaux,,,Ватье де Ридо,Шпион: кладется на сторону соперника и дает вам добор двух карт.,1,witcher3_base
+ng_vreemde,nilfgaard,melee,unit,2,none,Common,,ng_vreemde,,,Вреемде,Без особого эффекта.,1,witcher3_base
+ng_young_emissary_1,nilfgaard,melee,unit,5,tight_bond,Common,,young_emissary,young_emissary,,Молодой посол,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+ng_young_emissary_2,nilfgaard,melee,unit,5,tight_bond,Common,,young_emissary,young_emissary,,Молодой посол,Связка: карты одной группы умножают свою силу друг на друга.,1,witcher3_base
+ng_zerrikanian_fire_scorpion,nilfgaard,siege,unit,5,none,Common,,ng_zerrikanian_fire_scorpion,,,Зэрриканский огненный скорпион,Без особого эффекта.,1,witcher3_base
+gwent_unit_17,scoiatael,melee,unit,6,agile,Common,,gwent_unit_17,,,Барклай Эльс,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+sc_ciaran,scoiatael,melee,unit,3,agile,Common,,sc_ciaran,,,Киаран аэп Эасниллен,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+sc_dennis_cranmer,scoiatael,melee,unit,6,none,Common,,sc_dennis_cranmer,,,Деннис Кранмер,Без особого эффекта.,1,witcher3_base
+sc_dol_blathanna_archer,scoiatael,ranged,unit,4,none,Common,,sc_dol_blathanna_archer,,,Лучник Дол Блатанны,Без особого эффекта.,1,witcher3_base
+sc_dol_blathanna_scout_1,scoiatael,melee,unit,6,agile,Common,,sc_dol_blathanna_scout,,,Разведчик Дол Блатанны,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+sc_dol_blathanna_scout_2,scoiatael,melee,unit,6,agile,Common,,sc_dol_blathanna_scout,,,Разведчик Дол Блатанны,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+sc_dol_blathanna_scout_3,scoiatael,melee,unit,6,agile,Common,,sc_dol_blathanna_scout,,,Разведчик Дол Блатанны,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+gwent_unit_18,scoiatael,melee,unit,3,muster,Common,,sc_dwarven_skirmisher,,dwarven_skirmisher,Краснолюд-застрельщик,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+sc_dwarven_skirmisher_2,scoiatael,melee,unit,3,muster,Common,,sc_dwarven_skirmisher,,dwarven_skirmisher,Краснолюд-застрельщик,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+sc_dwarven_skirmisher_3,scoiatael,melee,unit,3,muster,Common,,sc_dwarven_skirmisher,,dwarven_skirmisher,Краснолюд-застрельщик,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+sc_eithne,scoiatael,ranged,unit,10,hero,Hero,,sc_eithne,,,Эитнэ,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+sc_elven_skirmisher_1,scoiatael,ranged,unit,2,muster,Common,,sc_elven_skirmisher,,elven_skirmisher,Эльф-застрельщик,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+sc_elven_skirmisher_2,scoiatael,ranged,unit,2,muster,Common,,sc_elven_skirmisher,,elven_skirmisher,Эльф-застрельщик,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+sc_elven_skirmisher_3,scoiatael,ranged,unit,2,muster,Common,,sc_elven_skirmisher,,elven_skirmisher,Эльф-застрельщик,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+sc_filavandrel,scoiatael,melee,unit,6,agile,Common,,sc_filavandrel,,,Филавандрель аэн Фидаиль,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+sc_havekar_healer_1,scoiatael,ranged,unit,0,medic,Common,,sc_havekar_healer,,,Гавенкар-лекарь,Лекарь: выбирает обычную карту из вашего сброса и сразу играет ее.,1,witcher3_base
+sc_havekar_healer_2,scoiatael,ranged,unit,0,medic,Common,,sc_havekar_healer,,,Гавенкар-лекарь,Лекарь: выбирает обычную карту из вашего сброса и сразу играет ее.,1,witcher3_base
+sc_havekar_healer_3,scoiatael,ranged,unit,0,medic,Common,,sc_havekar_healer,,,Гавенкар-лекарь,Лекарь: выбирает обычную карту из вашего сброса и сразу играет ее.,1,witcher3_base
+sc_havekar_smuggler_1,scoiatael,melee,unit,5,muster,Common,,sc_havekar_smuggler,,havekar_smuggler,Гавенкар-контрабандист,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+sc_havekar_smuggler_2,scoiatael,melee,unit,5,muster,Common,,sc_havekar_smuggler,,havekar_smuggler,Гавенкар-контрабандист,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+sc_havekar_smuggler_3,scoiatael,melee,unit,5,muster,Common,,sc_havekar_smuggler,,havekar_smuggler,Гавенкар-контрабандист,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+sc_ida_emean,scoiatael,ranged,unit,6,none,Common,,sc_ida_emean,,,Ида Эмеан аэп Сивней,Без особого эффекта.,1,witcher3_base
+sc_iorveth,scoiatael,ranged,unit,10,hero,Hero,,sc_iorveth,,,Иорвет,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+rare_gwent_01,scoiatael,melee,unit,10,hero,Hero,morale,rare_gwent_01,,,Изенгрим Фаоильтиарна,"Герой: не подвержен погоде, казни, рогу и большинству способностей.; Боевой дух: дает +1 всем другим обычным картам в этом ряду.",1,witcher3_base
+sc_mahakaman_defender_1,scoiatael,melee,unit,5,none,Common,,sc_mahakaman_defender,,,Защитник Махакам,Без особого эффекта.,1,witcher3_base
+sc_mahakaman_defender_2,scoiatael,melee,unit,5,none,Common,,sc_mahakaman_defender,,,Защитник Махакам,Без особого эффекта.,1,witcher3_base
+sc_mahakaman_defender_3,scoiatael,melee,unit,5,none,Common,,sc_mahakaman_defender,,,Защитник Махакам,Без особого эффекта.,1,witcher3_base
+sc_mahakaman_defender_4,scoiatael,melee,unit,5,none,Common,,sc_mahakaman_defender,,,Защитник Махакам,Без особого эффекта.,1,witcher3_base
+sc_mahakaman_defender_5,scoiatael,melee,unit,5,none,Common,,sc_mahakaman_defender,,,Защитник Махакам,Без особого эффекта.,1,witcher3_base
+sc_milva,scoiatael,ranged,unit,10,morale,Uncommon,,sc_milva,,,Мильва,Боевой дух: дает +1 всем другим обычным картам в этом ряду.,1,witcher3_base
+sc_riordain,scoiatael,ranged,unit,1,none,Common,,sc_riordain,,,Риордаин,Без особого эффекта.,1,witcher3_base
+sc_saesenthessis,scoiatael,ranged,unit,10,hero,Hero,,sc_saesenthessis,,,Саэсентессис,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+sc_toruviel,scoiatael,ranged,unit,2,none,Common,,sc_toruviel,,,Торувьель,Без особого эффекта.,1,witcher3_base
+sc_vrihedd_brigade_recruit,scoiatael,ranged,unit,4,none,Common,,sc_vrihedd_brigade_recruit,,,Новобранец бригады Врихедд,Без особого эффекта.,1,witcher3_base
+sc_vrihedd_brigade_veteran_1,scoiatael,melee,unit,5,agile,Common,,sc_vrihedd_brigade_veteran,,,Ветеран бригады Врихедд,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+sc_vrihedd_brigade_veteran_2,scoiatael,melee,unit,5,agile,Common,,sc_vrihedd_brigade_veteran,,,Ветеран бригады Врихедд,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+sc_yaevinn,scoiatael,melee,unit,6,agile,Common,,sc_yaevinn,,,Яевинн,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+mo_arachas_1,monsters,melee,unit,4,muster,Common,,mo_arachas,,arachas,Арахас,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_arachas_2,monsters,melee,unit,4,muster,Common,,mo_arachas,,arachas,Арахас,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_arachas_3,monsters,melee,unit,4,muster,Common,,mo_arachas,,arachas,Арахас,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_arachas_behemoth,monsters,siege,unit,6,muster,Common,,mo_arachas_behemoth,,arachas,Арахас-бегемот,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_botchling,monsters,melee,unit,4,none,Common,,mo_botchling,,,Игоша,Без особого эффекта.,1,witcher3_base
+mo_celaeno_harpy,monsters,melee,unit,2,agile,Common,,mo_celaeno_harpy,,,Гарпия келено,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+mo_cockatrice,monsters,ranged,unit,2,none,Common,,mo_cockatrice,,,Кокатрикс,Без особого эффекта.,1,witcher3_base
+mo_crone_brewess,monsters,melee,unit,6,muster,Common,,mo_crone_brewess,,crones,Ведьма: Кухарка,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_crone_weavess,monsters,melee,unit,6,muster,Common,,mo_crone_weavess,,crones,Ведьма: Пряха,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_crone_whispess,monsters,melee,unit,6,muster,Common,,mo_crone_whispess,,crones,Ведьма: Шептуха,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_draug,monsters,melee,unit,10,hero,Hero,,mo_draug,,,Драуг,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+mo_earth_elemental,monsters,siege,unit,6,none,Common,,mo_earth_elemental,,,Земной элементаль,Без особого эффекта.,1,witcher3_base
+mo_endrega,monsters,ranged,unit,2,none,Common,,mo_endrega,,,Эндриага,Без особого эффекта.,1,witcher3_base
+mo_fiend,monsters,melee,unit,6,none,Common,,mo_fiend,,,Бес,Без особого эффекта.,1,witcher3_base
+mo_fire_elemental,monsters,siege,unit,6,none,Common,,mo_fire_elemental,,,Огненный элементаль,Без особого эффекта.,1,witcher3_base
+mo_foglet,monsters,melee,unit,2,none,Common,,mo_foglet,,,Туманник,Без особого эффекта.,1,witcher3_base
+mo_forktail,monsters,melee,unit,5,none,Common,,mo_forktail,,,Вилохвост,Без особого эффекта.,1,witcher3_base
+mo_frightener,monsters,melee,unit,5,none,Common,,mo_frightener,,,Пугач,Без особого эффекта.,1,witcher3_base
+mo_gargoyle,monsters,ranged,unit,2,none,Common,,mo_gargoyle,,,Гаргулья,Без особого эффекта.,1,witcher3_base
+mo_ghoul_1,monsters,melee,unit,1,muster,Common,,mo_ghoul,,ghoul,Гуль,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_ghoul_2,monsters,melee,unit,1,muster,Common,,mo_ghoul,,ghoul,Гуль,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_ghoul_3,monsters,melee,unit,1,muster,Common,,mo_ghoul,,ghoul,Гуль,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_grave_hag,monsters,ranged,unit,5,none,Common,,mo_grave_hag,,,Кладбищенская баба,Без особого эффекта.,1,witcher3_base
+mo_griffin,monsters,melee,unit,5,none,Common,,mo_griffin,,,Грифон,Без особого эффекта.,1,witcher3_base
+mo_harpy,monsters,melee,unit,2,agile,Common,,mo_harpy,,,Гарпия,Гибкая карта: может быть сыграна в ближний или дальний ряд.,1,witcher3_base
+mo_ice_giant,monsters,siege,unit,5,none,Common,,mo_ice_giant,,,Ледяной великан,Без особого эффекта.,1,witcher3_base
+mo_imlerith,monsters,melee,unit,10,hero,Hero,,mo_imlerith,,,Имлерих,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+mo_kayran,monsters,melee,unit,8,hero,Hero,morale;agile,mo_kayran,,,Кейран,"Герой: не подвержен погоде, казни, рогу и большинству способностей.; Боевой дух: дает +1 всем другим обычным картам в этом ряду.; Гибкая карта: может быть сыграна в ближний или дальний ряд.",1,witcher3_base
+mo_leshen,monsters,ranged,unit,10,hero,Hero,,mo_leshen,,,Леший,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+gwent_unit_19,monsters,melee,unit,2,muster,Common,,mo_nekker,,nekker,Накер,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+gwent_unit_20,monsters,melee,unit,2,muster,Common,,mo_nekker,,nekker,Накер,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_nekker_3,monsters,melee,unit,2,muster,Common,,mo_nekker,,nekker,Накер,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_plague_maiden,monsters,melee,unit,5,none,Common,,mo_plague_maiden,,,Моровая дева,Без особого эффекта.,1,witcher3_base
+mo_vampire_bruxa,monsters,melee,unit,4,muster,Common,,mo_vampire_bruxa,,vampire,Вампир: Брукса,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_vampire_ekimmara,monsters,melee,unit,4,muster,Common,,mo_vampire_ekimmara,,vampire,Вампир: Экимма,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_vampire_fleder,monsters,melee,unit,4,muster,Common,,mo_vampire_fleder,,vampire,Вампир: Фледер,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_vampire_garkain,monsters,melee,unit,4,muster,Common,,mo_vampire_garkain,,vampire,Вампир: Гаркаин,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_vampire_katakan,monsters,melee,unit,5,muster,Common,,mo_vampire_katakan,,vampire,Вампир: Катакан,Сбор: вытаскивает из руки и колоды все карты той же группы.,1,witcher3_base
+mo_werewolf,monsters,melee,unit,5,none,Common,,mo_werewolf,,,Вервольф,Без особого эффекта.,1,witcher3_base
+mo_wyvern,monsters,ranged,unit,2,none,Common,,mo_wyvern,,,Виверна,Без особого эффекта.,1,witcher3_base
+gwent_weather_frost,neutral,weather,special,0,weather_melee,Special,,neutral_biting_frost,,,Мороз,Мороз: сила всех обычных карт ближнего ряда у обоих игроков становится 1.,1,witcher3_base
+neutral_biting_frost_2,neutral,weather,special,0,weather_melee,Special,,neutral_biting_frost,,,Мороз,Мороз: сила всех обычных карт ближнего ряда у обоих игроков становится 1.,1,witcher3_base
+neutral_biting_frost_3,neutral,weather,special,0,weather_melee,Special,,neutral_biting_frost,,,Мороз,Мороз: сила всех обычных карт ближнего ряда у обоих игроков становится 1.,1,witcher3_base
+gwent_clear_weather,neutral,special,special,0,clear_weather,Special,,neutral_clear_weather,,,Ясная погода,Ясная погода: убирает все погодные эффекты со стола.,1,witcher3_base
+neutral_clear_weather_2,neutral,special,special,0,clear_weather,Special,,neutral_clear_weather,,,Ясная погода,Ясная погода: убирает все погодные эффекты со стола.,1,witcher3_base
+neutral_clear_weather_3,neutral,special,special,0,clear_weather,Special,,neutral_clear_weather,,,Ясная погода,Ясная погода: убирает все погодные эффекты со стола.,1,witcher3_base
+gwent_horn,neutral,special,special,0,commanders_horn,Special,,neutral_commanders_horn,,,Командирский рог,Командирский рог: удваивает силу обычных карт выбранного вашего ряда.,1,witcher3_base
+neutral_commanders_horn_2,neutral,special,special,0,commanders_horn,Special,,neutral_commanders_horn,,,Командирский рог,Командирский рог: удваивает силу обычных карт выбранного вашего ряда.,1,witcher3_base
+neutral_commanders_horn_3,neutral,special,special,0,commanders_horn,Special,,neutral_commanders_horn,,,Командирский рог,Командирский рог: удваивает силу обычных карт выбранного вашего ряда.,1,witcher3_base
+neutral_commanders_horn_4,neutral,special,special,0,commanders_horn,Special,,neutral_commanders_horn,,,Командирский рог,Командирский рог: удваивает силу обычных карт выбранного вашего ряда.,1,witcher3_base
+gwent_decoy,neutral,special,special,0,decoy,Special,,neutral_decoy,,,Чучело,Чучело: возвращает вашу обычную карту со стола в руку и уходит в сброс.,1,witcher3_base
+neutral_decoy_2,neutral,special,special,0,decoy,Special,,neutral_decoy,,,Чучело,Чучело: возвращает вашу обычную карту со стола в руку и уходит в сброс.,1,witcher3_base
+neutral_decoy_3,neutral,special,special,0,decoy,Special,,neutral_decoy,,,Чучело,Чучело: возвращает вашу обычную карту со стола в руку и уходит в сброс.,1,witcher3_base
+neutral_emiel_regis,neutral,melee,unit,5,none,Common,,neutral_emiel_regis,,,Эмиель Регис Рогеллек Терзиефф,Без особого эффекта.,1,witcher3_base
+rare_gwent_03,neutral,melee,unit,15,hero,Hero,,rare_gwent_03,,,Цирилла Фиона Элен Рианнон,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+rare_gwent_02,neutral,melee,unit,15,hero,Hero,,rare_gwent_02,,,Геральт из Ривии,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+gwent_weather_fog,neutral,weather,special,0,weather_ranged,Special,,neutral_impenetrable_fog,,,Непроницаемый туман,Туман: сила всех обычных карт дальнего ряда у обоих игроков становится 1.,1,witcher3_base
+neutral_impenetrable_fog_2,neutral,weather,special,0,weather_ranged,Special,,neutral_impenetrable_fog,,,Непроницаемый туман,Туман: сила всех обычных карт дальнего ряда у обоих игроков становится 1.,1,witcher3_base
+neutral_impenetrable_fog_3,neutral,weather,special,0,weather_ranged,Special,,neutral_impenetrable_fog,,,Непроницаемый туман,Туман: сила всех обычных карт дальнего ряда у обоих игроков становится 1.,1,witcher3_base
+rare_gwent_04,neutral,melee,unit,0,hero,Hero,spy,rare_gwent_04,,,Таинственный эльф,"Герой: не подвержен погоде, казни, рогу и большинству способностей.; Шпион: кладется на сторону соперника и дает вам добор двух карт.",1,witcher3_base
+gwent_scorch,neutral,special,special,0,scorch,Special,,neutral_scorch,,,Казнь,Казнь: уничтожает самые сильные обычные карты на столе.,1,witcher3_base
+neutral_scorch_2,neutral,special,special,0,scorch,Special,,neutral_scorch,,,Казнь,Казнь: уничтожает самые сильные обычные карты на столе.,1,witcher3_base
+neutral_scorch_3,neutral,special,special,0,scorch,Special,,neutral_scorch,,,Казнь,Казнь: уничтожает самые сильные обычные карты на столе.,1,witcher3_base
+gwent_weather_rain,neutral,weather,special,0,weather_siege,Special,,neutral_torrential_rain,,,Ливень,Ливень: сила всех обычных карт осадного ряда у обоих игроков становится 1.,1,witcher3_base
+neutral_torrential_rain_2,neutral,weather,special,0,weather_siege,Special,,neutral_torrential_rain,,,Ливень,Ливень: сила всех обычных карт осадного ряда у обоих игроков становится 1.,1,witcher3_base
+neutral_torrential_rain_3,neutral,weather,special,0,weather_siege,Special,,neutral_torrential_rain,,,Ливень,Ливень: сила всех обычных карт осадного ряда у обоих игроков становится 1.,1,witcher3_base
+neutral_triss,neutral,melee,unit,7,hero,Hero,,neutral_triss,,,Трисс Меригольд,"Герой: не подвержен погоде, казни, рогу и большинству способностей.",1,witcher3_base
+neutral_vesemir,neutral,melee,unit,6,none,Common,,neutral_vesemir,,,Весемир,Без особого эффекта.,1,witcher3_base
+rare_gwent_06,neutral,melee,unit,2,commanders_horn,Uncommon,,rare_gwent_06,,,Лютик,Командирский рог: удваивает силу обычных карт выбранного вашего ряда.,1,witcher3_base
+neutral_villentretenmerth,neutral,melee,unit,7,scorch_melee,Uncommon,,neutral_villentretenmerth,,,Виллентретенмерт,Казнь ближнего ряда: уничтожает сильнейшие обычные карты ближнего ряда соперника при сумме ряда 10+.,1,witcher3_base
+rare_gwent_05,neutral,ranged,unit,7,hero,Hero,medic,rare_gwent_05,,,Йеннифэр из Венгерберга,"Герой: не подвержен погоде, казни, рогу и большинству способностей.; Лекарь: выбирает обычную карту из вашего сброса и сразу играет ее.",1,witcher3_base
+neutral_zoltan,neutral,melee,unit,5,none,Common,,neutral_zoltan,,,Золтан Хивай,Без особого эффекта.,1,witcher3_base

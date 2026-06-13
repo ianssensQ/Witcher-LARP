@@ -34,6 +34,9 @@ from .lord_runtime import ensure_lord_runtime_state
 from .lord_runtime import preview_lord_route, recruit_action
 from .lord_runtime import reconcile_pending_lord_moves
 from .lord_runtime import start_raid, transfer_garrison
+from .material_market_service import MaterialMarketError
+from .material_market_service import ensure_material_market_runtime_state
+from .material_market_service import sell_material_to_market
 from .npc_service import NpcEventError, NpcEventInput
 from .npc_service import list_npc_deals, list_npc_events, record_npc_event
 from .npc_service import resolve_npc_event, review_queue
@@ -215,6 +218,13 @@ class PotionUsePayload(BaseModel):
     potion_id: str
     scene_id: str
     source: str = "mobile_api"
+
+
+class MaterialMarketSellPayload(BaseModel):
+    material_id: str
+    quantity: int = 1
+    sale_id: str | None = None
+    source: str = "ios_player_app"
 
 
 class TradeCreatePayload(BaseModel):
@@ -405,6 +415,7 @@ class GwentActionPayload(BaseModel):
     card_id: str | None = None
     row: str | None = None
     target_card_id: str | None = None
+    discard_card_ids: list[str] | None = None
     revive_card_id: str | None = None
     revive_row: str | None = None
     action_id: str | None = None
@@ -778,6 +789,7 @@ def create_app(settings: Settings | None = None):
             _require_master_token(connection, x_role_token or role_token)
             ensure_lord_runtime_state(connection)
             ensure_sorceress_runtime_state(connection)
+            ensure_material_market_runtime_state(connection)
             act_state = get_act_state(connection, runtime_settings)
             current_act_id = act_state["state"].get("current_act_id")
             start_result = None
@@ -1636,6 +1648,35 @@ def create_app(settings: Settings | None = None):
             except SorceressError as exc:
                 raise _sorceress_http_error(exc) from exc
 
+    @api.post("/api/players/{player_id}/material-market/sell")
+    def player_sell_material_to_market(
+        player_id: str,
+        payload: MaterialMarketSellPayload,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        player_code: str | None = None,
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_player_or_master(
+                connection,
+                player_id=player_id,
+                player_code=x_player_code or player_code,
+                role_token=x_role_token or role_token,
+            )
+            _reconcile_due_timers(connection, runtime_settings)
+            try:
+                return sell_material_to_market(
+                    connection,
+                    player_id=player_id,
+                    material_id=payload.material_id,
+                    quantity=payload.quantity,
+                    sale_id=payload.sale_id,
+                    source=payload.source,
+                )
+            except MaterialMarketError as exc:
+                raise _material_market_http_error(exc) from exc
+
     @api.post("/api/trade-transfers")
     def trade_transfer_create(
         payload: TradeCreatePayload,
@@ -2034,10 +2075,10 @@ def create_app(settings: Settings | None = None):
             ).fetchone()
             if match_exists is None:
                 raise HTTPException(status_code=400, detail=f"Unknown Gwent match: {match_id}")
-            if not auth["is_master"] and payload.source not in {"paper_recovered", "legacy_fallback"}:
+            if not auth["is_master"]:
                 raise HTTPException(
                     status_code=403,
-                    detail="Legacy round submission is reserved for master or paper fallback; use /actions for gameplay.",
+                    detail="Round submission is reserved for master correction; use /actions for gameplay.",
                 )
             _assert_round_payload_actor_scope(round_state, auth)
             _reconcile_due_timers(connection, runtime_settings)
@@ -2085,6 +2126,7 @@ def create_app(settings: Settings | None = None):
                         card_id=payload.card_id,
                         row=payload.row,
                         target_card_id=payload.target_card_id,
+                        discard_card_ids=payload.discard_card_ids,
                         revive_card_id=payload.revive_card_id,
                         revive_row=payload.revive_row,
                         action_id=payload.action_id,
@@ -2996,6 +3038,13 @@ def _battle_http_error(exc: LordBattleError):
 
 
 def _sorceress_http_error(exc: SorceressError):
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+
+
+def _material_market_http_error(exc: MaterialMarketError):
     return HTTPException(
         status_code=exc.status_code,
         detail={"code": exc.code, "message": str(exc)},

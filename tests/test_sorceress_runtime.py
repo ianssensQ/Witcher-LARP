@@ -777,7 +777,7 @@ class SorceressRuntimeTests(unittest.TestCase):
                 connection,
                 owner_player_id="p_witcher_1",
                 asset_type="item",
-                asset_id="item_herb_bundle",
+                asset_id="item_order_seal",
                 source="test_seed",
                 source_ref_id="api_trade_accept_owned",
             )
@@ -785,7 +785,7 @@ class SorceressRuntimeTests(unittest.TestCase):
                 connection,
                 owner_player_id="p_witcher_1",
                 asset_type="item",
-                asset_id="item_silver_dust",
+                asset_id="item_beast_fang",
                 source="test_seed",
                 source_ref_id="api_trade_decline_owned",
             )
@@ -869,7 +869,7 @@ class SorceressRuntimeTests(unittest.TestCase):
                 "from_player_id": "p_witcher_1",
                 "to_player_id": "p_witcher_2",
                 "asset_type": "item",
-                "asset_id": "item_herb_bundle",
+                "asset_id": "item_order_seal",
             },
         )
         trade_accepted = client.post(
@@ -890,7 +890,7 @@ class SorceressRuntimeTests(unittest.TestCase):
                 "from_player_id": "p_witcher_1",
                 "to_player_id": "p_witcher_2",
                 "asset_type": "item",
-                "asset_id": "item_silver_dust",
+                "asset_id": "item_beast_fang",
             },
         )
         wrong_trade_accept = client.post(
@@ -1029,7 +1029,7 @@ class SorceressRuntimeTests(unittest.TestCase):
                 "from_player_id": "p_witcher_1",
                 "to_player_id": "p_witcher_2",
                 "asset_type": "item",
-                "asset_id": "item_herb_bundle",
+                "asset_id": "item_order_seal",
             },
         )
         foreign_trade_accept = client.post(
@@ -1058,7 +1058,7 @@ class SorceressRuntimeTests(unittest.TestCase):
                 "from_player_id": "p_witcher_1",
                 "to_player_id": "p_witcher_2",
                 "asset_type": "item",
-                "asset_id": "item_herb_bundle",
+                "asset_id": "item_order_seal",
                 "auto_accept": True,
             },
         )
@@ -1069,7 +1069,7 @@ class SorceressRuntimeTests(unittest.TestCase):
                 "from_player_id": "p_witcher_1",
                 "to_player_id": "p_witcher_2",
                 "asset_type": "item",
-                "asset_id": "item_herb_bundle",
+                "asset_id": "item_order_seal",
                 "auto_accept": True,
             },
         )

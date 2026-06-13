@@ -924,7 +924,7 @@ class Stage1GateRoleFlowTests(unittest.TestCase):
                 "from_player_id": "p_witcher_1",
                 "to_player_id": "p_lord_1",
                 "asset_type": "item",
-                "asset_id": "item_herb_bundle",
+                "asset_id": "item_order_seal",
             },
         )
         self.assertEqual(trade_created["status"], "pending_locked")

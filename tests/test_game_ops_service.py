@@ -11,6 +11,7 @@ from backend.witcher_larp.game_ops_service import GameOpsCorrectionError
 from backend.witcher_larp.game_ops_service import apply_game_ops_correction, build_master_state
 from backend.witcher_larp.import_service import import_seed_pack
 from backend.witcher_larp.runtime_schema import log_event
+from backend.witcher_larp.snapshot_exporter import build_snapshot_from_database
 
 
 FIXTURE_MANIFEST = PROJECT_ROOT / "tests" / "fixtures" / "seed_valid" / "fixture_manifest.csv"
@@ -101,7 +102,19 @@ class GameOpsServiceTests(unittest.TestCase):
                 operator="gm_ops",
                 reason="paper economy recovery checked",
             )
+            goal_correction = apply_game_ops_correction(
+                connection,
+                target_type="personal_goal",
+                target_id="goal_witcher_1",
+                patch={"public_text": "Закрыть контракт на чудовище у мастера"},
+                operator="gm_ops",
+                reason="player goal text clarified for journal screen",
+            )
             final_state = build_master_state(connection, settings)
+            scoped_snapshot = build_snapshot_from_database(
+                connection,
+                player_code="WC-WOLF-6GF4",
+            )
 
         self.assertEqual(market_correction["target_type"], "potion_market")
         self.assertEqual(market_correction["after"]["stock"], int(market["stock"]) + 2)
@@ -110,10 +123,23 @@ class GameOpsServiceTests(unittest.TestCase):
         self.assertEqual(trade_correction["after"]["price_gold"], 3)
         self.assertEqual(player_correction["target_type"], "player")
         self.assertEqual(player_correction["after"]["gold"], int(player["gold"]) + 5)
+        self.assertEqual(goal_correction["target_type"], "personal_goal")
+        self.assertEqual(
+            goal_correction["after"]["public_text"],
+            "Закрыть контракт на чудовище у мастера",
+        )
+        self.assertIsNotNone(scoped_snapshot)
+        assert scoped_snapshot is not None
+        self.assertEqual(
+            scoped_snapshot["goals"]["personal_goals"][0]["public_text"],
+            "Закрыть контракт на чудовище у мастера",
+        )
         recent_types = {row["target_type"] for row in final_state["corrections"]}
         self.assertIn("potion_market", recent_types)
         self.assertIn("trade_transfer", recent_types)
         self.assertIn("player", recent_types)
+        self.assertIn("personal_goal", recent_types)
+        self.assertTrue(final_state["economy"]["personal_goals"])
 
     def test_master_state_exposes_lord_command_center_payloads(self) -> None:
         settings = self._settings("game_ops_lord_command")

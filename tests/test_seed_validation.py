@@ -213,15 +213,15 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             ),
             (
                 "gwent_cards.csv",
-                "card_id,faction,row,type,strength,effect,rarity,ability_tags,name_group,bond_group,muster_group\n"
-                "bad_leader,northern,melee,leader,0,leader_order_rally,Uncommon,,bad_leader,,\n"
-                "bad_unit,northern,special,unit,4,none,Common,,bad_unit,,\n",
+                "card_id,faction,row,type,strength,effect,rarity,ability_tags,name_group,bond_group,muster_group,display_name,effect_text,deck_limit,source_set\n"
+                "bad_leader,northern,melee,leader,0,leader_foltest_clear_weather,Uncommon,,bad_leader,,,Bad Leader,bad,1,test\n"
+                "bad_unit,northern,special,unit,4,none,Common,,bad_unit,,,Bad Unit,bad,1,test\n",
                 {"gwent_card_invalid"},
             ),
             (
                 "gwent_cards.csv",
-                "card_id,faction,row,type,strength,effect,rarity,ability_tags,name_group,bond_group,muster_group\n"
-                "bad_effect,northern,melee,unit,4,stage2_portal,Common,,bad_effect,,\n",
+                "card_id,faction,row,type,strength,effect,rarity,ability_tags,name_group,bond_group,muster_group,display_name,effect_text,deck_limit,source_set\n"
+                "bad_effect,northern,melee,unit,4,stage2_portal,Common,,bad_effect,,,Bad Effect,bad,1,test\n",
                 {"gwent_effect_unsupported"},
             ),
             (
@@ -270,26 +270,26 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             (
                 "rewards.csv",
                 "reward_id,xp,gold,item_ids,card_ids,artifact_ids,rarity,approval_policy\n"
-                "reward_pve_t1,-1,-10,item_herb_bundle,pc_infantry_t1,,Common,auto\n",
+                "reward_pve_t1,-1,-10,item_order_seal,pc_infantry_t1,,Common,auto\n",
                 {"invalid_resource_value"},
             ),
             (
                 "potions.csv",
                 "potion_id,rarity,wholesale_cost,resale_min,resale_max,effect_json\n"
-                'potion_common_swallow,Common,-1,15,12,"{""effect"":""minor_heal_scene_hp""}"\n',
+                'potion_common_swallow,Common,-1,15,12,"{""effect"":""any_check_modifier_plus_1""}"\n',
                 {"invalid_resource_value"},
             ),
             (
                 "rewards.csv",
                 "reward_id,xp,gold,item_ids,card_ids,artifact_ids,rarity,approval_policy\n"
-                "reward_pve_t1,4,10,item_herb_bundle,pc_infantry_t1,,Common,auto\n"
-                "reward_pve_t2,8,20,item_silver_dust,pc_guard_t1,,Uncommon,auto\n"
+                "reward_pve_t1,4,10,item_order_seal,pc_infantry_t1,,Common,auto\n"
+                "reward_pve_t2,8,20,item_beast_fang,pc_guard_t1,,Uncommon,auto\n"
                 "reward_pve_t3,12,35,item_monster_trophy,pc_cavalry_t2,,Rare,pending_master_approval\n"
                 "reward_pve_t4,18,55,item_ancient_relic,pc_siege_t3,artifact_legend_crown,Legendary,pending_master_approval\n"
                 "reward_artifact_pending,10,0,,rare_gwent_01,artifact_mirror_shard,Rare,pending_master_approval\n"
                 "reward_lord_income_t1,0,8,,,,Common,auto\n"
                 "reward_order_success,6,15,item_order_seal,pc_specialist_t3,,Uncommon,auto\n"
-                "reward_gwent_stake,0,0,item_gwent_marker,gwent_larp_banner,,Uncommon,pending_master_approval\n"
+                "reward_gwent_stake,0,0,item_gwent_marker,neutral_villentretenmerth,,Uncommon,pending_master_approval\n"
                 "reward_final_evidence,5,0,item_final_token,,artifact_oath_stone,Rare,pending_master_approval\n",
                 {"reward_approval_policy"},
             ),

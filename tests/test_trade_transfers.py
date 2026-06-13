@@ -27,7 +27,7 @@ class TradeTransferContractTests(unittest.TestCase):
                 connection,
                 owner_player_id="p_witcher_1",
                 asset_type="item",
-                asset_id="item_silver_dust",
+                asset_id="item_order_seal",
                 source="test_seed",
                 source_ref_id="owned_item",
             )
@@ -46,7 +46,7 @@ class TradeTransferContractTests(unittest.TestCase):
                 from_player_id="p_witcher_1",
                 to_player_id="p_witcher_2",
                 asset_type="item",
-                asset_id="item_silver_dust",
+                asset_id="item_order_seal",
             )
             artifact_transfer = create_trade_transfer(
                 connection,
@@ -67,7 +67,7 @@ class TradeTransferContractTests(unittest.TestCase):
                 accepted_by_player_id="p_sorc_1",
             )
 
-            item_owners = self.owners(connection, "item", "item_silver_dust")
+            item_owners = self.owners(connection, "item", "item_order_seal")
             artifact_owners = self.owners(connection, "artifact", "artifact_mirror_shard")
             active_locks = self.active_lock_count(connection)
 
@@ -166,7 +166,7 @@ class TradeTransferContractTests(unittest.TestCase):
                 connection,
                 owner_player_id="p_witcher_1",
                 asset_type="item",
-                asset_id="item_herb_bundle",
+                asset_id="item_order_seal",
                 source="test_seed",
                 source_ref_id="owned_herb",
             )
@@ -176,7 +176,7 @@ class TradeTransferContractTests(unittest.TestCase):
                 from_player_id="p_witcher_1",
                 to_player_id="p_witcher_2",
                 asset_type="item",
-                asset_id="item_herb_bundle",
+                asset_id="item_order_seal",
             )
             accepted = accept_trade_transfer(
                 connection,
@@ -194,7 +194,7 @@ class TradeTransferContractTests(unittest.TestCase):
                     created["transfer_id"],
                     declined_by_player_id="p_witcher_2",
                 )
-            owners = self.owners(connection, "item", "item_herb_bundle")
+            owners = self.owners(connection, "item", "item_order_seal")
             active_locks = self.active_lock_count(connection)
 
         self.assertEqual(accepted["status"], "accepted")

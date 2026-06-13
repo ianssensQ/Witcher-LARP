@@ -1,10 +1,10 @@
 reward_id,xp,gold,item_ids,card_ids,artifact_ids,rarity,approval_policy
-reward_pve_t1,4,10,item_herb_bundle,pc_infantry_t1,,Common,auto
-reward_pve_t2,8,20,item_silver_dust,pc_guard_t1,,Uncommon,auto
+reward_pve_t1,4,10,,pc_infantry_t1,,Common,auto
+reward_pve_t2,8,20,,pc_guard_t1,,Uncommon,auto
 reward_pve_t3,12,35,item_monster_trophy,pc_cavalry_t2,,Rare,pending_master_approval
-reward_pve_t4,18,55,item_ancient_relic,pc_siege_t3,artifact_legend_crown,Legendary,pending_master_approval
+reward_pve_t4,18,55,item_final_token,pc_siege_t3,artifact_legend_crown,Legendary,pending_master_approval
 reward_artifact_pending,10,0,,rare_gwent_01,artifact_mirror_shard,Rare,pending_master_approval
 reward_lord_income_t1,0,8,,,,Common,pending_master_approval
 reward_order_success,6,15,item_order_seal,pc_specialist_t3,,Uncommon,pending_master_approval
-reward_gwent_stake,0,0,item_gwent_marker,gwent_larp_banner,,Uncommon,pending_master_approval
+reward_gwent_stake,0,0,item_gwent_marker,neutral_villentretenmerth,,Uncommon,pending_master_approval
 reward_final_evidence,5,0,item_final_token,,artifact_oath_stone,Rare,pending_master_approval

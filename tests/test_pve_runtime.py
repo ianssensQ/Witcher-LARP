@@ -104,21 +104,12 @@ class PveRuntimeTests(unittest.TestCase):
         self.assertEqual(state["xp"], 0)
         self.assertEqual(state["gold"], 20)
 
-    def test_server_derives_modifiers_from_owned_item_potion_and_magic_effect(self) -> None:
+    def test_server_derives_modifiers_from_potion_and_magic_effect(self) -> None:
         settings = self._settings("pve_server_modifiers")
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
             ensure_runtime_schema(connection)
-            grant_asset_ownership(
-                connection,
-                owner_player_id="p_witcher_1",
-                asset_type="item",
-                asset_id="item_silver_dust",
-                quantity=1,
-                source="test_setup",
-                source_ref_id="pve_server_modifiers",
-            )
             connection.execute(
                 """
                 INSERT INTO potion_scene_usage (
@@ -165,7 +156,7 @@ class PveRuntimeTests(unittest.TestCase):
                 connection,
                 player_id="p_witcher_1",
                 qr_id="qr_a1_001",
-                roll=3,
+                roll=5,
                 now=datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
             )
             response, _ = self._sync_pve_payload(
@@ -178,12 +169,11 @@ class PveRuntimeTests(unittest.TestCase):
         self.assertEqual(
             payload["modifiers"],
             [
-                {"source": "item", "label": "item_silver_dust", "value": 2},
                 {"source": "potion", "label": "potion_uncommon_thunderbolt", "value": 2},
                 {"source": "magic", "label": "spell_boost_t1", "value": 1},
             ],
         )
-        self.assertEqual(payload["server_modifier_total"], 5)
+        self.assertEqual(payload["server_modifier_total"], 3)
         self.assertEqual(payload["total"], 11)
         self.assertEqual(payload["result"], "success")
         self.assertEqual(response.results[0].status, "accepted")
@@ -769,7 +759,7 @@ class PveRuntimeTests(unittest.TestCase):
             "master/paper recovered pve roll source requires master auth context",
         )
 
-    def test_auto_rewards_apply_xp_level_gold_and_plus_one_stat(self) -> None:
+    def test_auto_rewards_apply_xp_level_gold_and_unspent_stat_point(self) -> None:
         settings = self._settings("pve_rewards")
         self._import_valid_seed(settings)
 
@@ -803,7 +793,7 @@ class PveRuntimeTests(unittest.TestCase):
             )
             state = connection.execute(
                 """
-                SELECT xp, level, gold, stats_json
+                SELECT xp, level, gold, stats_json, unspent_stat_points
                 FROM player_runtime_state
                 WHERE player_id = 'p_witcher_1'
                 """
@@ -813,7 +803,8 @@ class PveRuntimeTests(unittest.TestCase):
         self.assertEqual(state["xp"], 2)
         self.assertEqual(state["level"], 2)
         self.assertEqual(state["gold"], 50)
-        self.assertEqual(json.loads(state["stats_json"])["Сила"], 4)
+        self.assertEqual(json.loads(state["stats_json"])["Сила"], 3)
+        self.assertEqual(state["unspent_stat_points"], 1)
 
     def test_auto_reward_spends_xp_for_level_ups(self) -> None:
         settings = self._settings("pve_reward_spend_xp")
@@ -848,6 +839,137 @@ class PveRuntimeTests(unittest.TestCase):
         self.assertEqual(state["xp"], 15)
         self.assertEqual(state["level"], 3)
         self.assertEqual(state["gold"], 50)
+
+    def test_player_stats_allocated_spends_unspent_level_point(self) -> None:
+        settings = self._settings("pve_stat_allocation")
+        self._import_valid_seed(settings)
+
+        with connect(settings) as connection:
+            ensure_runtime_schema(connection)
+            connection.execute(
+                """
+                INSERT INTO player_runtime_state (
+                    player_id, role_type, level, xp, gold, stats_json,
+                    unspent_stat_points, mana, max_mana, challenge_tokens, updated_at
+                )
+                SELECT player_id, role_type, 2, xp, gold, stats_json,
+                       1, 0, 0, 0, '2026-06-02T09:09:00+00:00'
+                FROM players
+                WHERE player_id = 'p_witcher_1'
+                """
+            )
+            response = sync_events(
+                connection,
+                EventSyncRequest(
+                    device_id="phone_wolf",
+                    actor_id="p_witcher_1",
+                    actor_type="player",
+                    events=[
+                        EventSyncEvent(
+                            event_id=f"evt_{uuid4().hex}",
+                            client_sequence=1,
+                            created_at="2026-06-02T09:10:00+00:00",
+                            event_type="player_stats_allocated",
+                            payload={
+                                "player_id": "p_witcher_1",
+                                "allocation_type": "level_up",
+                                "stat_deltas": {"Ловкость": 1},
+                                "stats_after": {
+                                    "Сила": 3,
+                                    "Ловкость": 3,
+                                    "Разум": 2,
+                                    "Харизма": 0,
+                                    "Воля": 0,
+                                },
+                                "unspent_stat_points_after": 0,
+                            },
+                        )
+                    ],
+                ),
+            )
+            state = connection.execute(
+                """
+                SELECT stats_json, unspent_stat_points
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+
+        self.assertEqual(response.results[0].status, "accepted")
+        self.assertEqual(json.loads(state["stats_json"])["Ловкость"], 3)
+        self.assertEqual(state["unspent_stat_points"], 0)
+
+    def test_mission_v2_three_checks_replays_choices_and_rewards_success(self) -> None:
+        settings = self._settings("pve_mission_v2")
+        self._import_valid_seed(settings)
+
+        created = "2026-06-02T09:15:00+00:00"
+        roll_log = [
+            self._mission_v2_roll(
+                index=1,
+                stat="Сила",
+                stat_value=3,
+                roll=7,
+                modifiers=[{"source": "system", "label": "choice:method_silver", "value": 1}],
+                created=created,
+            ),
+            self._mission_v2_roll(
+                index=2,
+                stat="Ловкость",
+                stat_value=2,
+                roll=8,
+                modifiers=[{"source": "system", "label": "choice:approach_cautious", "value": 1}],
+                created=created,
+            ),
+            self._mission_v2_roll(
+                index=3,
+                stat="Разум",
+                stat_value=2,
+                roll=1,
+                modifiers=[{"source": "system", "label": "choice:approach_cautious", "value": 1}],
+                created=created,
+            ),
+        ]
+        payload = {
+            "player_id": "p_witcher_1",
+            "scenario_id": "scn_a1_001",
+            "qr_id": "qr_a1_001",
+            "manual_code": "QR-A1-K7Q2",
+            "act_id": "act1",
+            "unlock_source": "act1_default",
+            "pve_flow": "mission_v2",
+            "check_policy": "three_stat_checks",
+            "selected_choices": ["approach_cautious", "method_silver"],
+            "roll_source": "app_generated",
+            "roll_log": roll_log,
+            "success_count": 2,
+            "outcome": "success",
+            "result": "success",
+            "reward_id": "reward_pve_t1",
+            "reward_approval_policy": "auto",
+            "reward_status": "auto",
+            "qr_mode": "repeatable_scene",
+            "physical_presence_confirmed": True,
+        }
+
+        with connect(settings) as connection:
+            response, _ = self._sync_pve_payload(
+                connection,
+                actor_id="p_witcher_1",
+                payload=payload,
+                sequence=1,
+            )
+            state = connection.execute(
+                """
+                SELECT xp, gold
+                FROM player_runtime_state
+                WHERE player_id = 'p_witcher_1'
+                """
+            ).fetchone()
+
+        self.assertEqual(response.results[0].status, "accepted")
+        self.assertEqual(state["xp"], 4)
+        self.assertEqual(state["gold"], 30)
 
     def test_missing_client_reward_id_uses_scenario_bound_auto_reward(self) -> None:
         settings = self._settings("pve_scenario_auto_reward")
@@ -994,6 +1116,40 @@ class PveRuntimeTests(unittest.TestCase):
             snapshot_dir=None,
         )
         self.assertEqual(report.status, "success")
+
+    def _mission_v2_roll(
+        self,
+        *,
+        index: int,
+        stat: str,
+        stat_value: int,
+        roll: int,
+        modifiers: list[dict],
+        created: str,
+    ) -> dict:
+        modifier_total = sum(int(modifier["value"]) for modifier in modifiers)
+        total = roll + stat_value + modifier_total
+        return {
+            "roll_id": f"roll_{uuid4().hex}",
+            "check_id": f"check_{uuid4().hex}",
+            "check_index": index,
+            "source": "app_generated",
+            "created_at": created,
+            "rolled_at": created,
+            "player_id": "p_witcher_1",
+            "qr_id": "qr_a1_001",
+            "scenario_id": "scn_a1_001",
+            "die": "d20",
+            "roll": roll,
+            "roll_value": roll,
+            "stat": stat,
+            "stat_value": stat_value,
+            "modifiers": modifiers,
+            "server_modifier_total": modifier_total,
+            "total": total,
+            "dc": 11,
+            "outcome": "success" if total >= 11 else "failure",
+        }
 
     def _sync_pve_payload(
         self,

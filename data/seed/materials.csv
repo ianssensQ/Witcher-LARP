@@ -1,0 +1,9 @@
+material_id,display_name,rarity,category,base_drop_weight,description,effect_json
+mat_herbs,Травы,Common,alchemy,24,Частый материал для эликсиров и мелких сделок.,"{""market_only"":true,""use"":""sell_to_material_market""}"
+mat_silver_dust,Серебряная пыль,Uncommon,monster,14,Ценная пыль против чудовищ и проклятых следов.,"{""market_only"":true,""use"":""sell_to_material_market""}"
+mat_alchemical_salt,Алхимическая соль,Common,alchemy,18,Универсальная соль для реактивов и ритуальных кругов.,"{""market_only"":true,""use"":""sell_to_material_market""}"
+mat_rune_shard,Рунный осколок,Rare,arcane,7,Редкий осколок старой руны.,"{""market_only"":true,""use"":""sell_to_material_market""}"
+mat_monster_blood,Кровь чудовища,Uncommon,monster,13,След охоты для знахарей и мастеров.,"{""market_only"":true,""use"":""sell_to_material_market""}"
+mat_curse_ash,Пепел проклятия,Rare,dark,5,Темный остаток проклятой сцены.,"{""market_only"":true,""use"":""sell_to_material_market"",""reputation_note"":""dark_trace""}"
+mat_light_essence,Светлая эссенция,Rare,light,5,Редкий светлый след очищенной сцены.,"{""market_only"":true,""use"":""sell_to_material_market"",""reputation_note"":""light_trace""}"
+mat_old_metal,Старый металл,Common,strategic,16,Сырье для заказов и лордских слухов.,"{""market_only"":true,""use"":""sell_to_material_market""}"

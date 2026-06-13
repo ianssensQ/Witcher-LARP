@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from .asset_service import grant_asset_ownership, reward_asset_entries
+from .material_market_service import apply_material_drop_for_pve
 from .runtime_schema import ensure_runtime_schema, log_event
 from .stats import CANONICAL_STAT_SET, CANONICAL_STATS, DEFAULT_STAT_ID
 from .xp_service import spend_xp_for_levels
@@ -48,6 +49,26 @@ EFFECT_STAT_ALIASES = {
     "charisma": "Харизма",
     "magic": "Воля",
     "will": "Воля",
+}
+MISSION_CHOICE_EFFECTS = {
+    "approach_cautious": {"Разум": 1, "Ловкость": 1},
+    "approach_rushed": {"Сила": 1, "Разум": -1},
+    "approach_direct": {},
+    "method_silver": {"Сила": 1},
+    "method_trap": {"Ловкость": 1},
+    "method_signs": {"Воля": 1},
+    "method_track": {"Разум": 1},
+    "method_parley": {"Харизма": 1},
+}
+MISSION_CHOICE_GROUPS = {
+    "approach_cautious": "approach",
+    "approach_rushed": "approach",
+    "approach_direct": "approach",
+    "method_silver": "method",
+    "method_trap": "method",
+    "method_signs": "method",
+    "method_track": "method",
+    "method_parley": "method",
 }
 SCENE_HP_BY_TIER = {1: 6, 2: 10, 3: 14, 4: 18}
 DEFAULT_ROUND_LIMIT = 5
@@ -125,6 +146,16 @@ def build_pve_scene_card(
         "player_level": level,
         "player_stats": _player_stats(player),
         "server_modifiers": server_modifiers,
+        "server_modifiers_by_stat": {
+            stat_id: _server_derived_modifiers(
+                connection,
+                player_id=player_id,
+                qr=qr,
+                scenario=scenario,
+                stat_name=stat_id,
+            )
+            for stat_id in CANONICAL_STATS
+        },
         "server_modifier_total": sum(int(item["value"]) for item in server_modifiers),
         "ordinary_scene_available": qr["qr_mode"] in {"repeatable_scene", "always_available_scene"},
         "role_load_profile": "5_witchers_4_field_sorceresses",
@@ -471,10 +502,22 @@ def apply_pve_completion_side_effects(
             now=current_time,
         )
 
+    material_drop: dict[str, Any] = {"status": "not_applied"}
+    if status == "accepted" and scenario_id:
+        material_drop = apply_material_drop_for_pve(
+            connection,
+            player_id=player_id,
+            scenario_id=scenario_id,
+            result=result,
+            source_event_id=server_event_id,
+            now=current_time,
+        )
+
     applied = {
         "cooldown_until": cooldown_until or None,
         "reward_update": reward_update,
         "reward_status": reward_status,
+        "material_drop": material_drop,
     }
     log_event(
         connection,
@@ -597,6 +640,21 @@ def _pve_consumed_object(
 
 def _pve_replay_metadata(card: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     roll_log = payload.get("roll_log", [])
+    if _is_mission_v2_payload(payload, roll_log):
+        selected_choices = _mission_selected_choices(payload)
+        return {
+            "roll": None,
+            "dc": int(card["dc"]),
+            "claimed_stat": None,
+            "server_stat": card["primary_stat"],
+            "server_stat_value": int(card["player_stats"].get(str(card["primary_stat"]), 0)),
+            "server_modifiers": card.get("server_modifiers", []),
+            "server_modifier_total": int(card.get("server_modifier_total") or 0),
+            "server_replay_total": None,
+            "replay_policy": "mission_v2_three_checks",
+            "roll_count": len(roll_log) if isinstance(roll_log, list) else 0,
+            "selected_choices": selected_choices,
+        }
     roll_entry = roll_log[0] if isinstance(roll_log, list) and roll_log and isinstance(roll_log[0], dict) else {}
     roll = _to_int(payload.get("roll") if _field_present(payload, "roll") else roll_entry.get("roll"))
     if roll == 0 and _field_present(roll_entry, "value"):
@@ -625,6 +683,8 @@ def _replay_roll_contract(
     result: str,
 ) -> str | None:
     roll_log = payload.get("roll_log", [])
+    if _is_mission_v2_payload(payload, roll_log):
+        return _mission_v2_replay_contract(card, payload, result, roll_log)
     if not isinstance(roll_log, list) or len(roll_log) != 1 or not isinstance(roll_log[0], dict):
         return "pve completion must include exactly one replayable d20 roll_log entry"
 
@@ -709,6 +769,161 @@ def _replay_roll_contract(
     return None
 
 
+def _is_mission_v2_payload(payload: dict[str, Any], roll_log: object) -> bool:
+    return (
+        str(payload.get("pve_flow") or "").strip() == "mission_v2"
+        or str(payload.get("check_policy") or "").strip() == "three_stat_checks"
+        or (isinstance(roll_log, list) and len(roll_log) > 1)
+    )
+
+
+def _mission_v2_replay_contract(
+    card: dict[str, Any],
+    payload: dict[str, Any],
+    result: str,
+    roll_log: object,
+) -> str | None:
+    if not isinstance(roll_log, list) or len(roll_log) != 3 or not all(
+        isinstance(entry, dict) for entry in roll_log
+    ):
+        return "pve mission_v2 completion must include exactly three replayable d20 checks"
+    selected_choices = _mission_selected_choices(payload)
+    choices_reason = _mission_choice_reason(selected_choices)
+    if choices_reason is not None:
+        return choices_reason
+
+    seen_stats: set[str] = set()
+    wins = 0
+    for index, roll_entry in enumerate(roll_log, start=1):
+        if str(roll_entry.get("die", "d20")) != "d20":
+            return "pve mission_v2 check must log d20 rolls only"
+        roll_source = str(
+            roll_entry.get("source") or payload.get("roll_source") or payload.get("source") or ""
+        )
+        if roll_source not in VALID_PVE_ROLL_SOURCES:
+            return "pve roll source must be app_generated or explicit master/paper recovery"
+        if roll_source == APP_GENERATED_ROLL_SOURCE:
+            if not str(roll_entry.get("roll_id") or ""):
+                return "app-generated pve roll must include roll_id and check_id"
+            if not str(roll_entry.get("check_id") or ""):
+                return "app-generated pve roll must include roll_id and check_id"
+            if str(roll_entry.get("player_id") or payload.get("player_id") or "") not in {
+                "",
+                str(card["player_id"]),
+            }:
+                return "pve roll player_id does not match authenticated player"
+            if str(roll_entry.get("qr_id") or payload.get("qr_id") or "") != str(card["qr_id"]):
+                return "pve roll qr_id does not match scene"
+            if str(roll_entry.get("scenario_id") or payload.get("scenario_id") or "") != str(
+                card["scenario"]["scenario_id"]
+            ):
+                return "pve roll scenario_id does not match scene"
+            if not str(roll_entry.get("created_at") or roll_entry.get("rolled_at") or ""):
+                return "app-generated pve roll must include created_at"
+
+        roll = _to_int(roll_entry.get("roll"))
+        if roll == 0 and _field_present(roll_entry, "value"):
+            roll = _to_int(roll_entry["value"])
+        if roll < 1 or roll > 20:
+            return "pve roll must be exactly one d20 in the 1-20 range"
+        if _field_present(roll_entry, "roll_value") and _to_int(roll_entry["roll_value"]) != roll:
+            return "pve roll_value does not match d20 roll"
+
+        stat_name = str(roll_entry.get("stat") or "").strip()
+        if stat_name not in CANONICAL_STAT_SET:
+            return "pve mission_v2 stat must be canonical"
+        if stat_name in seen_stats:
+            return "pve mission_v2 checks must use three different stats"
+        seen_stats.add(stat_name)
+
+        stat_value = int(card["player_stats"].get(stat_name, 0))
+        if _field_present(roll_entry, "stat_value") and _to_int(roll_entry["stat_value"]) != stat_value:
+            return "pve stat_value does not match server player state"
+
+        if "modifiers" not in roll_entry:
+            return "pve modifiers must be logged even when empty"
+        server_modifiers = _server_modifiers_for_stat(card, stat_name)
+        choice_modifiers = _mission_choice_modifiers(selected_choices, stat_name)
+        expected_modifiers = _normalize_modifiers([*server_modifiers, *choice_modifiers])
+        logged_modifiers = _normalize_modifiers(roll_entry.get("modifiers", []))
+        if logged_modifiers != expected_modifiers:
+            return "pve modifiers do not match server-derived mission modifiers"
+        modifier_total = sum(int(item["value"]) for item in expected_modifiers)
+        expected_dc = int(card["dc"])
+        total = roll + stat_value + modifier_total
+        expected_outcome = "success" if total >= expected_dc else "failure"
+
+        if _field_present(roll_entry, "total") and _to_int(roll_entry["total"]) != total:
+            return "pve total does not match mission_v2 replay"
+        if _field_present(roll_entry, "server_modifier_total") and _to_int(roll_entry["server_modifier_total"]) != modifier_total:
+            return "pve modifier total does not match server-derived modifiers"
+        if _field_present(roll_entry, "dc") and _to_int(roll_entry["dc"]) != expected_dc:
+            return "pve dc does not match scenario"
+        if _field_present(roll_entry, "check_index") and _to_int(roll_entry["check_index"]) != index:
+            return "pve mission_v2 check_index does not match roll order"
+        if str(roll_entry.get("outcome") or expected_outcome) != expected_outcome:
+            return "pve mission_v2 check outcome does not match replay"
+        if expected_outcome == "success":
+            wins += 1
+
+    expected_result = "success" if wins >= 2 else "failure"
+    if result in {"success", "failure"} and result != expected_result:
+        return "pve result does not match mission_v2 replay"
+    if _field_present(payload, "success_count") and _to_int(payload["success_count"]) != wins:
+        return "pve mission_v2 success_count does not match replay"
+    return None
+
+
+def _mission_selected_choices(payload: dict[str, Any]) -> list[str]:
+    raw = payload.get("selected_choices") or payload.get("choices") or []
+    if not isinstance(raw, list):
+        return []
+    choices: list[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            choice_id = str(item.get("choice_id") or item.get("id") or "").strip()
+        else:
+            choice_id = str(item).strip()
+        if choice_id:
+            choices.append(choice_id)
+    return choices
+
+
+def _mission_choice_reason(selected_choices: list[str]) -> str | None:
+    if len(selected_choices) != 2:
+        return "pve mission_v2 must include one approach choice and one method choice"
+    groups: set[str] = set()
+    for choice_id in selected_choices:
+        group = MISSION_CHOICE_GROUPS.get(choice_id)
+        if group is None or choice_id not in MISSION_CHOICE_EFFECTS:
+            return f"unknown pve mission_v2 choice: {choice_id}"
+        if group in groups:
+            return f"duplicate pve mission_v2 choice group: {group}"
+        groups.add(group)
+    if groups != {"approach", "method"}:
+        return "pve mission_v2 must include one approach choice and one method choice"
+    return None
+
+
+def _mission_choice_modifiers(selected_choices: list[str], stat_name: str) -> list[dict[str, Any]]:
+    modifiers: list[dict[str, Any]] = []
+    for choice_id in selected_choices:
+        effect = MISSION_CHOICE_EFFECTS.get(choice_id, {})
+        value = _to_int(effect.get(stat_name))
+        if value:
+            modifiers.append({"source": "system", "label": f"choice:{choice_id}", "value": value})
+    return modifiers
+
+
+def _server_modifiers_for_stat(card: dict[str, Any], stat_name: str) -> list[dict[str, Any]]:
+    by_stat = card.get("server_modifiers_by_stat")
+    if isinstance(by_stat, dict):
+        modifiers = by_stat.get(stat_name)
+        if isinstance(modifiers, list):
+            return _normalize_modifiers(modifiers)
+    return _normalize_modifiers(card.get("server_modifiers", []))
+
+
 def calculate_pve_outcome(total: int, dc: int) -> str:
     if total >= dc:
         return "success"
@@ -759,6 +974,7 @@ def _apply_auto_reward(
     xp_before = _to_int(player.get("xp"))
     level_before = _to_int(player.get("level"))
     gold_before = _to_int(player.get("gold"))
+    unspent_before = _to_int(player.get("unspent_stat_points"))
     xp_gain = _to_int(reward["xp"])
     gold_gain = _to_int(reward["gold"])
     xp_after, level_after = spend_xp_for_levels(
@@ -766,27 +982,19 @@ def _apply_auto_reward(
         level_before=level_before,
         xp_available=xp_before + xp_gain,
     )
-    stats = _player_stats(player)
-    stat_gains: list[dict[str, Any]] = []
-    max_stat = _max_stat(connection)
-    for _ in range(max(0, level_after - level_before)):
-        stat_name = _stat_to_raise(stats, preferred_stat)
-        before = int(stats.get(stat_name, 0))
-        after = min(max_stat, before + 1)
-        stats[stat_name] = after
-        stat_gains.append({"stat": stat_name, "before": before, "after": after})
+    unspent_after = unspent_before + max(0, level_after - level_before)
 
     connection.execute(
         """
         UPDATE player_runtime_state
-        SET xp = ?, level = ?, gold = ?, stats_json = ?, updated_at = ?
+        SET xp = ?, level = ?, gold = ?, unspent_stat_points = ?, updated_at = ?
         WHERE player_id = ?
         """,
         (
             xp_after,
             level_after,
             gold_before + gold_gain,
-            json.dumps(stats, ensure_ascii=False, sort_keys=True),
+            unspent_after,
             now.isoformat(timespec="seconds"),
             player_id,
         ),
@@ -813,7 +1021,11 @@ def _apply_auto_reward(
         "xp_after": xp_after,
         "level_before": level_before,
         "level_after": level_after,
-        "stat_gains": stat_gains,
+        "stat_points_gained": max(0, level_after - level_before),
+        "unspent_stat_points_before": unspent_before,
+        "unspent_stat_points_after": unspent_after,
+        "preferred_stat": preferred_stat,
+        "stat_gains": [],
         "granted_assets": granted_assets,
         "source_event_id": source_event_id,
     }
@@ -823,7 +1035,7 @@ def _runtime_player(connection: sqlite3.Connection, player_id: str) -> dict[str,
     ensure_runtime_schema(connection)
     row = connection.execute(
         """
-        SELECT player_id, role_type, level, xp, gold, stats_json
+        SELECT player_id, role_type, level, xp, gold, stats_json, unspent_stat_points
         FROM player_runtime_state
         WHERE player_id = ?
         """,
@@ -863,6 +1075,7 @@ def _runtime_player(connection: sqlite3.Connection, player_id: str) -> dict[str,
         "xp": _to_int(player["xp"]),
         "gold": _to_int(player["gold"]),
         "stats_json": player["stats_json"],
+        "unspent_stat_points": 0,
     }
 
 
@@ -919,13 +1132,14 @@ def _server_derived_modifiers(
     player_id: str,
     qr: sqlite3.Row,
     scenario: sqlite3.Row,
+    stat_name: str | None = None,
 ) -> list[dict[str, Any]]:
     context = {
         "player_id": player_id,
         "qr_id": str(qr["qr_id"]),
         "scenario_id": str(scenario["scenario_id"]),
         "scene_type": str(scenario["scene_type"]),
-        "primary_stat": str(scenario["primary_stat"]),
+        "primary_stat": str(stat_name or scenario["primary_stat"]),
     }
     player_stats = _player_stats(_runtime_player(connection, player_id))
     modifiers: list[dict[str, Any]] = []

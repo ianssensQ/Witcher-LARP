@@ -353,6 +353,8 @@ def _validate_references(
         ("order_interest_objects.csv", "qr_id", "qr_objects.csv", True),
         ("order_interest_objects.csv", "location_node_id", "map_nodes.csv", True),
         ("potion_markets.csv", "potion_id", "potions.csv", True),
+        ("material_markets.csv", "material_id", "materials.csv", True),
+        ("material_drop_rules.csv", "material_id", "materials.csv", True),
         ("personal_goals.csv", "player_id", "players.csv", True),
         ("personal_goals.csv", "act_id", "acts.csv", True),
         ("personal_goals.csv", "final_hook_id", "final_hooks.csv", True),
@@ -1746,6 +1748,84 @@ def _validate_signed_economy_resources(tables: dict[str, CsvTable]) -> list[Impo
                 )
             )
 
+    for record in tables["material_markets.csv"].rows:
+        market_id = record.values["market_id"]
+        base_price = _to_int(record.values["base_price"], default=0)
+        min_price = _to_int(record.values["min_price"], default=0)
+        max_price = _to_int(record.values["max_price"], default=0)
+        target_stock = _to_int(record.values["target_stock"], default=0)
+        trend_window = _to_int(record.values["trend_window"], default=0)
+        if base_price <= 0 or min_price <= 0 or max_price < base_price or min_price > base_price:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="material_markets.csv",
+                    row=record.row_number,
+                    record_id=market_id,
+                    message="Material market prices must satisfy 0 < min <= base <= max.",
+                )
+            )
+        if target_stock <= 0 or trend_window <= 0:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="material_markets.csv",
+                    row=record.row_number,
+                    record_id=market_id,
+                    message="Material market target_stock and trend_window must be positive.",
+                )
+            )
+
+    valid_material_scene_types = {
+        "any",
+        "artifact",
+        "final_scene",
+        "lord_hook",
+        "monster_hunt",
+        "moral_choice",
+        "npc_deal",
+        "order_object",
+        "puzzle_check",
+        "sorceress_hook",
+    }
+    valid_material_results = {"any", "success_or_partial", "success"}
+    for record in tables["material_drop_rules.csv"].rows:
+        rule_id = record.values["rule_id"]
+        tier = _to_int(record.values["tier"], default=0)
+        weight = _to_int(record.values["weight"], default=0)
+        min_quantity = _to_int(record.values["min_quantity"], default=0)
+        max_quantity = _to_int(record.values["max_quantity"], default=0)
+        if record.values["scene_type"] not in valid_material_scene_types:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="material_drop_rules.csv",
+                    row=record.row_number,
+                    record_id=rule_id,
+                    message="Material drop scene_type must be a supported PvE scene group or any.",
+                )
+            )
+        if record.values["result_filter"] not in valid_material_results:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="material_drop_rules.csv",
+                    row=record.row_number,
+                    record_id=rule_id,
+                    message="Material drop result_filter must be any, success_or_partial, or success.",
+                )
+            )
+        if tier <= 0 or weight <= 0 or min_quantity <= 0 or max_quantity < min_quantity:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_resource_value",
+                    file="material_drop_rules.csv",
+                    row=record.row_number,
+                    record_id=rule_id,
+                    message="Material drop tier/weight/quantity values must be positive and ordered.",
+                )
+            )
+
     for record in tables["spells.csv"].rows:
         if _to_int(record.values["cost_mana"], default=0) <= 0:
             errors.append(
@@ -1949,6 +2029,36 @@ def _validate_gwent(
                     message="Gwent deck leader_card_id must reference a leader card.",
                 )
             )
+        else:
+            leader_faction = str(leader.get("faction") or "").strip().lower()
+            for card_id in split_ids(record.values["card_ids"]):
+                card = cards.get(card_id)
+                if not card:
+                    continue
+                if card.get("type") == "leader":
+                    errors.append(
+                        ImportErrorDetail(
+                            code="gwent_deck_invalid",
+                            file="gwent_decks.csv",
+                            row=record.row_number,
+                            record_id=deck_id,
+                            message=f"Gwent deck includes leader card in card_ids: {card_id}.",
+                        )
+                    )
+                card_faction = str(card.get("faction") or "").strip().lower()
+                if card_faction not in {leader_faction, "neutral"}:
+                    errors.append(
+                        ImportErrorDetail(
+                            code="gwent_deck_invalid",
+                            file="gwent_decks.csv",
+                            row=record.row_number,
+                            record_id=deck_id,
+                            message=(
+                                f"Gwent deck mixes faction {card_faction} "
+                                f"with leader faction {leader_faction}: {card_id}."
+                            ),
+                        )
+                    )
         if unit_count < min_units:
             errors.append(
                 ImportErrorDetail(

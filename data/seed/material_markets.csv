@@ -1,0 +1,9 @@
+market_id,material_id,base_price,min_price,max_price,target_stock,trend_window
+market_mat_herbs,mat_herbs,4,2,8,14,1
+market_mat_silver_dust,mat_silver_dust,9,5,18,8,1
+market_mat_alchemical_salt,mat_alchemical_salt,6,3,12,10,1
+market_mat_rune_shard,mat_rune_shard,16,9,30,4,1
+market_mat_monster_blood,mat_monster_blood,10,5,20,7,1
+market_mat_curse_ash,mat_curse_ash,18,10,34,3,1
+market_mat_light_essence,mat_light_essence,18,10,34,3,1
+market_mat_old_metal,mat_old_metal,5,2,10,12,1

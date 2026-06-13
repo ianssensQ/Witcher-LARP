@@ -239,31 +239,25 @@ def _apply_reward_payload(
     xp_before = _to_int(player.get("xp"))
     level_before = _to_int(player.get("level"))
     gold_before = _to_int(player.get("gold"))
+    unspent_before = _to_int(player.get("unspent_stat_points"))
     xp_after, level_after = spend_xp_for_levels(
         connection,
         level_before=level_before,
         xp_available=xp_before + numeric["xp"],
     )
-    stats = _player_stats(player)
-    stat_gains: list[dict[str, Any]] = []
-    for _ in range(max(0, level_after - level_before)):
-        stat_name = _stat_to_raise(stats, "")
-        before = int(stats.get(stat_name, 0))
-        after = min(_max_stat(connection), before + 1)
-        stats[stat_name] = after
-        stat_gains.append({"stat": stat_name, "before": before, "after": after})
+    unspent_after = unspent_before + max(0, level_after - level_before)
 
     connection.execute(
         """
         UPDATE player_runtime_state
-        SET xp = ?, level = ?, gold = ?, stats_json = ?, updated_at = ?
+        SET xp = ?, level = ?, gold = ?, unspent_stat_points = ?, updated_at = ?
         WHERE player_id = ?
         """,
         (
             xp_after,
             level_after,
             gold_before + numeric["gold"],
-            _json_dumps(stats),
+            unspent_after,
             _iso(now),
             player_id,
         ),
@@ -332,7 +326,10 @@ def _apply_reward_payload(
         "xp_after": xp_after,
         "level_before": level_before,
         "level_after": level_after,
-        "stat_gains": stat_gains,
+        "stat_points_gained": max(0, level_after - level_before),
+        "unspent_stat_points_before": unspent_before,
+        "unspent_stat_points_after": unspent_after,
+        "stat_gains": [],
         "granted_assets": granted_assets,
     }
 
@@ -387,7 +384,7 @@ def _fetch_approval(connection: sqlite3.Connection, approval_id: str) -> sqlite3
 def _runtime_player(connection: sqlite3.Connection, player_id: str) -> dict[str, Any]:
     row = connection.execute(
         """
-        SELECT player_id, role_type, level, xp, gold, stats_json
+        SELECT player_id, role_type, level, xp, gold, stats_json, unspent_stat_points
         FROM player_runtime_state
         WHERE player_id = ?
         """,

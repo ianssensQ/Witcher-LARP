@@ -26,6 +26,11 @@ from .pve_runtime import (
     resolve_pve_scene,
 )
 from .pve_runtime import apply_pve_completion_side_effects, validate_pve_completion
+from .progression_service import (
+    StatAllocationConflictError,
+    apply_stat_allocation,
+    validate_stat_allocation,
+)
 from .repository import latest_snapshot_version
 from .reward_service import create_pending_reward_approval
 from .lord_runtime import LordRuntimeError, order_action
@@ -40,6 +45,7 @@ PLAYER_ONLY_SYNC_EVENT_TYPES = {
     "order_submission",
     "qr_attempt",
     "qr_scene_started",
+    "player_stats_allocated",
     "reward_approval_requested",
 }
 
@@ -303,6 +309,14 @@ def _sync_single_event(
         server_event_id,
         received_at,
     )
+    decision = _apply_stat_allocation_side_effect_if_needed(
+        connection,
+        request,
+        event,
+        decision,
+        server_event_id,
+        received_at,
+    )
     decision = _apply_order_submission_side_effect_if_needed(
         connection,
         request,
@@ -377,6 +391,8 @@ def _decide_event(
         return _decide_act_unlocked_offline(connection, event, metadata)
     if event.event_type == "reward_approval_requested":
         return _decide_reward_approval_requested(connection, event, metadata)
+    if event.event_type == "player_stats_allocated":
+        return _decide_player_stats_allocated(connection, request, event, metadata)
     if event.event_type in {"qr_attempt", "qr_scene_started"}:
         return _decide_qr_runtime_event(event, metadata)
     if event.event_type == "paper_recovered":
@@ -820,6 +836,25 @@ def _decide_pve_reward(
     connection: sqlite3.Connection, reward_id: str, metadata: dict[str, Any]
 ) -> EventDecision:
     return _decide_reward(connection, reward_id, metadata)
+
+
+def _decide_player_stats_allocated(
+    connection: sqlite3.Connection,
+    request: EventSyncRequest,
+    event: EventSyncEvent,
+    metadata: dict[str, Any],
+) -> EventDecision:
+    validation = validate_stat_allocation(
+        connection,
+        player_id=request.actor_id,
+        payload=event.payload,
+    )
+    metadata.update(validation.metadata)
+    if validation.status == "rejected":
+        return EventDecision(EventStatus.REJECTED, validation.reason, metadata)
+    if validation.status == "needs_master_review":
+        return EventDecision(EventStatus.NEEDS_MASTER_REVIEW, validation.reason, metadata)
+    return EventDecision(EventStatus.ACCEPTED, None, metadata)
 
 
 def _decide_qr_runtime_event(
@@ -1291,6 +1326,63 @@ def _apply_pve_side_effects_if_needed(
     return decision
 
 
+def _apply_stat_allocation_side_effect_if_needed(
+    connection: sqlite3.Connection,
+    request: EventSyncRequest,
+    event: EventSyncEvent,
+    decision: EventDecision,
+    server_event_id: int,
+    received_at: str,
+) -> EventDecision:
+    if event.event_type != "player_stats_allocated" or decision.status != EventStatus.ACCEPTED:
+        return decision
+    try:
+        applied = apply_stat_allocation(
+            connection,
+            player_id=request.actor_id,
+            payload=event.payload,
+            server_event_id=server_event_id,
+            now=_parse_server_time(received_at),
+        )
+    except (StatAllocationConflictError, ValueError, LookupError) as exc:
+        metadata = {
+            **decision.metadata,
+            "stat_allocation_conflict": str(exc),
+            "audit_review": True,
+            "review_severity": "P1",
+        }
+        review_decision = EventDecision(EventStatus.NEEDS_MASTER_REVIEW, str(exc), metadata)
+        connection.execute(
+            """
+            UPDATE events
+            SET status = ?,
+                reason = ?,
+                metadata_json = ?,
+                applied_at = NULL
+            WHERE server_event_id = ?
+            """,
+            (
+                review_decision.status.value,
+                review_decision.reason,
+                _json_dumps(review_decision.metadata),
+                server_event_id,
+            ),
+        )
+        _record_review_if_needed(connection, event, review_decision, server_event_id)
+        return review_decision
+
+    decision.metadata["stat_allocation_side_effects"] = applied
+    connection.execute(
+        """
+        UPDATE events
+        SET metadata_json = ?
+        WHERE server_event_id = ?
+        """,
+        (_json_dumps(decision.metadata), server_event_id),
+    )
+    return decision
+
+
 def _apply_order_submission_side_effect_if_needed(
     connection: sqlite3.Connection,
     request: EventSyncRequest,
@@ -1555,6 +1647,8 @@ def _source_for_event(event: EventSyncEvent) -> str:
         return "paper_recovered"
     if event.event_type in {"qr_attempt", "qr_scene_started"}:
         return "mobile_qr"
+    if event.event_type == "player_stats_allocated":
+        return "mobile_progression"
     return "event_sync"
 
 

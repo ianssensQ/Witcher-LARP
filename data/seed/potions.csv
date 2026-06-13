@@ -1,4 +1,9 @@
 potion_id,rarity,wholesale_cost,resale_min,resale_max,effect_json
-potion_common_swallow,Common,8,12,15,"{""effect"":""minor_heal_scene_hp"",""reroll"":false}"
-potion_uncommon_thunderbolt,Uncommon,18,25,30,"{""effect"":""strength_modifier_plus_2"",""reroll"":false}"
-potion_rare_oriole,Rare,40,55,70,"{""effect"":""ignore_poison_scene"",""reroll"":false}"
+potion_common_swallow,Common,8,12,15,"{""effect"":""any_check_modifier_plus_1"",""modifier"":1,""reroll"":false,""description"":""+1 к одной PvE-проверке до броска.""}"
+potion_common_cat,Common,8,12,15,"{""effect"":""extra_hint_or_minor_hindrance_clear"",""scene_types"":[""investigation"",""puzzle_check""],""reroll"":false,""description"":""Открывает подсказку или снимает minor помеху в расследовании/загадке.""}"
+potion_common_white_honey,Common,8,12,15,"{""effect"":""clear_minor_hindrance"",""reroll"":false,""description"":""Снимает одну minor помеху перед проверкой.""}"
+potion_uncommon_thunderbolt,Uncommon,18,25,30,"{""effect"":""strength_or_agility_modifier_plus_2"",""modifier"":2,""stats"":[""Сила"",""Ловкость""],""reroll"":false,""description"":""+2 к проверке Силы или Ловкости в одной сцене.""}"
+potion_uncommon_petri,Uncommon,18,25,30,"{""effect"":""mind_will_charisma_modifier_plus_2"",""modifier"":2,""stats"":[""Разум"",""Воля"",""Харизма""],""reroll"":false,""description"":""+2 к Разуму, Воле или Харизме в одной сцене.""}"
+potion_rare_oriole,Rare,40,55,70,"{""effect"":""ignore_poison_swamp_hindrance"",""reroll"":false,""description"":""Игнорирует яд, болото или отравленную помеху сцены.""}"
+potion_rare_black_blood,Rare,40,55,70,"{""effect"":""dark_or_cursed_scene_modifier_plus_4"",""modifier"":4,""reroll"":false,""reputation_note"":""dark_trace"",""description"":""+4 против темной/проклятой сцены; оставляет темный след.""}"
+potion_rare_clarity,Rare,40,55,70,"{""effect"":""reveal_best_scene_stat"",""reroll"":false,""description"":""Показывает, какой стат лучше применить в текущей сцене.""}"

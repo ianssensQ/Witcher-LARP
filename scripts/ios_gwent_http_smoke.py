@@ -498,8 +498,8 @@ def run_bot_smoke(
         legal = state.get("legal_actions") if isinstance(state.get("legal_actions"), dict) else {}
         round_number = int(legal.get("round_number") or 1)
         action_body: dict[str, Any]
-        if legal.get("can_play_card"):
-            card_action = choose_play_card(state)
+        card_action = choose_play_card(state) if legal.get("can_play_card") else None
+        if card_action is not None:
             action_body = {
                 "action": "play_card",
                 "card_id": card_action["card_id"],
@@ -825,7 +825,7 @@ def record_action(
     return client.post(f"/api/pvp/matches/{match_id}/actions", body, player_code=player.code)
 
 
-def choose_play_card(state: dict[str, Any]) -> dict[str, Any]:
+def choose_play_card(state: dict[str, Any]) -> dict[str, Any] | None:
     legal = state.get("legal_actions") if isinstance(state.get("legal_actions"), dict) else {}
     cards = legal.get("playable_cards") if isinstance(legal.get("playable_cards"), list) else []
     for action in cards:
@@ -842,7 +842,7 @@ def choose_play_card(state: dict[str, Any]) -> dict[str, Any]:
         if action.get("requires_target") and not action.get("targets"):
             continue
         return action
-    raise SmokeError(f"no playable card in state: {short_json(state)}")
+    return None
 
 
 def first_row(action: dict[str, Any]) -> str:

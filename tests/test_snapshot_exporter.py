@@ -248,7 +248,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
                 connection,
                 owner_player_id="p_witcher_1",
                 asset_type="item",
-                asset_id="item_herb_bundle",
+                asset_id="item_order_seal",
                 quantity=2,
                 source="test",
                 source_ref_id="own_w1",
@@ -258,7 +258,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
                 connection,
                 owner_player_id="p_witcher_2",
                 asset_type="item",
-                asset_id="item_silver_dust",
+                asset_id="item_beast_fang",
                 quantity=1,
                 source="test",
                 source_ref_id="own_w2",
@@ -287,7 +287,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
                         'p_witcher_1',
                         'p_witcher_2',
                         'item',
-                        'item_herb_bundle',
+                        'item_order_seal',
                         1,
                         0,
                         'gift',
@@ -327,7 +327,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
                         'pending_master_approval',
                         1,
                         ?,
-                        '[{"asset_type":"item","asset_id":"item_herb_bundle","quantity":1}]'
+                        '[{"asset_type":"item","asset_id":"item_order_seal","quantity":1}]'
                     ),
                     (
                         'approval_w2',
@@ -336,7 +336,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
                         'pending_master_approval',
                         2,
                         ?,
-                        '[{"asset_type":"item","asset_id":"item_silver_dust","quantity":1}]'
+                        '[{"asset_type":"item","asset_id":"item_beast_fang","quantity":1}]'
                     )
                 """,
                 (timestamp, timestamp),
@@ -350,7 +350,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
         assert snapshot is not None
         self.assertEqual(
             [row["asset_id"] for row in snapshot["asset_ownership"]],
-            ["item_herb_bundle"],
+            ["item_order_seal"],
         )
         self.assertEqual(
             [row["potion_id"] for row in snapshot["potion_inventory"]],
@@ -364,10 +364,10 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
             [row["approval_id"] for row in snapshot["reward_approvals"]],
             ["approval_w1"],
         )
-        self.assertEqual(snapshot["reward_approvals"][0]["locked_assets"][0]["asset_id"], "item_herb_bundle")
+        self.assertEqual(snapshot["reward_approvals"][0]["locked_assets"][0]["asset_id"], "item_order_seal")
 
         self.assertNotIn(
-            "item_silver_dust",
+            "item_beast_fang",
             {row["asset_id"] for row in snapshot["asset_ownership"]},
         )
         self.assertNotIn(

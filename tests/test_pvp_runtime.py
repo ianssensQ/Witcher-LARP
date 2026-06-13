@@ -61,6 +61,7 @@ PVP_TEST_STAKE_ITEMS = (
     "deck_contract_too_many_mulligans",
     "deck_contract_invalid_leader",
     "deck_contract_unknown_card",
+    "deck_contract_copy_limit",
     "deck_contract_special_cap",
     "preflight_invalid_marker",
     "corrupted_deck_marker",
@@ -84,6 +85,93 @@ PVP_TEST_STAKE_ITEMS = (
     "cap_review_second_marker",
     "invalid_finish_marker",
     "winner_override_marker",
+)
+NORTHERN_TEST_UNITS = (
+    "gwent_unit_13",
+    "gwent_unit_03",
+    "nr_blue_stripes_commando_2",
+    "nr_blue_stripes_commando_3",
+    "gwent_unit_16",
+    "nr_catapult_2",
+    "gwent_unit_12",
+    "nr_crinfrid_reavers_dragon_hunter_2",
+    "nr_crinfrid_reavers_dragon_hunter_3",
+    "gwent_unit_10",
+    "gwent_unit_09",
+    "nr_esterad_thyssen",
+    "nr_john_natalis",
+    "gwent_unit_05",
+    "nr_kaedweni_siege_expert_2",
+    "nr_kaedweni_siege_expert_3",
+    "gwent_unit_07",
+    "nr_philippa_eilhart",
+    "nr_poor_fucking_infantry_1",
+    "nr_poor_fucking_infantry_2",
+    "nr_poor_fucking_infantry_3",
+    "gwent_unit_06",
+    "gwent_unit_01",
+    "gwent_unit_08",
+    "nr_sheldon_skaggs",
+    "gwent_unit_11",
+    "gwent_unit_02",
+    "nr_sigismund_dijkstra",
+    "nr_sile_de_tansarville",
+    "nr_thaler",
+    "gwent_unit_14",
+    "nr_trebuchet_2",
+    "nr_vernon_roche",
+    "nr_ves",
+    "nr_yarpen_zigrin",
+)
+SCOIATAEL_TEST_UNITS = (
+    "gwent_unit_17",
+    "sc_ciaran",
+    "sc_dennis_cranmer",
+    "sc_dol_blathanna_archer",
+    "sc_dol_blathanna_scout_1",
+    "sc_dol_blathanna_scout_2",
+    "sc_dol_blathanna_scout_3",
+    "gwent_unit_18",
+    "sc_dwarven_skirmisher_2",
+    "sc_dwarven_skirmisher_3",
+    "sc_eithne",
+    "sc_elven_skirmisher_1",
+    "sc_elven_skirmisher_2",
+    "sc_elven_skirmisher_3",
+    "sc_filavandrel",
+    "sc_havekar_healer_1",
+    "sc_havekar_healer_2",
+    "sc_havekar_healer_3",
+    "sc_havekar_smuggler_1",
+    "sc_havekar_smuggler_2",
+    "sc_havekar_smuggler_3",
+    "sc_ida_emean",
+)
+MONSTERS_TEST_UNITS = (
+    "mo_arachas_1",
+    "mo_arachas_2",
+    "mo_arachas_3",
+    "mo_arachas_behemoth",
+    "mo_botchling",
+    "mo_celaeno_harpy",
+    "mo_cockatrice",
+    "mo_crone_brewess",
+    "mo_crone_weavess",
+    "mo_crone_whispess",
+    "mo_draug",
+    "mo_earth_elemental",
+    "mo_endrega",
+    "mo_fiend",
+    "mo_fire_elemental",
+    "mo_foglet",
+    "mo_forktail",
+    "mo_frightener",
+    "mo_gargoyle",
+    "mo_ghoul_1",
+    "mo_ghoul_2",
+    "mo_ghoul_3",
+    "gwent_unit_19",
+    "gwent_unit_20",
 )
 
 
@@ -246,13 +334,36 @@ class PvpRuntimeTests(unittest.TestCase):
         return shuffled[:10]
 
     def make_player_scoiatael_start(self, connection, player_id: str = "p_witcher_1") -> None:
+        scoiatael_deck = connection.execute(
+            """
+            SELECT card_ids
+            FROM gwent_decks
+            WHERE player_id = ? AND leader_card_id = 'gwent_leader_scoiatael'
+            ORDER BY _row_number
+            LIMIT 1
+            """,
+            (player_id,),
+        ).fetchone()
+        self.assertIsNotNone(scoiatael_deck)
+        default_deck = connection.execute(
+            """
+            SELECT deck_id
+            FROM gwent_decks
+            WHERE player_id = ?
+            ORDER BY _row_number
+            LIMIT 1
+            """,
+            (player_id,),
+        ).fetchone()
+        self.assertIsNotNone(default_deck)
         connection.execute(
             """
             UPDATE gwent_decks
-            SET leader_card_id = 'gwent_leader_scoiatael'
-            WHERE player_id = ?
+            SET leader_card_id = 'gwent_leader_scoiatael',
+                card_ids = ?
+            WHERE deck_id = ?
             """,
-            (player_id,),
+            (scoiatael_deck["card_ids"], default_deck["deck_id"]),
         )
 
     def strongest_legal_unit_action(self, connection, player_state: dict) -> dict:
@@ -273,6 +384,51 @@ class PvpRuntimeTests(unittest.TestCase):
                 best_strength = strength
         self.assertIsNotNone(best_action)
         return best_action
+
+    def replace_active_round_deck_state(self, connection, match_id: str, deck_state: dict) -> None:
+        base_deck_state = {
+            key: value
+            for key, value in deck_state.items()
+            if key != "active_round"
+        }
+        deck_state["active_round"]["base_deck_state"] = json.loads(json.dumps(base_deck_state))
+        connection.execute(
+            """
+            UPDATE gwent_runtime_matches
+            SET deck_state_json = ?
+            WHERE match_id = ?
+            """,
+            (json.dumps(deck_state, ensure_ascii=False, sort_keys=True), match_id),
+        )
+
+    def force_cards_into_match_hands(
+        self,
+        connection,
+        match_id: str,
+        cards_by_player: dict[str, list[str]],
+    ) -> None:
+        match = connection.execute(
+            """
+            SELECT deck_state_json
+            FROM gwent_runtime_matches
+            WHERE match_id = ?
+            """,
+            (match_id,),
+        ).fetchone()
+        self.assertIsNotNone(match)
+        deck_state = json.loads(match["deck_state_json"])
+        for player_id, card_ids in cards_by_player.items():
+            player_state = deck_state[player_id]
+            hand = list(player_state.get("hand") or [])
+            draw_pile = list(player_state.get("draw_pile") or [])
+            for card_id in card_ids:
+                if card_id not in hand:
+                    hand.insert(0, card_id)
+                if card_id in draw_pile:
+                    draw_pile.remove(card_id)
+            player_state["hand"] = hand
+            player_state["draw_pile"] = draw_pile
+        self.replace_active_round_deck_state(connection, match_id, deck_state)
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_api_challenge_spends_token_assigns_table_and_blocks_second_active(self) -> None:
@@ -592,6 +748,65 @@ class PvpRuntimeTests(unittest.TestCase):
             self.assertEqual(next_state["current_round"]["round_number"], 2)
             self.assertEqual(next_state["current_round"]["phase"], "active_turn")
 
+    def test_gwent_action_flow_auto_passes_empty_hands_and_resolves_round(self) -> None:
+        settings = self.prepare_seed("pvp_action_empty_hands", extra_deck_players=("p_witcher_2",))
+        with connect(settings) as connection:
+            challenge = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenger_id="p_witcher_1",
+                    target_id="p_witcher_2",
+                    challenge_id="challenge_action_empty_hands",
+                    stake={"asset_type": "item", "asset_id": "stake_banner"},
+                ),
+            )
+            started = start_pvp_challenge(
+                connection,
+                ChallengeStartInput(
+                    challenge_id=challenge["challenge_id"],
+                    deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_scoiatael"},
+                    preferred_starting_player_id="p_witcher_1",
+                ),
+            )
+            match_id = started["match"]["match_id"]
+            deck_state = started["match"]["deck_state"]
+            deck_state["p_witcher_1"]["hand"] = ["gwent_unit_17"]
+            deck_state["p_witcher_1"]["draw_pile"] = []
+            deck_state["p_witcher_2"]["hand"] = ["gwent_unit_02"]
+            deck_state["p_witcher_2"]["draw_pile"] = []
+            self.replace_active_round_deck_state(connection, match_id, deck_state)
+
+            first = record_gwent_action(
+                connection,
+                GwentActionInput(
+                    match_id=match_id,
+                    player_id="p_witcher_1",
+                    action="play_card",
+                    card_id="gwent_unit_17",
+                    row="melee",
+                    action_id="p1-empty-hand-card",
+                ),
+            )
+            self.assertTrue(first["current_round"]["passed"]["p_witcher_1"])
+            self.assertEqual(first["current_round"]["turn_player_id"], "p_witcher_2")
+
+            resolved = record_gwent_action(
+                connection,
+                GwentActionInput(
+                    match_id=match_id,
+                    player_id="p_witcher_2",
+                    action="play_card",
+                    card_id="gwent_unit_02",
+                    row="melee",
+                    action_id="p2-empty-hand-card",
+                ),
+            )
+
+        self.assertEqual(resolved["round"]["round_number"], 1)
+        self.assertEqual(resolved["round"]["passed"], {"p_witcher_1": True, "p_witcher_2": True})
+        self.assertEqual(resolved["match"]["status"], "active")
+        self.assertEqual(resolved["current_round"]["round_number"], 2)
+
     def test_gwent_start_records_server_shuffle_coin_toss_and_audit(self) -> None:
         settings = self.prepare_seed("pvp_shuffle_coin_toss", extra_deck_players=("p_witcher_2",))
         with connect(settings) as connection:
@@ -635,7 +850,7 @@ class PvpRuntimeTests(unittest.TestCase):
 
     def test_gwent_runtime_deckbuilder_deck_can_start_match(self) -> None:
         settings = self.prepare_seed("pvp_runtime_deckbuilder", extra_deck_players=("p_witcher_2",))
-        runtime_card_ids = [f"gwent_unit_{index:02d}" for index in range(1, 23)]
+        runtime_card_ids = list(SCOIATAEL_TEST_UNITS)
         with connect(settings) as connection:
             saved = save_gwent_runtime_deck(
                 connection,
@@ -674,14 +889,7 @@ class PvpRuntimeTests(unittest.TestCase):
 
     def test_gwent_action_flow_places_spy_on_opponent_side_and_draws_cards(self) -> None:
         settings = self.prepare_seed("pvp_action_spy", extra_deck_players=("p_witcher_2",))
-        units = [f"gwent_unit_{index:02d}" for index in range(1, 23)]
-        p1_cards = ["gwent_unit_06", *[card_id for card_id in units if card_id != "gwent_unit_06"]]
         with connect(settings) as connection:
-            self.make_player_scoiatael_start(connection)
-            connection.execute(
-                "UPDATE gwent_decks SET card_ids = ? WHERE player_id = 'p_witcher_1'",
-                (";".join(p1_cards),),
-            )
             challenge = create_pvp_challenge(
                 connection,
                 ChallengeCreateInput(
@@ -691,31 +899,25 @@ class PvpRuntimeTests(unittest.TestCase):
                     stake={"asset_type": "item", "asset_id": "stake_banner"},
                 ),
             )
-            for offset in range(len(p1_cards)):
-                candidate_cards = p1_cards[offset:] + p1_cards[:offset]
-                connection.execute(
-                    "UPDATE gwent_decks SET card_ids = ? WHERE player_id = 'p_witcher_1'",
-                    (";".join(candidate_cards),),
-                )
-                if "gwent_unit_06" in self.opening_hand_for(
-                    connection,
-                    challenge_id=challenge["challenge_id"],
-                    player_id="p_witcher_1",
-                ):
-                    break
             started = start_pvp_challenge(
                 connection,
                 ChallengeStartInput(
                     challenge_id=challenge["challenge_id"],
+                    deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_scoiatael"},
                     preferred_starting_player_id="p_witcher_1",
                 ),
             )
             match_id = started["match"]["match_id"]
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {"p_witcher_1": ["rare_gwent_04"]},
+            )
             opening_state = get_player_pvp_state(connection, "p_witcher_1")
             spy_action = next(
                 action
                 for action in opening_state["legal_actions"]["playable_cards"]
-                if action["effect"] == "spy"
+                if "spy" in action["effects"]
             )
 
             played = record_gwent_action(
@@ -736,7 +938,7 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertIn(spy_action["card_id"], [unit["card_id"] for unit in opponent_row])
         self.assertEqual(spy_effect["placed_for_player_id"], "p_witcher_2")
         self.assertEqual(len(spy_effect["drawn_card_ids"]), 2)
-        self.assertEqual(len(played["current_round"]["player_hand"]), 11)
+        self.assertEqual(len(played["current_round"]["player_hand"]), len(opening_state["player_hand"]) + 1)
 
     def test_gwent_action_e2e_finishes_applies_stake_and_stays_visible_to_players(self) -> None:
         settings = self.prepare_seed("pvp_action_e2e_finish", extra_deck_players=("p_witcher_2",))
@@ -1221,6 +1423,15 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(match["deck_state"]["p_witcher_1"]["mulligans"], [p1_mulligan])
         self.assertFalse(match["deck_state"]["cards_burn_after_round"])
 
+        with connect(settings) as connection:
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_02", "gwent_unit_03"],
+                    "p_witcher_2": ["gwent_unit_01"],
+                },
+            )
         first_round = client.post(
             f"/api/pvp/matches/{match_id}/rounds",
             headers=MASTER_HEADERS,
@@ -1238,12 +1449,21 @@ class PvpRuntimeTests(unittest.TestCase):
         round_payload = first_round.json()["round"]
         self.assertEqual(round_payload["winner_id"], "p_witcher_1")
         self.assertEqual(round_payload["row_scores"]["p_witcher_1"]["melee"], 9)
-        self.assertEqual(round_payload["row_scores"]["p_witcher_2"]["melee"], 4)
+        self.assertEqual(round_payload["row_scores"]["p_witcher_2"]["melee"], 1)
         self.assertFalse(round_payload["round_state"]["cards_burned"])
         first_match = first_round.json()["match"]
         self.assertNotIn("gwent_unit_02", first_match["deck_state"]["p_witcher_1"]["hand"])
         self.assertIn("gwent_unit_02", first_match["deck_state"]["p_witcher_1"]["graveyard"])
 
+        with connect(settings) as connection:
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_07"],
+                    "p_witcher_2": ["gwent_unit_02", "gwent_unit_03"],
+                },
+            )
         second_round = client.post(
             f"/api/pvp/matches/{match_id}/rounds",
             headers=MASTER_HEADERS,
@@ -1259,15 +1479,24 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(second_round.status_code, 200)
         self.assertEqual(second_round.json()["round"]["winner_id"], "p_witcher_2")
 
+        with connect(settings) as connection:
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_08", "gwent_unit_05"],
+                    "p_witcher_2": ["gwent_unit_08"],
+                },
+            )
         third_round = client.post(
             f"/api/pvp/matches/{match_id}/rounds",
             headers=MASTER_HEADERS,
             json={
                 "round_number": 3,
                 "plays": [
-                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_04"},
+                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_08"},
                     {"player_id": "p_witcher_1", "card_id": "gwent_unit_05"},
-                    {"player_id": "p_witcher_2", "card_id": "gwent_unit_04"},
+                    {"player_id": "p_witcher_2", "card_id": "gwent_unit_08"},
                 ],
             },
         )
@@ -1426,6 +1655,14 @@ class PvpRuntimeTests(unittest.TestCase):
                 ChallengeStartInput(challenge_id=challenge["challenge_id"]),
             )
             match_id = started["match"]["match_id"]
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_3": ["gwent_unit_01"],
+                    "p_witcher_4": ["gwent_unit_02", "gwent_unit_03"],
+                },
+            )
             record_gwent_round(
                 connection,
                 match_id,
@@ -1439,13 +1676,21 @@ class PvpRuntimeTests(unittest.TestCase):
                 },
                 round_number=1,
             )
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_3": ["gwent_unit_08"],
+                    "p_witcher_4": ["gwent_unit_08", "gwent_unit_05"],
+                },
+            )
             second_round = record_gwent_round(
                 connection,
                 match_id,
                 {
                     "plays": [
-                        {"player_id": "p_witcher_3", "card_id": "gwent_unit_04"},
-                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_04"},
+                        {"player_id": "p_witcher_3", "card_id": "gwent_unit_08"},
+                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_08"},
                         {"player_id": "p_witcher_4", "card_id": "gwent_unit_05"},
                     ],
                     "passed": {"p_witcher_3": True, "p_witcher_4": True},
@@ -1491,8 +1736,8 @@ class PvpRuntimeTests(unittest.TestCase):
         )
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
-    def test_api_player_gwent_round_waits_for_opponent_submission(self) -> None:
-        settings = self.prepare_seed("pvp_api_two_client_round", extra_deck_players=("p_witcher_2",))
+    def test_api_player_gwent_round_submission_requires_master(self) -> None:
+        settings = self.prepare_seed("pvp_api_player_round_submit_rejected", extra_deck_players=("p_witcher_2",))
         client = TestClient(create_app(settings))
         challenge = client.post(
             "/api/pvp/challenges",
@@ -1512,7 +1757,7 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(started.status_code, 200, started.text)
         match_id = started.json()["match"]["match_id"]
 
-        first_submit = client.post(
+        player_submit = client.post(
             f"/api/pvp/matches/{match_id}/rounds",
             headers=WITCHER_1_HEADERS,
             json={
@@ -1522,56 +1767,10 @@ class PvpRuntimeTests(unittest.TestCase):
                     {"player_id": "p_witcher_1", "card_id": "gwent_unit_03"},
                 ],
                 "passed": {"p_witcher_1": True},
-                "source": "legacy_fallback",
             },
         )
-        self.assertEqual(first_submit.status_code, 200, first_submit.text)
-        pending_payload = first_submit.json()
-        self.assertIsNone(pending_payload["round"]["winner_id"])
-        self.assertEqual(pending_payload["match"]["status"], "active")
-        self.assertEqual(pending_payload["round"]["round_state"]["status"], "pending_player_submissions")
-        self.assertEqual(pending_payload["round"]["round_state"]["ready_players"], ["p_witcher_1"])
-        self.assertEqual(pending_payload["round"]["round_state"]["missing_players"], ["p_witcher_2"])
-        p1_pending_deck = pending_payload["match"]["deck_state"]["p_witcher_1"]
-        self.assertIn("gwent_unit_02", p1_pending_deck["hand"] + p1_pending_deck["draw_pile"])
-
-        second_submit = client.post(
-            f"/api/pvp/matches/{match_id}/rounds",
-            headers=WITCHER_2_HEADERS,
-            json={
-                "round_number": 1,
-                "plays": [{"player_id": "p_witcher_2", "card_id": "gwent_unit_01"}],
-                "passed": {"p_witcher_2": True},
-                "source": "legacy_fallback",
-            },
-        )
-        self.assertEqual(second_submit.status_code, 200, second_submit.text)
-        resolved_payload = second_submit.json()
-        self.assertFalse(resolved_payload["duplicate"])
-        self.assertEqual(resolved_payload["round"]["winner_id"], "p_witcher_1")
-        self.assertEqual(resolved_payload["round"]["row_scores"]["p_witcher_1"]["melee"], 9)
-        self.assertEqual(resolved_payload["round"]["row_scores"]["p_witcher_2"]["melee"], 4)
-        self.assertNotIn(
-            "gwent_unit_02",
-            resolved_payload["match"]["deck_state"]["p_witcher_1"]["hand"],
-        )
-        self.assertIn(
-            "gwent_unit_02",
-            resolved_payload["match"]["deck_state"]["p_witcher_1"]["graveyard"],
-        )
-
-        duplicate_submit = client.post(
-            f"/api/pvp/matches/{match_id}/rounds",
-            headers=WITCHER_2_HEADERS,
-            json={
-                "round_number": 1,
-                "plays": [{"player_id": "p_witcher_2", "card_id": "gwent_unit_01"}],
-                "passed": {"p_witcher_2": True},
-                "source": "legacy_fallback",
-            },
-        )
-        self.assertEqual(duplicate_submit.status_code, 200, duplicate_submit.text)
-        self.assertTrue(duplicate_submit.json()["duplicate"])
+        self.assertEqual(player_submit.status_code, 403, player_submit.text)
+        self.assertIn("use /actions for gameplay", player_submit.json()["detail"])
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_api_master_incomplete_gwent_round_goes_to_review_without_stake_transfer(self) -> None:
@@ -1595,6 +1794,12 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(started.status_code, 200, started.text)
         match_id = started.json()["match"]["match_id"]
 
+        with connect(settings) as connection:
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {"p_witcher_1": ["gwent_unit_02"]},
+            )
         incomplete_round = client.post(
             f"/api/pvp/matches/{match_id}/rounds",
             headers=MASTER_HEADERS,
@@ -1758,6 +1963,15 @@ class PvpRuntimeTests(unittest.TestCase):
             json={},
         ).json()
         match_id = started["match"]["match_id"]
+        with connect(settings) as connection:
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_02", "gwent_unit_03"],
+                    "p_witcher_2": ["gwent_unit_01"],
+                },
+            )
         first_round = client.post(
             f"/api/pvp/matches/{match_id}/rounds",
             headers=MASTER_HEADERS,
@@ -1770,13 +1984,22 @@ class PvpRuntimeTests(unittest.TestCase):
                 ],
             },
         )
+        with connect(settings) as connection:
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_08", "gwent_unit_05"],
+                    "p_witcher_2": ["gwent_unit_02"],
+                },
+            )
         second_round = client.post(
             f"/api/pvp/matches/{match_id}/rounds",
             headers=MASTER_HEADERS,
             json={
                 "round_number": 2,
                 "plays": [
-                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_04"},
+                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_08"},
                     {"player_id": "p_witcher_1", "card_id": "gwent_unit_05"},
                     {"player_id": "p_witcher_2", "card_id": "gwent_unit_02"},
                 ],
@@ -2046,6 +2269,14 @@ class PvpRuntimeTests(unittest.TestCase):
             )
             match_id = started["match"]["match_id"]
 
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_01"],
+                    "p_witcher_2": ["gwent_unit_01"],
+                },
+            )
             first = record_gwent_round(
                 connection,
                 match_id,
@@ -2060,6 +2291,14 @@ class PvpRuntimeTests(unittest.TestCase):
             self.assertNotIn("gwent_unit_01", first["match"]["deck_state"]["p_witcher_1"]["hand"])
             self.assertIn("gwent_unit_01", first["match"]["deck_state"]["p_witcher_1"]["graveyard"])
 
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_02"],
+                    "p_witcher_2": ["gwent_unit_02"],
+                },
+            )
             second = record_gwent_round(
                 connection,
                 match_id,
@@ -2076,7 +2315,7 @@ class PvpRuntimeTests(unittest.TestCase):
 
     def test_gwent_special_cards_apply_weather_horn_scorch_and_decoy_rules(self) -> None:
         settings = self.prepare_seed("pvp_special_cards", extra_deck_players=("p_witcher_2",))
-        units = [f"gwent_unit_{index:02d}" for index in range(1, 23)]
+        units = list(NORTHERN_TEST_UNITS)
         p1_cards = [
             "gwent_unit_01",
             "gwent_unit_02",
@@ -2086,22 +2325,13 @@ class PvpRuntimeTests(unittest.TestCase):
             "gwent_scorch",
             *[card_id for card_id in units if card_id not in {"gwent_unit_01", "gwent_unit_02"}],
         ]
-        p2_cards = [
-            "gwent_unit_11",
-            "rare_gwent_01",
-            *[card_id for card_id in units if card_id != "gwent_unit_11"],
-        ]
         with connect(settings) as connection:
             connection.execute(
-                "UPDATE gwent_cards SET strength = 10 WHERE card_id = 'gwent_unit_11'"
+                "UPDATE gwent_cards SET strength = 10 WHERE card_id = 'sc_ciaran'"
             )
             connection.execute(
                 "UPDATE gwent_decks SET card_ids = ? WHERE player_id = 'p_witcher_1'",
                 (";".join(p1_cards),),
-            )
-            connection.execute(
-                "UPDATE gwent_decks SET card_ids = ? WHERE player_id = 'p_witcher_2'",
-                (";".join(p2_cards),),
             )
             challenge = create_pvp_challenge(
                 connection,
@@ -2114,10 +2344,28 @@ class PvpRuntimeTests(unittest.TestCase):
             )
             started = start_pvp_challenge(
                 connection,
-                ChallengeStartInput(challenge_id=challenge["challenge_id"]),
+                ChallengeStartInput(
+                    challenge_id=challenge["challenge_id"],
+                    deck_ids_by_player={"p_witcher_2": "deck_p_witcher_2_scoiatael"},
+                ),
             )
             match_id = started["match"]["match_id"]
 
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": [
+                        "gwent_unit_01",
+                        "gwent_unit_02",
+                        "gwent_decoy",
+                        "gwent_horn",
+                        "gwent_weather_frost",
+                        "gwent_scorch",
+                    ],
+                    "p_witcher_2": ["sc_ciaran", "rare_gwent_01"],
+                },
+            )
             result = record_gwent_round(
                 connection,
                 match_id,
@@ -2132,7 +2380,7 @@ class PvpRuntimeTests(unittest.TestCase):
                         },
                         {"player_id": "p_witcher_1", "card_id": "gwent_horn", "row": "melee"},
                         {"player_id": "p_witcher_1", "card_id": "gwent_weather_frost"},
-                        {"player_id": "p_witcher_2", "card_id": "gwent_unit_11"},
+                        {"player_id": "p_witcher_2", "card_id": "sc_ciaran", "row": "ranged"},
                         {"player_id": "p_witcher_2", "card_id": "rare_gwent_01"},
                         {"player_id": "p_witcher_1", "card_id": "gwent_scorch"},
                     ]
@@ -2157,7 +2405,7 @@ class PvpRuntimeTests(unittest.TestCase):
         )
         self.assertIn({"card_id": "rare_gwent_01", "effect": "hero", "scope": "unit"}, effects)
         self.assertIn({"card_id": "rare_gwent_01", "effect": "morale", "scope": "unit"}, effects)
-        self.assertEqual(scorch["removed_card_ids"], ["gwent_unit_11"])
+        self.assertEqual(scorch["removed_card_ids"], ["sc_ciaran"])
         self.assertEqual(round_state["weather_rows"], ["melee"])
         self.assertEqual(round_state["horn_rows"]["p_witcher_1"], ["melee"])
         self.assertEqual(round_state["returned_cards"], [{"player_id": "p_witcher_1", "card_id": "gwent_unit_01"}])
@@ -2170,25 +2418,7 @@ class PvpRuntimeTests(unittest.TestCase):
 
     def test_gwent_seed_core_effects_spy_medic_muster_and_leader_apply(self) -> None:
         settings = self.prepare_seed("pvp_seed_core_effects", extra_deck_players=("p_witcher_2",))
-        units = [f"gwent_unit_{index:02d}" for index in range(1, 23)]
-        priority_cards = [
-            "gwent_unit_01",
-            "gwent_unit_06",
-            "gwent_unit_09",
-            "gwent_unit_19",
-            "gwent_unit_20",
-            "gwent_unit_02",
-            "gwent_unit_03",
-            "gwent_unit_04",
-            "gwent_unit_05",
-            "gwent_unit_07",
-        ]
-        p1_cards = [*priority_cards, *[card_id for card_id in units if card_id not in priority_cards]]
         with connect(settings) as connection:
-            connection.execute(
-                "UPDATE gwent_decks SET card_ids = ? WHERE player_id = 'p_witcher_1'",
-                (";".join(p1_cards),),
-            )
             challenge = create_pvp_challenge(
                 connection,
                 ChallengeCreateInput(
@@ -2200,32 +2430,57 @@ class PvpRuntimeTests(unittest.TestCase):
             )
             started = start_pvp_challenge(
                 connection,
-                ChallengeStartInput(challenge_id=challenge["challenge_id"]),
+                ChallengeStartInput(
+                    challenge_id=challenge["challenge_id"],
+                    deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_monsters"},
+                ),
             )
             match_id = started["match"]["match_id"]
 
-            record_gwent_round(
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["mo_botchling", "mo_cockatrice"],
+                    "p_witcher_2": ["gwent_unit_01"],
+                },
+            )
+            first = record_gwent_round(
                 connection,
                 match_id,
                 {
                     "plays": [
-                        {"player_id": "p_witcher_1", "card_id": "gwent_unit_01"},
+                        {"player_id": "p_witcher_1", "card_id": "mo_botchling"},
+                        {"player_id": "p_witcher_1", "card_id": "mo_cockatrice"},
                         {"player_id": "p_witcher_2", "card_id": "gwent_unit_01"},
-                    ]
+                    ],
+                    "passed": {"p_witcher_1": True, "p_witcher_2": True},
                 },
                 round_number=1,
+            )
+            revive_target = next(
+                card_id
+                for card_id in ("mo_botchling", "mo_cockatrice")
+                if card_id in first["match"]["deck_state"]["p_witcher_1"]["graveyard"]
+            )
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["rare_gwent_04", "rare_gwent_05", "gwent_unit_19", "gwent_unit_20"],
+                },
             )
             result = record_gwent_round(
                 connection,
                 match_id,
                 {
                     "plays": [
-                        {"player_id": "p_witcher_1", "card_id": "gwent_leader_wolf", "row": "melee"},
-                        {"player_id": "p_witcher_1", "card_id": "gwent_unit_06"},
+                        {"player_id": "p_witcher_1", "card_id": "gwent_leader_monsters", "row": "melee"},
+                        {"player_id": "p_witcher_1", "card_id": "rare_gwent_04"},
                         {
                             "player_id": "p_witcher_1",
-                            "card_id": "gwent_unit_09",
-                            "revive_card_id": "gwent_unit_01",
+                            "card_id": "rare_gwent_05",
+                            "revive_card_id": revive_target,
                         },
                         {"player_id": "p_witcher_1", "card_id": "gwent_unit_19"},
                     ],
@@ -2242,94 +2497,103 @@ class PvpRuntimeTests(unittest.TestCase):
         leader = next(item for item in effects if item["scope"] == "leader")
         self.assertEqual(spy["placed_for_player_id"], "p_witcher_2")
         self.assertEqual(len(spy["drawn_card_ids"]), 2)
-        self.assertEqual(medic["revived_card_id"], "gwent_unit_01")
-        self.assertEqual(muster["mustered_card_ids"], ["gwent_unit_20"])
-        self.assertEqual(leader["effect"], "leader_foltest_clear_weather")
+        self.assertEqual(medic["revived_card_id"], revive_target)
+        self.assertEqual(set(muster["mustered_card_ids"]), {"gwent_unit_20", "mo_nekker_3"})
+        self.assertEqual(leader["effect"], "leader_eredin_melee_horn")
         self.assertTrue(result["match"]["deck_state"]["p_witcher_1"]["leader_used"])
         self.assertIn("gwent_unit_20", round_state["consumed_cards"]["p_witcher_1"])
-        self.assertIn("gwent_unit_06", [unit["card_id"] for unit in round_state["board"]["p_witcher_2"]["melee"]])
+        self.assertIn("mo_nekker_3", round_state["consumed_cards"]["p_witcher_1"])
+        self.assertIn("rare_gwent_04", [unit["card_id"] for unit in round_state["board"]["p_witcher_2"]["melee"]])
 
-    def test_gwent_rare_stage1_specials_clear_weather_and_last_stand_apply(self) -> None:
-        settings = self.prepare_seed("pvp_rare_stage1_specials", extra_deck_players=("p_witcher_2",))
-        units = [f"gwent_unit_{index:02d}" for index in range(1, 23)]
+    def test_gwent_rare_base_cards_apply_mysterious_elf_and_dandelion(self) -> None:
+        settings = self.prepare_seed("pvp_rare_base_cards", extra_deck_players=("p_witcher_2",))
+        units = list(NORTHERN_TEST_UNITS[:22])
+        desired_opening = {"gwent_weather_frost", "gwent_clear_weather", "rare_gwent_04", "rare_gwent_06"}
         p1_cards = [
             "gwent_weather_frost",
-            "gwent_weather_fog",
+            "gwent_clear_weather",
             "rare_gwent_04",
             "rare_gwent_06",
             *units,
         ]
         with connect(settings) as connection:
-            connection.execute(
-                "UPDATE gwent_cards SET effect = 'clear_weather' WHERE card_id = 'gwent_weather_fog'"
-            )
-            connection.execute(
-                "UPDATE gwent_decks SET card_ids = ? WHERE player_id = 'p_witcher_1'",
-                (";".join(p1_cards),),
-            )
             challenge = create_pvp_challenge(
                 connection,
                 ChallengeCreateInput(
-                    challenge_id="challenge_rare_stage1_specials",
+                    challenge_id="challenge_rare_base_cards",
                     challenger_id="p_witcher_1",
                     target_id="p_witcher_2",
                     stake={"asset_type": "item", "asset_id": "rare_specials_marker"},
                 ),
             )
+            for offset in range(len(p1_cards)):
+                candidate_cards = p1_cards[offset:] + p1_cards[:offset]
+                connection.execute(
+                    "UPDATE gwent_decks SET card_ids = ? WHERE player_id = 'p_witcher_1'",
+                    (";".join(candidate_cards),),
+                )
+                if desired_opening.issubset(
+                    set(
+                        self.opening_hand_for(
+                            connection,
+                            challenge_id=challenge["challenge_id"],
+                            player_id="p_witcher_1",
+                        )
+                    )
+                ):
+                    break
             started = start_pvp_challenge(
                 connection,
                 ChallengeStartInput(challenge_id=challenge["challenge_id"]),
             )
+            deck_state = started["match"]["deck_state"]
+            deck_state["p_witcher_1"]["hand"] = [
+                "gwent_weather_frost",
+                "gwent_clear_weather",
+                "rare_gwent_04",
+                "rare_gwent_06",
+            ]
+            deck_state["p_witcher_1"]["draw_pile"] = [
+                card_id
+                for card_id in p1_cards
+                if card_id not in deck_state["p_witcher_1"]["hand"]
+            ]
+            self.replace_active_round_deck_state(connection, started["match"]["match_id"], deck_state)
             result = record_gwent_round(
                 connection,
                 started["match"]["match_id"],
                 {
                     "plays": [
                         {"player_id": "p_witcher_1", "card_id": "gwent_weather_frost"},
-                        {"player_id": "p_witcher_1", "card_id": "gwent_weather_fog"},
+                        {"player_id": "p_witcher_1", "card_id": "gwent_clear_weather"},
                         {"player_id": "p_witcher_1", "card_id": "rare_gwent_04"},
                         {"player_id": "p_witcher_1", "card_id": "rare_gwent_06"},
-                        {"player_id": "p_witcher_2", "card_id": "gwent_unit_01"},
-                    ]
+                    ],
+                    "passed": {"p_witcher_1": True, "p_witcher_2": True},
                 },
                 round_number=1,
             )
 
         round_state = result["round"]["round_state"]
         effects = round_state["effects_applied"]
-        spyglass = next(item for item in effects if item["card_id"] == "rare_gwent_04")
-        last_stand = next(item for item in effects if item["card_id"] == "rare_gwent_06")
+        mysterious_elf_spy = next(item for item in effects if item["card_id"] == "rare_gwent_04" and item["effect"] == "spy")
+        dandelion_horn = next(item for item in effects if item["card_id"] == "rare_gwent_06")
 
         self.assertEqual(round_state["weather_rows"], [])
-        self.assertEqual(round_state["horn_rows"]["p_witcher_1"], ["melee", "ranged", "siege"])
-        self.assertEqual(len(spyglass["drawn_card_ids"]), 1)
-        self.assertEqual(last_stand["effect"], "custom_larp_last_stand")
-        spyglass_drawn = spyglass["drawn_card_ids"][0]
-        self.assertIn(spyglass_drawn, result["match"]["deck_state"]["p_witcher_1"]["hand"])
-        self.assertNotIn(spyglass_drawn, result["match"]["deck_state"]["p_witcher_1"]["draw_pile"])
+        self.assertEqual(round_state["horn_rows"]["p_witcher_1"], ["melee"])
+        self.assertEqual(len(mysterious_elf_spy["drawn_card_ids"]), 2)
+        self.assertEqual(dandelion_horn["effect"], "commanders_horn")
+        for drawn_card_id in mysterious_elf_spy["drawn_card_ids"]:
+            self.assertIn(drawn_card_id, result["match"]["deck_state"]["p_witcher_1"]["hand"])
+            self.assertNotIn(drawn_card_id, result["match"]["deck_state"]["p_witcher_1"]["draw_pile"])
+        self.assertIn("rare_gwent_04", [unit["card_id"] for unit in round_state["board"]["p_witcher_2"]["melee"]])
         self.assertIn(
-            {"card_id": "gwent_weather_fog", "effect": "clear_weather", "scope": "special"},
+            {"card_id": "gwent_clear_weather", "effect": "clear_weather", "scope": "special"},
             effects,
         )
 
     def test_gwent_northern_realms_draws_card_after_winning_round(self) -> None:
         settings = self.prepare_seed("pvp_northern_round_win_draw", extra_deck_players=("p_witcher_2",))
-        units = [f"gwent_unit_{index:02d}" for index in range(1, 23)]
-        opening_cards = [
-            "gwent_unit_16",
-            *[card_id for card_id in units if card_id not in {"gwent_unit_16", "gwent_unit_11"}][:9],
-        ]
-        p1_cards = [
-            *opening_cards,
-            "gwent_unit_11",
-            *[card_id for card_id in units if card_id not in {*opening_cards, "gwent_unit_11"}],
-            "gwent_weather_frost",
-            "gwent_weather_fog",
-            "gwent_weather_rain",
-            "gwent_decoy",
-            "gwent_scorch",
-            "gwent_horn",
-        ]
         with connect(settings) as connection:
             self.ensure_test_item_asset(connection, "northern_round_win_marker")
             grant_asset_ownership(
@@ -2339,10 +2603,6 @@ class PvpRuntimeTests(unittest.TestCase):
                 asset_id="northern_round_win_marker",
                 source="test_pvp_northern_round_win",
                 source_ref_id="northern_round_win_marker",
-            )
-            connection.execute(
-                "UPDATE gwent_decks SET card_ids = ? WHERE player_id = 'p_witcher_1'",
-                (";".join(p1_cards),),
             )
             challenge = create_pvp_challenge(
                 connection,
@@ -2356,6 +2616,14 @@ class PvpRuntimeTests(unittest.TestCase):
             started = start_pvp_challenge(
                 connection,
                 ChallengeStartInput(challenge_id=challenge["challenge_id"]),
+            )
+            self.force_cards_into_match_hands(
+                connection,
+                started["match"]["match_id"],
+                {
+                    "p_witcher_1": ["gwent_unit_16"],
+                    "p_witcher_2": ["gwent_unit_01"],
+                },
             )
             result = record_gwent_round(
                 connection,
@@ -2393,15 +2661,25 @@ class PvpRuntimeTests(unittest.TestCase):
                     stake={"asset_type": "item", "asset_id": "stake_banner"},
                 ),
             )
+            started = start_pvp_challenge(
+                connection,
+                ChallengeStartInput(
+                    challenge_id=challenge["challenge_id"],
+                    deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_monsters"},
+                ),
+            )
+            match_id = started["match"]["match_id"]
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_19"],
+                    "p_witcher_2": ["gwent_unit_01"],
+                },
+            )
             result = record_gwent_round(
                 connection,
-                start_pvp_challenge(
-                    connection,
-                    ChallengeStartInput(
-                        challenge_id=challenge["challenge_id"],
-                        deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_monsters"},
-                    ),
-                )["match"]["match_id"],
+                match_id,
                 {
                     "plays": [
                         {"player_id": "p_witcher_1", "card_id": "gwent_unit_19"},
@@ -2426,7 +2704,7 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(carryover_units[0]["card_id"], effect["kept_card_id"])
         self.assertTrue(carryover_units[0]["carried_by_faction"])
 
-    def test_gwent_skellige_restores_units_on_round_three(self) -> None:
+    def test_gwent_skellige_deck_is_not_available_in_base_seed(self) -> None:
         settings = self.prepare_seed("pvp_skellige_restore", extra_deck_players=("p_witcher_2",))
         with connect(settings) as connection:
             challenge = create_pvp_challenge(
@@ -2438,54 +2716,14 @@ class PvpRuntimeTests(unittest.TestCase):
                     stake={"asset_type": "item", "asset_id": "stake_banner"},
                 ),
             )
-            started = start_pvp_challenge(
-                connection,
-                ChallengeStartInput(
-                    challenge_id=challenge["challenge_id"],
-                    deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_skellige"},
-                ),
-            )
-            match_id = started["match"]["match_id"]
-            record_gwent_round(
-                connection,
-                match_id,
-                {
-                    "plays": [
-                        {"player_id": "p_witcher_1", "card_id": "gwent_unit_01"},
-                        {"player_id": "p_witcher_2", "card_id": "gwent_unit_16"},
-                    ],
-                    "passed": {"p_witcher_1": True, "p_witcher_2": True},
-                },
-                round_number=1,
-            )
-            result = record_gwent_round(
-                connection,
-                match_id,
-                {
-                    "plays": [
-                        {"player_id": "p_witcher_1", "card_id": "gwent_unit_19"},
-                        {"player_id": "p_witcher_2", "card_id": "gwent_unit_01"},
-                    ],
-                    "passed": {"p_witcher_1": True, "p_witcher_2": True},
-                },
-                round_number=2,
-            )
-
-        effect = next(
-            item
-            for item in result["round"]["round_state"]["effects_applied"]
-            if item["effect"] == "faction_skellige_round_three_restore"
-        )
-        restored_units = [
-            unit
-            for row_units in result["match"]["deck_state"]["p_witcher_1"]["rows"].values()
-            for unit in row_units
-            if unit.get("restored_by_faction")
-        ]
-        self.assertEqual(len(effect["restored_card_ids"]), 2)
-        self.assertEqual(sorted(unit["card_id"] for unit in restored_units), sorted(effect["restored_card_ids"]))
-        for card_id in effect["restored_card_ids"]:
-            self.assertNotIn(card_id, result["match"]["deck_state"]["p_witcher_1"]["graveyard"])
+            with self.assertRaisesRegex(PvpError, "not available"):
+                start_pvp_challenge(
+                    connection,
+                    ChallengeStartInput(
+                        challenge_id=challenge["challenge_id"],
+                        deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_skellige"},
+                    ),
+                )
 
     def test_gwent_nilfgaard_wins_scored_tie_round(self) -> None:
         settings = self.prepare_seed("pvp_nilfgaard_tie_win", extra_deck_players=("p_witcher_2",))
@@ -2515,13 +2753,19 @@ class PvpRuntimeTests(unittest.TestCase):
                     deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_nilfgaard"},
                 ),
             )
+            deck_state = started["match"]["deck_state"]
+            deck_state["p_witcher_1"]["hand"] = ["neutral_vesemir"]
+            deck_state["p_witcher_1"]["draw_pile"] = []
+            deck_state["p_witcher_2"]["hand"] = ["neutral_vesemir"]
+            deck_state["p_witcher_2"]["draw_pile"] = []
+            self.replace_active_round_deck_state(connection, started["match"]["match_id"], deck_state)
             result = record_gwent_round(
                 connection,
                 started["match"]["match_id"],
                 {
                     "plays": [
-                        {"player_id": "p_witcher_1", "card_id": "gwent_unit_01"},
-                        {"player_id": "p_witcher_2", "card_id": "gwent_unit_01"},
+                        {"player_id": "p_witcher_1", "card_id": "neutral_vesemir"},
+                        {"player_id": "p_witcher_2", "card_id": "neutral_vesemir"},
                     ],
                     "passed": {"p_witcher_1": True, "p_witcher_2": True},
                 },
@@ -2531,13 +2775,156 @@ class PvpRuntimeTests(unittest.TestCase):
         effects = result["round"]["round_state"]["effects_applied"]
         faction_effect = next(item for item in effects if item["effect"] == "faction_nilfgaard_tie_win")
         self.assertEqual(started["match"]["deck_state"]["p_witcher_1"]["faction"], "nilfgaard")
-        self.assertEqual(result["round"]["row_scores"]["p_witcher_1"]["melee"], 4)
-        self.assertEqual(result["round"]["row_scores"]["p_witcher_2"]["melee"], 4)
+        self.assertEqual(result["round"]["row_scores"]["p_witcher_1"]["melee"], 6)
+        self.assertEqual(result["round"]["row_scores"]["p_witcher_2"]["melee"], 6)
         self.assertFalse(result["round"]["tie"])
         self.assertEqual(result["round"]["winner_id"], "p_witcher_1")
         self.assertEqual(result["match"]["round_losses"]["p_witcher_1"], 0)
         self.assertEqual(result["match"]["round_losses"]["p_witcher_2"], 1)
         self.assertEqual(faction_effect["player_id"], "p_witcher_1")
+
+    def test_gwent_emhyr_spy_hand_reveals_deterministic_random_cards(self) -> None:
+        settings = self.prepare_seed("pvp_emhyr_random_reveal", extra_deck_players=("p_witcher_2",))
+        with connect(settings) as connection:
+            self.ensure_test_item_asset(connection, "emhyr_random_reveal_marker")
+            grant_asset_ownership(
+                connection,
+                owner_player_id="p_witcher_1",
+                asset_type="item",
+                asset_id="emhyr_random_reveal_marker",
+                source="test_pvp_emhyr_random_reveal",
+                source_ref_id="emhyr_random_reveal_marker",
+            )
+            challenge = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenge_id="challenge_emhyr_random_reveal",
+                    challenger_id="p_witcher_1",
+                    target_id="p_witcher_2",
+                    stake={"asset_type": "item", "asset_id": "emhyr_random_reveal_marker"},
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE gwent_decks
+                SET leader_card_id = 'gwent_leader_emhyr_emperor'
+                WHERE deck_id = 'deck_witcher_wolf_nilfgaard'
+                """
+            )
+            started = start_pvp_challenge(
+                connection,
+                ChallengeStartInput(
+                    challenge_id=challenge["challenge_id"],
+                    deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_nilfgaard"},
+                ),
+            )
+            deck_state = started["match"]["deck_state"]
+            opponent_hand = [
+                "gwent_unit_01",
+                "gwent_unit_02",
+                "gwent_unit_03",
+                "gwent_unit_05",
+                "gwent_unit_06",
+            ]
+            deck_state["p_witcher_2"]["hand"] = list(opponent_hand)
+            self.replace_active_round_deck_state(connection, started["match"]["match_id"], deck_state)
+
+            result = record_gwent_round(
+                connection,
+                started["match"]["match_id"],
+                {
+                    "plays": [{"player_id": "p_witcher_1", "card_id": "gwent_leader_emhyr_emperor"}],
+                    "passed": {"p_witcher_1": True, "p_witcher_2": True},
+                },
+                round_number=1,
+            )
+
+        p1_state = result["match"]["deck_state"]["p_witcher_1"]
+        reveal = p1_state["private_reveals"][0]
+        expected = random.Random(reveal["reveal_seed"]).sample(opponent_hand, 3)
+        self.assertEqual(reveal["card_ids"], expected)
+        self.assertNotEqual(reveal["card_ids"], opponent_hand[:3])
+        leader_effect = next(item for item in result["round"]["round_state"]["effects_applied"] if item["scope"] == "leader")
+        self.assertEqual(leader_effect["revealed_count"], 3)
+        self.assertEqual(leader_effect["reveal_seed"], reveal["reveal_seed"])
+
+    def test_gwent_eredin_discard_draw_requires_explicit_card_choices(self) -> None:
+        settings = self.prepare_seed("pvp_eredin_discard_draw_choices", extra_deck_players=("p_witcher_2",))
+        with connect(settings) as connection:
+            self.ensure_test_item_asset(connection, "eredin_choice_marker")
+            grant_asset_ownership(
+                connection,
+                owner_player_id="p_witcher_1",
+                asset_type="item",
+                asset_id="eredin_choice_marker",
+                source="test_pvp_eredin_choice",
+                source_ref_id="eredin_choice_marker",
+            )
+            challenge = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenge_id="challenge_eredin_choice",
+                    challenger_id="p_witcher_1",
+                    target_id="p_witcher_2",
+                    stake={"asset_type": "item", "asset_id": "eredin_choice_marker"},
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE gwent_decks
+                SET leader_card_id = 'gwent_leader_eredin_destroyer'
+                WHERE deck_id = 'deck_witcher_wolf_monsters'
+                """
+            )
+            started = start_pvp_challenge(
+                connection,
+                ChallengeStartInput(
+                    challenge_id=challenge["challenge_id"],
+                    deck_ids_by_player={"p_witcher_1": "deck_witcher_wolf_monsters"},
+                ),
+            )
+            match_id = started["match"]["match_id"]
+            p1_state = started["match"]["deck_state"]["p_witcher_1"]
+            discard_ids = list(p1_state["hand"][:2])
+            target_card_id = str(p1_state["draw_pile"][0])
+
+            with self.assertRaisesRegex(PvpError, "requires exactly two distinct discard_card_ids"):
+                record_gwent_round(
+                    connection,
+                    match_id,
+                    {
+                        "plays": [{"player_id": "p_witcher_1", "card_id": "gwent_leader_eredin_destroyer"}],
+                        "passed": {"p_witcher_1": True, "p_witcher_2": True},
+                    },
+                    round_number=1,
+                )
+
+            result = record_gwent_round(
+                connection,
+                match_id,
+                {
+                    "plays": [
+                        {
+                            "player_id": "p_witcher_1",
+                            "card_id": "gwent_leader_eredin_destroyer",
+                            "target_card_id": target_card_id,
+                            "discard_card_ids": discard_ids,
+                        }
+                    ],
+                    "passed": {"p_witcher_1": True, "p_witcher_2": True},
+                },
+                round_number=1,
+            )
+
+        p1_after = result["match"]["deck_state"]["p_witcher_1"]
+        leader_effect = next(item for item in result["round"]["round_state"]["effects_applied"] if item["scope"] == "leader")
+        self.assertEqual(leader_effect["discarded_card_ids"], discard_ids)
+        self.assertEqual(leader_effect["drawn_card_id"], target_card_id)
+        for discard_id in discard_ids:
+            self.assertIn(discard_id, p1_after["graveyard"])
+            self.assertNotIn(discard_id, p1_after["hand"])
+        self.assertIn(target_card_id, p1_after["hand"])
+        self.assertNotIn(target_card_id, p1_after["draw_pile"])
 
     def test_gwent_scoiatael_ready_choice_controls_first_turn(self) -> None:
         settings = self.prepare_seed("pvp_scoiatael_first_turn", extra_deck_players=("p_witcher_2",))
@@ -2603,6 +2990,45 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(faction_effect["player_id"], "p_witcher_1")
         self.assertEqual(faction_effect["starting_player_id"], "p_witcher_2")
 
+    def test_gwent_scoiatael_mirror_uses_coin_toss_instead_of_implicit_choice(self) -> None:
+        settings = self.prepare_seed("pvp_scoiatael_mirror_first_turn", extra_deck_players=("p_witcher_2",))
+        with connect(settings) as connection:
+            self.ensure_test_item_asset(connection, "scoiatael_mirror_marker")
+            grant_asset_ownership(
+                connection,
+                owner_player_id="p_witcher_1",
+                asset_type="item",
+                asset_id="scoiatael_mirror_marker",
+                source="test_pvp_scoiatael_mirror",
+                source_ref_id="scoiatael_mirror_marker",
+            )
+            challenge = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenge_id="challenge_scoiatael_mirror",
+                    challenger_id="p_witcher_1",
+                    target_id="p_witcher_2",
+                    stake={"asset_type": "item", "asset_id": "scoiatael_mirror_marker"},
+                ),
+            )
+            started = start_pvp_challenge(
+                connection,
+                ChallengeStartInput(
+                    challenge_id=challenge["challenge_id"],
+                    deck_ids_by_player={
+                        "p_witcher_1": "deck_witcher_wolf_scoiatael",
+                        "p_witcher_2": "deck_p_witcher_2_scoiatael",
+                    },
+                ),
+            )
+
+        active_round = started["match"]["deck_state"]["active_round"]
+        faction_effect = started["match"]["deck_state"]["faction_effects"][0]
+        self.assertEqual(faction_effect["effect"], "faction_scoiatael_mirror_coin_toss")
+        self.assertEqual(faction_effect["scoiatael_player_ids"], ["p_witcher_1", "p_witcher_2"])
+        self.assertIn(active_round["starting_player_id"], ["p_witcher_1", "p_witcher_2"])
+        self.assertEqual(active_round["starting_player_id"], faction_effect["starting_player_id"])
+
     def test_gwent_rejects_leader_reuse_nonparticipant_and_unknown_round_cards(self) -> None:
         settings = self.prepare_seed("pvp_round_guardrails", extra_deck_players=("p_witcher_2",))
         with connect(settings) as connection:
@@ -2621,6 +3047,11 @@ class PvpRuntimeTests(unittest.TestCase):
             )
             match_id = started["match"]["match_id"]
 
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {"p_witcher_2": ["gwent_unit_01"]},
+            )
             record_gwent_round(
                 connection,
                 match_id,
@@ -2711,8 +3142,21 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(challenge_count, 0)
         self.assertEqual(stake_count, 0)
 
-    def test_gwent_deck_contract_rejects_bad_mulligans_leader_unknown_cards_and_special_cap(self) -> None:
-        units = [f"gwent_unit_{index:02d}" for index in range(1, 23)]
+    def test_gwent_deck_contract_rejects_bad_mulligans_leader_unknown_cards_copy_limit_and_special_cap(self) -> None:
+        units = list(NORTHERN_TEST_UNITS[:22])
+        eleven_specials = [
+            "gwent_weather_frost",
+            "neutral_biting_frost_2",
+            "neutral_biting_frost_3",
+            "gwent_clear_weather",
+            "neutral_clear_weather_2",
+            "neutral_clear_weather_3",
+            "gwent_horn",
+            "neutral_commanders_horn_2",
+            "neutral_commanders_horn_3",
+            "neutral_commanders_horn_4",
+            "gwent_decoy",
+        ]
         cases = [
             (
                 "too_many_mulligans",
@@ -2733,8 +3177,14 @@ class PvpRuntimeTests(unittest.TestCase):
                 "unknown cards",
             ),
             (
+                "copy_limit",
+                {"card_ids": ";".join([*units, "gwent_horn", "gwent_horn"])},
+                {},
+                "exceeds card copy limit",
+            ),
+            (
                 "special_cap",
-                {"card_ids": ";".join([*units, *["gwent_horn"] * 11])},
+                {"card_ids": ";".join([*units, *eleven_specials])},
                 {},
                 "exceeds the special card cap",
             ),
@@ -2860,7 +3310,7 @@ class PvpRuntimeTests(unittest.TestCase):
             "pvp_deck_state_resilience",
             extra_deck_players=("p_witcher_2", "p_witcher_3", "p_witcher_4"),
         )
-        units = [f"gwent_unit_{index:02d}" for index in range(1, 23)]
+        units = list(NORTHERN_TEST_UNITS[:22])
         with connect(settings) as connection:
             corrupted_challenge = create_pvp_challenge(
                 connection,
@@ -2921,9 +3371,9 @@ class PvpRuntimeTests(unittest.TestCase):
 
     def test_gwent_decoy_requires_target_and_cannot_return_hero_units(self) -> None:
         settings = self.prepare_seed("pvp_decoy_rejects", extra_deck_players=("p_witcher_2",))
-        units = [f"gwent_unit_{index:02d}" for index in range(1, 23)]
+        units = list(NORTHERN_TEST_UNITS)
         p1_cards = [
-            "rare_gwent_01",
+            "rare_gwent_02",
             "gwent_decoy",
             *units,
             "gwent_weather_frost",
@@ -2946,6 +3396,11 @@ class PvpRuntimeTests(unittest.TestCase):
             missing_started = start_pvp_challenge(
                 connection,
                 ChallengeStartInput(challenge_id=missing_target_challenge["challenge_id"]),
+            )
+            self.force_cards_into_match_hands(
+                connection,
+                missing_started["match"]["match_id"],
+                {"p_witcher_1": ["gwent_decoy"]},
             )
             with self.assertRaisesRegex(PvpError, "decoy requires target_card_id"):
                 record_gwent_round(
@@ -2982,17 +3437,22 @@ class PvpRuntimeTests(unittest.TestCase):
                 connection,
                 ChallengeStartInput(challenge_id=hero_target_challenge["challenge_id"]),
             )
+            self.force_cards_into_match_hands(
+                connection,
+                hero_started["match"]["match_id"],
+                {"p_witcher_1": ["rare_gwent_02", "gwent_decoy"]},
+            )
             with self.assertRaisesRegex(PvpError, "decoy target is not a non-hero unit"):
                 record_gwent_round(
                     connection,
                     hero_started["match"]["match_id"],
                     {
                         "plays": [
-                            {"player_id": "p_witcher_1", "card_id": "rare_gwent_01"},
+                            {"player_id": "p_witcher_1", "card_id": "rare_gwent_02"},
                             {
                                 "player_id": "p_witcher_1",
                                 "card_id": "gwent_decoy",
-                                "target_card_id": "rare_gwent_01",
+                                "target_card_id": "rare_gwent_02",
                             },
                         ]
                     },
@@ -3017,6 +3477,14 @@ class PvpRuntimeTests(unittest.TestCase):
             )
             match_id = started["match"]["match_id"]
             for round_number, card_id in ((1, "gwent_unit_01"), (2, "gwent_unit_02")):
+                self.force_cards_into_match_hands(
+                    connection,
+                    match_id,
+                    {
+                        "p_witcher_1": [card_id],
+                        "p_witcher_2": [card_id],
+                    },
+                )
                 result = record_gwent_round(
                     connection,
                     match_id,
@@ -3072,6 +3540,14 @@ class PvpRuntimeTests(unittest.TestCase):
                 ChallengeStartInput(challenge_id=challenge["challenge_id"]),
             )
             match_id = started["match"]["match_id"]
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_02", "gwent_unit_03"],
+                    "p_witcher_2": ["gwent_unit_01"],
+                },
+            )
             record_gwent_round(
                 connection,
                 match_id,
@@ -3491,6 +3967,14 @@ class PvpRuntimeTests(unittest.TestCase):
             )
             match_id = started["match"]["match_id"]
             for round_number, card_id in ((1, "gwent_unit_01"), (2, "gwent_unit_02")):
+                self.force_cards_into_match_hands(
+                    connection,
+                    match_id,
+                    {
+                        "p_witcher_1": [card_id],
+                        "p_witcher_2": [card_id],
+                    },
+                )
                 reviewed_round = record_gwent_round(
                     connection,
                     match_id,
@@ -3562,6 +4046,14 @@ class PvpRuntimeTests(unittest.TestCase):
                 ChallengeStartInput(challenge_id=challenge["challenge_id"]),
             )
             match_id = started["match"]["match_id"]
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_02", "gwent_unit_03"],
+                    "p_witcher_2": ["gwent_unit_01"],
+                },
+            )
             record_gwent_round(
                 connection,
                 match_id,
@@ -3574,12 +4066,20 @@ class PvpRuntimeTests(unittest.TestCase):
                 },
                 round_number=1,
             )
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_1": ["gwent_unit_08", "gwent_unit_05"],
+                    "p_witcher_2": ["gwent_unit_02"],
+                },
+            )
             record_gwent_round(
                 connection,
                 match_id,
                 {
                     "plays": [
-                        {"player_id": "p_witcher_1", "card_id": "gwent_unit_04"},
+                        {"player_id": "p_witcher_1", "card_id": "gwent_unit_08"},
                         {"player_id": "p_witcher_1", "card_id": "gwent_unit_05"},
                         {"player_id": "p_witcher_2", "card_id": "gwent_unit_02"},
                     ]

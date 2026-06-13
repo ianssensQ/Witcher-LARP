@@ -23,6 +23,7 @@ GWENT_UNIT_EFFECTS = {
     "spy",
     "medic",
     "muster",
+    "commanders_horn",
     "scorch_melee",
     "scorch_ranged",
     "scorch_siege",
@@ -34,18 +35,25 @@ GWENT_SPECIAL_EFFECTS = {
     "commanders_horn",
     "decoy",
     "scorch",
-    "custom_larp_order_banner",
-    "custom_larp_spyglass",
-    "custom_larp_oathbreak",
-    "custom_larp_last_stand",
 }
 
 GWENT_LEADER_EFFECTS = {
-    "leader_order_rally",
+    "leader_foltest_fog",
     "leader_foltest_clear_weather",
+    "leader_foltest_siege_horn",
+    "leader_foltest_siege_scorch",
+    "leader_emhyr_spy_hand",
+    "leader_emhyr_rain",
     "leader_emhyr_graveyard_theft",
+    "leader_emhyr_cancel_leader",
+    "leader_francesca_draw",
+    "leader_francesca_frost",
+    "leader_francesca_melee_scorch",
     "leader_francesca_ranged_horn",
+    "leader_eredin_graveyard_return",
     "leader_eredin_melee_horn",
+    "leader_eredin_discard_draw",
+    "leader_eredin_weather",
     "leader_crach_graveyard_shuffle",
 }
 
