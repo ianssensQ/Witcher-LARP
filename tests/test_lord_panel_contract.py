@@ -854,11 +854,10 @@ class LordPanelContractTests(unittest.TestCase):
         self.assertTrue(
             any(target["target_type"] == "treasure" for target in payload["visible_targets"])
         )
-        self.assertTrue(
-            any(
-                recipient["role_type"] == "sorceress"
-                for recipient in payload["eligible_recipients"]
-            )
+        self.assertTrue(payload["eligible_recipients"])
+        self.assertEqual(
+            {"witcher"},
+            {recipient["role_type"] for recipient in payload["eligible_recipients"]},
         )
         self.assertTrue(payload["order_reward_options"])
         self.assertIn("order_conflicts", payload)

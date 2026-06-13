@@ -3256,6 +3256,23 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(missing_addressed_target.status_code, 400)
         self.assertEqual(missing_addressed_target.json()["detail"]["code"], "missing_target")
 
+        sorceress_addressed_target = client.post(
+            "/api/lords/p_lord_4/orders",
+            headers=self._headers("hill"),
+            json={
+                "action": "create",
+                "object_id": "territory_magic_corner",
+                "visibility": "addressed",
+                "target_player_id": "p_sorc_1",
+                "escrow_reward_id": "reward_order_success",
+            },
+        )
+        self.assertEqual(sorceress_addressed_target.status_code, 400)
+        self.assertEqual(
+            sorceress_addressed_target.json()["detail"]["code"],
+            "invalid_addressed_target",
+        )
+
         missing_escrow = client.post(
             "/api/lords/p_lord_4/orders",
             headers=self._headers("hill"),

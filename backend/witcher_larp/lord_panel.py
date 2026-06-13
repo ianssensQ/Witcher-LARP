@@ -719,14 +719,14 @@ def _eligible_order_recipients(players: list[dict[str, str]]) -> list[dict[str, 
     recipients = []
     for player in players:
         role_type = str(player.get("role_type") or "")
-        if role_type not in {"witcher", "sorceress"}:
+        if role_type != "witcher":
             continue
         recipients.append(
             {
                 "player_id": player.get("player_id"),
                 "display_name": player.get("display_name") or _humanize_identifier(player.get("player_id")),
                 "role_type": role_type,
-                "role_label": "Ведьмак" if role_type == "witcher" else "Чародейка",
+                "role_label": "Ведьмак",
             }
         )
     return sorted(recipients, key=lambda item: str(item.get("display_name") or ""))

@@ -3792,7 +3792,7 @@ def _assert_order_recipient_exists(connection: sqlite3.Connection, player_id: st
         SELECT player_id
         FROM players
         WHERE player_id = ?
-          AND role_type IN ('witcher', 'sorceress')
+          AND role_type = 'witcher'
         LIMIT 1
         """,
         (player_id,),
@@ -3800,7 +3800,7 @@ def _assert_order_recipient_exists(connection: sqlite3.Connection, player_id: st
     if row is None:
         raise LordRuntimeError(
             "invalid_addressed_target",
-            "Addressed order target must be an eligible witcher or sorceress.",
+            "Addressed order target must be a witcher.",
         )
 
 

@@ -451,6 +451,13 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
         accepted_errors = self._validate_overlay("orders.csv", duplicate_accepted)
         self.assertIn("order_object_conflict", {error.code for error in accepted_errors})
 
+        sorceress_addressed_target = (
+            "order_id,lord_id,target_player_id,object_id,visibility,status,escrow_reward_id\n"
+            "order_sorc_target,p_lord_3,p_sorc_1,territory_well_city,addressed,published,reward_order_success\n"
+        )
+        sorceress_errors = self._validate_overlay("orders.csv", sorceress_addressed_target)
+        self.assertIn("invalid_addressed_target", {error.code for error in sorceress_errors})
+
         status_rules_without_published_cap = (
             (PROJECT_ROOT / "data" / "seed" / "order_status_rules.csv")
             .read_text(encoding="utf-8")

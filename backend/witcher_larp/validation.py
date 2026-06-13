@@ -2383,6 +2383,10 @@ def _validate_orders(
     cap_statuses = set(CANONICAL_ORDER_CAP_STATUSES)
     object_locks: dict[tuple[str, str], str] = {}
     counts_by_lord_visibility: dict[tuple[str, str], int] = defaultdict(int)
+    player_roles = {
+        record.values["player_id"]: record.values["role_type"]
+        for record in tables["players.csv"].rows
+    }
 
     for record in status_rows:
         status_id = record.values["status_id"]
@@ -2414,6 +2418,17 @@ def _validate_orders(
                     row=record.row_number,
                     record_id=order_id,
                     message=f"Invalid order visibility {visibility}.",
+                )
+            )
+        target_player_id = record.values["target_player_id"]
+        if target_player_id and player_roles.get(target_player_id) != "witcher":
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_addressed_target",
+                    file="orders.csv",
+                    row=record.row_number,
+                    record_id=order_id,
+                    message="orders.csv target_player_id must reference a witcher.",
                 )
             )
         if status not in ids["order_status_rules.csv"]:
