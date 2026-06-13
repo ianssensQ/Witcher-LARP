@@ -4976,7 +4976,7 @@ private enum DeckRowFilter: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all:
-            return "Все ряды"
+            return "Все"
         case .melee:
             return "Ближ."
         case .ranged:

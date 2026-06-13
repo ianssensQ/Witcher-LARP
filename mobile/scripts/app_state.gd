@@ -8,7 +8,7 @@ const QR_EVENT_CONTEXT_PATH := "user://qr_event_context.json"
 const PVE_COOLDOWNS_PATH := "user://pve_cooldowns.json"
 const EVENT_QUEUE_PATH := "user://event_queue.json"
 const SYNC_STATUS_PATH := "user://sync_status.json"
-const DEFAULT_SERVER_URL := "http://127.0.0.1:8000"
+const DEFAULT_SERVER_URL := "http://192.168.68.118:8002"
 const BUNDLED_SNAPSHOT_PATH := "res://assets/bundled_snapshot.json"
 const QR_MANUAL_LIMIT := 5
 const QR_RATE_WINDOW_SECONDS := 60
@@ -55,6 +55,7 @@ func _ready() -> void:
 
 func load_all() -> void:
 	settings = _load_json(SETTINGS_PATH, settings)
+	_enforce_default_server_url()
 	if str(settings.get("device_id", "")).is_empty():
 		settings["device_id"] = _new_device_id()
 		save_settings()
@@ -133,6 +134,15 @@ func connection_text_to_server_url(value: String) -> String:
 	if text.begins_with(marker):
 		return normalize_server_url(text.substr(marker.length()).uri_decode())
 	return normalize_server_url(text)
+
+
+func _enforce_default_server_url() -> void:
+	var server_url := normalize_server_url(str(settings.get("server_url", DEFAULT_SERVER_URL)))
+	if server_url != DEFAULT_SERVER_URL:
+		settings["server_url"] = DEFAULT_SERVER_URL
+		save_settings()
+	else:
+		settings["server_url"] = server_url
 
 
 func load_bundled_snapshot() -> Dictionary:

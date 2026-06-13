@@ -139,6 +139,8 @@ def test_ios_gwent_static_catalog_prevents_english_card_fallbacks():
     assert '"nr_kaedweni_siege_expert_3": StaticCard' in snapshot
     assert 'strength: 1, effect: "morale"' in snapshot
     assert '"Каэдвенский осадный мастер"' in snapshot
+    assert (ROOT / "ios/Resources/Assets.xcassets/gwent_card_art_gwent_unit_04.imageset/Contents.json").exists()
+    assert (ROOT / "ios/Resources/Assets.xcassets/gwent_card_art_gwent_unit_04.imageset/gwent_card_art_gwent_unit_04.png").exists()
 
     assert "GwentStaticCatalog.card(cardId) ?? snapshotCard" in table
     assert "GwentStaticCatalog.card(cardId) ?? snapshotCard" in home
@@ -268,7 +270,8 @@ def test_ios_deck_encyclopedia_toggles_owned_and_all_cards_without_clipped_strip
     assert "private enum DeckStrengthFilter" in home
     assert 'return "Свои карты"' in home
     assert 'return "Все карты"' in home
-    assert 'return "Все ряды"' in home
+    assert 'return "Все"' in home
+    assert 'return "Все ряды"' not in home
     assert 'return "Любая"' in home
     assert "private var gwentCatalogCards: [GwentCard]" in home
     assert "for card in GwentStaticCatalog.allCards" in home
@@ -356,6 +359,10 @@ def test_ios_gwent_tools_target_ios_server_port():
     smoke = (ROOT / "scripts/ios_gwent_http_smoke.py").read_text(encoding="utf-8")
 
     assert 'defaultServerURLString = "http://192.168.68.118:8002"' in app_model
+    assert "Self.startupServerURL(storedURL: storedURL, defaultURL: defaultURL)" in app_model
+    assert "LocalStore.shared.saveServerURL(startupURL)" in app_model
+    assert "private static func startupServerURL(storedURL: URL?, defaultURL: URL) -> URL" in app_model
+    assert "normalizedStored.absoluteString == normalizedDefault.absoluteString" in app_model
     assert "TextField(AppModel.defaultServerURLString" in login
     assert 'default="http://192.168.68.118:8002"' in smoke
 

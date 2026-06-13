@@ -58,6 +58,10 @@ class MobileShellContractTests(unittest.TestCase):
             "user://sync_status.json",
         ):
             self.assertIn(path, app_state)
+        self.assertIn('const DEFAULT_SERVER_URL := "http://192.168.68.118:8002"', app_state)
+        self.assertIn("_enforce_default_server_url()", app_state)
+        self.assertIn("func _enforce_default_server_url() -> void:", app_state)
+        self.assertIn("if server_url != DEFAULT_SERVER_URL:", app_state)
 
     def test_mobile_player_facing_start_is_code_login_scene(self) -> None:
         main = (MOBILE_ROOT / "scripts" / "main.gd").read_text(encoding="utf-8")

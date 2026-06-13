@@ -333,7 +333,7 @@ theme_override_colors/font_placeholder_color = Color(0.592157, 0.521569, 0.41960
 theme_override_font_sizes/font_size = 12
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_styles/focus = SubResource("StyleBoxFlat_input_focus")
-placeholder_text = "http://192.168.1.9:8000"
+placeholder_text = "http://192.168.68.118:8002"
 
 [node name="ConnectionTextInput" type="LineEdit" parent="LoginStage/DiagnosticsPanel"]
 layout_mode = 0

@@ -1336,13 +1336,6 @@ struct GwentTableView: View {
                     .tint(.yellow)
             }
 
-            if activeTurnCountdownSeconds != nil {
-                Text(formatTurnCountdown(activeTurnCountdownSeconds ?? turnLimitSeconds))
-                    .font(.caption2.monospacedDigit().bold())
-                    .foregroundStyle(activeGwentIsPlayerTurn ? .yellow : .white.opacity(0.56))
-                    .lineLimit(1)
-            }
-
             passButton(match: match, layout: layout)
         }
     }
@@ -1378,13 +1371,6 @@ struct GwentTableView: View {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.yellow)
-            }
-
-            if activeTurnCountdownSeconds != nil {
-                Text(formatTurnCountdown(activeTurnCountdownSeconds ?? turnLimitSeconds))
-                    .font(.caption2.monospacedDigit().bold())
-                    .foregroundStyle(activeGwentIsPlayerTurn ? .yellow : .white.opacity(0.56))
-                    .lineLimit(1)
             }
 
             Spacer(minLength: 0)

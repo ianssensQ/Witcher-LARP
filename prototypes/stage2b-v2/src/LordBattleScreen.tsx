@@ -1983,7 +1983,16 @@ function LordBattleScreen() {
             <h2>{battleResultOutcomeLabel}</h2>
           </div>
           <div className="lord-battle-result-actions">
-            <button type="button" onClick={() => window.location.assign(withLordBattleRuntimeQuery(battleTerritoryHomePath))}>
+            <button
+              type="button"
+              onClick={() =>
+                window.location.assign(
+                  useDemoState
+                    ? withLordBattleRuntimeQuery("/lords/home")
+                    : withLordBattleRuntimeQuery(battleTerritoryHomePath)
+                )
+              }
+            >
               <Trophy size={15} />
               Перейти в территорию
             </button>

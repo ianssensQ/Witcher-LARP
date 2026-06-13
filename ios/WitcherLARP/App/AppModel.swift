@@ -32,6 +32,10 @@ final class AppModel: ObservableObject {
     static let startStatMax = 3
     static let defaultRuntimeStatMax = 7
     static let defaultServerURLString = "http://192.168.68.118:8002"
+    private static let staleDefaultServerURLStrings: Set<String> = [
+        "http://127.0.0.1:8000",
+        "http://192.168.1.9:8000"
+    ]
     private let requiredAPIRevision = "ios-gwent-pvp-v1"
     private let requiredGwentFeatures: Set<String> = [
         "ios_gwent_bot_match",
@@ -120,14 +124,23 @@ final class AppModel: ObservableObject {
         self.demoSnapshotMode = false
         #endif
         let defaultURL = URL(string: Self.defaultServerURLString)!
-        let savedURL = LocalStore.shared.loadServerURL() ?? defaultURL
-        self.serverURL = savedURL
+        let storedURL = LocalStore.shared.loadServerURL()
+        let startupURL = Self.startupServerURL(storedURL: storedURL, defaultURL: defaultURL)
+        let didOverrideStoredServerURL = storedURL?.absoluteString != startupURL.absoluteString
+        LocalStore.shared.saveServerURL(startupURL)
+        self.serverURL = startupURL
         self.playerCode = LocalStore.shared.loadPlayerCode() ?? ""
-        self.api = LarpAPIClient(baseURL: savedURL)
+        self.api = LarpAPIClient(baseURL: startupURL)
         self.deviceId = LocalStore.shared.loadDeviceId()
         self.snapshot = LocalStore.shared.loadSnapshot()
         self.pendingEvents = EventQueueStore.shared.loadEvents()
         self.localUnlockedActIds = LocalStore.shared.loadUnlockedActIds()
+        if didOverrideStoredServerURL {
+            self.infoMessage = "Адрес сервера автоматически выставлен: \(startupURL.absoluteString)"
+        }
+        #if DEBUG
+        print("WitcherLARP startup server URL: \(startupURL.absoluteString)")
+        #endif
         #if DEBUG
         if demoSnapshotMode {
             loadDemoSnapshot()
@@ -186,7 +199,7 @@ final class AppModel: ObservableObject {
             serverHealth = health
             serverHealthChecked = true
             if serverIsReachable {
-                infoMessage = "Сервер игры доступен."
+                infoMessage = "Сервер игры доступен: \(serverURL.absoluteString)"
                 errorMessage = nil
             } else {
                 errorMessage = "Сервер ответил, но база или импорт не готовы. Проверь мастерский FastAPI на ноутбуке."
@@ -978,6 +991,27 @@ final class AppModel: ObservableObject {
         components.query = nil
         components.fragment = nil
         return components.url
+    }
+
+    private static func startupServerURL(storedURL: URL?, defaultURL: URL) -> URL {
+        guard let normalizedDefault = normalizedServerURL(from: defaultURL.absoluteString) else {
+            return defaultURL
+        }
+        guard let storedURL,
+              let normalizedStored = normalizedServerURL(from: storedURL.absoluteString)
+        else {
+            return normalizedDefault
+        }
+        if normalizedStored.absoluteString == normalizedDefault.absoluteString {
+            return normalizedDefault
+        }
+        let staleDefaultURLs = Set(
+            staleDefaultServerURLStrings.compactMap { normalizedServerURL(from: $0)?.absoluteString }
+        )
+        if staleDefaultURLs.contains(normalizedStored.absoluteString) {
+            return normalizedDefault
+        }
+        return normalizedStored
     }
 
     func createTradeTransfer(
