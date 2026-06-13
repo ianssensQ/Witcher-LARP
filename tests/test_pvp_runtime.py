@@ -748,6 +748,85 @@ class PvpRuntimeTests(unittest.TestCase):
             self.assertEqual(next_state["current_round"]["round_number"], 2)
             self.assertEqual(next_state["current_round"]["phase"], "active_turn")
 
+    def test_gwent_action_decoy_replaces_unit_and_returns_target_live(self) -> None:
+        settings = self.prepare_seed("pvp_live_decoy", extra_deck_players=("p_witcher_2",))
+        with connect(settings) as connection:
+            self.make_player_scoiatael_start(connection)
+            challenge = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenger_id="p_witcher_1",
+                    target_id="p_witcher_2",
+                    challenge_id="challenge_live_decoy",
+                    stake={"asset_type": "item", "asset_id": "stake_banner"},
+                ),
+            )
+            started = start_pvp_challenge(
+                connection,
+                ChallengeStartInput(
+                    challenge_id=challenge["challenge_id"],
+                    preferred_starting_player_id="p_witcher_1",
+                ),
+            )
+            match_id = started["match"]["match_id"]
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {"p_witcher_1": ["gwent_unit_01", "gwent_decoy"]},
+            )
+
+            first_play = record_gwent_action(
+                connection,
+                GwentActionInput(
+                    match_id=match_id,
+                    player_id="p_witcher_1",
+                    action="play_card",
+                    round_number=1,
+                    card_id="gwent_unit_01",
+                    row="melee",
+                    action_id="p1-live-decoy-unit",
+                ),
+            )
+            self.assertNotIn("gwent_unit_01", first_play["current_round"]["player_hand"])
+
+            record_gwent_action(
+                connection,
+                GwentActionInput(
+                    match_id=match_id,
+                    player_id="p_witcher_2",
+                    action="pass",
+                    round_number=1,
+                    action_id="p2-live-decoy-pass",
+                ),
+            )
+
+            decoy_play = record_gwent_action(
+                connection,
+                GwentActionInput(
+                    match_id=match_id,
+                    player_id="p_witcher_1",
+                    action="play_card",
+                    round_number=1,
+                    card_id="gwent_decoy",
+                    target_card_id="gwent_unit_01",
+                    action_id="p1-live-decoy-play",
+                ),
+            )
+
+        current_round = decoy_play["current_round"]
+        self.assertIn("gwent_unit_01", current_round["player_hand"])
+        self.assertNotIn("gwent_decoy", current_round["player_hand"])
+        own_melee = current_round["board"]["p_witcher_1"]["melee"]
+        active_card_ids = [unit["card_id"] for unit in own_melee if not unit["removed"]]
+        self.assertNotIn("gwent_unit_01", active_card_ids)
+        self.assertIn("gwent_decoy", active_card_ids)
+        returned_unit = next(unit for unit in own_melee if unit["card_id"] == "gwent_unit_01")
+        decoy_unit = next(unit for unit in own_melee if unit["card_id"] == "gwent_decoy")
+        self.assertTrue(returned_unit["returned_by_decoy"])
+        self.assertTrue(decoy_unit["decoy_placeholder"])
+        self.assertEqual(decoy_unit["replaced_card_id"], "gwent_unit_01")
+        self.assertEqual(decoy_unit["row"], "melee")
+
     def test_gwent_action_flow_auto_passes_empty_hands_and_resolves_round(self) -> None:
         settings = self.prepare_seed("pvp_action_empty_hands", extra_deck_players=("p_witcher_2",))
         with connect(settings) as connection:

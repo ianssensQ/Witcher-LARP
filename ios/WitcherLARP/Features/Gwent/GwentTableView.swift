@@ -1461,27 +1461,8 @@ struct GwentTableView: View {
 
     private func selectedCardActionHeader(cardId: String, match: [String: JSONValue], layout: GwentTableLayout) -> some View {
         HStack(alignment: .center, spacing: layout.isTightPhone ? 8 : 10) {
-            HStack(alignment: .center, spacing: layout.isTightPhone ? 6 : 8) {
-                Image(systemName: selectedCardActionIcon(cardId))
-                    .font(layout.isCompact ? .caption.bold() : .title3.bold())
-                    .foregroundStyle(selectedCardActionColor(cardId))
-                    .frame(width: layout.isTightPhone ? 20 : 24)
-
-                VStack(alignment: .leading, spacing: layout.isTightPhone ? 1 : 2) {
-                    Text(selectedCardActionTitle(cardId))
-                        .font(layout.isCompact ? .caption.bold() : .subheadline.bold())
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.66)
-
-                    Text(selectedCardActionHint(cardId))
-                        .font(.system(size: layout.isTightPhone ? 8 : 9, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.68))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.56)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            selectedCardEffectSummary(cardId: cardId, layout: layout)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             selectedCardControls(cardId: cardId, match: match, layout: layout)
                 .frame(width: layout.selectedActionControlsWidth, alignment: .trailing)
@@ -1501,6 +1482,60 @@ struct GwentTableView: View {
                 .stroke(selectedCardActionColor(cardId).opacity(0.42), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func selectedCardEffectSummary(cardId: String, layout: GwentTableLayout) -> some View {
+        let effects = selectedCardEffectKeys(cardId)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: layout.isTightPhone ? 5 : 7) {
+                if effects.isEmpty {
+                    HStack(spacing: layout.isTightPhone ? 5 : 6) {
+                        Image(systemName: selectedCardActionIcon(cardId))
+                            .font(.system(size: layout.isTightPhone ? 11 : 13, weight: .black))
+                        Text("Выставление")
+                            .font(layout.isCompact ? .caption.bold() : .subheadline.bold())
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, layout.isTightPhone ? 8 : 10)
+                    .frame(height: layout.isCompact ? 26 : 30)
+                    .background(.black.opacity(0.32))
+                    .overlay(
+                        Capsule()
+                            .stroke(.white.opacity(0.18), lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
+                } else {
+                    ForEach(effects, id: \.self) { effect in
+                        HStack(spacing: layout.isTightPhone ? 4 : 5) {
+                            Image(systemName: gwentEffectIcon(effect))
+                                .font(.system(size: layout.isTightPhone ? 11 : 13, weight: .black))
+                                .frame(width: layout.isTightPhone ? 18 : 21, height: layout.isTightPhone ? 18 : 21)
+                                .background(.white.opacity(0.18))
+                                .clipShape(Circle())
+
+                            if !layout.isTightPhone {
+                                Text(gwentEffectBadge(effect))
+                                    .font(.system(size: layout.isCompact ? 11 : 12, weight: .black))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.68)
+                            }
+                        }
+                        .foregroundStyle(effect == "clear_weather" ? .black : .white)
+                        .padding(.leading, layout.isTightPhone ? 3 : 5)
+                        .padding(.trailing, layout.isTightPhone ? 3 : 8)
+                        .frame(height: layout.isCompact ? 26 : 30)
+                        .background(gwentEffectColor(effect).opacity(effect == "clear_weather" ? 0.92 : 0.74))
+                        .overlay(
+                            Capsule()
+                                .stroke(.white.opacity(0.28), lineWidth: 1)
+                        )
+                        .clipShape(Capsule())
+                        .accessibilityLabel(gwentEffectTitle(effect))
+                    }
+                }
+            }
+            .frame(height: layout.actionButtonHeight)
+        }
     }
 
     private func handCard(
@@ -4123,9 +4158,41 @@ private extension GwentTableView {
             return "Одинаковые или связанные отряды усиливают друг друга в одном ряду. Чем больше таких карт рядом, тем выше сила группы."
         case "agile":
             return "Гибкую карту можно сыграть в ближний или дальний ряд."
+        case "leader_foltest_fog":
+            return "Достает из колоды Непроницаемый туман и сразу применяет его."
+        case "leader_foltest_clear_weather":
+            return "Убирает все погодные эффекты со стола."
+        case "leader_foltest_siege_horn":
+            return "Удваивает силу вашего осадного ряда как командирский рог."
+        case "leader_foltest_siege_scorch":
+            return "Казнит сильнейшие обычные карты осадного ряда соперника при сумме ряда 10+."
+        case "leader_emhyr_spy_hand":
+            return "Показывает три случайные карты в руке соперника."
+        case "leader_emhyr_rain":
+            return "Достает из колоды Ливень и сразу применяет его."
+        case "leader_emhyr_graveyard_theft":
+            return "Берет одну обычную карту из сброса соперника в вашу руку."
+        case "leader_emhyr_cancel_leader":
+            return "Запрещает сопернику использовать способность его лидера."
+        case "leader_francesca_draw":
+            return "Дает одну дополнительную карту в начале партии."
+        case "leader_francesca_frost":
+            return "Достает из колоды Мороз и сразу применяет его."
+        case "leader_francesca_melee_scorch":
+            return "Казнит сильнейшие обычные карты ближнего ряда соперника при сумме ряда 10+."
+        case "leader_francesca_ranged_horn":
+            return "Удваивает силу вашего дальнего ряда как командирский рог."
+        case "leader_eredin_graveyard_return":
+            return "Возвращает одну обычную карту из вашего сброса в руку."
+        case "leader_eredin_melee_horn":
+            return "Удваивает силу вашего ближнего ряда как командирский рог."
+        case "leader_eredin_discard_draw":
+            return "Сбрасывает две карты из руки и добирает одну карту из колоды."
+        case "leader_eredin_weather":
+            return "Достает из колоды первую погодную карту и сразу применяет ее."
         default:
             if effect.hasPrefix("leader_") {
-                return "Способность лидера применяется как особый эффект матча. Смотрите подсветку на столе: она показывает, какие ряды или карты уже затронуты."
+                return gwentEffectLabel(effect)
             }
             if let cardTitle {
                 return "\(cardTitle): \(gwentEffectLabel(effect))."
@@ -4178,46 +4245,6 @@ private extension GwentTableView {
             return gwentEffectColor(effect)
         }
         return .yellow
-    }
-
-    func selectedCardActionTitle(_ cardId: String) -> String {
-        let effects = selectedCardEffectKeys(cardId)
-        if effects.contains("decoy") || selectedCardNeedsBoardTarget(cardId) {
-            return "Чучело: выбери цель"
-        }
-        if effects.contains("commanders_horn") {
-            return "Рог: выбери ряд"
-        }
-        if effects.contains(where: isWeatherEffect) {
-            return "Погода: сыграй карту"
-        }
-        if effects.contains("bond") || effects.contains("tight_bond") {
-            return "Связка: усили ряд"
-        }
-        if effects.contains("hero") {
-            return "Герой: выбери ряд"
-        }
-        return "Выбери действие"
-    }
-
-    func selectedCardActionHint(_ cardId: String) -> String {
-        let effects = selectedCardEffectKeys(cardId)
-        if effects.contains("decoy") || selectedCardNeedsBoardTarget(cardId) {
-            return "Подсвечены ваши обычные отряды, которые можно вернуть в руку."
-        }
-        if effects.contains("commanders_horn") {
-            return "Подсвечены ваши боевые ряды для удвоения силы."
-        }
-        if effects.contains(where: isWeatherEffect) {
-            return "Подсвечен ряд, который погода ослабит у обоих игроков."
-        }
-        if effects.contains("bond") || effects.contains("tight_bond") {
-            return "Подсвечены такие же отряды на вашей стороне."
-        }
-        if effects.contains("hero") {
-            return "Неуязвим к погоде, рогу, казни и большинству способностей."
-        }
-        return legalRows(for: cardId).isEmpty ? "Эта карта играется без выбора ряда." : "Подсвечены доступные ряды."
     }
 
     func selectedRowEffectLabel(row: String) -> String {

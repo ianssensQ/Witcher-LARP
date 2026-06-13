@@ -149,6 +149,38 @@ def test_ios_gwent_static_catalog_prevents_english_card_fallbacks():
     assert 'return "Лидер \\(readableIdentifier(cardId' not in home
 
 
+def test_ios_gwent_leader_activation_describes_actual_bonus():
+    table = (ROOT / "ios/WitcherLARP/Features/Gwent/GwentTableView.swift").read_text(encoding="utf-8")
+
+    generic = (
+        "Способность лидера применяется как особый эффект матча. "
+        "Смотрите подсветку на столе"
+    )
+    assert generic not in table
+
+    expected_bonus_texts = [
+        "Достает из колоды Непроницаемый туман и сразу применяет его.",
+        "Убирает все погодные эффекты со стола.",
+        "Удваивает силу вашего осадного ряда как командирский рог.",
+        "Казнит сильнейшие обычные карты осадного ряда соперника при сумме ряда 10+.",
+        "Показывает три случайные карты в руке соперника.",
+        "Достает из колоды Ливень и сразу применяет его.",
+        "Берет одну обычную карту из сброса соперника в вашу руку.",
+        "Запрещает сопернику использовать способность его лидера.",
+        "Дает одну дополнительную карту в начале партии.",
+        "Достает из колоды Мороз и сразу применяет его.",
+        "Казнит сильнейшие обычные карты ближнего ряда соперника при сумме ряда 10+.",
+        "Удваивает силу вашего дальнего ряда как командирский рог.",
+        "Возвращает одну обычную карту из вашего сброса в руку.",
+        "Удваивает силу вашего ближнего ряда как командирский рог.",
+        "Сбрасывает две карты из руки и добирает одну карту из колоды.",
+        "Достает из колоды первую погодную карту и сразу применяет ее.",
+    ]
+
+    for bonus_text in expected_bonus_texts:
+        assert bonus_text in table
+
+
 def test_ios_screenshot_mode_does_not_auto_probe_server_on_login():
     login = (ROOT / "ios/WitcherLARP/Features/Login/LoginView.swift").read_text(encoding="utf-8")
     root = (ROOT / "ios/WitcherLARP/App/RootView.swift").read_text(encoding="utf-8")

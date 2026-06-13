@@ -672,7 +672,7 @@ def _decoy_targets(current_round: dict[str, Any], player_id: str) -> list[dict[s
         for unit in units:
             if not isinstance(unit, dict):
                 continue
-            if unit.get("removed") or _unit_has_effect(unit, "hero"):
+            if not _can_decoy_return_board_card(unit):
                 continue
             targets.append(
                 {
@@ -3300,6 +3300,7 @@ def _unit_from_card(
         "player_id": player_id,
         "played_by": played_by,
         "card_id": card_id,
+        "type": str(card["type"]),
         "row": row_name,
         "base_strength": _to_int(card["strength"]),
         "effect": effects[0],
@@ -3321,7 +3322,7 @@ def _active_unit_rows(
     bond_counts: dict[str, int] = {}
     morale_count = 0
     for unit in units:
-        if unit.get("removed"):
+        if not _is_active_board_unit(unit):
             continue
         if any(effect in _unit_effects(unit) for effect in {"bond", "tight_bond"}):
             group = _unit_group(unit, "bond_group", str(unit.get("card_id") or ""))
@@ -3645,7 +3646,7 @@ def _apply_monsters_carryover(
             unit
             for row_name in GWENT_ROWS
             for unit in board[player_id][row_name]
-            if not unit.get("removed") and not _unit_has_effect(unit, "hero")
+            if _is_active_board_unit(unit) and not _unit_has_effect(unit, "hero")
         ]
         if not candidates:
             effects_applied.append(
@@ -3765,6 +3766,17 @@ def _apply_special_play(
         returned = _remove_card_from_board(board[player_id], target_card_id)
         if returned is None:
             raise PvpError(f"Gwent decoy target is not a non-hero unit on board: {target_card_id}")
+        row_name = _row_name(str(returned.get("row") or "melee"))
+        board[player_id][row_name].append(
+            _unit_from_card(
+                card,
+                player_id=player_id,
+                played_by=player_id,
+                row_name=row_name,
+                decoy_placeholder=True,
+                replaced_card_id=target_card_id,
+            )
+        )
         returned_cards.append({"player_id": player_id, "card_id": target_card_id})
     elif effect == "scorch":
         scorch_pending.append({"effect": "scorch", "source_card_id": card_id, "player_id": player_id})
@@ -4175,11 +4187,11 @@ def _apply_scorch(
         for row_name, units in rows.items():
             if row_filter and row_filter != row_name:
                 continue
-            active_units = [unit for unit in units if not unit["removed"]]
+            active_units = [unit for unit in units if _is_active_board_unit(unit)]
             bond_counts, morale_count = _active_unit_rows(active_units, row_name)
             row_total = 0
             for unit in units:
-                if unit["removed"] or _unit_has_effect(unit, "hero"):
+                if not _is_active_board_unit(unit) or _unit_has_effect(unit, "hero"):
                     continue
                 strength = _effective_unit_strength(
                     unit,
@@ -4226,7 +4238,7 @@ def _score_row(
     weather_rows: set[str],
     horn_active: bool,
 ) -> int:
-    active_units = [unit for unit in units if not unit["removed"]]
+    active_units = [unit for unit in units if _is_active_board_unit(unit)]
     bond_counts, morale_count = _active_unit_rows(active_units, row_name)
     return sum(
         _effective_unit_strength(
@@ -5033,11 +5045,22 @@ def _remove_card_from_board(
 ) -> dict[str, Any] | None:
     for units in rows.values():
         for unit in units:
-            if unit["card_id"] == target_card_id and not unit["removed"] and not _unit_has_effect(unit, "hero"):
+            if unit["card_id"] == target_card_id and _can_decoy_return_board_card(unit):
                 unit["removed"] = True
                 unit["returned_by_decoy"] = True
                 return unit
     return None
+
+
+def _can_decoy_return_board_card(unit: dict[str, Any]) -> bool:
+    return (
+        _is_active_board_unit(unit)
+        and not _unit_has_effect(unit, "hero")
+    )
+
+
+def _is_active_board_unit(unit: dict[str, Any]) -> bool:
+    return not unit.get("removed") and str(unit.get("type") or "unit") == "unit"
 
 
 def _gwent_rules(connection: sqlite3.Connection) -> dict[str, int | str]:
