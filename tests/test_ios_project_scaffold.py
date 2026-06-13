@@ -321,6 +321,29 @@ def test_ios_deck_encyclopedia_toggles_owned_and_all_cards_without_clipped_strip
     assert ".frame(width: compact ? 78 : 86, height: compact ? 112 : 124)" not in selected_strip
 
 
+def test_ios_deck_builder_has_top_save_and_visible_leader_abilities():
+    home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
+    deck_setup = home[
+        home.index("private var deckSetup: some View"):
+        home.index("private var deckScreenBackground")
+    ]
+    builder = home[
+        home.index("private func deckBuilderPanel"):
+        home.index("private func deckEncyclopediaPanel")
+    ]
+
+    assert "deckSaveButton(deck, compact: compact)" in deck_setup
+    assert deck_setup.index("deckSaveButton(deck, compact: compact)") < deck_setup.index('Picker("Раздел"')
+    assert 'Label(isSavingDeckDraft ? "Сохраняю..." : "Сохранить колоду"' in home
+    assert r'Text("Способность: \(gwentLeaderAbilityText(leader))")' in builder
+    assert r'Text("Бонус фракции: \(gwentFactionAbilityLabel(faction))")' in builder
+    assert "leaderComparisonList(deck: deck, compact: compact)" in builder
+    assert "private func leaderCards(forFaction faction: String)" in home
+    assert "private func gwentLeaderAbilityText(_ leader: GwentCard)" in home
+    assert 'case "leader_foltest_siege_horn":' in home
+    assert "Один раз за партию: удваивает силу вашего осадного ряда" in home
+
+
 def test_ios_journal_character_card_shows_xp_bar_reputation_and_pvp_tokens():
     home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
     snapshot = (ROOT / "ios/WitcherLARP/Core/Models/SnapshotModels.swift").read_text(encoding="utf-8")

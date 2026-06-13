@@ -1717,6 +1717,10 @@ struct HomeView: View {
                         VStack(alignment: .leading, spacing: compact ? 12 : 14) {
                             deckHeaderPanel(compact: compact)
 
+                            if deckMode == .builder, let deck = draftGwentDeck {
+                                deckSaveButton(deck, compact: compact)
+                            }
+
                             Picker("Раздел", selection: $deckMode) {
                                 ForEach(DeckSetupMode.allCases) { mode in
                                     Text(mode.title).tag(mode)
@@ -1864,10 +1868,28 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
+    private func deckSaveButton(_ deck: GwentDeck, compact: Bool) -> some View {
+        let warnings = gwentDeckWarnings(gwentDeckMetrics(cardIds: deckDraftCardIds))
+
+        return Button {
+            Task {
+                await saveDeckDraft(deck)
+            }
+        } label: {
+            Label(isSavingDeckDraft ? "Сохраняю..." : "Сохранить колоду", systemImage: "square.and.arrow.down")
+                .font(compact ? .headline : .title3.bold())
+                .frame(maxWidth: .infinity, minHeight: compact ? 42 : 46)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(warnings.isEmpty ? .green : .orange)
+        .disabled(isSavingDeckDraft || !warnings.isEmpty)
+    }
+
     private func deckBuilderPanel(compact: Bool) -> some View {
         return VStack(alignment: .leading, spacing: compact ? 12 : 14) {
             if let snapshot = model.snapshot, let deck = draftGwentDeck {
                 let leader = gwentCardMeta(deck.leaderCardId) ?? snapshot.gwentCards.first { $0.cardId == deck.leaderCardId }
+                let faction = gwentDeckFaction(deck)
 
                 HStack(alignment: .top, spacing: compact ? 10 : 12) {
                     if let leader {
@@ -1889,34 +1911,27 @@ struct HomeView: View {
                         Text("Лидер")
                             .font(.headline)
                             .foregroundStyle(.white)
-                        Text(gwentFactionLabel(gwentDeckFaction(deck)))
+                        Text(gwentFactionLabel(faction))
                             .font(.caption.bold())
                             .foregroundStyle(.yellow.opacity(0.88))
-                        Text(gwentFactionAbilityLabel(gwentDeckFaction(deck)))
+                        if let leader {
+                            Text("Способность: \(gwentLeaderAbilityText(leader))")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.76))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Text("Бонус фракции: \(gwentFactionAbilityLabel(faction))")
                             .font(.caption)
-                            .foregroundStyle(.white.opacity(0.68))
+                            .foregroundStyle(.white.opacity(0.58))
                             .fixedSize(horizontal: false, vertical: true)
-
-                        leaderPicker
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                leaderComparisonList(deck: deck, compact: compact)
                 deckSelectedStrip(compact: compact)
                 deckFilterControls
                 cardCollectionGrid(cards: filteredDeckCards, compact: compact, allowsEditing: true)
-
-                Button {
-                    Task {
-                        await saveDeckDraft(deck)
-                    }
-                } label: {
-                    Label(isSavingDeckDraft ? "Сохраняю..." : "Сохранить колоду", systemImage: "square.and.arrow.down")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(gwentDeckWarnings(gwentDeckMetrics(cardIds: deckDraftCardIds)).isEmpty ? .green : .orange)
-                .disabled(isSavingDeckDraft || !gwentDeckWarnings(gwentDeckMetrics(cardIds: deckDraftCardIds)).isEmpty)
             } else {
                 emptyDeckState
             }
@@ -2165,25 +2180,78 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 
-    private var leaderPicker: some View {
-        let leaders = availableLeaderCards
+    @ViewBuilder
+    private func leaderComparisonList(deck: GwentDeck, compact: Bool) -> some View {
+        let faction = gwentDeckFaction(deck)
+        let leaders = leaderCards(forFaction: faction)
 
-        return Menu {
-            ForEach(leaders) { leader in
-                Button {
-                    applyDeckLeader(leader.cardId)
-                } label: {
-                    Label(gwentCardTitle(leader.cardId), systemImage: gwentRowIcon(leader.row))
+        if leaders.count > 1 {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "crown.fill")
+                        .font(.caption.bold())
+                        .foregroundStyle(.yellow)
+                    Text("Лидеры \(gwentFactionLabel(faction))")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white.opacity(0.82))
+                    Spacer(minLength: 8)
+                    Text("выбор")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.yellow.opacity(0.72))
+                }
+
+                ForEach(leaders) { leader in
+                    leaderChoiceRow(
+                        leader,
+                        selected: leader.cardId == selectedDeckLeaderId,
+                        compact: compact
+                    )
                 }
             }
-        } label: {
-            Label("Сменить лидера", systemImage: "crown")
-                .font(.caption.bold())
-                .frame(maxWidth: .infinity)
+            .padding(compact ? 8 : 10)
+            .background(.black.opacity(0.18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
-        .buttonStyle(.bordered)
-        .tint(.yellow)
-        .disabled(leaders.isEmpty)
+    }
+
+    private func leaderChoiceRow(_ leader: GwentCard, selected: Bool, compact: Bool) -> some View {
+        Button {
+            applyDeckLeader(leader.cardId)
+        } label: {
+            HStack(alignment: .top, spacing: compact ? 8 : 10) {
+                Image(systemName: selected ? "checkmark.seal.fill" : "crown")
+                    .font(.system(size: compact ? 15 : 17, weight: .black))
+                    .foregroundStyle(selected ? .green : .yellow)
+                    .frame(width: compact ? 28 : 32, height: compact ? 28 : 32)
+                    .background(.black.opacity(0.34))
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(gwentCardTitle(leader.cardId))
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                    Text(gwentLeaderAbilityText(leader))
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(compact ? 7 : 8)
+            .background(selected ? .yellow.opacity(0.16) : .black.opacity(0.22))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(selected ? .yellow.opacity(0.64) : .white.opacity(0.08), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
     }
 
     private func deckSelectedStrip(compact: Bool) -> some View {
@@ -2688,7 +2756,19 @@ struct HomeView: View {
     private var availableLeaderCards: [GwentCard] {
         gwentCatalogCards
             .filter { $0.type.lowercased() == "leader" || $0.row.lowercased() == "leader" }
-            .sorted { gwentFactionLabel($0.faction) < gwentFactionLabel($1.faction) }
+            .sorted { lhs, rhs in
+                if lhs.faction != rhs.faction {
+                    return gwentFactionLabel(lhs.faction) < gwentFactionLabel(rhs.faction)
+                }
+                return gwentCardTitle(lhs.cardId) < gwentCardTitle(rhs.cardId)
+            }
+    }
+
+    private func leaderCards(forFaction faction: String) -> [GwentCard] {
+        let normalizedFaction = faction.lowercased()
+        return availableLeaderCards.filter { leader in
+            leader.faction.lowercased() == normalizedFaction
+        }
     }
 
     private var deckDraftCards: [GwentCard] {
@@ -2994,6 +3074,17 @@ struct HomeView: View {
         default:
             return "без фракционного бонуса"
         }
+    }
+
+    private func gwentLeaderAbilityText(_ leader: GwentCard) -> String {
+        if !leader.effectText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return leader.effectText
+        }
+        let rule = gwentEffectRulesText(leader.effect)
+        if !rule.isEmpty {
+            return rule
+        }
+        return gwentEffectSummary(leader)
     }
 
     private func deckCardDetail(_ cardId: String) -> String {
@@ -4237,6 +4328,40 @@ struct HomeView: View {
             return "Уничтожает сильнейшие обычные карты дальнего ряда соперника, если сумма ряда 10 или выше."
         case "scorch_siege":
             return "Уничтожает сильнейшие обычные карты осадного ряда соперника, если сумма ряда 10 или выше."
+        case "leader_foltest_fog":
+            return "Один раз за партию: достает из колоды Непроницаемый туман и сразу применяет его."
+        case "leader_foltest_clear_weather":
+            return "Один раз за партию: снимает все погодные эффекты со стола."
+        case "leader_foltest_siege_horn":
+            return "Один раз за партию: удваивает силу вашего осадного ряда как командирский рог."
+        case "leader_foltest_siege_scorch":
+            return "Один раз за партию: казнит сильнейшие обычные карты осадного ряда соперника при сумме ряда 10+."
+        case "leader_emhyr_spy_hand":
+            return "Один раз за партию: смотрит три случайные карты в руке соперника."
+        case "leader_emhyr_rain":
+            return "Один раз за партию: достает из колоды Ливень и сразу применяет его."
+        case "leader_emhyr_graveyard_theft":
+            return "Один раз за партию: берет одну обычную карту из сброса соперника в вашу руку."
+        case "leader_emhyr_cancel_leader":
+            return "Один раз за партию: запрещает сопернику использовать способность лидера."
+        case "leader_francesca_draw":
+            return "Пассивно: дает одну дополнительную карту в начале партии."
+        case "leader_francesca_frost":
+            return "Один раз за партию: достает из колоды Мороз и сразу применяет его."
+        case "leader_francesca_melee_scorch":
+            return "Один раз за партию: казнит сильнейшие обычные карты ближнего ряда соперника при сумме ряда 10+."
+        case "leader_francesca_ranged_horn":
+            return "Один раз за партию: удваивает силу вашего дальнего ряда как командирский рог."
+        case "leader_eredin_graveyard_return":
+            return "Один раз за партию: возвращает одну обычную карту из вашего сброса в руку."
+        case "leader_eredin_melee_horn":
+            return "Один раз за партию: удваивает силу вашего ближнего ряда как командирский рог."
+        case "leader_eredin_discard_draw":
+            return "Один раз за партию: сбрасывает две карты из руки и добирает одну карту из колоды."
+        case "leader_eredin_weather":
+            return "Один раз за партию: достает из колоды первую погодную карту и сразу применяет ее."
+        case "leader_crach_graveyard_shuffle":
+            return "Один раз за партию: замешивает карты из сброса обратно в колоду."
         default:
             return ""
         }
