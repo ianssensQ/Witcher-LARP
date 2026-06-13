@@ -1,25 +1,22 @@
 # PvE Missing Assets Report
 
-Generated: 2026-06-13T02:41:11+00:00 UTC
+Generated: 2026-06-13T03:25:16+00:00 UTC
 
 ## Summary
 
 - Matrix rows: 72
 - Scenario themes: 61
 - Expected assets by type rule: 94
-- Manifest assets counted (excluding bell_chapel prototype): 30
-- Covered themes by manifest: 21
-- Missing themes: 40
-- Missing asset files: 64
+- Manifest assets counted (excluding bell_chapel prototype): 36
+- Covered themes by manifest: 24
+- Missing themes: 37
+- Missing asset files: 58
 - Covered-theme quest_id gaps in old manifests: 6
 
 ## Missing Assets
 
 | Theme | Quest IDs | Acts | Scene types | Missing kinds |
 |---|---|---|---|---|
-| Черный пес хлебной ямы | quest_a2_017 | act2 | monster_hunt | location, monster |
-| Восковая вдова на гумне | quest_a2_018 | act2 | monster_hunt | location, monster |
-| Железный выводок из кузницы | quest_a2_021 | act2 | monster_hunt | location, monster |
 | Пепельный мельник | quest_a2_022 | act2 | monster_hunt | location, monster |
 | Хозяин пустых ульев | quest_a2_025 | act2 | monster_hunt | location, monster |
 | Ночной косарь | quest_a2_026 | act2 | monster_hunt | location, monster |
@@ -83,6 +80,9 @@ Generated: 2026-06-13T02:41:11+00:00 UTC
 | Суконная голова в овраге | quest_a2_014 | location, monster |
 | Камень с лишним именем | quest_a2_015, quest_a3_031 | quest_scene |
 | Проклятая невеста и трусливый жених | quest_a2_016, quest_a3_032 | quest_scene |
+| Черный пес хлебной ямы | quest_a2_017 | location, monster |
+| Восковая вдова на гумне | quest_a2_018 | location, monster |
+| Железный выводок из кузницы | quest_a2_021 | location, monster |
 
 ## Quest IDs Missing From Existing Manifest Entries
 

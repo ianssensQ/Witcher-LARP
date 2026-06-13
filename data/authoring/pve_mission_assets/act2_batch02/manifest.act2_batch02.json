@@ -1,0 +1,103 @@
+{
+  "batch_id": "act2_batch02",
+  "status": "ready_for_review",
+  "generated_at": "2026-06-13T06:21:33+03:00",
+  "imagegen_mode": "built_in_image_gen_exact_pixel_normalize",
+  "ios_target": {
+    "role": "pve_quest_and_combat_top_hero",
+    "point_size": {
+      "width": 390,
+      "height": 422
+    },
+    "scale": 3,
+    "pixel_size": {
+      "width": 1170,
+      "height": 1266
+    },
+    "notes": "Final project PNG files are stored directly in source/. Built-in imagegen raw outputs were accepted only when they matched the 195:211 target ratio, then resampled without crop or padding to 1170x1266."
+  },
+  "assets": [
+    {
+      "asset_id": "a2_017_black_barn_dog_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a2_017"
+      ],
+      "scenario_theme": "Черный пес хлебной ямы",
+      "scene_type": "monster_hunt",
+      "source": "data/authoring/pve_mission_assets/act2_batch02/source/a2-017-black-barn-dog-location.png",
+      "prompt_summary": "Old grain barn, black bread pit, flour dust, pawprints and burned dog collar clue."
+    },
+    {
+      "asset_id": "a2_017_black_barn_dog_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a2_017"
+      ],
+      "scenario_theme": "Черный пес хлебной ямы",
+      "scene_type": "monster_hunt",
+      "monster_tags": [
+        "амбарный пес",
+        "черная псина",
+        "зерновой дух"
+      ],
+      "source": "data/authoring/pve_mission_assets/act2_batch02/source/a2-017-black-barn-dog-monster.png",
+      "prompt_summary": "Black barn dog spirit made of soot and flour dust, grain-kernel eyes and burned collar fragments."
+    },
+    {
+      "asset_id": "a2_018_wax_widow_barn_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a2_018"
+      ],
+      "scenario_theme": "Восковая вдова на гумне",
+      "scene_type": "monster_hunt",
+      "source": "data/authoring/pve_mission_assets/act2_batch02/source/a2-018-wax-widow-barn-location.png",
+      "prompt_summary": "Night threshing barn, wet straw, candle stubs, wax fingers and a silver coin with black wax clue."
+    },
+    {
+      "asset_id": "a2_018_wax_widow_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a2_018"
+      ],
+      "scenario_theme": "Восковая вдова на гумне",
+      "scene_type": "monster_hunt",
+      "monster_tags": [
+        "восковая вдова",
+        "свечная нежить",
+        "гуменная тень"
+      ],
+      "source": "data/authoring/pve_mission_assets/act2_batch02/source/a2-018-wax-widow-monster.png",
+      "prompt_summary": "Female wax undead with melting candle face, black wax tears, candle-drip fingers and widow shawl."
+    },
+    {
+      "asset_id": "a2_021_iron_brood_forge_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a2_021"
+      ],
+      "scenario_theme": "Железный выводок из кузницы",
+      "scene_type": "monster_hunt",
+      "source": "data/authoring/pve_mission_assets/act2_batch02/source/a2-021-iron-brood-forge-location.png",
+      "prompt_summary": "Abandoned forge, cold anvil, ash, scale flakes and a nail bent into a milk-tooth shape."
+    },
+    {
+      "asset_id": "a2_021_iron_brood_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a2_021"
+      ],
+      "scenario_theme": "Железный выводок из кузницы",
+      "scene_type": "monster_hunt",
+      "monster_tags": [
+        "железный выводок",
+        "кузнечный бес",
+        "ржавая мелочь"
+      ],
+      "source": "data/authoring/pve_mission_assets/act2_batch02/source/a2-021-iron-brood-monster.png",
+      "prompt_summary": "Iron brood swarm of small forge imps made from rust, coal, bent nails and metal scale."
+    }
+  ],
+  "review_contact_sheet": "data/authoring/pve_mission_assets/act2_batch02/contact-sheet.act2_batch02.png"
+}
