@@ -1,0 +1,100 @@
+{
+  "batch_id": "act2_batch01",
+  "status": "ready_for_review",
+  "generated_at": "2026-06-13T05:37:59+03:00",
+  "imagegen_mode": "built_in_image_gen_exact_pixel_normalize",
+  "ios_target": {
+    "role": "pve_quest_and_combat_top_hero",
+    "point_size": {
+      "width": 390,
+      "height": 422
+    },
+    "scale": 3,
+    "pixel_size": {
+      "width": 1170,
+      "height": 1266
+    },
+    "notes": "Final project PNG files are stored directly in source/. Built-in imagegen raw outputs were accepted only when they matched the 195:211 target ratio, then resampled without crop or padding to 1170x1266."
+  },
+  "assets": [
+    {
+      "asset_id": "a2_013_blood_shepherd_border_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a2_013"
+      ],
+      "scenario_theme": "Кровяной пастух у межи",
+      "scene_type": "monster_hunt",
+      "source": "data/authoring/pve_mission_assets/act2_batch01/source/a2-013-blood-shepherd-border-location.png",
+      "prompt_summary": "Boundary meadow between two holdings, wet grass, ribboned stakes, black hoof-dew and red-thread wool clue."
+    },
+    {
+      "asset_id": "a2_013_blood_shepherd_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a2_013"
+      ],
+      "scenario_theme": "Кровяной пастух у межи",
+      "scene_type": "monster_hunt",
+      "monster_tags": [
+        "межевой пастух",
+        "кровяная тень",
+        "копытный дух"
+      ],
+      "source": "data/authoring/pve_mission_assets/act2_batch01/source/a2-013-blood-shepherd-monster.png",
+      "prompt_summary": "Boundary shepherd monster with dry-branch horns, wet wool cloak, hoof shadows and red-thread charms."
+    },
+    {
+      "asset_id": "a2_014_cloth_head_ravine_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a2_014"
+      ],
+      "scenario_theme": "Суконная голова в овраге",
+      "scene_type": "monster_hunt",
+      "source": "data/authoring/pve_mission_assets/act2_batch01/source/a2-014-cloth-head-ravine-location.png",
+      "prompt_summary": "Clay ravine after rain, wet rag dolls, exposed roots and an eyeless needle clue."
+    },
+    {
+      "asset_id": "a2_014_cloth_head_golem_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a2_014"
+      ],
+      "scenario_theme": "Суконная голова в овраге",
+      "scene_type": "monster_hunt",
+      "monster_tags": [
+        "суконный идол",
+        "овражная кукла",
+        "безликий голем"
+      ],
+      "source": "data/authoring/pve_mission_assets/act2_batch01/source/a2-014-cloth-head-golem-monster.png",
+      "prompt_summary": "Faceless cloth golem stuffed with earth, sackcloth head, root-bound limbs and broken doll scraps."
+    },
+    {
+      "asset_id": "a2_015_extra_name_stone_scene",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a2_015",
+        "quest_a3_031"
+      ],
+      "scenario_theme": "Камень с лишним именем",
+      "scene_type": "puzzle_check",
+      "source": "data/authoring/pve_mission_assets/act2_batch01/source/a2-015-extra-name-stone-scene.png",
+      "prompt_summary": "Mist graveyard, hollow wrong grave stone, illegible carved grooves, black wax and marsh-stained cloth clue."
+    },
+    {
+      "asset_id": "a2_016_cursed_bride_choice",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a2_016",
+        "quest_a3_032"
+      ],
+      "scenario_theme": "Проклятая невеста и трусливый жених",
+      "scene_type": "moral_choice",
+      "source": "data/authoring/pve_mission_assets/act2_batch01/source/a2-016-cursed-bride-choice.png",
+      "prompt_summary": "Cursed bride, guilty frightened groom, ghostly brother shadow and a small bone token clue."
+    }
+  ],
+  "review_contact_sheet": "data/authoring/pve_mission_assets/act2_batch01/contact-sheet.act2_batch01.png"
+}

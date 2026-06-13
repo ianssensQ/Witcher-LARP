@@ -1,0 +1,98 @@
+{
+  "batch_id": "act1_batch04",
+  "status": "ready_for_review",
+  "generated_at": "2026-06-13T05:19:34+03:00",
+  "imagegen_mode": "built_in_image_gen_exact_pixel_normalize",
+  "ios_target": {
+    "role": "pve_quest_and_combat_top_hero",
+    "point_size": {
+      "width": 390,
+      "height": 422
+    },
+    "scale": 3,
+    "pixel_size": {
+      "width": 1170,
+      "height": 1266
+    },
+    "notes": "Final project PNG files are stored directly in source/. Built-in imagegen raw outputs were accepted only when they matched the 195:211 target ratio, then resampled without crop or padding to 1170x1266."
+  },
+  "assets": [
+    {
+      "asset_id": "a1_017_field_watcher_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a1_017"
+      ],
+      "scenario_theme": "Полевой сторож с чужими глазами",
+      "scene_type": "monster_hunt",
+      "source": "data/authoring/pve_mission_assets/act1_batch04/source/a1-017-field-watcher-location.png",
+      "prompt_summary": "Rain-soaked grain field, distant scarecrow, muddy furrows and a button with stitched eyelash clue."
+    },
+    {
+      "asset_id": "a1_017_field_watcher_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a1_017"
+      ],
+      "scenario_theme": "Полевой сторож с чужими глазами",
+      "scene_type": "monster_hunt",
+      "monster_tags": [
+        "полевой сторож",
+        "живое пугало",
+        "зерновая нежить"
+      ],
+      "source": "data/authoring/pve_mission_assets/act1_batch04/source/a1-017-field-watcher-monster.png",
+      "prompt_summary": "Living wet scarecrow monster with mismatched sewn eyes, straw, black cloth and wooden pole spine."
+    },
+    {
+      "asset_id": "a1_018_smoke_bannik_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a1_018"
+      ],
+      "scenario_theme": "Дымный банник",
+      "scene_type": "monster_hunt",
+      "source": "data/authoring/pve_mission_assets/act1_batch04/source/a1-018-smoke-bannik-location.png",
+      "prompt_summary": "Empty village bathhouse, wet benches, steam, palm prints on window and edge-burned birch leaf clue."
+    },
+    {
+      "asset_id": "a1_018_smoke_bannik_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a1_018"
+      ],
+      "scenario_theme": "Дымный банник",
+      "scene_type": "monster_hunt",
+      "monster_tags": [
+        "дымный банник",
+        "паровая тварь",
+        "банная нежить"
+      ],
+      "source": "data/authoring/pve_mission_assets/act1_batch04/source/a1-018-smoke-bannik-monster.png",
+      "prompt_summary": "Smoke bannik spirit formed from steam, soot, ash and birch twigs in a dark bathhouse."
+    },
+    {
+      "asset_id": "a1_019_cold_fire_stove_scene",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_019"
+      ],
+      "scenario_theme": "Печь с холодным огнем",
+      "scene_type": "puzzle_check",
+      "source": "data/authoring/pve_mission_assets/act1_batch04/source/a1-019-cold-fire-stove-scene.png",
+      "prompt_summary": "Clay village stove with blue cold flame, ash, frost crystals and rime-covered coal clue."
+    },
+    {
+      "asset_id": "a1_020_last_garrison_healer_choice",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_020"
+      ],
+      "scenario_theme": "Последний лекарь гарнизона",
+      "scene_type": "moral_choice",
+      "source": "data/authoring/pve_mission_assets/act1_batch04/source/a1-020-last-garrison-healer-choice.png",
+      "prompt_summary": "Field infirmary, weary healer, wounded soldiers in shadow and a silver-dusted forbidden herb leaf."
+    }
+  ],
+  "review_contact_sheet": "data/authoring/pve_mission_assets/act1_batch04/contact-sheet.act1_batch04.png"
+}

@@ -26,6 +26,7 @@ EXPECTED_QR_MODE_COUNTS = {
     "unique_object": 48,
 }
 EXPECTED_CONTENT_LANE_COUNTS = {"anti_idle": 24, "story_quest": 48}
+MAX_SCENARIO_THEME_REUSE = 2
 QR_CONSUMPTION_RULE_BY_MODE = {
     "unique_object": "consume_once",
     "repeatable_scene": "repeatable",
@@ -190,6 +191,20 @@ def _count_by(rows: Iterable[dict[str, str]], field_name: str) -> dict[str, int]
     for row in rows:
         value = row.get(field_name, "")
         counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _scenario_theme(row: dict[str, str]) -> str:
+    return row.get("scenario_title", "").split(":", 1)[0].strip()
+
+
+def _count_scenario_themes(rows: Iterable[dict[str, str]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        theme = _scenario_theme(row)
+        if not theme:
+            continue
+        counts[theme] = counts.get(theme, 0) + 1
     return dict(sorted(counts.items()))
 
 
@@ -386,6 +401,13 @@ def validate_authoring(root: Path = PROJECT_ROOT) -> ValidationReport:
         duplicates = _find_duplicates(matrix, field_name)
         for value in duplicates:
             report.errors.append(f"pve_authoring_matrix.csv: duplicate {field_name} {value}")
+    scenario_theme_counts = _count_scenario_themes(matrix)
+    for theme, count in scenario_theme_counts.items():
+        if count > MAX_SCENARIO_THEME_REUSE:
+            report.errors.append(
+                "pve_authoring_matrix.csv: scenario theme "
+                f"{theme!r} reused {count} times; max is {MAX_SCENARIO_THEME_REUSE}"
+            )
 
     for row in registry:
         qr_id = row["qr_id"]
@@ -512,6 +534,7 @@ def validate_authoring(root: Path = PROJECT_ROOT) -> ValidationReport:
         "content_lane_counts": content_lane_counts,
         "trial_type_counts": _count_by(matrix, "trial_type"),
         "scene_type_counts": _count_by(matrix, "scene_type"),
+        "scenario_theme_reuse_max": max(scenario_theme_counts.values(), default=0),
     }
     return report
 

@@ -1,0 +1,109 @@
+{
+  "batch_id": "act1_batch01",
+  "status": "prototype",
+  "generated_at": "2026-06-13T02:41:12+03:00",
+  "imagegen_mode": "built_in_image_gen",
+  "ios_target": {
+    "role": "pve_quest_and_combat_top_hero",
+    "point_size": {
+      "width": 390,
+      "height": 422
+    },
+    "scale": 3,
+    "pixel_size": {
+      "width": 1170,
+      "height": 1266
+    },
+    "notes": "Source images are preserved in source/. iOS-ready half-screen crops are in ios-half/."
+  },
+  "assets": [
+    {
+      "asset_id": "a1_001_marsh_path_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a1_001",
+        "quest_a1_002"
+      ],
+      "scenario_theme": "Дети болотной тропы",
+      "source": "data/authoring/pve_mission_assets/act1_batch01/source/a1-001-marsh-path-location-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch01/ios-half/a1-001-marsh-path-location-ios-half-3x.png",
+      "prompt_summary": "Moonless bog path, child footprints, drowned reeds, abandoned flute and reed-tied toy."
+    },
+    {
+      "asset_id": "a1_001_marsh_guide_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a1_001",
+        "quest_a1_002"
+      ],
+      "scenario_theme": "Дети болотной тропы",
+      "monster_tags": [
+        "болотная мавка",
+        "утопец-поводырь",
+        "стая топляков"
+      ],
+      "source": "data/authoring/pve_mission_assets/act1_batch01/source/a1-001-marsh-guide-monster-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch01/ios-half/a1-001-marsh-guide-monster-ios-half-3x.png",
+      "prompt_summary": "Drowned marsh guide / bog mawka hybrid rising from black reeds with child-toy charms."
+    },
+    {
+      "asset_id": "a1_005_haunted_well_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a1_005",
+        "quest_a1_006"
+      ],
+      "scenario_theme": "Невеста из колодца",
+      "source": "data/authoring/pve_mission_assets/act1_batch01/source/a1-005-haunted-well-location-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch01/ios-half/a1-005-haunted-well-location-ios-half-3x.png",
+      "prompt_summary": "Old village well, torn bridal veil, wet handprints, candle and small silver blade."
+    },
+    {
+      "asset_id": "a1_005_well_bride_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a1_005",
+        "quest_a1_006"
+      ],
+      "scenario_theme": "Невеста из колодца",
+      "monster_tags": [
+        "полуночница",
+        "колодезная утопленница",
+        "призрак невесты"
+      ],
+      "source": "data/authoring/pve_mission_assets/act1_batch01/source/a1-005-well-bride-monster-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch01/ios-half/a1-005-well-bride-monster-ios-half-3x.png",
+      "prompt_summary": "Well revenant / midnight bride ghost rising from a village well."
+    },
+    {
+      "asset_id": "a1_009_dead_grove_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a1_009",
+        "quest_a1_010"
+      ],
+      "scenario_theme": "Леший без леса",
+      "source": "data/authoring/pve_mission_assets/act1_batch01/source/a1-009-dead-grove-location-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch01/ios-half/a1-009-dead-grove-location-ios-half-3x.png",
+      "prompt_summary": "Dead grove, broken name-stone, fresh hoofprints, clawlike roots, red-thread bird bone clue."
+    },
+    {
+      "asset_id": "a1_009_deadwood_leshy_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a1_009",
+        "quest_a1_010"
+      ],
+      "scenario_theme": "Леший без леса",
+      "monster_tags": [
+        "леший-отступник",
+        "древесный мертвец",
+        "корневая стая"
+      ],
+      "source": "data/authoring/pve_mission_assets/act1_batch01/source/a1-009-deadwood-leshy-monster-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch01/ios-half/a1-009-deadwood-leshy-monster-ios-half-3x.png",
+      "prompt_summary": "Renegade deadwood forest spirit made from roots, cracked bark, bone fragments and antlers."
+    }
+  ],
+  "review_contact_sheet": "C:/Users/ostro/Documents/New project 2/.tmp/pve-act1-batch01-contact.png"
+}

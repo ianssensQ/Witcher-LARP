@@ -1,0 +1,98 @@
+{
+  "batch_id": "act1_batch03",
+  "status": "ready_for_review",
+  "generated_at": "2026-06-13T05:03:17+03:00",
+  "imagegen_mode": "built_in_image_gen_exact_pixel_normalize",
+  "ios_target": {
+    "role": "pve_quest_and_combat_top_hero",
+    "point_size": {
+      "width": 390,
+      "height": 422
+    },
+    "scale": 3,
+    "pixel_size": {
+      "width": 1170,
+      "height": 1266
+    },
+    "notes": "Final project PNG files are stored directly in source/. Built-in imagegen raw outputs were accepted only when they matched the 195:211 target ratio, then resampled without crop or padding to 1170x1266."
+  },
+  "assets": [
+    {
+      "asset_id": "a1_013_orchard_worm_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a1_013"
+      ],
+      "scenario_theme": "Олений червь в яблонях",
+      "scene_type": "monster_hunt",
+      "source": "data/authoring/pve_mission_assets/act1_batch03/source/a1-013-orchard-worm-location.png",
+      "prompt_summary": "Abandoned apple orchard, bone-seeded apples, ominous low track through wet grass."
+    },
+    {
+      "asset_id": "a1_013_orchard_worm_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a1_013"
+      ],
+      "scenario_theme": "Олений червь в яблонях",
+      "scene_type": "monster_hunt",
+      "monster_tags": [
+        "олений червь",
+        "садовая тварь",
+        "корневой змей"
+      ],
+      "source": "data/authoring/pve_mission_assets/act1_batch03/source/a1-013-orchard-worm-monster.png",
+      "prompt_summary": "Legless deer-worm monster with root-and-sinew body, antlers and bone growths in an old orchard."
+    },
+    {
+      "asset_id": "a1_014_mountain_whistler_location",
+      "kind": "location",
+      "quest_ids": [
+        "quest_a1_014"
+      ],
+      "scenario_theme": "Горный свистун",
+      "scene_type": "monster_hunt",
+      "source": "data/authoring/pve_mission_assets/act1_batch03/source/a1-014-mountain-whistler-location.png",
+      "prompt_summary": "Gray mountain watch path, old watch stone, cliff edge, wind-bent grass and bird skull clue."
+    },
+    {
+      "asset_id": "a1_014_mountain_whistler_monster",
+      "kind": "monster",
+      "quest_ids": [
+        "quest_a1_014"
+      ],
+      "scenario_theme": "Горный свистун",
+      "scene_type": "monster_hunt",
+      "monster_tags": [
+        "горный свистун",
+        "каменная тень",
+        "ветряная нежить"
+      ],
+      "source": "data/authoring/pve_mission_assets/act1_batch03/source/a1-014-mountain-whistler-monster.png",
+      "prompt_summary": "Mountain whistler monster made from gray stone shards, bird bones and tattered wind-streams."
+    },
+    {
+      "asset_id": "a1_015_road_eating_map_scene",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_015"
+      ],
+      "scenario_theme": "Карта, съевшая дорогу",
+      "scene_type": "puzzle_check",
+      "source": "data/authoring/pve_mission_assets/act1_batch03/source/a1-015-road-eating-map-scene.png",
+      "prompt_summary": "Cursed empty map on a cottage table, vanished road, candles and compass broken from inside."
+    },
+    {
+      "asset_id": "a1_016_sold_name_choice",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_016"
+      ],
+      "scenario_theme": "Деревня, которая продала имя",
+      "scene_type": "moral_choice",
+      "source": "data/authoring/pve_mission_assets/act1_batch03/source/a1-016-sold-name-choice.png",
+      "prompt_summary": "Rainy village circle, frightened guilty villagers and a blank warm wooden name-board."
+    }
+  ],
+  "review_contact_sheet": "data/authoring/pve_mission_assets/act1_batch03/contact-sheet.act1_batch03.png"
+}

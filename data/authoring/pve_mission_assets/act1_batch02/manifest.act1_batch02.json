@@ -1,0 +1,94 @@
+{
+  "batch_id": "act1_batch02",
+  "status": "prototype",
+  "generated_at": "2026-06-13T03:03:55+03:00",
+  "imagegen_mode": "built_in_image_gen",
+  "ios_target": {
+    "role": "pve_quest_top_hero",
+    "point_size": {
+      "width": 390,
+      "height": 422
+    },
+    "scale": 3,
+    "pixel_size": {
+      "width": 1170,
+      "height": 1266
+    },
+    "notes": "Puzzle and moral-choice scenes use a single top hero image. Source images are preserved in source/. iOS-ready half-screen crops are in ios-half/."
+  },
+  "assets": [
+    {
+      "asset_id": "a1_003_dead_chapel_bells",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_003"
+      ],
+      "scenario_theme": "Три колокола мертвой часовни",
+      "scene_type": "puzzle_check",
+      "source": "data/authoring/pve_mission_assets/act1_batch02/source/a1-003-dead-chapel-bells-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch02/ios-half/a1-003-dead-chapel-bells-ios-half-3x.png",
+      "prompt_summary": "Ruined chapel interior, three tarnished bells, abstract chalk ritual marks, candle smoke."
+    },
+    {
+      "asset_id": "a1_004_marked_child_choice",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_004"
+      ],
+      "scenario_theme": "Цена спасенного ребенка",
+      "scene_type": "moral_choice",
+      "source": "data/authoring/pve_mission_assets/act1_batch02/source/a1-004-marked-child-choice-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch02/ios-half/a1-004-marked-child-choice-ios-half-3x.png",
+      "prompt_summary": "Mother holding marked child in rain, villagers with torches, moral pressure."
+    },
+    {
+      "asset_id": "a1_007_aging_mirror",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_007"
+      ],
+      "scenario_theme": "Зеркало, которое старит",
+      "scene_type": "puzzle_check",
+      "source": "data/authoring/pve_mission_assets/act1_batch02/source/a1-007-aging-mirror-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch02/ios-half/a1-007-aging-mirror-ios-half-3x.png",
+      "prompt_summary": "Cracked antique mirror showing an aged reflection, candlelit elder room."
+    },
+    {
+      "asset_id": "a1_008_accused_healer_choice",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_008"
+      ],
+      "scenario_theme": "Старуха, которую нельзя жечь",
+      "scene_type": "moral_choice",
+      "source": "data/authoring/pve_mission_assets/act1_batch02/source/a1-008-accused-healer-choice-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch02/ios-half/a1-008-accused-healer-choice-ios-half-3x.png",
+      "prompt_summary": "Accused healer near unlit pyre, villagers with torches, herbs in mud."
+    },
+    {
+      "asset_id": "a1_011_salt_threshold",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_011"
+      ],
+      "scenario_theme": "Соль вокруг порога",
+      "scene_type": "puzzle_check",
+      "source": "data/authoring/pve_mission_assets/act1_batch02/source/a1-011-salt-threshold-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch02/ios-half/a1-011-salt-threshold-ios-half-3x.png",
+      "prompt_summary": "Night doorway, salt line on the inside of threshold, abstract scratch marks, candlelight."
+    },
+    {
+      "asset_id": "a1_012_silver_silence_choice",
+      "kind": "quest_scene",
+      "quest_ids": [
+        "quest_a1_012"
+      ],
+      "scenario_theme": "Серебро за молчание",
+      "scene_type": "moral_choice",
+      "source": "data/authoring/pve_mission_assets/act1_batch02/source/a1-012-silver-silence-choice-source.png",
+      "ios_half_3x": "data/authoring/pve_mission_assets/act1_batch02/ios-half/a1-012-silver-silence-choice-ios-half-3x.png",
+      "prompt_summary": "Silver purse, scales, blank sealed parchment, poor villagers in shadow."
+    }
+  ],
+  "review_contact_sheet": "C:/Users/ostro/Documents/New project 2/.tmp/pve-act1-batch02-contact.png"
+}
