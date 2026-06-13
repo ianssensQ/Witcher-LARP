@@ -1,3 +1,5 @@
+import csv
+import re
 from pathlib import Path
 
 
@@ -13,6 +15,7 @@ def test_ios_native_scaffold_exists():
         "ios/WitcherLARP/App/AppModel.swift",
         "ios/WitcherLARP/Core/API/LarpAPIClient.swift",
         "ios/WitcherLARP/Core/Sync/EventQueueStore.swift",
+        "ios/WitcherLARP/Features/PvE/PVEMissionSheet.swift",
         "ios/WitcherLARP/Features/QR/QRScannerView.swift",
     ]
 
@@ -82,15 +85,66 @@ def test_ios_gwent_table_uses_adaptive_landscape_metrics():
     assert "let safeAreaInsets: EdgeInsets" in table
     assert "safeAreaInsets.leading + safeAreaInsets.trailing" in table
     assert "let notchFallback" in table
+    assert "let landscapeTopClearance" in table
+    assert "max(max(safeAreaInsets.top, baseVertical), landscapeTopClearance)" in table
     assert "layout.contentInsets" in table
     assert "gwentTableBackground\n                    .ignoresSafeArea()" in table
+    assert ".persistentSystemOverlays(.hidden)" in table
     assert "var boardRowHeight: CGFloat" in table
-    assert "floor((boardAreaHeight - weatherStripHeight - (boardRowSpacing * 6)) / 6)" in table
+    assert "let visibleRows: CGFloat = selectionMode ? 3 : 6" in table
+    assert "floor((boardAreaHeight - weatherStripHeight - (boardRowSpacing * visibleRows)) / visibleRows)" in table
     assert "var handExpandedHeight: CGFloat" in table
     assert "contentHeight * 0.26" in table
     assert "layout.playerRailWidth" in table
     assert "layout.handCardHeight" in table
+    assert "collapsedHandPlaque(match: match, layout: layout)" in table
+    assert "private func passButton(match: [String: JSONValue], layout: GwentTableLayout) -> some View" in table
+    assert table.count("passButton(match: match, layout: layout)") >= 2
+    assert "ScrollView(.horizontal, showsIndicators: false)" in table
+    assert "LazyHStack(spacing:" in table
+    assert "ForEach(Array(cards.enumerated()), id: \\.offset)" in table
+    assert "showsIndicators: cards.count > 3" not in table
+    assert "cards.prefix(10)" not in table
+    assert "var boardCardTitleBandHeight: CGFloat" in table
+    assert "gwentBoardCardDisplayStrength(value, row: row, playerId: playerId, rowCards: rowCards)" in table
+    assert '"gwent_unit_11": "Осадная башня"' in table
+    assert 'return "Отряд"' in table
+    assert "Боевая карта" not in table
+    assert ".lineLimit(2)" in table
     assert "tableSafeLeadingPadding" not in table
+
+
+def test_ios_gwent_static_catalog_prevents_english_card_fallbacks():
+    snapshot = (ROOT / "ios/WitcherLARP/Core/Models/SnapshotModels.swift").read_text(encoding="utf-8")
+    table = (ROOT / "ios/WitcherLARP/Features/Gwent/GwentTableView.swift").read_text(encoding="utf-8")
+    home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
+
+    assert "enum GwentStaticCatalog" in snapshot
+    assert "static var allCards: [GwentCard]" in snapshot
+    seed_card_ids = {
+        row["card_id"]
+        for row in csv.DictReader((ROOT / "data/seed/gwent_cards.csv").open(encoding="utf-8"))
+    }
+    static_card_ids = set(re.findall(r'"([^"]+)": StaticCard', snapshot))
+    assert seed_card_ids <= static_card_ids
+    assert len(static_card_ids) == len(seed_card_ids)
+    assert '"gwent_leader_eredin_bringer": StaticCard' in snapshot
+    assert '"Эредин: Несущий смерть"' in snapshot
+    assert '"gwent_leader_eredin_destroyer": StaticCard' in snapshot
+    assert '"Эредин: Разрушитель миров"' in snapshot
+    assert '"nr_sile_de_tansarville": StaticCard' in snapshot
+    assert '"Шеала де Тансервилль"' in snapshot
+    assert '"rare_gwent_03": StaticCard' in snapshot
+    assert '"Цирилла Фиона Элен Рианнон"' in snapshot
+    assert '"nr_kaedweni_siege_expert_3": StaticCard' in snapshot
+    assert 'strength: 1, effect: "morale"' in snapshot
+    assert '"Каэдвенский осадный мастер"' in snapshot
+
+    assert "GwentStaticCatalog.card(cardId) ?? snapshotCard" in table
+    assert "GwentStaticCatalog.card(cardId) ?? snapshotCard" in home
+    assert "normalizedPayloadStrength(strength, key: key, cardId: cardId)" in table
+    assert 'return "Лидер \\(readableIdentifier(cardId' not in table
+    assert 'return "Лидер \\(readableIdentifier(cardId' not in home
 
 
 def test_ios_screenshot_mode_does_not_auto_probe_server_on_login():
@@ -177,13 +231,15 @@ def test_ios_home_bottom_nav_uses_journal_pvp_deck_inventory_orders():
     journal = home[home.index("private var journal: some View"): home.index("private var journalQRButton")]
 
     assert 'Label("Журнал", systemImage: "book.closed")' in tab_view
-    assert 'Label("PvP", systemImage: "suit.club")' in tab_view
+    assert 'Label("Дуэли", systemImage: "suit.club")' in tab_view
     assert 'Label("Колода", systemImage: "rectangle.stack")' in tab_view
     assert 'Label("Инвентарь", systemImage: "backpack")' in tab_view
     assert 'Label("Заказы", systemImage: "scroll")' in tab_view
     assert 'Label("QR", systemImage: "qrcode.viewfinder")' not in tab_view
     assert 'Label("Связь", systemImage: "arrow.triangle.2.circlepath")' not in tab_view
-    assert 'Label("Сканировать QR", systemImage: "qrcode.viewfinder")' in home
+    assert '"Сканировать QR"' in home
+    assert '"Продолжить миссию"' in home
+    assert '"qrcode.viewfinder"' in home
     assert "journalQRButton" in journal
     assert "currentActCard" in journal
     assert "private var actsCard" not in home
@@ -193,10 +249,64 @@ def test_ios_home_bottom_nav_uses_journal_pvp_deck_inventory_orders():
     assert "private var deckSetup: some View" in home
 
 
+def test_ios_deck_encyclopedia_toggles_owned_and_all_cards_without_clipped_strip():
+    home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
+    encyclopedia = home[
+        home.index("private func deckEncyclopediaPanel"):
+        home.index("private func deckMechanicsPanel")
+    ]
+    selected_strip = home[
+        home.index("private func deckSelectedStrip"):
+        home.index("private var rowFilterControl")
+    ]
+
+    assert "@State private var deckEncyclopediaScope" in home
+    assert "@State private var deckStrengthFilter" in home
+    assert "@State private var pendingDeckRemovalCardId" in home
+    assert "private let gwentDeckMinUnitCards = 22" in home
+    assert "private enum DeckEncyclopediaScope" in home
+    assert "private enum DeckStrengthFilter" in home
+    assert 'return "Свои карты"' in home
+    assert 'return "Все карты"' in home
+    assert 'return "Все ряды"' in home
+    assert 'return "Любая"' in home
+    assert "private var gwentCatalogCards: [GwentCard]" in home
+    assert "for card in GwentStaticCatalog.allCards" in home
+    assert "let cards = gwentCatalogCards" in home
+    assert "filterCards(gwentCatalogCards)" in home
+    assert "Picker(\"Карты энциклопедии\"" in encyclopedia
+    assert "Picker(\"Сила\"" in home
+    assert 'confirmationDialog(\n                "Убрать карту из колоды?"' in home
+    assert "filteredEncyclopediaCards" in encyclopedia
+    assert "ownedEncyclopediaCardIds" in home
+    assert "минимум 22" in home
+    assert "metrics.units > gwentDeckMinUnitCards" not in home
+    assert "В боевой колоде уже 22 карты отрядов." not in home
+    assert "normalizedDeckCardIds" not in home
+    assert ".frame(width: compact ? 78 : 86, height: compact ? 112 : 124)" not in selected_strip
+
+
+def test_ios_journal_character_card_shows_xp_bar_reputation_and_pvp_tokens():
+    home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
+    snapshot = (ROOT / "ios/WitcherLARP/Core/Models/SnapshotModels.swift").read_text(encoding="utf-8")
+    app_model = (ROOT / "ios/WitcherLARP/App/AppModel.swift").read_text(encoding="utf-8")
+
+    card = home[home.index("private func characterCard"): home.index("private func metric")]
+
+    assert 'metric("XP", "\\(player.xp)")' not in card
+    assert 'metric("PvP", "\\(player.challengeTokens)")' in card
+    assert "xpProgressBar(player)" in card
+    assert "reputationRow(player)" in card
+    assert 'Text("Добро/Зло")' in home
+    assert "let challengeTokens: Int" in snapshot
+    assert 'case challengeTokens = "challenge_tokens"' in snapshot
+    assert '"challenge_tokens": "3"' in app_model
+
+
 def test_ios_no_pvp_http_smoke_targets_ios_server_and_avoids_pvp():
     smoke = (ROOT / "scripts/ios_no_pvp_http_smoke.py").read_text(encoding="utf-8")
 
-    assert 'default="http://192.168.0.102:8003"' in smoke
+    assert 'default="http://192.168.68.118:8002"' in smoke
     assert "/api/auth/player-code" in smoke
     assert "/api/content/snapshot" in smoke
     assert "/api/qr/lookup" in smoke
@@ -205,10 +315,29 @@ def test_ios_no_pvp_http_smoke_targets_ios_server_and_avoids_pvp():
     assert "/api/gwent" not in smoke
 
 
+def test_ios_valid_qr_opens_pve_mission_screen_outside_scanner():
+    home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
+    scanner = (ROOT / "ios/WitcherLARP/Features/QR/QRScannerSheet.swift").read_text(encoding="utf-8")
+    mission = (ROOT / "ios/WitcherLARP/Features/PvE/PVEMissionSheet.swift").read_text(encoding="utf-8")
+    app_model = (ROOT / "ios/WitcherLARP/App/AppModel.swift").read_text(encoding="utf-8")
+
+    assert "func beginPVE(code rawCode: String, source: QRInputSource) -> Bool" in app_model
+    assert "onMissionStarted" in scanner
+    assert "if model.beginPVE(code: normalized, source: inputSource)" in scanner
+    assert "missionCard(" not in scanner
+    assert "resultCard(" not in scanner
+    assert "@State private var showPVEMission" in home
+    assert "pendingMissionPresentation" in home
+    assert ".fullScreenCover(isPresented: $showPVEMission)" in home
+    assert "PVEMissionSheet" in home
+    assert "model.choosePVEOption(choice.choiceId)" in mission
+    assert "model.rollNextPVECheck()" in mission
+
+
 def test_ios_no_pvp_sim_visual_smoke_targets_release_home_without_pvp():
     smoke = (ROOT / "scripts/ios_no_pvp_sim_visual_smoke.py").read_text(encoding="utf-8")
 
-    assert 'DEFAULT_SERVER = "http://192.168.0.102:8003"' in smoke
+    assert 'DEFAULT_SERVER = "http://192.168.68.118:8002"' in smoke
     assert "xcrun\", \"simctl\", \"install\"" in smoke
     assert "get_app_container" in smoke
     assert "server_url.json" in smoke
@@ -226,15 +355,15 @@ def test_ios_gwent_tools_target_ios_server_port():
     login = (ROOT / "ios/WitcherLARP/Features/Login/LoginView.swift").read_text(encoding="utf-8")
     smoke = (ROOT / "scripts/ios_gwent_http_smoke.py").read_text(encoding="utf-8")
 
-    assert 'URL(string: "http://192.168.0.102:8003")' in app_model
-    assert 'TextField("http://192.168.0.102:8003"' in login
-    assert 'default="http://192.168.0.102:8003"' in smoke
+    assert 'defaultServerURLString = "http://192.168.68.118:8002"' in app_model
+    assert "TextField(AppModel.defaultServerURLString" in login
+    assert 'default="http://192.168.68.118:8002"' in smoke
 
 
 def test_ios_no_pvp_release_gate_keeps_real_iphone_evidence_explicit():
     gate = (ROOT / "scripts/ios_no_pvp_release_gate.py").read_text(encoding="utf-8")
 
-    assert 'DEFAULT_SERVER = "http://192.168.0.102:8003"' in gate
+    assert 'DEFAULT_SERVER = "http://192.168.68.118:8002"' in gate
     assert "scripts/ios_no_pvp_http_smoke.py" in gate
     assert "xcodebuild_debug" in gate
     assert "xcodebuild_release" in gate
@@ -259,7 +388,7 @@ def test_ios_no_pvp_release_gate_keeps_real_iphone_evidence_explicit():
     assert "REAL_DEVICE_CHECKS" in gate
     assert "local_network_permission_allowed" in gate
     assert "camera_permission_allowed" in gate
-    assert "login_against_8003" in gate
+    assert "login_against_8002" in gate
     assert "physical_qr_scanned" in gate
     assert "sync_retry_success" in gate
     assert "ready_for_players" in gate
@@ -332,4 +461,4 @@ def test_ios_qr_camera_scan_marks_source_before_updating_manual_code():
 
     assert "normalizeQRCode(rawCode)" in scanner_callback
     assert scanner_callback.index("inputSource = .camera") < scanner_callback.index("manualCode = normalized")
-    assert "model.completePVE(code: normalized, source: .camera)" in scanner_callback
+    assert "model.beginPVE(code: normalized, source: .camera)" in scanner_callback

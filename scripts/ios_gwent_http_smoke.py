@@ -85,7 +85,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description="Smoke the live HTTP Gwent PvP flow used by the iOS client."
     )
-    parser.add_argument("--server", default="http://192.168.0.102:8003", help="FastAPI base URL.")
+    parser.add_argument("--server", default="http://192.168.68.118:8002", help="FastAPI base URL.")
     parser.add_argument("--p1-id", default="p_witcher_1")
     parser.add_argument("--p1-code", default="WC-WOLF-6GF4")
     parser.add_argument("--p1-deck-id", default="")

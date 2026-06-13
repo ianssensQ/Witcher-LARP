@@ -16,12 +16,12 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SERVER = "http://192.168.0.102:8003"
+DEFAULT_SERVER = "http://192.168.68.118:8002"
 REAL_DEVICE_CHECKS = [
     "installed_release_build",
     "local_network_permission_allowed",
     "camera_permission_allowed",
-    "login_against_8003",
+    "login_against_8002",
     "snapshot_survives_restart",
     "physical_qr_scanned",
     "offline_event_survives_restart",
@@ -37,7 +37,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Run the no-PvP iOS machine gate: scaffold tests, Debug/Release "
-            "builds and live iOS API smoke on port 8003. Real iPhone evidence "
+            "builds and live iOS API smoke on port 8002. Real iPhone evidence "
             "is verified when provided."
         )
     )
@@ -514,7 +514,7 @@ def _load_real_device_evidence(
     missing = [check for check in REAL_DEVICE_CHECKS if check not in checks]
     failed = [check for check in REAL_DEVICE_CHECKS if check in checks and checks[check] is not True]
     if payload.get("server") != server:
-        failed.append("server_matches_8003")
+        failed.append("server_matches_8002")
     return {
         "path": str(path),
         "status": "passed" if not missing and not failed else "incomplete",

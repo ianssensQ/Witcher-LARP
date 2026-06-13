@@ -95,7 +95,7 @@ def main(argv: list[str]) -> int:
             "because they write lightweight runtime rows."
         )
     )
-    parser.add_argument("--server", default="http://192.168.0.102:8003", help="FastAPI base URL.")
+    parser.add_argument("--server", default="http://192.168.68.118:8002", help="FastAPI base URL.")
     parser.add_argument("--player-code", default="WC-WOLF-6GF4", help="Seed player code to test.")
     parser.add_argument("--device-id", default=f"ios-no-pvp-smoke-{int(time.time())}")
     parser.add_argument("--qr-code", default="QR-A1-K7Q2", help="QR/manual code for optional lookup.")

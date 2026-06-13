@@ -20,7 +20,7 @@ import zlib
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SERVER = "http://192.168.0.102:8003"
+DEFAULT_SERVER = "http://192.168.68.118:8002"
 DEFAULT_BUNDLE_ID = "local.witcherlarp.app"
 DEFAULT_PLAYER_CODE = "WC-WOLF-6GF4"
 
