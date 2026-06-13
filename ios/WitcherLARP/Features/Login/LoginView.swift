@@ -88,7 +88,7 @@ struct LoginView: View {
             NavigationStack {
                 Form {
                     Section("Мастерская настройка") {
-                        TextField("http://192.168.0.102:8003", text: $serverURLText)
+                        TextField(AppModel.defaultServerURLString, text: $serverURLText)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                         Button("Сохранить и проверить") {

@@ -1,12 +1,23 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
+
+private let gwentDeckMinUnitCards = 22
+private let gwentDeckSpecialCardLimit = 10
 
 struct HomeView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selectedTab: HomeTab = .journal
     @State private var appliedInitialTab = false
     @State private var showQR = false
+    @State private var showPVEMission = false
+    @State private var pendingMissionPresentation = false
     @State private var showGwentTable = false
-    @State private var inventoryMode: InventoryMode = .gear
+    @State private var showCharacterProgress = false
+    @State private var inventoryMode: InventoryMode = .bag
+    @State private var selectedMarketMaterialId = ""
+    @State private var materialSellQuantity = 1
     @State private var tradeRecipient = ""
     @State private var selectedTradeAssetKey = ""
     @State private var tradeAssetType = "item"
@@ -25,11 +36,16 @@ struct HomeView: View {
     @State private var showServerSettings = false
     @State private var serverURLText = ""
     @State private var deckMode: DeckSetupMode = .builder
+    @State private var deckEncyclopediaScope: DeckEncyclopediaScope = .owned
     @State private var deckRowFilter: DeckRowFilter = .all
+    @State private var deckStrengthFilter: DeckStrengthFilter = .all
     @State private var deckDraftCardIds: [String] = []
     @State private var deckDraftLeaderId = ""
     @State private var deckDraftSourceFingerprint = ""
     @State private var selectedDeckCardId = ""
+    @State private var showDeckCardInspector = false
+    @State private var pendingDeckRemovalCardId = ""
+    @State private var appliedDeckScreenshotArguments = false
     @State private var isSavingDeckDraft = false
 
     var body: some View {
@@ -38,7 +54,7 @@ struct HomeView: View {
                 .tabItem { Label("Журнал", systemImage: "book.closed") }
                 .tag(HomeTab.journal)
             pvp
-                .tabItem { Label("PvP", systemImage: "suit.club") }
+                .tabItem { Label("Дуэли", systemImage: "suit.club") }
                 .tag(HomeTab.pvp)
             deckSetup
                 .tabItem { Label("Колода", systemImage: "rectangle.stack") }
@@ -51,14 +67,38 @@ struct HomeView: View {
                 .tag(HomeTab.orders)
         }
         .sheet(isPresented: $showQR) {
-            QRScannerSheet()
+            QRScannerSheet {
+                pendingMissionPresentation = true
+                showQR = false
+            }
+        }
+        .fullScreenCover(isPresented: $showPVEMission) {
+            PVEMissionSheet {
+                showPVEMission = false
+            }
+            .environmentObject(model)
         }
         .fullScreenCover(isPresented: $showGwentTable) {
             GwentTableView()
                 .environmentObject(model)
         }
+        .sheet(isPresented: $showDeckCardInspector) {
+            if let card = selectedDeckCard {
+                deckCardDetailSheet(card)
+            }
+        }
         .sheet(isPresented: $showServerSettings) {
             serverSettingsSheet
+        }
+        .sheet(isPresented: $showCharacterProgress) {
+            characterProgressSheet
+        }
+        .onChange(of: showQR) { isPresented in
+            guard !isPresented, pendingMissionPresentation else { return }
+            pendingMissionPresentation = false
+            if model.activePVEMission != nil {
+                showPVEMission = true
+            }
         }
         .onAppear {
             guard !appliedInitialTab else { return }
@@ -132,15 +172,41 @@ struct HomeView: View {
 
     private var journalQRButton: some View {
         Button {
-            showQR = true
+            if model.activePVEMission != nil {
+                showPVEMission = true
+            } else {
+                showQR = true
+            }
         } label: {
-            Label("Сканировать QR", systemImage: "qrcode.viewfinder")
+            Label(
+                model.activePVEMission == nil ? "Сканировать QR" : "Продолжить миссию",
+                systemImage: model.activePVEMission == nil ? "qrcode.viewfinder" : "scroll"
+            )
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
     }
 
     private func characterCard(_ player: PlayerProfile) -> some View {
+        Button {
+            showCharacterProgress = true
+        } label: {
+            characterCardContent(player)
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .topTrailing) {
+            if model.allocatableStatPoints(for: player) > 0 {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 14, height: 14)
+                    .overlay(Circle().stroke(.black.opacity(0.45), lineWidth: 1))
+                    .padding(10)
+                    .accessibilityLabel("Доступна прокачка")
+            }
+        }
+    }
+
+    private func characterCardContent(_ player: PlayerProfile) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -161,15 +227,76 @@ struct HomeView: View {
 
             HStack {
                 metric("Ур.", "\(player.level)")
-                metric("XP", "\(player.xp)")
                 metric("Золото", "\(player.gold)g")
+                metric("PvP", "\(player.challengeTokens)")
             }
 
-            Text(player.reputationLabel)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            xpProgressBar(player)
+
+            reputationRow(player)
         }
         .cardStyle()
+    }
+
+    private var characterProgressSheet: some View {
+        NavigationStack {
+            ScrollView {
+                if let player = model.player {
+                    VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(player.displayName)
+                                .font(.title2.bold())
+                            Text("Ур. \(player.level) · \(player.xp) XP")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("Статы")
+                                    .font(.headline)
+                                Spacer()
+                                Text("\(model.allocatableStatPoints(for: player))")
+                                    .font(.headline.monospacedDigit())
+                                    .foregroundStyle(model.allocatableStatPoints(for: player) > 0 ? .red : .secondary)
+                            }
+                            ForEach(AppModel.canonicalStats, id: \.self) { stat in
+                                statAllocationRow(stat, player: player)
+                            }
+                        }
+                        .cardStyle()
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Персонаж")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Готово") { showCharacterProgress = false }
+                }
+            }
+        }
+    }
+
+    private func statAllocationRow(_ stat: String, player: PlayerProfile) -> some View {
+        HStack {
+            Text(stat)
+                .font(.body.weight(.medium))
+            Spacer()
+            Text("\(player.stats[stat] ?? 0)")
+                .font(.headline.monospacedDigit())
+                .frame(minWidth: 28, alignment: .trailing)
+            Button {
+                model.allocateStatPoint(stat)
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .imageScale(.large)
+            }
+            .buttonStyle(.plain)
+            .disabled(!model.canAllocateStat(stat, for: player))
+            .foregroundStyle(model.canAllocateStat(stat, for: player) ? .orange : .secondary)
+            .accessibilityLabel("Повысить \(stat)")
+        }
     }
 
     private func metric(_ title: String, _ value: String) -> some View {
@@ -183,14 +310,93 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func xpProgressBar(_ player: PlayerProfile) -> some View {
+        let progress = xpProgress(for: player)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("XP прогресс")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(progress.percentLabel)
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+            }
+            ProgressView(value: progress.fraction)
+                .tint(.orange)
+                .accessibilityLabel("XP прогресс")
+                .accessibilityValue(progress.accessibilityLabel)
+            Text(progress.detailLabel)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 2)
+    }
+
+    private func reputationRow(_ player: PlayerProfile) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("Добро/Зло")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(player.reputationLabel.isEmpty ? "Нейтрально" : player.reputationLabel)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
+    }
+
+    private func xpProgress(for player: PlayerProfile) -> XPProgress {
+        let required = nextLevelCost(for: player.level)
+        guard required > 0 else {
+            return XPProgress(
+                fraction: 1,
+                percentLabel: "100%",
+                detailLabel: "Максимум известной шкалы",
+                accessibilityLabel: "100 процентов"
+            )
+        }
+        let current = max(0, player.xp)
+        let fraction = min(1, Double(current) / Double(required))
+        let percent = Int((fraction * 100).rounded())
+        return XPProgress(
+            fraction: fraction,
+            percentLabel: "\(percent)%",
+            detailLabel: "\(current) / \(required) XP до ур. \(player.level + 1)",
+            accessibilityLabel: "\(percent) процентов, \(current) из \(required) XP до следующего уровня"
+        )
+    }
+
+    private func nextLevelCost(for level: Int) -> Int {
+        let costs = xpLevelCosts
+        let index = costs.first == 0 ? level : level - 1
+        guard index >= 0, index < costs.count else { return 0 }
+        return costs[index]
+    }
+
+    private var xpLevelCosts: [Int] {
+        let defaultCosts = [0, 10, 25, 45, 70, 100, 135, 175, 220, 270]
+        guard
+            let raw = model.snapshot?.checks.xpRules.first?.string("level_thresholds"),
+            !raw.isEmpty
+        else { return defaultCosts }
+        let parsed = raw
+            .split(separator: ";")
+            .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return parsed.isEmpty ? defaultCosts : parsed
+    }
+
     private func lastResultCard(_ result: PvESceneDraft) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Последняя сцена")
                 .font(.headline)
             Text("\(result.qr.manualCode) · \(pveSceneTypeLabel(result.scenario.sceneType))")
                 .font(.subheadline)
-            Text("d20 \(result.roll) + \(result.statLabel) \(result.statValue) = \(result.total), сложность \(result.scenario.dc)")
-                .font(.footnote)
+            Text(result.rollSummary)
+                .font(.footnote.monospacedDigit())
+                .fixedSize(horizontal: false, vertical: true)
             Text(result.resultLabel)
                 .font(.title3.bold())
             Text("Награда: \(result.rewardLine)")
@@ -315,7 +521,7 @@ struct HomeView: View {
                 }
 
                 Section("Сервер игры") {
-                    TextField("http://192.168.0.102:8003", text: $serverURLText)
+                    TextField(AppModel.defaultServerURLString, text: $serverURLText)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
 
@@ -362,10 +568,10 @@ struct HomeView: View {
                     .pickerStyle(.segmented)
 
                     switch inventoryMode {
-                    case .gear:
-                        gearSection
                     case .bag:
                         bagSection
+                    case .market:
+                        materialMarketSection
                     case .trade:
                         tradeSection
                     }
@@ -376,32 +582,49 @@ struct HomeView: View {
         }
     }
 
-    private var gearSection: some View {
+    private var bagSection: some View {
         VStack(alignment: .leading, spacing: 16) {
+            materialInventoryCard
+            potionInventoryCard
             ownedAssetsCard
             catalogItemsCard
             personalCardsCard
-            Text("Использование и передача доступны только для активных, не заблокированных вещей.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var bagSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            potionInventoryCard
             potionCatalogCard
             artifactsCard
             lockedRewardsCard
         }
     }
 
+    private var materialInventoryCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Материалы")
+                .font(.headline)
+            if ownedMaterials.isEmpty {
+                Text("Материалов в сумке пока нет.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(ownedMaterials.prefix(10).enumerated()), id: \.offset) { _, row in
+                    let materialId = row.string("material_id")
+                    let market = marketRow(materialId: materialId)
+                    inventoryAssetRow(
+                        title: assetDisplayName(materialId),
+                        subtitle: "\(materialCategoryLabel(row.string("category"))) · x\(row.int("quantity"))",
+                        detail: materialInventoryDetail(row, market: market),
+                        icon: assetIcon("material")
+                    )
+                }
+            }
+        }
+        .cardStyle()
+    }
+
     private var ownedAssetsCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Активные вещи")
+            Text("Трофеи и квестовые вещи")
                 .font(.headline)
             if ownedAssets.isEmpty {
-                Text("У персонажа пока нет активных вещей.")
+                Text("У персонажа пока нет трофеев или квестовых вещей.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
@@ -584,11 +807,39 @@ struct HomeView: View {
 
     private func assetDisplayName(_ assetId: String) -> String {
         let knownNames = [
-            "item_silver_dust": "Серебряная пыль",
+            "mat_herbs": "Травы",
+            "mat_silver_dust": "Серебряная пыль",
+            "mat_alchemical_salt": "Алхимическая соль",
+            "mat_rune_shard": "Рунный осколок",
+            "mat_monster_blood": "Кровь чудовища",
+            "mat_curse_ash": "Пепел проклятия",
+            "mat_light_essence": "Светлая эссенция",
+            "mat_old_metal": "Старый металл",
             "item_monster_trophy": "Трофей чудовища",
+            "item_beast_fang": "Клык бестии",
+            "item_curse_mark": "Метка проклятия",
             "item_order_seal": "Печать заказа",
+            "item_tax_list": "Налоговый список",
+            "item_secret_writ": "Тайная грамота",
+            "item_cache_key": "Ключ от тайника",
+            "item_debt_note": "Долговая записка",
+            "item_infantry_writ": "Грамота пехоты",
+            "item_guard_contract": "Контракт стражи",
+            "item_cavalry_writ": "Грамота кавалерии",
+            "item_siege_scheme": "Осадная схема",
+            "item_secret_passage_map": "Карта тайного хода",
+            "item_betrayal_proof": "Доказательство измены",
+            "item_gwent_marker": "Ставка Гвинта",
+            "item_final_token": "Финальная улика",
             "artifact_silver_chain": "Серебряная цепь",
             "potion_common_swallow": "Ласточка",
+            "potion_common_cat": "Кошка",
+            "potion_common_white_honey": "Белый мед",
+            "potion_uncommon_thunderbolt": "Гром",
+            "potion_uncommon_petri": "Фильтр Петри",
+            "potion_rare_oriole": "Иволга",
+            "potion_rare_black_blood": "Черная кровь",
+            "potion_rare_clarity": "Ясность",
             "reward_pve_t1": "Награда за сцену",
             "reward_order_success": "Награда за заказ",
             "pc_infantry_t1": "Благосклонность пехоты",
@@ -603,7 +854,8 @@ struct HomeView: View {
             "potion_",
             "reward_",
             "card_",
-            "pc_"
+            "pc_",
+            "mat_"
         ])
     }
 
@@ -634,6 +886,14 @@ struct HomeView: View {
             return "rosette"
         case "order_token":
             return "seal"
+        case "quest_object":
+            return "doc.text"
+        case "strategic", "strategic_support":
+            return "flag"
+        case "final_evidence":
+            return "checkmark.seal"
+        case "pvp_stake":
+            return "suit.club"
         default:
             return "bag"
         }
@@ -663,10 +923,86 @@ struct HomeView: View {
         if lower.contains("order_completion_proof") {
             return "Подходит как proof для заказа."
         }
-        if lower.contains("minor_heal_scene_hp") {
-            return "Помогает восстановиться в сцене."
+        if lower.contains("any_check_modifier_plus_1") {
+            return "+1 к одному PvE-чеку."
+        }
+        if lower.contains("extra_hint") {
+            return "Дополнительная подсказка в сцене."
+        }
+        if lower.contains("clear_minor_hindrance") {
+            return "Снимает малую помеху сцены."
+        }
+        if lower.contains("strength_or_agility_modifier_plus_2") {
+            return "+2 к Силе или Ловкости в сцене."
+        }
+        if lower.contains("mind_will_charisma_modifier_plus_2") {
+            return "+2 к Разуму, Воле или Харизме."
+        }
+        if lower.contains("ignore_poison") {
+            return "Игнорирует яд, болото или токсичную помеху."
+        }
+        if lower.contains("dark_or_cursed_scene_modifier_plus_4") {
+            return "+4 в темной или проклятой сцене."
+        }
+        if lower.contains("reveal_best_scene_stat") {
+            return "Показывает лучший стат для сцены."
+        }
+        if lower.contains("market_only") || lower.contains("sell_to_material_market") {
+            return "Материал для продажи рынку."
+        }
+        if lower.contains("strategic_support") {
+            return "Стратегическая поддержка для лордов и заказов."
+        }
+        if lower.contains("quest_leverage") {
+            return "Квестовая улика для сделки или давления."
+        }
+        if lower.contains("final_evidence") {
+            return "Финальная улика для развязки."
         }
         return ""
+    }
+
+    private func materialCategoryLabel(_ category: String) -> String {
+        switch category.lowercased() {
+        case "alchemy":
+            return "алхимия"
+        case "monster":
+            return "чудовища"
+        case "arcane":
+            return "магия"
+        case "dark":
+            return "темное"
+        case "light":
+            return "светлое"
+        case "strategic":
+            return "стратегия"
+        default:
+            return readableIdentifier(category)
+        }
+    }
+
+    private func materialTrendLabel(_ trend: String) -> String {
+        switch trend.lowercased() {
+        case "scarce":
+            return "дефицит"
+        case "surplus":
+            return "избыток"
+        case "balanced", "":
+            return "ровно"
+        default:
+            return readableIdentifier(trend)
+        }
+    }
+
+    private func materialTrendColor(_ trend: String) -> Color {
+        switch trend.lowercased() {
+        case "scarce":
+            return .orange
+        case "surplus":
+            return .green
+        default:
+            return .blue
+        }
     }
 
     private func conversionRuleLabel(_ rule: String) -> String {
@@ -684,6 +1020,122 @@ struct HomeView: View {
             return "Может стать целью заказа или кражи."
         }
         return readableIdentifier(row.string("visibility"))
+    }
+
+    private var materialMarketSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Рынок материалов")
+                    .font(.headline)
+
+                if materialMarketRows.isEmpty {
+                    Label("Рынок материалов пока не загружен.", systemImage: "chart.line.downtrend.xyaxis")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(materialMarketRows.enumerated()), id: \.offset) { _, row in
+                        materialMarketRow(row)
+                    }
+                }
+            }
+            .cardStyle()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Продать рынку")
+                    .font(.headline)
+
+                if materialMarketRows.isEmpty {
+                    Text("Нет доступных материалов.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Материал", selection: $selectedMarketMaterialId) {
+                        ForEach(Array(materialMarketRows.enumerated()), id: \.offset) { _, row in
+                            let materialId = row.string("material_id")
+                            Text(assetDisplayName(materialId)).tag(materialId)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    let available = selectedMarketMaterialQuantity
+                    let price = selectedMaterialMarket.map(materialMarketPrice) ?? 0
+                    HStack {
+                        Label("В сумке: \(available)", systemImage: "shippingbox")
+                        Spacer()
+                        Text("\(price)g / шт.")
+                            .font(.caption.monospacedDigit().bold())
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+
+                    Stepper("Количество: \(materialSellQuantity)", value: $materialSellQuantity, in: 1...max(1, available))
+                        .disabled(available <= 0)
+
+                    Button {
+                        Task {
+                            await model.sellMaterial(
+                                materialId: selectedMarketMaterialId,
+                                quantity: min(materialSellQuantity, max(1, available))
+                            )
+                        }
+                    } label: {
+                        Label("Продать за \(price * min(materialSellQuantity, max(1, available)))g", systemImage: "banknote")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSellSelectedMaterial)
+                }
+            }
+            .cardStyle()
+
+            if let result = model.lastMaterialMarketResult {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Последняя продажа")
+                        .font(.headline)
+                    Text(result.displayText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .cardStyle()
+            }
+        }
+        .onAppear {
+            normalizeMaterialMarketDefaults()
+        }
+        .onChange(of: model.snapshot?.snapshotVersion ?? "") { _ in
+            normalizeMaterialMarketDefaults()
+        }
+    }
+
+    private func materialMarketRow(_ row: SnapshotRow) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: assetIcon("material"))
+                .font(.headline)
+                .foregroundStyle(materialTrendColor(row.string("trend")))
+                .frame(width: 28, height: 28)
+                .background(materialTrendColor(row.string("trend")).opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(assetDisplayName(row.string("material_id")))
+                        .font(.subheadline.bold())
+                    Spacer()
+                    Text("\(materialMarketPrice(row))g")
+                        .font(.caption.monospacedDigit().bold())
+                        .foregroundStyle(materialTrendColor(row.string("trend")))
+                }
+                Text("\(materialCategoryLabel(row.string("category"))) · \(materialTrendLabel(row.string("trend"))) · у игроков \(row.int("total_player_quantity"))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                let description = row.string("description")
+                if !description.isEmpty {
+                    Text(description)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private var tradeSection: some View {
@@ -1278,6 +1730,8 @@ struct HomeView: View {
                                 deckBuilderPanel(compact: compact)
                             case .encyclopedia:
                                 deckEncyclopediaPanel(compact: compact)
+                            case .mechanics:
+                                deckMechanicsPanel(compact: compact)
                             }
                         }
                         .padding(.horizontal, compact ? 12 : 16)
@@ -1292,14 +1746,31 @@ struct HomeView: View {
             .toolbar {
                 Button("Обновить") { Task { await model.refreshPvpTables() } }
             }
+            .confirmationDialog(
+                "Убрать карту из колоды?",
+                isPresented: deckRemovalConfirmationBinding,
+                titleVisibility: .visible
+            ) {
+                Button("Убрать", role: .destructive) {
+                    confirmDeckCardRemoval()
+                }
+                Button("Отмена", role: .cancel) {
+                    pendingDeckRemovalCardId = ""
+                }
+            } message: {
+                Text(deckRemovalConfirmationMessage)
+            }
             .onAppear {
                 syncDeckDraftIfNeeded(force: true)
+                applyDeckScreenshotArgumentsIfNeeded()
             }
             .onChange(of: model.snapshot?.snapshotVersion ?? "") { _ in
                 syncDeckDraftIfNeeded(force: true)
+                applyDeckScreenshotArgumentsIfNeeded()
             }
             .onChange(of: model.runtimeGwentDecks.map(\.deckId).joined(separator: "|")) { _ in
                 syncDeckDraftIfNeeded(force: true)
+                applyDeckScreenshotArgumentsIfNeeded()
             }
         }
     }
@@ -1341,6 +1812,7 @@ struct HomeView: View {
         let deck = draftGwentDeck
         let metrics = gwentDeckMetrics(cardIds: deckDraftCardIds)
         let warnings = gwentDeckWarnings(metrics)
+        let availableCount = deckAvailableCards.count
 
         return VStack(alignment: .leading, spacing: compact ? 10 : 12) {
             HStack(alignment: .top, spacing: 10) {
@@ -1356,10 +1828,10 @@ struct HomeView: View {
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text("\(metrics.total)")
+                    Text("\(availableCount)")
                         .font(.title2.monospacedDigit().bold())
-                        .foregroundStyle(warnings.isEmpty ? .green : .orange)
-                    Text("карт")
+                        .foregroundStyle(.green)
+                    Text("доступно")
                         .font(.caption2.bold())
                         .foregroundStyle(.white.opacity(0.62))
                 }
@@ -1370,8 +1842,8 @@ struct HomeView: View {
             }
 
             HStack(spacing: 7) {
-                deckMetricSeal(title: "Отряды", value: "\(metrics.units)", ok: metrics.units >= 22)
-                deckMetricSeal(title: "Особые", value: "\(metrics.specials)/10", ok: metrics.specials <= 10)
+                deckMetricSeal(title: "Отряды", value: "\(metrics.units)/\(gwentDeckMinUnitCards)+", ok: metrics.units >= gwentDeckMinUnitCards)
+                deckMetricSeal(title: "Особые", value: "\(metrics.specials)/\(gwentDeckSpecialCardLimit)", ok: metrics.specials <= gwentDeckSpecialCardLimit)
                 deckMetricSeal(title: "Герои", value: "\(metrics.heroes)", ok: true)
             }
 
@@ -1393,7 +1865,7 @@ struct HomeView: View {
     }
 
     private func deckBuilderPanel(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 12 : 14) {
+        return VStack(alignment: .leading, spacing: compact ? 12 : 14) {
             if let snapshot = model.snapshot, let deck = draftGwentDeck {
                 let leader = gwentCardMeta(deck.leaderCardId) ?? snapshot.gwentCards.first { $0.cardId == deck.leaderCardId }
 
@@ -1431,7 +1903,7 @@ struct HomeView: View {
                 }
 
                 deckSelectedStrip(compact: compact)
-                rowFilterControl
+                deckFilterControls
                 cardCollectionGrid(cards: filteredDeckCards, compact: compact, allowsEditing: true)
 
                 Button {
@@ -1456,17 +1928,111 @@ struct HomeView: View {
     }
 
     private func deckEncyclopediaPanel(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 12 : 14) {
-            rowFilterControl
-            cardCollectionGrid(cards: filteredDeckCardsIncludingLeaders, compact: compact, allowsEditing: false)
+        let cards = filteredEncyclopediaCards
+        let selected = selectedEncyclopediaCard(in: cards)
 
-            if let selected = selectedDeckCard {
+        return VStack(alignment: .leading, spacing: compact ? 12 : 14) {
+            Picker("Карты энциклопедии", selection: $deckEncyclopediaScope) {
+                ForEach(DeckEncyclopediaScope.allCases) { scope in
+                    Text(scope.title).tag(scope)
+                }
+            }
+            .pickerStyle(.segmented)
+            .tint(.orange)
+
+            rowFilterControl
+            strengthFilterControl
+
+            if let selected {
                 deckCardInspector(selected, compact: compact)
+            }
+
+            if cards.isEmpty {
+                Text(deckEncyclopediaScope.emptyMessage)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.58))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 14)
+            } else {
+                cardCollectionGrid(
+                    cards: cards,
+                    compact: compact,
+                    allowsEditing: false,
+                    selectedCardId: selected?.cardId
+                )
             }
         }
         .padding(compact ? 12 : 14)
         .background(deckPanelBackground)
         .overlay(deckPanelStroke)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func deckMechanicsPanel(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 14 : 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Типы и ряды")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                Text("Эти знаки показывают, куда карта играется и чем она отличается от обычного отряда.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(spacing: 8) {
+                ForEach(gwentTypeMechanics) { mechanic in
+                    gwentMechanicRow(mechanic, compact: compact)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Способности")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                Text("Такие значки появляются на самих картах и в подробностях энциклопедии.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(spacing: 8) {
+                ForEach(gwentAbilityMechanics) { mechanic in
+                    gwentMechanicRow(mechanic, compact: compact)
+                }
+            }
+        }
+        .padding(compact ? 12 : 14)
+        .background(deckPanelBackground)
+        .overlay(deckPanelStroke)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func gwentMechanicRow(_ mechanic: GwentMechanicInfo, compact: Bool) -> some View {
+        HStack(alignment: .top, spacing: compact ? 9 : 11) {
+            Image(systemName: mechanic.icon)
+                .font(.system(size: compact ? 14 : 16, weight: .black))
+                .foregroundStyle(.white)
+                .frame(width: compact ? 32 : 36, height: compact ? 32 : 36)
+                .background(mechanic.color.opacity(0.84))
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(.white.opacity(0.14), lineWidth: 1)
+                )
+            VStack(alignment: .leading, spacing: 3) {
+                Text(mechanic.title)
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                Text(mechanic.detail)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.64))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(8)
+        .background(.black.opacity(0.22))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
@@ -1605,8 +2171,7 @@ struct HomeView: View {
         return Menu {
             ForEach(leaders) { leader in
                 Button {
-                    deckDraftLeaderId = leader.cardId
-                    selectedDeckCardId = leader.cardId
+                    applyDeckLeader(leader.cardId)
                 } label: {
                     Label(gwentCardTitle(leader.cardId), systemImage: gwentRowIcon(leader.row))
                 }
@@ -1622,20 +2187,24 @@ struct HomeView: View {
     }
 
     private func deckSelectedStrip(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let metrics = gwentDeckMetrics(cardIds: deckDraftCardIds)
+
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Карты в колоде")
+                Text("Карты в боевой колоде")
                     .font(.headline)
                     .foregroundStyle(.white)
                 Spacer()
-                Text("\(deckDraftCardIds.count)")
+                Text("\(metrics.units)/\(gwentDeckMinUnitCards)+ отр. · \(metrics.specials)/\(gwentDeckSpecialCardLimit) особ.")
                     .font(.caption.monospacedDigit().bold())
                     .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
             }
 
             let selectedCards = deckDraftCards
             if selectedCards.isEmpty {
-                Text("Нажимай на карты ниже, чтобы собрать колоду перед боем.")
+                Text("Нажимай на карты ниже, чтобы собрать минимум 22 отряда перед боем.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.58))
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1645,7 +2214,7 @@ struct HomeView: View {
                     HStack(spacing: compact ? 8 : 10) {
                         ForEach(selectedCards) { card in
                             Button {
-                                toggleDeckCard(card)
+                                requestDeckCardRemoval(card)
                             } label: {
                                 gwentCardView(
                                     card,
@@ -1654,14 +2223,20 @@ struct HomeView: View {
                                     compact: true,
                                     large: false
                                 )
-                                .frame(width: compact ? 78 : 86, height: compact ? 112 : 124)
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 6)
                 }
             }
+        }
+    }
+
+    private var deckFilterControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            rowFilterControl
+            strengthFilterControl
         }
     }
 
@@ -1675,10 +2250,26 @@ struct HomeView: View {
         .tint(.orange)
     }
 
-    private func cardCollectionGrid(cards: [GwentCard], compact: Bool, allowsEditing: Bool) -> some View {
+    private var strengthFilterControl: some View {
+        Picker("Сила", selection: $deckStrengthFilter) {
+            ForEach(DeckStrengthFilter.allCases) { filter in
+                Text(filter.title).tag(filter)
+            }
+        }
+        .pickerStyle(.segmented)
+        .tint(.yellow)
+    }
+
+    private func cardCollectionGrid(
+        cards: [GwentCard],
+        compact: Bool,
+        allowsEditing: Bool,
+        selectedCardId: String? = nil
+    ) -> some View {
         let columns = [
             GridItem(.adaptive(minimum: compact ? 96 : 108, maximum: compact ? 112 : 128), spacing: compact ? 9 : 11)
         ]
+        let activeSelectedCardId = selectedCardId ?? self.selectedDeckCardId
 
         return LazyVGrid(columns: columns, spacing: compact ? 10 : 12) {
             ForEach(cards) { card in
@@ -1688,11 +2279,12 @@ struct HomeView: View {
                         toggleDeckCard(card)
                     } else {
                         selectedDeckCardId = card.cardId
+                        showDeckCardInspector = true
                     }
                 } label: {
                     gwentCardView(
                         card,
-                        selected: selectedDeckCardId == card.cardId,
+                        selected: activeSelectedCardId == card.cardId,
                         inDeck: inDeck,
                         compact: compact,
                         large: false
@@ -1711,6 +2303,10 @@ struct HomeView: View {
         large: Bool
     ) -> some View {
         let rowColor = gwentRowColor(card.row)
+        let effects = gwentCardEffects(card)
+        let visibleEffects = Array(effects.prefix(large ? 4 : 3))
+        let primaryEffect = effects.first
+        let effectColor = primaryEffect.map(gwentEffectColor) ?? .white.opacity(0.34)
         let width: CGFloat = large ? (compact ? 112 : 124) : (compact ? 98 : 112)
         let height: CGFloat = large ? (compact ? 158 : 176) : (compact ? 146 : 160)
 
@@ -1743,10 +2339,7 @@ struct HomeView: View {
                                 endPoint: .bottom
                             )
                         )
-                    Image(systemName: gwentArtworkIcon(card))
-                        .font(.system(size: large ? 38 : (compact ? 30 : 34), weight: .semibold))
-                        .foregroundStyle(rowColor.opacity(0.88))
-                        .shadow(color: .black.opacity(0.8), radius: 3, y: 2)
+                    gwentArtworkContent(card, rowColor: rowColor, compact: compact, large: large)
                     VStack {
                         Spacer()
                         HStack {
@@ -1760,8 +2353,28 @@ struct HomeView: View {
                         }
                         .padding(5)
                     }
+                    if !visibleEffects.isEmpty {
+                        VStack {
+                            Spacer()
+                            HStack(spacing: 3) {
+                                Spacer(minLength: 0)
+                                ForEach(visibleEffects, id: \.self) { effect in
+                                    Image(systemName: gwentEffectIcon(effect))
+                                        .font(.system(size: large ? 10 : 9, weight: .black))
+                                        .foregroundStyle(.white)
+                                        .frame(width: large ? 20 : 18, height: large ? 20 : 18)
+                                        .background(gwentEffectColor(effect).opacity(0.92))
+                                        .clipShape(Circle())
+                                        .overlay(Circle().stroke(.black.opacity(0.42), lineWidth: 1))
+                                        .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
+                                }
+                            }
+                            .padding(5)
+                        }
+                    }
                 }
                 .frame(height: large ? (compact ? 82 : 92) : (compact ? 72 : 80))
+                .clipShape(RoundedRectangle(cornerRadius: 5))
 
                 Text(gwentCardTitle(card.cardId))
                     .font(large ? .caption.bold() : .caption2.bold())
@@ -1769,27 +2382,36 @@ struct HomeView: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.62)
+                    .padding(.horizontal, 4)
                     .frame(maxWidth: .infinity, minHeight: compact ? 26 : 30)
-
-                Text(gwentEffectLabel(card.effect))
-                    .font(.system(size: compact ? 8 : 9, weight: .bold))
-                    .foregroundStyle(.black.opacity(0.78))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.58)
-                    .padding(.horizontal, 5)
-                    .frame(maxWidth: .infinity, minHeight: 17)
-                    .background(rowColor.opacity(0.72))
+                    .background(.black.opacity(0.38))
                     .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                HStack(spacing: 3) {
+                    if let primaryEffect {
+                        Image(systemName: gwentEffectIcon(primaryEffect))
+                            .font(.system(size: compact ? 8 : 9, weight: .black))
+                    }
+                    Text(gwentEffectSummary(card))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.56)
+                }
+                .font(.system(size: compact ? 8 : 9, weight: .bold))
+                .foregroundStyle(primaryEffect == nil ? .white.opacity(0.58) : .white)
+                .padding(.horizontal, 5)
+                .frame(maxWidth: .infinity, minHeight: 17)
+                .background((primaryEffect == nil ? rowColor.opacity(0.28) : effectColor.opacity(0.82)))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
             }
             .padding(large ? 7 : 6)
 
-            Text(card.type.lowercased() == "leader" ? "L" : "\(card.strength)")
+            Text(gwentCardBadgeText(card))
                 .font(.system(size: large ? 18 : 16, weight: .black, design: .rounded))
                 .foregroundStyle(.black)
                 .frame(width: large ? 34 : 30, height: large ? 34 : 30)
                 .background(
                     Circle()
-                        .fill(card.type.lowercased() == "leader" ? .yellow : .white)
+                        .fill(gwentCardBadgeColor(card))
                         .overlay(Circle().stroke(.orange.opacity(0.82), lineWidth: 2))
                 )
                 .padding(5)
@@ -1811,6 +2433,38 @@ struct HomeView: View {
         .accessibilityLabel("\(gwentCardTitle(card.cardId)), \(deckCardDetail(card.cardId))")
     }
 
+    @ViewBuilder
+    private func gwentArtworkContent(_ card: GwentCard, rowColor: Color, compact: Bool, large: Bool) -> some View {
+        if let assetName = gwentArtworkAssetName(card) {
+            GeometryReader { proxy in
+                Image(assetName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+                    .clipped()
+            }
+        } else {
+            Image(systemName: gwentArtworkIcon(card))
+                .font(.system(size: large ? 38 : (compact ? 30 : 34), weight: .semibold))
+                .foregroundStyle(rowColor.opacity(0.88))
+                .shadow(color: .black.opacity(0.8), radius: 3, y: 2)
+        }
+    }
+
+    private func gwentArtworkAssetName(_ card: GwentCard) -> String? {
+        guard let assetName = gwentArtworkAssetName(for: card.cardId) else { return nil }
+        #if canImport(UIKit)
+        return UIImage(named: assetName) == nil ? nil : assetName
+        #else
+        return assetName
+        #endif
+    }
+
+    private func gwentArtworkAssetName(for cardId: String) -> String? {
+        let normalizedCardId = cardId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalizedCardId.isEmpty ? nil : "gwent_card_art_\(normalizedCardId)"
+    }
+
     private func deckCardInspector(_ card: GwentCard, compact: Bool) -> some View {
         HStack(alignment: .top, spacing: compact ? 10 : 12) {
             gwentCardView(
@@ -1830,16 +2484,25 @@ struct HomeView: View {
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.68))
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    deckPropertyChip(gwentFactionLabel(card.faction), color: .yellow)
-                    deckPropertyChip(gwentRarityLabel(card.rarity), color: gwentRarityColor(card.rarity))
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        deckPropertyChip(gwentTypeLabel(card.type), color: .orange)
+                        deckPropertyChip(gwentRowLabel(card.row), color: gwentRowColor(card.row))
+                        deckPropertyChip(gwentFactionLabel(card.faction), color: .yellow)
+                        deckPropertyChip(gwentRarityLabel(card.rarity), color: gwentRarityColor(card.rarity))
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            deckPropertyChip(gwentTypeLabel(card.type), color: .orange)
+                            deckPropertyChip(gwentRowLabel(card.row), color: gwentRowColor(card.row))
+                        }
+                        HStack(spacing: 6) {
+                            deckPropertyChip(gwentFactionLabel(card.faction), color: .yellow)
+                            deckPropertyChip(gwentRarityLabel(card.rarity), color: gwentRarityColor(card.rarity))
+                        }
+                    }
                 }
-                if !card.abilityTags.isEmpty {
-                    Text(card.abilityTags.map { readableIdentifier($0) }.joined(separator: " · "))
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white.opacity(0.58))
-                        .lineLimit(2)
-                }
+                deckCardEffectRows(card)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1850,6 +2513,65 @@ struct HomeView: View {
                 .stroke(.white.opacity(0.1), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func deckCardEffectRows(_ card: GwentCard) -> some View {
+        let effects = gwentCardEffects(card)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            if effects.isEmpty {
+                deckCardEffectRow(effect: "none", card: card)
+            } else {
+                ForEach(effects, id: \.self) { effect in
+                    deckCardEffectRow(effect: effect, card: card)
+                }
+            }
+        }
+    }
+
+    private func deckCardEffectRow(effect: String, card: GwentCard) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: gwentEffectIcon(effect))
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 26)
+                .background(gwentEffectColor(effect).opacity(effect == "none" ? 0.26 : 0.86))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(gwentEffectLabel(effect))
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                Text(gwentCardEffectRuleText(effect, card: card))
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.64))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func deckCardDetailSheet(_ card: GwentCard) -> some View {
+        NavigationStack {
+            ZStack {
+                deckScreenBackground
+                    .ignoresSafeArea()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        deckCardInspector(card, compact: false)
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Карта")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Готово") {
+                        showDeckCardInspector = false
+                    }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .presentationDetents([.medium, .large])
     }
 
     private func deckPropertyChip(_ title: String, color: Color) -> some View {
@@ -1899,8 +2621,72 @@ struct HomeView: View {
         )
     }
 
+    private var importedPlayerGwentDecks: [GwentDeck] {
+        guard let playerId = model.player?.playerId else { return [] }
+        return (model.snapshot?.gwentDecks ?? []).filter { $0.playerId == playerId }
+    }
+
+    private var selectedDeckLeaderId: String {
+        if !deckDraftLeaderId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return deckDraftLeaderId
+        }
+        return currentPlayerGwentDeck?.leaderCardId ?? ""
+    }
+
+    private var deckCollectionSource: GwentDeck? {
+        let importedDecks = importedPlayerGwentDecks
+        if let byLeader = importedDecks.first(where: { $0.leaderCardId == selectedDeckLeaderId }) {
+            return byLeader
+        }
+        if let current = currentPlayerGwentDeck {
+            if let exact = importedDecks.first(where: { $0.deckId == current.deckId }) {
+                return exact
+            }
+            if let base = importedDecks.first(where: { current.deckId.hasSuffix("_\($0.deckId)") }) {
+                return base
+            }
+            return current
+        }
+        return importedDecks.first
+    }
+
+    private var deckAvailableCards: [GwentCard] {
+        (deckCollectionSource?.cardIds ?? currentPlayerGwentDeck?.cardIds ?? [])
+            .compactMap(gwentCardMeta)
+            .filter { $0.type.lowercased() != "leader" && $0.row.lowercased() != "leader" }
+    }
+
+    private var gwentCatalogCards: [GwentCard] {
+        var cardsById: [String: GwentCard] = [:]
+        for card in GwentStaticCatalog.allCards {
+            cardsById[card.cardId] = card
+        }
+        for card in model.snapshot?.gwentCards ?? [] {
+            if !card.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                cardsById[card.cardId] = card
+            } else if cardsById[card.cardId] == nil {
+                cardsById[card.cardId] = card
+            }
+        }
+        return cardsById.values.sorted { lhs, rhs in
+            if lhs.faction != rhs.faction {
+                return gwentFactionLabel(lhs.faction) < gwentFactionLabel(rhs.faction)
+            }
+            if lhs.row != rhs.row {
+                return rowSortRank(lhs.row) < rowSortRank(rhs.row)
+            }
+            if lhs.type != rhs.type {
+                return lhs.type < rhs.type
+            }
+            if lhs.strength != rhs.strength {
+                return lhs.strength > rhs.strength
+            }
+            return gwentCardTitle(lhs.cardId) < gwentCardTitle(rhs.cardId)
+        }
+    }
+
     private var availableLeaderCards: [GwentCard] {
-        (model.snapshot?.gwentCards ?? [])
+        gwentCatalogCards
             .filter { $0.type.lowercased() == "leader" || $0.row.lowercased() == "leader" }
             .sorted { gwentFactionLabel($0.faction) < gwentFactionLabel($1.faction) }
     }
@@ -1916,24 +2702,44 @@ struct HomeView: View {
     }
 
     private var filteredDeckCards: [GwentCard] {
-        filterCards((model.snapshot?.gwentCards ?? []).filter { $0.type.lowercased() != "leader" && $0.row.lowercased() != "leader" })
+        filterCards(deckAvailableCards)
     }
 
     private var filteredDeckCardsIncludingLeaders: [GwentCard] {
-        filterCards(model.snapshot?.gwentCards ?? [])
+        filterCards(gwentCatalogCards)
+    }
+
+    private var ownedEncyclopediaCardIds: Set<String> {
+        var cardIds = Set(deckCollectionSource?.cardIds ?? deckDraftCardIds)
+        let leaderId = selectedDeckLeaderId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !leaderId.isEmpty {
+            cardIds.insert(leaderId)
+        }
+        return cardIds
+    }
+
+    private var filteredEncyclopediaCards: [GwentCard] {
+        let cards = gwentCatalogCards
+        switch deckEncyclopediaScope {
+        case .owned:
+            return filterCards(cards.filter { ownedEncyclopediaCardIds.contains($0.cardId) })
+        case .all:
+            return filterCards(cards)
+        }
+    }
+
+    private func selectedEncyclopediaCard(in cards: [GwentCard]) -> GwentCard? {
+        if let selected = gwentCardMeta(selectedDeckCardId),
+           cards.contains(where: { $0.cardId == selected.cardId }) {
+            return selected
+        }
+        return cards.first
     }
 
     private func filterCards(_ cards: [GwentCard]) -> [GwentCard] {
         cards
             .filter { card in
-                switch deckRowFilter {
-                case .all:
-                    return true
-                case .melee, .ranged, .siege:
-                    return card.row.lowercased() == deckRowFilter.rawValue
-                case .special:
-                    return ["special", "weather"].contains(card.row.lowercased()) || card.type.lowercased() == "special"
-                }
+                matchesDeckRowFilter(card) && deckStrengthFilter.contains(card.strength)
             }
             .sorted { lhs, rhs in
                 let leftDeckRank = deckDraftCardIds.contains(lhs.cardId) || deckDraftLeaderId == lhs.cardId ? 0 : 1
@@ -1951,6 +2757,17 @@ struct HomeView: View {
             }
     }
 
+    private func matchesDeckRowFilter(_ card: GwentCard) -> Bool {
+        switch deckRowFilter {
+        case .all:
+            return true
+        case .melee, .ranged, .siege:
+            return card.row.lowercased() == deckRowFilter.rawValue
+        case .special:
+            return ["special", "weather"].contains(card.row.lowercased()) || card.type.lowercased() == "special"
+        }
+    }
+
     private func syncDeckDraftIfNeeded(force: Bool = false) {
         guard let deck = currentPlayerGwentDeck else { return }
         let fingerprint = deckFingerprint(deck)
@@ -1958,24 +2775,97 @@ struct HomeView: View {
         deckDraftSourceFingerprint = fingerprint
         deckDraftCardIds = deck.cardIds
         deckDraftLeaderId = deck.leaderCardId
-        selectedDeckCardId = deck.cardIds.first ?? deck.leaderCardId
+        selectedDeckCardId = deckDraftCardIds.first ?? deck.leaderCardId
+    }
+
+    private func applyDeckScreenshotArgumentsIfNeeded() {
+        #if DEBUG
+        guard !appliedDeckScreenshotArguments else { return }
+        let arguments = ProcessInfo.processInfo.arguments
+        var applied = false
+        if let modeIndex = arguments.firstIndex(of: "--deck-mode") {
+            let valueIndex = arguments.index(after: modeIndex)
+            if arguments.indices.contains(valueIndex),
+               let mode = DeckSetupMode(rawValue: arguments[valueIndex]) {
+                deckMode = mode
+                applied = true
+            }
+        }
+        if let cardIndex = arguments.firstIndex(of: "--deck-card") {
+            let valueIndex = arguments.index(after: cardIndex)
+            if arguments.indices.contains(valueIndex) {
+                selectedDeckCardId = arguments[valueIndex]
+                applied = true
+            }
+        }
+        if applied {
+            appliedDeckScreenshotArguments = true
+        }
+        #endif
     }
 
     private func deckFingerprint(_ deck: GwentDeck) -> String {
         "\(deck.deckId)|\(deck.leaderCardId)|\(deck.cardIds.joined(separator: ","))"
     }
 
+    private func applyDeckLeader(_ leaderId: String) {
+        deckDraftLeaderId = leaderId
+        if let source = importedPlayerGwentDecks.first(where: { $0.leaderCardId == leaderId }) {
+            deckDraftCardIds = source.cardIds
+            selectedDeckCardId = deckDraftCardIds.first ?? leaderId
+        } else {
+            selectedDeckCardId = leaderId
+        }
+    }
+
     private func toggleDeckCard(_ card: GwentCard) {
         selectedDeckCardId = card.cardId
         if card.type.lowercased() == "leader" || card.row.lowercased() == "leader" {
-            deckDraftLeaderId = card.cardId
+            applyDeckLeader(card.cardId)
             return
         }
-        if let index = deckDraftCardIds.firstIndex(of: card.cardId) {
-            deckDraftCardIds.remove(at: index)
+        if deckDraftCardIds.contains(card.cardId) {
+            requestDeckCardRemoval(card)
         } else {
+            let metrics = gwentDeckMetrics(cardIds: deckDraftCardIds)
+            let type = card.type.lowercased()
+            if type == "special", metrics.specials >= gwentDeckSpecialCardLimit {
+                model.infoMessage = "В боевой колоде уже 10 особых карт."
+                return
+            }
             deckDraftCardIds.append(card.cardId)
         }
+    }
+
+    private func requestDeckCardRemoval(_ card: GwentCard) {
+        selectedDeckCardId = card.cardId
+        pendingDeckRemovalCardId = card.cardId
+    }
+
+    private var deckRemovalConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { !pendingDeckRemovalCardId.isEmpty },
+            set: { isPresented in
+                if !isPresented {
+                    pendingDeckRemovalCardId = ""
+                }
+            }
+        )
+    }
+
+    private var deckRemovalConfirmationMessage: String {
+        let title = pendingDeckRemovalCardId.isEmpty
+            ? "Эта карта"
+            : "«\(gwentCardTitle(pendingDeckRemovalCardId))»"
+        return "\(title) останется в доступных картах, но будет убрана из боевой колоды."
+    }
+
+    private func confirmDeckCardRemoval() {
+        let cardId = pendingDeckRemovalCardId
+        pendingDeckRemovalCardId = ""
+        guard let index = deckDraftCardIds.firstIndex(of: cardId) else { return }
+        deckDraftCardIds.remove(at: index)
+        selectedDeckCardId = deckDraftCardIds.first ?? deckDraftLeaderId
     }
 
     private func saveDeckDraft(_ deck: GwentDeck) async {
@@ -2031,10 +2921,10 @@ struct HomeView: View {
 
     private func gwentDeckWarnings(_ metrics: HomeGwentDeckMetrics) -> [String] {
         var warnings: [String] = []
-        if metrics.units < 22 {
-            warnings.append("Нужно минимум 22 карты отрядов.")
+        if metrics.units < gwentDeckMinUnitCards {
+            warnings.append("Нужно выбрать минимум 22 карты отрядов.")
         }
-        if metrics.specials > 10 {
+        if metrics.specials > gwentDeckSpecialCardLimit {
             warnings.append("Особых карт должно быть не больше 10.")
         }
         if metrics.activeRows < 2 {
@@ -2044,7 +2934,12 @@ struct HomeView: View {
     }
 
     private func gwentDeckTitle(_ deck: GwentDeck) -> String {
-        readableIdentifier(deck.deckId, droppingPrefixes: ["runtime_deck_", "deck_", "gwent_deck_"])
+        let playerName = gwentPlayerName(deck.playerId)
+        let faction = gwentFactionLabel(gwentDeckFaction(deck))
+        if !playerName.isEmpty {
+            return "\(playerName) - \(faction)"
+        }
+        return faction
     }
 
     private func gwentDeckFaction(_ deck: GwentDeck) -> String {
@@ -2105,7 +3000,7 @@ struct HomeView: View {
         guard let card = gwentCardMeta(cardId) else {
             return readableIdentifier(cardId)
         }
-        let effect = card.effect == "none" ? "без эффекта" : gwentEffectLabel(card.effect)
+        let effect = card.effectText.isEmpty ? gwentEffectSummary(card) : card.effectText
         return "\(gwentRowLabel(card.row)) · \(gwentTypeLabel(card.type)) · \(effect)"
     }
 
@@ -2131,15 +3026,15 @@ struct HomeView: View {
         case "spy":
             return "шпион"
         case "medic":
-            return "медик"
+            return "лекарь"
         case "muster":
             return "сбор"
         case "morale":
             return "боевой дух"
         case "bond", "tight_bond":
-            return "прочная связь"
+            return "связка"
         case "agile":
-            return "гибкий ряд"
+            return "гибкая"
         case "weather_melee", "biting_frost":
             return "мороз"
         case "weather_ranged", "impenetrable_fog":
@@ -2147,33 +3042,51 @@ struct HomeView: View {
         case "weather_siege", "torrential_rain":
             return "ливень"
         case "clear_weather":
-            return "ясно"
+            return "ясная погода"
         case "commanders_horn":
-            return "рог"
+            return "командирский рог"
         case "decoy":
-            return "приманка"
+            return "чучело"
         case "scorch":
             return "казнь"
+        case "scorch_melee":
+            return "казнь ближнего ряда"
+        case "scorch_ranged":
+            return "казнь дальнего ряда"
         case "scorch_siege":
             return "казнь осады"
-        case "custom_larp_order_banner":
-            return "знамя заказа"
-        case "custom_larp_spyglass":
-            return "подзорная труба"
-        case "custom_larp_oathbreak":
-            return "разрыв клятвы"
-        case "custom_larp_last_stand":
-            return "последний рубеж"
-        case "leader_order_rally":
-            return "приказ лидера"
+        case "leader_foltest_fog":
+            return "Фольтест: туман"
         case "leader_foltest_clear_weather":
-            return "ясная погода"
+            return "Фольтест: ясная погода"
+        case "leader_foltest_siege_horn":
+            return "Фольтест: рог осады"
+        case "leader_foltest_siege_scorch":
+            return "Фольтест: казнь осады"
+        case "leader_emhyr_spy_hand":
+            return "Эмгыр: разведка"
+        case "leader_emhyr_rain":
+            return "Эмгыр: ливень"
         case "leader_emhyr_graveyard_theft":
-            return "карта из сброса"
+            return "Эмгыр: карта из сброса"
+        case "leader_emhyr_cancel_leader":
+            return "Эмгыр: запрет лидера"
+        case "leader_francesca_draw":
+            return "Францеска: добор"
+        case "leader_francesca_frost":
+            return "Францеска: мороз"
+        case "leader_francesca_melee_scorch":
+            return "Францеска: казнь ближнего ряда"
         case "leader_francesca_ranged_horn":
-            return "рог дальнего ряда"
+            return "Францеска: рог дальнего ряда"
+        case "leader_eredin_graveyard_return":
+            return "Эредин: вернуть из сброса"
         case "leader_eredin_melee_horn":
-            return "рог ближнего ряда"
+            return "Эредин: рог ближнего ряда"
+        case "leader_eredin_discard_draw":
+            return "Эредин: сброс и добор"
+        case "leader_eredin_weather":
+            return "Эредин: погода"
         case "leader_crach_graveyard_shuffle":
             return "замешать сброс"
         default:
@@ -2202,7 +3115,7 @@ struct HomeView: View {
 
     private func gwentArtworkIcon(_ card: GwentCard) -> String {
         switch card.effect.lowercased() {
-        case "spy", "custom_larp_spyglass":
+        case "spy":
             return "eye"
         case "medic":
             return "cross.case"
@@ -2892,6 +3805,14 @@ struct HomeView: View {
             return "трофей"
         case "order_token":
             return "знак заказа"
+        case "quest_object":
+            return "квестовый предмет"
+        case "strategic", "strategic_support":
+            return "стратегия"
+        case "final_evidence":
+            return "финальная улика"
+        case "pvp_stake":
+            return "ставка"
         case "gold":
             return "золото"
         default:
@@ -3075,13 +3996,24 @@ struct HomeView: View {
 
     private func gwentCardStrength(_ value: JSONValue) -> Int? {
         if let object = value.objectValue, let strength = object["strength"]?.intValue {
+            let cardId = gwentCardId(value)
+            if strength == 0,
+               let meta = gwentCardMeta(cardId),
+               meta.type.lowercased() == "unit",
+               meta.strength > 0 {
+                return meta.strength
+            }
             return strength
         }
         return gwentCardMeta(gwentCardId(value))?.strength
     }
 
     private func gwentCardMeta(_ cardId: String) -> GwentCard? {
-        model.snapshot?.gwentCards.first { $0.cardId == cardId }
+        let snapshotCard = model.snapshot?.gwentCards.first { $0.cardId == cardId }
+        if let snapshotCard, !snapshotCard.displayName.isEmpty {
+            return snapshotCard
+        }
+        return GwentStaticCatalog.card(cardId) ?? snapshotCard
     }
 
     private func gwentRowTotal(_ cards: [JSONValue]) -> Int {
@@ -3091,6 +4023,9 @@ struct HomeView: View {
     }
 
     private func gwentCardTitle(_ cardId: String) -> String {
+        if let meta = gwentCardMeta(cardId), !meta.displayName.isEmpty {
+            return meta.displayName
+        }
         let knownTitles = [
             "gwent_leader_wolf": "Наставник Школы Волка",
             "gwent_unit_01": "Серебряный клинок",
@@ -3110,12 +4045,275 @@ struct HomeView: View {
             return suffix.isEmpty ? "Боевая карта" : "Боевая карта \(suffix)"
         }
         if cardId.hasPrefix("gwent_weather_") {
-            return "Погода: \(readableIdentifier(cardId, droppingPrefixes: ["gwent_weather_"]))"
+            return "Погодная карта"
         }
-        if let meta = gwentCardMeta(cardId), meta.type.lowercased() == "leader" {
-            return "Лидер \(readableIdentifier(cardId, droppingPrefixes: ["gwent_leader_", "gwent_"]))"
+        if cardId.hasPrefix("gwent_leader_") {
+            return "Лидер"
         }
-        return readableIdentifier(cardId, droppingPrefixes: ["gwent_"])
+        if cardId.hasPrefix("rare_gwent_") {
+            return "Редкая карта Гвинта"
+        }
+        if cardId.hasPrefix("nr_") {
+            return "Карта Северных королевств"
+        }
+        if cardId.hasPrefix("ng_") {
+            return "Карта Нильфгаарда"
+        }
+        if cardId.hasPrefix("sc_") {
+            return "Карта Скоя'таэлей"
+        }
+        if cardId.hasPrefix("mo_") {
+            return "Карта чудовищ"
+        }
+        if cardId.hasPrefix("neutral_") || cardId.hasPrefix("gwent_") {
+            return "Карта Гвинта"
+        }
+        return "Карта"
+    }
+
+    private func gwentEffectSummary(_ card: GwentCard) -> String {
+        let labels = gwentCardEffects(card).map(gwentEffectLabel)
+        return labels.isEmpty ? "без эффекта" : labels.joined(separator: " · ")
+    }
+
+    private func gwentCardEffects(_ card: GwentCard) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for rawEffect in [card.effect] + card.abilityTags {
+            let effect = rawEffect.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !effect.isEmpty, effect != "none", !seen.contains(effect) else { continue }
+            seen.insert(effect)
+            result.append(effect)
+        }
+        return result
+    }
+
+    private func gwentCardBadgeText(_ card: GwentCard) -> String {
+        let type = card.type.lowercased()
+        let row = card.row.lowercased()
+        if type == "leader" || row == "leader" {
+            return "Л"
+        }
+        if row == "weather" {
+            return "П"
+        }
+        if type == "special" || row == "special" {
+            return "О"
+        }
+        return "\(card.strength)"
+    }
+
+    private func gwentCardBadgeColor(_ card: GwentCard) -> Color {
+        let type = card.type.lowercased()
+        let row = card.row.lowercased()
+        if type == "leader" || row == "leader" || gwentCardEffects(card).contains("hero") {
+            return .yellow
+        }
+        if row == "weather" {
+            return .cyan
+        }
+        if type == "special" || row == "special" {
+            return .orange
+        }
+        return .white
+    }
+
+    private func gwentEffectIcon(_ effect: String) -> String {
+        switch effect.lowercased() {
+        case "none":
+            return "circle"
+        case "hero":
+            return "star.fill"
+        case "spy":
+            return "eye.fill"
+        case "medic":
+            return "cross.case.fill"
+        case "muster":
+            return "person.3.fill"
+        case "morale":
+            return "flag.fill"
+        case "bond", "tight_bond":
+            return "link"
+        case "agile":
+            return "arrow.left.arrow.right"
+        case "weather_melee", "biting_frost":
+            return "snowflake"
+        case "weather_ranged", "impenetrable_fog":
+            return "cloud.fog.fill"
+        case "weather_siege", "torrential_rain":
+            return "cloud.rain.fill"
+        case "clear_weather":
+            return "sun.max.fill"
+        case "commanders_horn":
+            return "horn"
+        case "decoy":
+            return "arrow.uturn.backward.circle.fill"
+        case "scorch", "scorch_melee", "scorch_ranged", "scorch_siege":
+            return "flame.fill"
+        default:
+            return effect.hasPrefix("leader_") ? "crown.fill" : "sparkles"
+        }
+    }
+
+    private func gwentEffectColor(_ effect: String) -> Color {
+        switch effect.lowercased() {
+        case "none":
+            return .white.opacity(0.34)
+        case "hero":
+            return .yellow
+        case "spy":
+            return .purple
+        case "medic":
+            return .green
+        case "muster":
+            return .orange
+        case "morale":
+            return .mint
+        case "bond", "tight_bond":
+            return .red
+        case "agile":
+            return .cyan
+        case "weather_melee", "biting_frost", "weather_ranged", "impenetrable_fog", "weather_siege", "torrential_rain":
+            return .blue
+        case "clear_weather":
+            return .yellow
+        case "commanders_horn":
+            return .orange
+        case "decoy":
+            return .gray
+        case "scorch", "scorch_melee", "scorch_ranged", "scorch_siege":
+            return .red
+        default:
+            return effect.hasPrefix("leader_") ? .yellow : .indigo
+        }
+    }
+
+    private func gwentCardEffectRuleText(_ effect: String, card: GwentCard) -> String {
+        let rule = gwentEffectRulesText(effect)
+        if !rule.isEmpty {
+            return rule
+        }
+        if effect.hasPrefix("leader_"), !card.effectText.isEmpty {
+            return "Один раз за партию: \(card.effectText)"
+        }
+        return card.effectText.isEmpty ? "Особое правило этой карты применяется движком гвинта." : card.effectText
+    }
+
+    private func gwentEffectRulesText(_ effect: String) -> String {
+        switch effect.lowercased() {
+        case "none":
+            return "У карты нет отдельной способности: важны сила, ряд и фракция."
+        case "hero":
+            return "Не подвержен погоде, командирскому рогу, казни и большинству способностей."
+        case "spy":
+            return "Играется на сторону соперника; владелец шпиона добирает две карты."
+        case "medic":
+            return "Выбирает обычную карту из вашего сброса и сразу разыгрывает ее."
+        case "muster":
+            return "Вытаскивает из руки и колоды все карты той же группы."
+        case "morale":
+            return "Дает +1 всем другим обычным картам в этом же ряду."
+        case "bond", "tight_bond":
+            return "Одинаковые карты этой группы усиливают друг друга: две дают x2, три дают x3."
+        case "agile":
+            return "Может быть сыграна в ближний или дальний ряд."
+        case "weather_melee", "biting_frost":
+            return "Сила обычных карт ближнего ряда становится 1. Герои не меняются."
+        case "weather_ranged", "impenetrable_fog":
+            return "Сила обычных карт дальнего ряда становится 1. Герои не меняются."
+        case "weather_siege", "torrential_rain":
+            return "Сила обычных карт осадного ряда становится 1. Герои не меняются."
+        case "clear_weather":
+            return "Снимает все погодные эффекты со стола."
+        case "commanders_horn":
+            return "Удваивает силу обычных карт выбранного ряда. Герои не меняются."
+        case "decoy":
+            return "Заменяет вашу обычную карту на столе и возвращает ее в руку. Героя вернуть нельзя."
+        case "scorch":
+            return "Уничтожает самые сильные обычные карты на столе, если их сила 10 или выше."
+        case "scorch_melee":
+            return "Уничтожает сильнейшие обычные карты ближнего ряда соперника, если сумма ряда 10 или выше."
+        case "scorch_ranged":
+            return "Уничтожает сильнейшие обычные карты дальнего ряда соперника, если сумма ряда 10 или выше."
+        case "scorch_siege":
+            return "Уничтожает сильнейшие обычные карты осадного ряда соперника, если сумма ряда 10 или выше."
+        default:
+            return ""
+        }
+    }
+
+    private var gwentTypeMechanics: [GwentMechanicInfo] {
+        [
+            GwentMechanicInfo(
+                id: "type_unit",
+                title: "Отряд",
+                detail: "Карта с силой. Играется в свой ряд и участвует в счете раунда.",
+                icon: "shield.lefthalf.filled",
+                color: .white.opacity(0.56)
+            ),
+            GwentMechanicInfo(
+                id: "type_special",
+                title: "Особая карта",
+                detail: "Не считается отрядом: меняет стол, ряд или другую карту.",
+                icon: "sparkles",
+                color: .orange
+            ),
+            GwentMechanicInfo(
+                id: "type_leader",
+                title: "Лидер",
+                detail: "Отдельная способность колоды. Обычно применяется один раз за партию.",
+                icon: "crown.fill",
+                color: .yellow
+            ),
+            GwentMechanicInfo(
+                id: "row_melee",
+                title: "Ближний ряд",
+                detail: "Для мечников, пехоты и части гибких карт.",
+                icon: gwentRowIcon("melee"),
+                color: gwentRowColor("melee")
+            ),
+            GwentMechanicInfo(
+                id: "row_ranged",
+                title: "Дальний ряд",
+                detail: "Для лучников, магов и части гибких карт.",
+                icon: gwentRowIcon("ranged"),
+                color: gwentRowColor("ranged")
+            ),
+            GwentMechanicInfo(
+                id: "row_siege",
+                title: "Осадный ряд",
+                detail: "Для баллист, катапульт и осадных машин.",
+                icon: gwentRowIcon("siege"),
+                color: gwentRowColor("siege")
+            )
+        ]
+    }
+
+    private var gwentAbilityMechanics: [GwentMechanicInfo] {
+        [
+            "hero",
+            "spy",
+            "medic",
+            "muster",
+            "tight_bond",
+            "morale",
+            "agile",
+            "commanders_horn",
+            "decoy",
+            "scorch",
+            "weather_melee",
+            "weather_ranged",
+            "weather_siege",
+            "clear_weather"
+        ].map { effect in
+            GwentMechanicInfo(
+                id: effect,
+                title: gwentEffectLabel(effect),
+                detail: gwentEffectRulesText(effect),
+                icon: gwentEffectIcon(effect),
+                color: gwentEffectColor(effect)
+            )
+        }
     }
 
     private func gwentRowLabel(_ row: String) -> String {
@@ -3469,6 +4667,63 @@ struct HomeView: View {
         } ?? []
     }
 
+    private var ownedMaterials: [SnapshotRow] {
+        guard let player = model.player else { return [] }
+        return model.snapshot?.materialInventory
+            .filter { $0.string("player_id") == player.playerId && $0.int("quantity") > 0 }
+            .sorted { assetDisplayName($0.string("material_id")) < assetDisplayName($1.string("material_id")) }
+            ?? []
+    }
+
+    private var materialMarketRows: [SnapshotRow] {
+        (model.snapshot?.materialMarket ?? model.snapshot?.materialMarkets ?? [])
+            .sorted { lhs, rhs in
+                if materialMarketPrice(lhs) != materialMarketPrice(rhs) {
+                    return materialMarketPrice(lhs) > materialMarketPrice(rhs)
+                }
+                return assetDisplayName(lhs.string("material_id")) < assetDisplayName(rhs.string("material_id"))
+            }
+    }
+
+    private var selectedMaterialMarket: SnapshotRow? {
+        marketRow(materialId: selectedMarketMaterialId)
+    }
+
+    private var selectedMarketMaterialQuantity: Int {
+        ownedMaterials.first { $0.string("material_id") == selectedMarketMaterialId }?.int("quantity") ?? 0
+    }
+
+    private var canSellSelectedMaterial: Bool {
+        selectedMaterialMarket != nil && selectedMarketMaterialQuantity > 0 && materialSellQuantity > 0
+    }
+
+    private func marketRow(materialId: String) -> SnapshotRow? {
+        materialMarketRows.first { $0.string("material_id") == materialId }
+    }
+
+    private func materialMarketPrice(_ row: SnapshotRow) -> Int {
+        let current = row.int("current_price")
+        return current > 0 ? current : row.int("base_price")
+    }
+
+    private func materialInventoryDetail(_ row: SnapshotRow, market: SnapshotRow?) -> String {
+        let description = row.string("description")
+        let price = market.map(materialMarketPrice) ?? 0
+        if price > 0 {
+            return description.isEmpty ? "Рынок берет по \(price)g." : "\(description) · рынок \(price)g."
+        }
+        return description
+    }
+
+    private func normalizeMaterialMarketDefaults() {
+        let rows = materialMarketRows
+        if !rows.contains(where: { $0.string("material_id") == selectedMarketMaterialId }) {
+            selectedMarketMaterialId = rows.first?.string("material_id") ?? ""
+        }
+        let available = selectedMarketMaterialQuantity
+        materialSellQuantity = min(max(1, materialSellQuantity), max(1, available))
+    }
+
     private func rawRowsCard(
         title: String,
         rows: [SnapshotRow],
@@ -3607,18 +4862,18 @@ struct HomeView: View {
 }
 
 private enum InventoryMode: String, CaseIterable, Identifiable {
-    case gear
     case bag
+    case market
     case trade
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .gear:
-            return "Снаряжение"
         case .bag:
             return "Сумка"
+        case .market:
+            return "Рынок"
         case .trade:
             return "Обмен"
         }
@@ -3660,6 +4915,7 @@ private enum HomeTab: String {
 private enum DeckSetupMode: String, CaseIterable, Identifiable {
     case builder
     case encyclopedia
+    case mechanics
 
     var id: String { rawValue }
 
@@ -3669,8 +4925,43 @@ private enum DeckSetupMode: String, CaseIterable, Identifiable {
             return "Колода"
         case .encyclopedia:
             return "Энциклопедия"
+        case .mechanics:
+            return "Механики"
         }
     }
+}
+
+private enum DeckEncyclopediaScope: String, CaseIterable, Identifiable {
+    case owned
+    case all
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .owned:
+            return "Свои карты"
+        case .all:
+            return "Все карты"
+        }
+    }
+
+    var emptyMessage: String {
+        switch self {
+        case .owned:
+            return "В доступных картах пока нет карт этого ряда."
+        case .all:
+            return "Карты этого ряда пока не найдены."
+        }
+    }
+}
+
+private struct GwentMechanicInfo: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let icon: String
+    let color: Color
 }
 
 private enum DeckRowFilter: String, CaseIterable, Identifiable {
@@ -3685,7 +4976,7 @@ private enum DeckRowFilter: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all:
-            return "Все"
+            return "Все ряды"
         case .melee:
             return "Ближ."
         case .ranged:
@@ -3694,6 +4985,41 @@ private enum DeckRowFilter: String, CaseIterable, Identifiable {
             return "Осада"
         case .special:
             return "Особ."
+        }
+    }
+}
+
+private enum DeckStrengthFilter: String, CaseIterable, Identifiable {
+    case all
+    case low
+    case medium
+    case high
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all:
+            return "Любая"
+        case .low:
+            return "0-4"
+        case .medium:
+            return "5-9"
+        case .high:
+            return "10+"
+        }
+    }
+
+    func contains(_ strength: Int) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .low:
+            return strength <= 4
+        case .medium:
+            return (5...9).contains(strength)
+        case .high:
+            return strength >= 10
         }
     }
 }
@@ -3709,6 +5035,13 @@ private struct HomeGwentDeckMetrics {
     var activeRows: Int {
         rows.values.filter { $0 > 0 }.count
     }
+}
+
+private struct XPProgress {
+    let fraction: Double
+    let percentLabel: String
+    let detailLabel: String
+    let accessibilityLabel: String
 }
 
 private extension View {

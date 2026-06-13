@@ -1,14 +1,17 @@
 import SwiftUI
 import UIKit
+import Combine
 import UniformTypeIdentifiers
 
 private struct GwentTargetSelection: Identifiable {
     let id = UUID()
+    let action: String
     let matchId: String
     let roundNumber: Int
     let cardId: String
     let row: String?
     let targetKind: String
+    let discardCardIds: [String]
     let targets: [[String: JSONValue]]
 
     var title: String {
@@ -17,10 +20,23 @@ private struct GwentTargetSelection: Identifiable {
             return "Выбери карту, которую вернет приманка"
         case "graveyard_unit":
             return "Выбери карту из сброса для медика"
+        case "leader_own_graveyard_unit":
+            return "Выбери карту из своего сброса"
+        case "leader_opponent_graveyard_unit":
+            return "Выбери карту из сброса соперника"
         default:
             return "Выбери цель"
         }
     }
+}
+
+private struct GwentLeaderDiscardSelection: Identifiable {
+    let id = UUID()
+    let matchId: String
+    let roundNumber: Int
+    let cardId: String
+    let hand: [String]
+    let drawCardId: String
 }
 
 private struct GwentDeckMetrics {
@@ -41,6 +57,33 @@ private struct GwentCardPlacement: Identifiable {
 
     var id: String {
         "\(isOpponent ? "opponent" : "own"):\(row ?? "special")"
+    }
+}
+
+private struct GwentEffectInfo: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let body: String
+    let icon: String
+    let badge: String
+    let color: Color
+    let usesDarkText: Bool
+}
+
+private struct GwentLeaderActivation: Identifiable {
+    let id = UUID()
+    let match: [String: JSONValue]
+    let leaderCardId: String
+    let effectInfo: GwentEffectInfo
+}
+
+private enum GwentBoardFocusSide {
+    case own
+    case opponent
+
+    var isOpponent: Bool {
+        self == .opponent
     }
 }
 
@@ -100,10 +143,12 @@ private struct GwentTableLayout {
     let contentInsets: EdgeInsets
     let contentWidth: CGFloat
     let contentHeight: CGFloat
+    let selectionMode: Bool
 
-    init(viewport: CGSize, safeAreaInsets: EdgeInsets, compactHeight: Bool) {
+    init(viewport: CGSize, safeAreaInsets: EdgeInsets, compactHeight: Bool, selectionMode: Bool = false) {
         self.viewport = viewport
         self.safeAreaInsets = safeAreaInsets
+        self.selectionMode = selectionMode
 
         let safeHorizontal = safeAreaInsets.leading + safeAreaInsets.trailing
         let safeVertical = safeAreaInsets.top + safeAreaInsets.bottom
@@ -137,9 +182,10 @@ private struct GwentTableLayout {
         }
 
         let notchFallback: CGFloat = phoneLike && safeHorizontal < 20 && longSide >= 780 ? 44 : 0
+        let landscapeTopClearance: CGFloat = phoneLike ? (resolvedDensity == .tightPhone ? 34 : 40) : 0
         let leading = max(max(safeAreaInsets.leading, baseHorizontal), notchFallback)
         let trailing = max(max(safeAreaInsets.trailing, baseHorizontal), notchFallback)
-        let top = max(safeAreaInsets.top, baseVertical)
+        let top = max(max(safeAreaInsets.top, baseVertical), landscapeTopClearance)
         let bottom = max(safeAreaInsets.bottom, baseVertical)
 
         self.density = resolvedDensity
@@ -173,7 +219,7 @@ private struct GwentTableLayout {
     }
 
     var tableHeaderHeight: CGFloat {
-        isTightPhone ? 26 : (isCompact ? 28 : 32)
+        isTightPhone ? 34 : (isCompact ? 36 : 40)
     }
 
     var playerRailWidth: CGFloat {
@@ -185,7 +231,7 @@ private struct GwentTableLayout {
     }
 
     var weatherStripHeight: CGFloat {
-        isTightPhone ? 22 : (isCompact ? 24 : 30)
+        isTightPhone ? 24 : (isCompact ? 28 : 34)
     }
 
     var actionButtonHeight: CGFloat {
@@ -201,6 +247,16 @@ private struct GwentTableLayout {
     }
 
     var handExpandedHeight: CGFloat {
+        if selectionMode {
+            switch density {
+            case .tightPhone:
+                return min(172, max(164, contentHeight * 0.46))
+            case .phone:
+                return min(228, max(210, contentHeight * 0.50))
+            case .regular:
+                return min(276, max(252, contentHeight * 0.48))
+            }
+        }
         switch density {
         case .tightPhone:
             return min(102, max(86, contentHeight * 0.26))
@@ -212,22 +268,27 @@ private struct GwentTableLayout {
     }
 
     var handCollapsedHeight: CGFloat {
-        isTightPhone ? 36 : (isCompact ? 40 : 50)
+        isTightPhone ? 34 : (isCompact ? 38 : 48)
+    }
+
+    var handPanelHeight: CGFloat {
+        selectionMode ? handExpandedHeight : handCollapsedHeight
     }
 
     var boardAreaHeight: CGFloat {
-        max(170, contentHeight - tableHeaderHeight - handExpandedHeight - (tableStackSpacing * 2))
+        max(selectionMode ? 124 : 190, contentHeight - tableHeaderHeight - handPanelHeight - (tableStackSpacing * 2))
     }
 
     var boardRowHeight: CGFloat {
-        let fitted = floor((boardAreaHeight - weatherStripHeight - (boardRowSpacing * 6)) / 6)
+        let visibleRows: CGFloat = selectionMode ? 3 : 6
+        let fitted = floor((boardAreaHeight - weatherStripHeight - (boardRowSpacing * visibleRows)) / visibleRows)
         switch density {
         case .tightPhone:
-            return min(34, max(28, fitted))
+            return min(selectionMode ? 44 : 36, max(selectionMode ? 34 : 28, fitted))
         case .phone:
-            return min(40, max(32, fitted))
+            return min(selectionMode ? 52 : 42, max(selectionMode ? 40 : 32, fitted))
         case .regular:
-            return min(52, max(44, fitted))
+            return min(selectionMode ? 70 : 54, max(selectionMode ? 56 : 44, fitted))
         }
     }
 
@@ -243,11 +304,30 @@ private struct GwentTableLayout {
     }
 
     var boardCardWidth: CGFloat {
-        isTightPhone ? 66 : (isCompact ? 78 : 98)
+        if selectionMode {
+            return isTightPhone ? 122 : (isCompact ? 138 : 160)
+        }
+        return isTightPhone ? 112 : (isCompact ? 126 : 148)
     }
 
     var boardCardHeight: CGFloat {
-        max(20, boardRowHeight - (isCompact ? 8 : 14))
+        max(selectionMode ? 34 : 28, boardRowHeight - (isCompact ? 8 : 14))
+    }
+
+    var boardCardBadgeSize: CGFloat {
+        isTightPhone ? 24 : (isCompact ? 26 : 30)
+    }
+
+    var boardCardEffectSize: CGFloat {
+        isTightPhone ? 15 : (isCompact ? 17 : 20)
+    }
+
+    var boardCardTitleFontSize: CGFloat {
+        isTightPhone ? 8.5 : (isCompact ? 9.5 : 11)
+    }
+
+    var boardCardTitleBandHeight: CGFloat {
+        min(isTightPhone ? 24 : (isCompact ? 26 : 30), max(18, boardCardHeight * 0.62))
     }
 
     var emptyRowWidth: CGFloat {
@@ -263,19 +343,50 @@ private struct GwentTableLayout {
     }
 
     var handCardWidth: CGFloat {
-        isTightPhone ? 80 : (isCompact ? 92 : 106)
+        if selectionMode {
+            return isTightPhone ? 118 : (isCompact ? 136 : 156)
+        }
+        return isTightPhone ? 80 : (isCompact ? 92 : 106)
     }
 
     var handCardHeight: CGFloat {
-        let available = handExpandedHeight - actionButtonHeight - (handStripPadding * 2) - handInternalSpacing
+        let rowsAboveHand: CGFloat = selectionMode ? actionPanelHeight : actionButtonHeight
+        let available = handExpandedHeight - rowsAboveHand - (handStripPadding * 2) - handInternalSpacing
         switch density {
         case .tightPhone:
-            return max(46, min(62, available))
+            return max(selectionMode ? 82 : 46, min(selectionMode ? 96 : 62, available))
         case .phone:
-            return max(56, min(72, available))
+            return max(selectionMode ? 102 : 56, min(selectionMode ? 124 : 72, available))
         case .regular:
-            return 82
+            return selectionMode ? 144 : 82
         }
+    }
+
+    var actionPanelHeight: CGFloat {
+        switch density {
+        case .tightPhone:
+            return 50
+        case .phone:
+            return 58
+        case .regular:
+            return 70
+        }
+    }
+
+    var selectedActionControlsWidth: CGFloat {
+        isTightPhone ? 220 : (isCompact ? 268 : 360)
+    }
+
+    var focusedHandCardWidth: CGFloat {
+        isTightPhone ? 72 : (isCompact ? 82 : 96)
+    }
+
+    var focusedHandCardHeight: CGFloat {
+        max(50, actionPanelHeight - 4)
+    }
+
+    var selectedHandLift: CGFloat {
+        isTightPhone ? 6 : (isCompact ? 8 : 10)
     }
 }
 
@@ -284,29 +395,42 @@ struct GwentTableView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var selectedCardId: String?
-    @State private var handExpanded = true
+    @State private var handExpanded = false
+    @State private var boardFocusSide: GwentBoardFocusSide = .own
     @State private var dropTargetRow: String?
     @State private var inspectedPilePlayerId: String?
     @State private var inspectedPileTitle = "Сброс"
     @State private var pendingTargetSelection: GwentTargetSelection?
+    @State private var pendingLeaderDiscardSelection: GwentLeaderDiscardSelection?
+    @State private var selectedLeaderDiscardIds: Set<String> = []
+    @State private var activeEffectInfo: GwentEffectInfo?
+    @State private var pendingLeaderActivation: GwentLeaderActivation?
     @State private var selectedMulliganCardIds: Set<String> = []
     @State private var selectedDeckId = ""
     @State private var selectedPreferredStartingPlayerId = ""
     @State private var showingDeckReview = false
+    @State private var appliedTableScreenshotArguments = false
     @State private var isSavingDeck = false
     @State private var refusalReason = "safety_stop"
     @State private var pendingGwentActionId: String?
+    @State private var observedTurnKey = ""
+    @State private var localTurnStartedAt: Date?
+    @State private var countdownNow = Date()
+    @State private var autoPassTurnKey: String?
 
     private let ownRows = ["melee", "ranged", "siege"]
     private let opponentRows = ["siege", "ranged", "melee"]
+    private let turnLimitSeconds = 60
 
     var body: some View {
         GeometryReader { proxy in
             let isLandscape = proxy.size.width > proxy.size.height
+            let handMode = activeGwentShouldShowHandMode && handExpanded
             let layout = GwentTableLayout(
                 viewport: proxy.size,
                 safeAreaInsets: proxy.safeAreaInsets,
-                compactHeight: compactLandscapeTable
+                compactHeight: compactLandscapeTable,
+                selectionMode: handMode
             )
 
             ZStack {
@@ -318,12 +442,25 @@ struct GwentTableView: View {
                 } else {
                     portraitRotationPrompt
                 }
+
+                if let activeEffectInfo {
+                    effectInfoPlaque(activeEffectInfo, layout: layout)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(30)
+                }
+
+                if let pendingLeaderActivation {
+                    leaderActivationPlaque(pendingLeaderActivation, layout: layout)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(32)
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .ignoresSafeArea()
         }
         .background(GwentOrientationRequester(orientations: .landscape))
         .statusBarHidden()
+        .persistentSystemOverlays(.hidden)
         .preferredColorScheme(.dark)
         .sheet(isPresented: Binding(
             get: { inspectedPilePlayerId != nil },
@@ -334,6 +471,9 @@ struct GwentTableView: View {
         .sheet(item: $pendingTargetSelection) { selection in
             targetSelectionSheet(selection)
         }
+        .sheet(item: $pendingLeaderDiscardSelection) { selection in
+            leaderDiscardSelectionSheet(selection)
+        }
         .sheet(isPresented: $showingDeckReview) {
             deckReviewSheet
         }
@@ -342,6 +482,12 @@ struct GwentTableView: View {
         }
         .onAppear {
             normalizeSelectedDeck()
+            applyTableScreenshotArgumentsIfNeeded()
+            syncTurnTimerForCurrentState()
+            syncHandModeForTurn(animated: false)
+        }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { now in
+            handleTurnTimerTick(now)
         }
         .onChange(of: model.snapshot?.snapshotVersion ?? "") { _ in
             normalizeSelectedDeck()
@@ -353,6 +499,16 @@ struct GwentTableView: View {
             selectedMulliganCardIds.removeAll()
             normalizePreferredStartingPlayer()
         }
+        .onChange(of: activeGwentShouldShowHandMode) { _ in
+            syncHandModeForTurn()
+        }
+        .onChange(of: activeGwentTurnKey) { _ in
+            syncTurnTimerForCurrentState()
+            syncHandModeForTurn()
+        }
+        .onChange(of: selectedCardId ?? "") { _ in
+            syncBoardFocusForSelectedCard()
+        }
     }
 
     private func landscapeTable(layout: GwentTableLayout) -> some View {
@@ -363,26 +519,13 @@ struct GwentTableView: View {
                 matchResolutionPanel(match)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let match = activeMatch {
-                let opponentId = opponentPlayerId
-                HStack(spacing: layout.tableColumnSpacing) {
-                    playerRail(playerId: opponentId, isOpponent: true, layout: layout)
-
-                    VStack(spacing: layout.boardRowSpacing) {
-                        ForEach(opponentRows, id: \.self) { row in
-                            boardRow(playerId: opponentId, row: row, isOpponent: true, layout: layout)
-                        }
-
-                        weatherStrip(match: match, layout: layout)
-
-                        ForEach(ownRows, id: \.self) { row in
-                            boardRow(playerId: ownPlayerId, row: row, isOpponent: false, layout: layout)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    playerRail(playerId: ownPlayerId, isOpponent: false, layout: layout)
+                if layout.selectionMode {
+                    focusedBoard(match: match, layout: layout)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    fullBoard(match: match, layout: layout)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 handStrip(match: match, layout: layout)
             } else if let challenge = activeChallenge {
@@ -394,6 +537,94 @@ struct GwentTableView: View {
             }
         }
         .padding(layout.contentInsets)
+    }
+
+    private func fullBoard(match: [String: JSONValue], layout: GwentTableLayout) -> some View {
+        let opponentId = opponentPlayerId
+        return HStack(spacing: layout.tableColumnSpacing) {
+            playerRail(playerId: opponentId, isOpponent: true, layout: layout)
+
+            VStack(spacing: layout.boardRowSpacing) {
+                ForEach(opponentRows, id: \.self) { row in
+                    boardRow(playerId: opponentId, row: row, isOpponent: true, layout: layout)
+                }
+
+                weatherStrip(match: match, layout: layout)
+
+                ForEach(ownRows, id: \.self) { row in
+                    boardRow(playerId: ownPlayerId, row: row, isOpponent: false, layout: layout)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            playerRail(playerId: ownPlayerId, isOpponent: false, layout: layout)
+        }
+    }
+
+    private func focusedBoard(match: [String: JSONValue], layout: GwentTableLayout) -> some View {
+        let focusIsOpponent = boardFocusSide.isOpponent
+        let focusedPlayerId = focusIsOpponent ? opponentPlayerId : ownPlayerId
+        let rows = focusIsOpponent ? opponentRows : ownRows
+
+        return HStack(spacing: layout.tableColumnSpacing) {
+            playerRail(playerId: focusedPlayerId, isOpponent: focusIsOpponent, layout: layout)
+
+            VStack(spacing: layout.boardRowSpacing) {
+                HStack(spacing: layout.isCompact ? 6 : 8) {
+                    Label(focusIsOpponent ? "Ряды соперника" : "Ваши ряды", systemImage: focusIsOpponent ? "eye.fill" : "shield.fill")
+                        .font(layout.isCompact ? .caption2.bold() : .caption.bold())
+                        .foregroundStyle(focusIsOpponent ? .orange.opacity(0.92) : .yellow.opacity(0.92))
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    boardFocusToggle(layout: layout)
+                }
+                .frame(height: layout.weatherStripHeight)
+                .padding(.horizontal, layout.isTightPhone ? 6 : 8)
+                .background(.black.opacity(0.26))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                ForEach(rows, id: \.self) { row in
+                    boardRow(playerId: focusedPlayerId, row: row, isOpponent: focusIsOpponent, layout: layout)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func boardFocusToggle(layout: GwentTableLayout) -> some View {
+        HStack(spacing: 4) {
+            Button {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+                    boardFocusSide = .own
+                }
+            } label: {
+                Label("Свои", systemImage: "shield.fill")
+                    .labelStyle(.iconOnly)
+                    .frame(width: layout.isTightPhone ? 26 : 30, height: layout.isTightPhone ? 22 : 24)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(boardFocusSide == .own ? .black : .white.opacity(0.72))
+            .background(boardFocusSide == .own ? .yellow.opacity(0.92) : .white.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .accessibilityLabel("Показать свои ряды")
+
+            Button {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+                    boardFocusSide = .opponent
+                }
+            } label: {
+                Label("Чужие", systemImage: "eye.fill")
+                    .labelStyle(.iconOnly)
+                    .frame(width: layout.isTightPhone ? 26 : 30, height: layout.isTightPhone ? 22 : 24)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(boardFocusSide == .opponent ? .black : .white.opacity(0.72))
+            .background(boardFocusSide == .opponent ? .orange.opacity(0.92) : .white.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .accessibilityLabel("Показать ряды соперника")
+        }
     }
 
     private func tableHeader(layout: GwentTableLayout) -> some View {
@@ -421,8 +652,12 @@ struct GwentTableView: View {
 
             Spacer()
 
-            if let stake = activeStake {
+            if let stake = activeStake, !stakeIsPractice(stake) {
                 stakePill(stake)
+            }
+
+            if activeTurnCountdownSeconds != nil {
+                turnCountdownPill(layout: layout)
             }
 
             if let root = gwentStateRoot, activeGwentPlayerSubmitted(root) {
@@ -554,6 +789,27 @@ struct GwentTableView: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
+    private func turnCountdownPill(layout: GwentTableLayout) -> some View {
+        let remaining = activeTurnCountdownSeconds ?? turnLimitSeconds
+        let isOwnTurn = activeGwentIsPlayerTurn
+        let isUrgent = remaining <= 10
+        let color: Color = isUrgent ? .red : (isOwnTurn ? .yellow : .white.opacity(0.72))
+        return Label("\(turnCountdownPrefix) \(formatTurnCountdown(remaining))", systemImage: "timer")
+            .font(layout.isCompact ? .caption2.bold() : .caption.bold())
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.68)
+            .padding(.horizontal, layout.isTightPhone ? 8 : 10)
+            .padding(.vertical, layout.isTightPhone ? 6 : 7)
+            .background(.black.opacity(0.26))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(color.opacity(isUrgent ? 0.62 : 0.38), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityLabel("\(turnCountdownPrefix): \(remaining) секунд")
+    }
+
     private func stakeBanner(_ stake: [String: JSONValue], prefix: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: stakeIcon(stake))
@@ -587,24 +843,28 @@ struct GwentTableView: View {
     }
 
     private func roundLifeGems(playerId: String) -> some View {
-        let losses = roundLosses(playerId)
+        let wins = roundWins(playerId)
         return HStack(spacing: 5) {
             ForEach(0..<2, id: \.self) { index in
-                Image(systemName: index < losses ? "diamond.fill" : "diamond")
+                Image(systemName: index < wins ? "diamond.fill" : "diamond")
                     .font(.caption2.bold())
-                    .foregroundStyle(index < losses ? .red.opacity(0.92) : .white.opacity(0.44))
+                    .foregroundStyle(index < wins ? .yellow.opacity(0.94) : .white.opacity(0.44))
             }
         }
         .frame(height: 18)
         .padding(.horizontal, 6)
         .background(.black.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 7))
-        .accessibilityLabel("Поражения в раундах: \(losses) из 2")
+        .accessibilityLabel("Победы в раундах: \(wins) из 2")
     }
 
     private func boardRow(playerId: String, row: String, isOpponent: Bool, layout: GwentTableLayout) -> some View {
         let cards = boardCards(playerId: playerId, row: row)
+        let actionMode = selectedCardId != nil && activeGwentCanPlay
         let isPlayableTarget = selectedCardCanPlay(row: row, isOpponent: isOpponent)
+        let isEffectTarget = selectedCardHighlightsRow(row: row, playerId: playerId, isOpponent: isOpponent)
+        let activeEffects = activeRowEffects(playerId: playerId, row: row)
+        let shouldDim = actionMode && !isPlayableTarget && !isEffectTarget && !selectedCardHighlightsAnyCard(in: cards, playerId: playerId)
         return HStack(spacing: layout.isCompact ? 5 : 7) {
             VStack(spacing: 1) {
                 Image(systemName: gwentRowIcon(row))
@@ -617,39 +877,83 @@ struct GwentTableView: View {
             .background(.black.opacity(0.24))
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
+            if !activeEffects.isEmpty {
+                rowEffectBadges(activeEffects, layout: layout)
+            }
+
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: layout.isCompact ? 4 : 5) {
+                LazyHStack(spacing: layout.isCompact ? 4 : 5) {
                     if cards.isEmpty {
                         emptyRowLabel(row, layout: layout)
                     } else {
-                        ForEach(Array(cards.prefix(10).enumerated()), id: \.offset) { _, card in
-                            boardCardTile(card, layout: layout)
+                        ForEach(Array(cards.enumerated()), id: \.offset) { _, card in
+                            let cardHighlighted = selectedBoardCardIsHighlighted(card, playerId: playerId)
+                            let cardDimmed = actionMode && selectedCardDimsUnrelatedBoardCards && !cardHighlighted
+                            boardCardTile(
+                                card,
+                                playerId: playerId,
+                                row: row,
+                                rowCards: cards,
+                                layout: layout,
+                                highlighted: cardHighlighted,
+                                dimmed: cardDimmed
+                            )
                         }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: isOpponent ? .trailing : .leading)
             }
+
+            if actionMode && (isPlayableTarget || isEffectTarget) {
+                Text(isPlayableTarget ? "Сюда" : selectedRowEffectLabel(row: row))
+                    .font(.system(size: layout.isTightPhone ? 8 : 9, weight: .black))
+                    .foregroundStyle(isPlayableTarget ? .black : selectedCardActionColor(selectedCardId ?? ""))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.58)
+                    .padding(.horizontal, layout.isTightPhone ? 5 : 7)
+                    .padding(.vertical, 4)
+                    .background(isPlayableTarget ? .yellow.opacity(0.95) : .black.opacity(0.34))
+                    .clipShape(Capsule())
+            }
         }
         .padding(layout.isTightPhone ? 3 : (layout.isCompact ? 4 : 5))
         .frame(height: layout.boardRowHeight)
-        .background(rowBackground(row))
+        .background(
+            boardRowBackgroundView(
+                row: row,
+                activeEffects: activeEffects,
+                playable: isPlayableTarget,
+                effectTarget: isEffectTarget
+            )
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(
                     dropTargetRow == rowDropKey(row, isOpponent: isOpponent)
                         ? .yellow.opacity(0.92)
-                        : (isPlayableTarget ? .yellow.opacity(0.72) : gwentRowColor(row).opacity(0.38)),
-                    lineWidth: dropTargetRow == rowDropKey(row, isOpponent: isOpponent) || isPlayableTarget ? 2 : 1
+                        : boardRowStrokeColor(
+                            row: row,
+                            activeEffects: activeEffects,
+                            playable: isPlayableTarget,
+                            effectTarget: isEffectTarget
+                        ),
+                    lineWidth: dropTargetRow == rowDropKey(row, isOpponent: isOpponent) || isPlayableTarget || isEffectTarget || !activeEffects.isEmpty ? 2 : 1
                 )
         )
+        .opacity(shouldDim ? 0.42 : 1)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onTapGesture {
             guard let match = activeMatch, let selectedCardId else { return }
+            if selectedCardPlaysWithoutSpecificRow(selectedCardId) && selectedCardHighlightsRow(row: row, playerId: playerId, isOpponent: isOpponent) {
+                Task { await play(cardId: selectedCardId, on: nil, match: match) }
+                return
+            }
             guard cardCanUseBoardSide(selectedCardId, isOpponent: isOpponent) else {
                 model.errorMessage = wrongSideMessage(for: selectedCardId)
                 return
             }
+            guard selectedCardCanPlay(row: row, isOpponent: isOpponent) else { return }
             Task { await play(cardId: selectedCardId, on: row, match: match) }
         }
         .onDrop(
@@ -667,15 +971,30 @@ struct GwentTableView: View {
     private func weatherStrip(match: [String: JSONValue], layout: GwentTableLayout) -> some View {
         let roundNumber = activeGwentRoundNumber
         let history = roundHistoryText(match)
+        let weatherEffects = activeWeatherEffectInfos()
+        let revealInfo = privateRevealEffectInfo()
         return HStack(spacing: layout.isCompact ? 6 : 8) {
             Text("Раунд \(roundNumber)")
                 .font(layout.isCompact ? .caption2.bold() : .caption.bold())
             Divider()
                 .frame(height: layout.isCompact ? 14 : 18)
                 .overlay(.white.opacity(0.25))
-            Label("Погода", systemImage: "cloud")
-                .font(.caption2.bold())
-                .foregroundStyle(.cyan.opacity(0.95))
+            if weatherEffects.isEmpty {
+                Label("Погоды нет", systemImage: "sun.max.fill")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.white.opacity(0.64))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.62)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(weatherEffects) { effect in
+                            effectChip(effect, layout: layout, compactLabel: layout.isTightPhone)
+                        }
+                    }
+                }
+                .frame(maxWidth: layout.isTightPhone ? 132 : 240, alignment: .leading)
+            }
             if !history.isEmpty, !layout.isTightPhone {
                 Divider()
                     .frame(height: layout.isCompact ? 14 : 18)
@@ -684,6 +1003,12 @@ struct GwentTableView: View {
                     .font(.caption2.bold())
                     .foregroundStyle(.white.opacity(0.62))
                     .lineLimit(1)
+            }
+            if let revealInfo {
+                Divider()
+                    .frame(height: layout.isCompact ? 14 : 18)
+                    .overlay(.white.opacity(0.25))
+                effectChip(revealInfo, layout: layout, compactLabel: layout.isTightPhone)
             }
             Spacer()
             Text(gwentStatusLabel(roundStatus))
@@ -697,97 +1022,281 @@ struct GwentTableView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
+    private func rowEffectBadges(_ effects: [GwentEffectInfo], layout: GwentTableLayout) -> some View {
+        HStack(spacing: layout.isTightPhone ? 3 : 4) {
+            ForEach(effects) { effect in
+                effectChip(effect, layout: layout, compactLabel: layout.isTightPhone)
+            }
+        }
+        .frame(width: layout.isTightPhone ? CGFloat(effects.count * 26) : nil)
+    }
+
+    private func effectChip(
+        _ effect: GwentEffectInfo,
+        layout: GwentTableLayout,
+        compactLabel: Bool = false
+    ) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+                activeEffectInfo = effect
+            }
+        } label: {
+            HStack(spacing: compactLabel ? 0 : 4) {
+                Image(systemName: effect.icon)
+                    .font(.system(size: layout.isTightPhone ? 8 : 9, weight: .black))
+                    .frame(width: layout.isTightPhone ? 18 : 20, height: layout.isTightPhone ? 18 : 20)
+
+                if !compactLabel {
+                    Text(effect.badge)
+                        .font(.system(size: layout.isTightPhone ? 8 : 9, weight: .black))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.62)
+                }
+            }
+            .foregroundStyle(effect.usesDarkText ? .black : .white)
+            .padding(.leading, compactLabel ? 0 : 5)
+            .padding(.trailing, compactLabel ? 0 : 7)
+            .frame(height: layout.isTightPhone ? 20 : 22)
+            .background(effect.color.opacity(effect.usesDarkText ? 0.90 : 0.72))
+            .overlay(
+                Capsule()
+                    .stroke(.white.opacity(0.30), lineWidth: 1)
+            )
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(effect.title). \(effect.subtitle)")
+    }
+
+    private func effectInfoPlaque(_ info: GwentEffectInfo, layout: GwentTableLayout) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.opacity(0.001)
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                        activeEffectInfo = nil
+                    }
+                }
+
+            VStack(alignment: .leading, spacing: layout.isTightPhone ? 6 : 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: info.icon)
+                        .font(layout.isTightPhone ? .caption.bold() : .headline.bold())
+                        .foregroundStyle(info.color)
+                        .frame(width: layout.isTightPhone ? 24 : 28, height: layout.isTightPhone ? 24 : 28)
+                        .background(info.color.opacity(0.16))
+                        .clipShape(Circle())
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(info.title)
+                            .font(layout.isTightPhone ? .caption.bold() : .subheadline.bold())
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.68)
+                        Text(info.subtitle)
+                            .font(.caption2.bold())
+                            .foregroundStyle(info.color.opacity(0.92))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.62)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                            activeEffectInfo = nil
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption.bold())
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .background(.white.opacity(0.08))
+                    .clipShape(Circle())
+                    .accessibilityLabel("Закрыть описание эффекта")
+                }
+
+                Text(info.body)
+                    .font(.system(size: layout.isTightPhone ? 10 : 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .lineLimit(layout.isTightPhone ? 3 : 4)
+                    .minimumScaleFactor(0.74)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(layout.isTightPhone ? 10 : 12)
+            .frame(width: min(layout.contentWidth * (layout.isTightPhone ? 0.64 : 0.54), layout.isTightPhone ? 300 : 390))
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.13, green: 0.095, blue: 0.065).opacity(0.96),
+                        Color(red: 0.035, green: 0.030, blue: 0.026).opacity(0.98)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(info.color.opacity(0.48), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .shadow(color: .black.opacity(0.46), radius: 18, y: 8)
+            .padding(.top, layout.contentInsets.top + layout.tableHeaderHeight + 6)
+            .padding(.trailing, layout.contentInsets.trailing)
+        }
+    }
+
+    private func leaderActivationPlaque(_ activation: GwentLeaderActivation, layout: GwentTableLayout) -> some View {
+        let info = activation.effectInfo
+        let canActivate = activeGwentCanUseLeader && !isSubmittingGwentAction
+        return ZStack(alignment: .topTrailing) {
+            Color.black.opacity(0.001)
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                        pendingLeaderActivation = nil
+                    }
+                }
+
+            VStack(alignment: .leading, spacing: layout.isTightPhone ? 7 : 9) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: info.icon)
+                        .font(layout.isTightPhone ? .caption.bold() : .headline.bold())
+                        .foregroundStyle(info.color)
+                        .frame(width: layout.isTightPhone ? 24 : 28, height: layout.isTightPhone ? 24 : 28)
+                        .background(info.color.opacity(0.16))
+                        .clipShape(Circle())
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(info.title)
+                            .font(layout.isTightPhone ? .caption.bold() : .subheadline.bold())
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.68)
+                        Text(info.subtitle)
+                            .font(.caption2.bold())
+                            .foregroundStyle(info.color.opacity(0.92))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.62)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                            pendingLeaderActivation = nil
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption.bold())
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .background(.white.opacity(0.08))
+                    .clipShape(Circle())
+                    .accessibilityLabel("Закрыть способность лидера")
+                }
+
+                Text(info.body)
+                    .font(.system(size: layout.isTightPhone ? 10 : 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.84))
+                    .lineLimit(layout.isTightPhone ? 3 : 5)
+                    .minimumScaleFactor(0.72)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: layout.isTightPhone ? 7 : 9) {
+                    Button {
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                            pendingLeaderActivation = nil
+                        }
+                    } label: {
+                        Text("Отмена")
+                            .font(layout.isTightPhone ? .caption2.bold() : .caption.bold())
+                            .frame(height: layout.actionButtonHeight)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white.opacity(0.78))
+                    .background(.white.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(.white.opacity(0.16), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+
+                    Button {
+                        pendingLeaderActivation = nil
+                        Task { await useLeader(match: activation.match) }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if isSubmittingGwentAction {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(.black)
+                            }
+                            Label("Активировать", systemImage: "bolt.fill")
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .font(layout.isTightPhone ? .caption2.bold() : .caption.bold())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.68)
+                        .frame(height: layout.actionButtonHeight)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.black)
+                    .background(canActivate ? info.color.opacity(0.92) : .white.opacity(0.28))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(info.color.opacity(canActivate ? 0.52 : 0.18), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .disabled(!canActivate)
+                    .accessibilityLabel("Активировать лидера: \(info.title)")
+                }
+            }
+            .padding(layout.isTightPhone ? 10 : 12)
+            .frame(width: min(layout.contentWidth * (layout.isTightPhone ? 0.66 : 0.56), layout.isTightPhone ? 316 : 420))
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.13, green: 0.095, blue: 0.065).opacity(0.97),
+                        Color(red: 0.035, green: 0.030, blue: 0.026).opacity(0.99)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(info.color.opacity(0.54), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .shadow(color: .black.opacity(0.48), radius: 18, y: 8)
+            .padding(.top, layout.contentInsets.top + layout.tableHeaderHeight + 6)
+            .padding(.trailing, layout.contentInsets.trailing)
+        }
+    }
+
     private func handStrip(match: [String: JSONValue], layout: GwentTableLayout) -> some View {
         let canPlay = activeGwentCanPlay
+        let handMode = activeGwentShouldShowHandMode && handExpanded
+        let actionMode = canPlay && selectedCardId != nil
         return VStack(spacing: layout.handInternalSpacing) {
-            HStack(spacing: layout.isCompact ? 6 : 8) {
-                Button {
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
-                        handExpanded.toggle()
-                    }
-                } label: {
-                    Label("Рука \(activeGwentHand.count)", systemImage: handExpanded ? "chevron.down" : "chevron.up")
-                        .font(layout.isCompact ? .caption2.bold() : .caption.bold())
-                        .frame(width: layout.isTightPhone ? 82 : (layout.isCompact ? 96 : 112), height: layout.actionButtonHeight)
-                }
-                .buttonStyle(.bordered)
-                .tint(.yellow)
-
-                if let selectedCardId, canPlay {
-                    selectedCardControls(cardId: selectedCardId, match: match, layout: layout)
+            if handMode {
+                if actionMode, let selectedCardId {
+                    selectedCardActionHeader(cardId: selectedCardId, match: match, layout: layout)
                 } else {
-                    Text(activeGwentTurnText)
-                        .font(layout.isCompact ? .caption2.bold() : .caption.bold())
-                        .foregroundStyle(activeGwentCanPlay ? .yellow : .white.opacity(0.58))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+                    handCommandBar(match: match, layout: layout)
                 }
-
-                if isSubmittingGwentAction {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.yellow)
-                }
-
-                Spacer()
-
-                Button {
-                    Task { await pass(match: match) }
-                } label: {
-                    Label("Пас", systemImage: "hand.raised.fill")
-                        .font(layout.isCompact ? .caption2.bold() : .caption.bold())
-                        .frame(width: layout.isTightPhone ? 70 : (layout.isCompact ? 84 : 100), height: layout.actionButtonHeight)
-                }
-                .buttonStyle(.bordered)
-                .tint(.orange)
-                .disabled(!activeGwentCanPass)
-
-                Button {
-                    Task { await useLeader(match: match) }
-                } label: {
-                    Label("Лидер", systemImage: "crown.fill")
-                        .font(layout.isCompact ? .caption2.bold() : .caption.bold())
-                        .frame(width: layout.isTightPhone ? 78 : (layout.isCompact ? 90 : 104), height: layout.actionButtonHeight)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.yellow)
-                .disabled(!activeGwentCanUseLeader)
-            }
-
-            if handExpanded {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: layout.handCardSpacing) {
-                        if activeGwentHand.isEmpty {
-                            Text("Рука пуста")
-                                .font(.caption.bold())
-                                .foregroundStyle(.white.opacity(0.58))
-                                .frame(width: layout.handCardWidth, height: layout.handCardHeight)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(.white.opacity(0.16), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                                )
-                        } else {
-                            ForEach(activeGwentHand, id: \.self) { cardId in
-                                Button {
-                                    selectedCardId = selectedCardId == cardId ? nil : cardId
-                                } label: {
-                                    handCard(cardId, selected: selectedCardId == cardId, enabled: canPlay, layout: layout)
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!canPlay)
-                                .onDrag {
-                                    selectedCardId = cardId
-                                    return NSItemProvider(object: cardId as NSString)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                }
+                handCardsScroll(canPlay: canPlay, layout: layout, actionMode: actionMode)
+            } else {
+                collapsedHandPlaque(match: match, layout: layout)
             }
         }
         .padding(layout.handStripPadding)
-        .frame(height: handExpanded ? layout.handExpandedHeight : layout.handCollapsedHeight)
+        .frame(height: handMode ? layout.handExpandedHeight : layout.handCollapsedHeight)
         .background(.black.opacity(0.26))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -796,52 +1305,302 @@ struct GwentTableView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    private func handCard(
-        _ cardId: String,
-        selected: Bool,
-        enabled: Bool,
-        layout providedLayout: GwentTableLayout? = nil
-    ) -> some View {
-        let layout = providedLayout ?? fallbackTableLayout
-        let meta = gwentCardMeta(cardId)
-        let row = meta?.row ?? "card"
+    private func collapsedHandPlaque(match: [String: JSONValue], layout: GwentTableLayout) -> some View {
+        HStack(spacing: layout.isCompact ? 6 : 8) {
+            Button {
+                guard activeGwentShouldShowHandMode else { return }
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.84)) {
+                    handExpanded = true
+                    syncBoardFocusForSelectedCard()
+                }
+            } label: {
+                Label("Рука \(activeGwentHand.count)", systemImage: "chevron.up")
+                    .font(layout.isCompact ? .caption2.bold() : .caption.bold())
+                    .frame(width: layout.isTightPhone ? 82 : (layout.isCompact ? 96 : 110), height: layout.actionButtonHeight)
+            }
+            .buttonStyle(.bordered)
+            .tint(.yellow)
+            .disabled(!activeGwentShouldShowHandMode)
 
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(meta.map { String($0.strength) } ?? "-")
-                    .font(layout.isCompact ? .caption.bold() : .headline.bold())
-                    .foregroundStyle(gwentRowColor(row))
-                Spacer()
-                Image(systemName: gwentRowIcon(row))
-                    .font(.caption.bold())
-                    .foregroundStyle(gwentRowColor(row))
+            Text(activeGwentTurnText)
+                .font(layout.isCompact ? .caption2.bold() : .caption.bold())
+                .foregroundStyle(activeGwentShouldShowHandMode ? .yellow : .white.opacity(0.58))
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+
+            Spacer(minLength: 0)
+
+            if isSubmittingGwentAction {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.yellow)
+            }
+
+            if activeTurnCountdownSeconds != nil {
+                Text(formatTurnCountdown(activeTurnCountdownSeconds ?? turnLimitSeconds))
+                    .font(.caption2.monospacedDigit().bold())
+                    .foregroundStyle(activeGwentIsPlayerTurn ? .yellow : .white.opacity(0.56))
+                    .lineLimit(1)
+            }
+
+            passButton(match: match, layout: layout)
+        }
+    }
+
+    private func handCommandBar(match: [String: JSONValue], layout: GwentTableLayout) -> some View {
+        HStack(spacing: layout.isCompact ? 6 : 8) {
+            Button {
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.84)) {
+                    handExpanded = false
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(layout.isCompact ? .caption.bold() : .subheadline.bold())
+                    .frame(width: layout.actionButtonHeight, height: layout.actionButtonHeight)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.yellow)
+            .background(.yellow.opacity(0.24))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(.yellow.opacity(0.28), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .accessibilityLabel("Свернуть руку")
+
+            Text(activeGwentTurnText)
+                .font(layout.isCompact ? .caption2.bold() : .caption.bold())
+                .foregroundStyle(activeGwentCanPlay ? .yellow : .white.opacity(0.58))
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+
+            if isSubmittingGwentAction {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.yellow)
+            }
+
+            if activeTurnCountdownSeconds != nil {
+                Text(formatTurnCountdown(activeTurnCountdownSeconds ?? turnLimitSeconds))
+                    .font(.caption2.monospacedDigit().bold())
+                    .foregroundStyle(activeGwentIsPlayerTurn ? .yellow : .white.opacity(0.56))
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 0)
 
-            Text(gwentCardTitle(cardId))
-                .font(layout.isCompact ? .caption2.bold() : .caption.bold())
-                .lineLimit(2)
-                .minimumScaleFactor(0.62)
+            passButton(match: match, layout: layout)
 
-            Text(handCardPlacementLabel(cardId, row: row))
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.58))
-                .lineLimit(1)
+            if activeGwentCanUseLeader {
+                Button {
+                    showLeaderActivation(match: match)
+                } label: {
+                    Label("Лидер", systemImage: "crown.fill")
+                        .font(layout.isCompact ? .caption2.bold() : .caption.bold())
+                        .frame(width: layout.isTightPhone ? 78 : (layout.isCompact ? 90 : 104), height: layout.actionButtonHeight)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.black)
+                .background(.yellow.opacity(0.92))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(.yellow.opacity(0.48), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+            }
         }
-        .foregroundStyle(enabled ? .white : .white.opacity(0.42))
-        .padding(layout.handCardPadding)
-        .frame(width: layout.handCardWidth, height: layout.handCardHeight)
-        .background(
+        .frame(height: layout.actionButtonHeight)
+    }
+
+    private func passButton(match: [String: JSONValue], layout: GwentTableLayout) -> some View {
+        Button {
+            Task { await pass(match: match) }
+        } label: {
+            Label("Пас", systemImage: "hand.raised.fill")
+                .font(layout.isCompact ? .caption2.bold() : .caption.bold())
+                .frame(width: layout.isTightPhone ? 70 : (layout.isCompact ? 84 : 100), height: layout.actionButtonHeight)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(activeGwentCanPass ? .yellow : .white.opacity(0.38))
+        .background(activeGwentCanPass ? .orange.opacity(0.36) : .white.opacity(0.08))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(activeGwentCanPass ? .orange.opacity(0.38) : .white.opacity(0.10), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .disabled(!activeGwentCanPass)
+    }
+
+    private func handCardsScroll(canPlay: Bool, layout: GwentTableLayout, actionMode: Bool) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: layout.handCardSpacing) {
+                if activeGwentHand.isEmpty {
+                    Text("Рука пуста")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white.opacity(0.58))
+                        .frame(width: layout.handCardWidth, height: layout.handCardHeight)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(.white.opacity(0.16), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        )
+                } else {
+                    ForEach(activeGwentHand, id: \.self) { cardId in
+                        let isSelected = selectedCardId == cardId
+                        Button {
+                            withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
+                                selectedCardId = isSelected ? nil : cardId
+                                if !isSelected {
+                                    boardFocusSide = boardFocusSide(for: cardId)
+                                }
+                            }
+                        } label: {
+                            handCard(cardId, selected: isSelected, enabled: canPlay, layout: layout)
+                                .opacity(actionMode && !isSelected ? 0.66 : 1)
+                                .offset(y: isSelected ? -layout.selectedHandLift : 0)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canPlay)
+                        .onDrag {
+                            selectedCardId = cardId
+                            boardFocusSide = boardFocusSide(for: cardId)
+                            return NSItemProvider(object: cardId as NSString)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.top, actionMode ? layout.selectedHandLift + 2 : 0)
+        }
+    }
+
+    private func selectedCardActionHeader(cardId: String, match: [String: JSONValue], layout: GwentTableLayout) -> some View {
+        HStack(alignment: .center, spacing: layout.isTightPhone ? 8 : 10) {
+            HStack(alignment: .center, spacing: layout.isTightPhone ? 6 : 8) {
+                Image(systemName: selectedCardActionIcon(cardId))
+                    .font(layout.isCompact ? .caption.bold() : .title3.bold())
+                    .foregroundStyle(selectedCardActionColor(cardId))
+                    .frame(width: layout.isTightPhone ? 20 : 24)
+
+                VStack(alignment: .leading, spacing: layout.isTightPhone ? 1 : 2) {
+                    Text(selectedCardActionTitle(cardId))
+                        .font(layout.isCompact ? .caption.bold() : .subheadline.bold())
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.66)
+
+                    Text(selectedCardActionHint(cardId))
+                        .font(.system(size: layout.isTightPhone ? 8 : 9, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.68))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.56)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            selectedCardControls(cardId: cardId, match: match, layout: layout)
+                .frame(width: layout.selectedActionControlsWidth, alignment: .trailing)
+
+            if isSubmittingGwentAction {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.yellow)
+            }
+        }
+        .padding(.horizontal, layout.isTightPhone ? 6 : 8)
+        .padding(.vertical, layout.isTightPhone ? 2 : 4)
+        .frame(height: layout.actionPanelHeight)
+        .background(selectedCardActionColor(cardId).opacity(0.14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(selectedCardActionColor(cardId).opacity(0.42), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func handCard(
+        _ cardId: String,
+        selected: Bool,
+        enabled: Bool,
+        layout providedLayout: GwentTableLayout? = nil,
+        featured: Bool = false
+    ) -> some View {
+        let layout = providedLayout ?? fallbackTableLayout
+        let meta = gwentCardMeta(cardId)
+        let row = meta?.row ?? "card"
+        let effects = meta.map(gwentCardEffects) ?? []
+        let primaryEffect = effects.first
+        let cardWidth = featured ? layout.focusedHandCardWidth : layout.handCardWidth
+        let cardHeight = featured ? layout.focusedHandCardHeight : layout.handCardHeight
+
+        return ZStack(alignment: .topLeading) {
+            gwentBattleArtwork(cardId: cardId, row: row, compact: layout.isCompact)
+
             LinearGradient(
                 colors: [
-                    gwentRowColor(row).opacity(selected ? 0.38 : 0.2),
-                    .black.opacity(0.38)
+                    .black.opacity(0.08),
+                    .black.opacity(0.28),
+                    .black.opacity(0.84)
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: .top,
+                endPoint: .bottom
             )
-        )
+
+            VStack(alignment: .leading, spacing: layout.isTightPhone ? 3 : 4) {
+                HStack(spacing: 4) {
+                    Text(gwentBattleCardBadgeText(card: meta, strength: meta?.strength, row: row))
+                        .font(.system(size: featured ? 10 : (layout.isCompact ? 11 : 14), weight: .black, design: .rounded))
+                        .foregroundStyle(.black)
+                        .frame(width: featured ? 21 : (layout.isCompact ? 22 : 26), height: featured ? 21 : (layout.isCompact ? 22 : 26))
+                        .background(
+                            Circle()
+                                .fill(gwentBattleCardBadgeColor(card: meta, row: row))
+                                .overlay(Circle().stroke(.orange.opacity(0.82), lineWidth: 1.3))
+                        )
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: gwentRowIcon(row))
+                        .font(.system(size: featured ? 8 : (layout.isCompact ? 9 : 11), weight: .black))
+                        .foregroundStyle(.white.opacity(0.88))
+                        .frame(width: featured ? 17 : (layout.isCompact ? 18 : 21), height: featured ? 17 : (layout.isCompact ? 18 : 21))
+                        .background(.black.opacity(0.46))
+                        .clipShape(Circle())
+
+                    if let primaryEffect {
+                        Image(systemName: gwentEffectIcon(primaryEffect))
+                            .font(.system(size: featured ? 8 : (layout.isCompact ? 9 : 11), weight: .black))
+                            .foregroundStyle(.white)
+                            .frame(width: featured ? 17 : (layout.isCompact ? 18 : 21), height: featured ? 17 : (layout.isCompact ? 18 : 21))
+                            .background(gwentEffectColor(primaryEffect).opacity(0.92))
+                            .clipShape(Circle())
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Text(gwentCardTitle(cardId))
+                    .font(featured ? .system(size: 9, weight: .black) : (layout.isCompact ? .caption2.bold() : .caption.bold()))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.62)
+                    .frame(maxWidth: .infinity, minHeight: featured ? 18 : (layout.isTightPhone ? 20 : 24))
+                    .padding(.horizontal, 4)
+                    .background(.black.opacity(0.56))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                if !layout.isTightPhone && !featured {
+                    Text(primaryEffect.map(gwentEffectLabel) ?? handCardPlacementLabel(cardId, row: row))
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.58)
+                }
+            }
+            .padding(layout.handCardPadding)
+        }
+        .foregroundStyle(enabled ? .white : .white.opacity(0.42))
+        .frame(width: cardWidth, height: cardHeight)
+        .background(.black.opacity(0.36))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(selected ? .yellow.opacity(0.92) : gwentRowColor(row).opacity(0.36), lineWidth: selected ? 2 : 1)
@@ -855,12 +1614,6 @@ struct GwentTableView: View {
         let placements = selectedCardPlacements(cardId)
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: layout.isCompact ? 5 : 6) {
-                Text(gwentCardTitle(cardId))
-                    .font(layout.isCompact ? .caption2.bold() : .caption.bold())
-                    .foregroundStyle(.yellow)
-                    .lineLimit(1)
-                    .frame(maxWidth: layout.isTightPhone ? 88 : (layout.isCompact ? 116 : 150), alignment: .leading)
-
                 ForEach(placements) { placement in
                     Button {
                         Task {
@@ -881,7 +1634,9 @@ struct GwentTableView: View {
                 }
 
                 Button {
-                    selectedCardId = nil
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                        selectedCardId = nil
+                    }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.caption.bold())
@@ -894,30 +1649,122 @@ struct GwentTableView: View {
         }
     }
 
-    private func boardCardTile(_ value: JSONValue, layout: GwentTableLayout) -> some View {
+    private func boardCardTile(
+        _ value: JSONValue,
+        playerId: String,
+        row boardRow: String,
+        rowCards: [JSONValue],
+        layout: GwentTableLayout,
+        highlighted: Bool = false,
+        dimmed: Bool = false
+    ) -> some View {
         let cardId = gwentCardId(value)
         let meta = gwentCardMeta(cardId)
-        let row = meta?.row ?? value.objectValue?.string("row") ?? "card"
+        let row = boardRow.isEmpty ? (meta?.row ?? value.objectValue?.string("row", default: "card") ?? "card") : boardRow
+        let strength = gwentBoardCardDisplayStrength(value, row: row, playerId: playerId, rowCards: rowCards)
+        let effects = gwentBoardCardEffects(value, meta: meta)
+        let primaryEffect = effects.first
 
-        return HStack(spacing: 5) {
-            Text("\(gwentCardStrength(value) ?? 0)")
-                .font(layout.isCompact ? .caption2.bold() : .caption.bold())
-                .foregroundStyle(gwentRowColor(row))
-                .frame(width: layout.isCompact ? 14 : 18)
-            Text(gwentCardTitle(cardId))
-                .font(.caption2.bold())
+        return HStack(spacing: layout.isTightPhone ? 5 : 6) {
+            Text(gwentBattleCardBadgeText(card: meta, strength: strength, row: row))
+                .font(.system(size: layout.isTightPhone ? 13 : (layout.isCompact ? 14 : 16), weight: .black, design: .rounded))
+                .foregroundStyle(.black)
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .minimumScaleFactor(0.55)
+                .frame(width: layout.boardCardBadgeSize, height: layout.boardCardBadgeSize)
+                .background(
+                    Circle()
+                        .fill(gwentBattleCardBadgeColor(card: meta, row: row))
+                        .overlay(Circle().stroke(.orange.opacity(0.78), lineWidth: 1.1))
+                )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(gwentCardTitle(cardId))
+                    .font(.system(size: layout.boardCardTitleFontSize, weight: .black))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.56)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let primaryEffect {
+                let info = cardEffectInfo(effect: primaryEffect, cardId: cardId, row: row, playerId: playerId)
+                Button {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+                        activeEffectInfo = info
+                    }
+                } label: {
+                    Image(systemName: gwentEffectIcon(primaryEffect))
+                        .font(.system(size: layout.isTightPhone ? 7 : 8, weight: .black))
+                        .foregroundStyle(info.usesDarkText ? .black : .white)
+                        .frame(width: layout.boardCardEffectSize, height: layout.boardCardEffectSize)
+                        .background(gwentEffectColor(primaryEffect).opacity(0.92))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Эффект карты: \(info.title)")
+            }
         }
+        .padding(.leading, layout.isTightPhone ? 6 : 7)
+        .padding(.trailing, layout.isTightPhone ? 4 : 6)
+        .padding(.vertical, layout.isTightPhone ? 2 : 3)
         .foregroundStyle(.white)
-        .padding(.horizontal, layout.isTightPhone ? 4 : (layout.isCompact ? 5 : 7))
         .frame(width: layout.boardCardWidth, height: layout.boardCardHeight, alignment: .leading)
-        .background(.black.opacity(0.3))
+        .background(
+            LinearGradient(
+                colors: [
+                    gwentRowColor(row).opacity(0.30),
+                    Color(red: 0.07, green: 0.055, blue: 0.045).opacity(0.96),
+                    .black.opacity(0.88)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(gwentRowColor(row).opacity(0.82))
+                .frame(width: highlighted ? 4 : 3)
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .stroke(gwentRowColor(row).opacity(0.44), lineWidth: 1)
+                .stroke(highlighted ? .yellow.opacity(0.94) : gwentRowColor(row).opacity(0.44), lineWidth: highlighted ? 2 : 1)
         )
+        .scaleEffect(highlighted ? 1.05 : 1)
+        .opacity(dimmed ? 0.42 : 1)
+        .shadow(color: highlighted ? .yellow.opacity(0.34) : .clear, radius: 8, y: 2)
         .clipShape(RoundedRectangle(cornerRadius: 7))
+    }
+
+    @ViewBuilder
+    private func gwentBattleArtwork(cardId: String, row: String, compact: Bool) -> some View {
+        if let assetName = gwentArtworkAssetName(cardId) {
+            GeometryReader { proxy in
+                Image(assetName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+                    .clipped()
+            }
+        } else {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        gwentRowColor(row).opacity(0.34),
+                        Color(red: 0.10, green: 0.075, blue: 0.052),
+                        .black.opacity(0.78)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Image(systemName: gwentBattleArtworkIcon(cardId: cardId, row: row))
+                    .font(.system(size: compact ? 18 : 26, weight: .semibold))
+                    .foregroundStyle(gwentRowColor(row).opacity(0.74))
+                    .shadow(color: .black.opacity(0.7), radius: 2, y: 1)
+            }
+        }
     }
 
     private func emptyRowLabel(_ row: String, layout: GwentTableLayout) -> some View {
@@ -1033,9 +1880,9 @@ struct GwentTableView: View {
         let metrics = gwentDeckMetrics(deck)
         return HStack(spacing: 6) {
             deckTextChip(gwentFactionLabel(gwentDeckFaction(deck)))
-            deckMetricChip("Unit", metrics.units, ok: metrics.units >= 22)
-            deckMetricChip("Special", metrics.specials, ok: metrics.specials <= 10)
-            deckMetricChip("Hero", metrics.heroes, ok: true)
+            deckMetricChip("Отряды", metrics.units, ok: metrics.units >= 22)
+            deckMetricChip("Особые", metrics.specials, ok: metrics.specials <= 10)
+            deckMetricChip("Герои", metrics.heroes, ok: true)
             deckMetricChip("Ряды", metrics.activeRows, ok: metrics.activeRows >= 2)
         }
     }
@@ -1443,8 +2290,8 @@ struct GwentTableView: View {
                         LabeledContent("Бонус", value: gwentFactionAbilityLabel(gwentDeckFaction(deck)))
                         LabeledContent("Лидер", value: gwentCardTitle(deck.leaderCardId))
                         LabeledContent("Карт", value: "\(deck.cardIds.count)")
-                        LabeledContent("Unit / Special", value: "\(metrics.units) / \(metrics.specials)")
-                        LabeledContent("Hero", value: "\(metrics.heroes)")
+                        LabeledContent("Отряды / особые", value: "\(metrics.units) / \(metrics.specials)")
+                        LabeledContent("Герои", value: "\(metrics.heroes)")
                     }
 
                     let warnings = gwentDeckWarnings(metrics)
@@ -1556,6 +2403,56 @@ struct GwentTableView: View {
         .preferredColorScheme(.dark)
     }
 
+    private func leaderDiscardSelectionSheet(_ selection: GwentLeaderDiscardSelection) -> some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(selection.hand, id: \.self) { cardId in
+                        Button {
+                            if selectedLeaderDiscardIds.contains(cardId) {
+                                selectedLeaderDiscardIds.remove(cardId)
+                            } else if selectedLeaderDiscardIds.count < 2 {
+                                selectedLeaderDiscardIds.insert(cardId)
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: selectedLeaderDiscardIds.contains(cardId) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedLeaderDiscardIds.contains(cardId) ? .yellow : .secondary)
+                                    .frame(width: 28)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(gwentCardTitle(cardId))
+                                        .font(.subheadline.bold())
+                                    Text(deckCardDetail(cardId))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .disabled(isSubmittingGwentAction)
+                    }
+                } header: {
+                    Text("Выбери 2 карты для сброса")
+                }
+            }
+            .navigationTitle(gwentCardTitle(selection.cardId))
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Отмена") {
+                        selectedLeaderDiscardIds.removeAll()
+                        pendingLeaderDiscardSelection = nil
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Сыграть") {
+                        Task { await submitLeaderDiscardPlay(selection) }
+                    }
+                    .disabled(selectedLeaderDiscardIds.count != 2 || isSubmittingGwentAction)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
     private var gwentTableBackground: some View {
         ZStack {
             LinearGradient(
@@ -1594,7 +2491,8 @@ private extension GwentTableView {
         return GwentTableLayout(
             viewport: landscapeViewport,
             safeAreaInsets: EdgeInsets(),
-            compactHeight: compactLandscapeTable
+            compactHeight: compactLandscapeTable,
+            selectionMode: activeGwentShouldShowHandMode && handExpanded
         )
     }
 
@@ -1778,6 +2676,21 @@ private extension GwentTableView {
         normalizePreferredStartingPlayer()
     }
 
+    func applyTableScreenshotArgumentsIfNeeded() {
+        #if DEBUG
+        guard !appliedTableScreenshotArguments else { return }
+        appliedTableScreenshotArguments = true
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let cardIndex = arguments.firstIndex(of: "--gwent-selected-card") else { return }
+        let valueIndex = arguments.index(after: cardIndex)
+        guard arguments.indices.contains(valueIndex) else { return }
+        let cardId = arguments[valueIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cardId.isEmpty else { return }
+        selectedCardId = cardId
+        handExpanded = true
+        #endif
+    }
+
     func normalizePreferredStartingPlayer() {
         guard let selectedGwentDeck,
               gwentDeckFaction(selectedGwentDeck).lowercased() == "scoiatael"
@@ -1812,6 +2725,68 @@ private extension GwentTableView {
 
     var isSubmittingGwentAction: Bool {
         pendingGwentActionId != nil
+    }
+
+    var activeGwentTurnPlayerId: String {
+        if let legalActions {
+            return legalActions.string("turn_player_id")
+        }
+        return roundState?.string("turn_player_id") ?? ""
+    }
+
+    var activeGwentTurnKey: String {
+        [
+            activeMatch?.string("match_id") ?? "",
+            "r\(activeGwentRoundNumber)",
+            roundState?.string("phase") ?? "",
+            activeGwentTurnPlayerId,
+            roundState?.string("updated_at") ?? roundState?.string("created_at") ?? ""
+        ].joined(separator: "|")
+    }
+
+    var activeGwentTurnIsActive: Bool {
+        guard activeMatch?.string("status", default: "active") == "active" else { return false }
+        guard roundState?.string("phase") == "active_turn" else { return false }
+        return !activeGwentTurnPlayerId.isEmpty
+    }
+
+    var activeGwentIsPlayerTurn: Bool {
+        guard let legalActions else {
+            let turnPlayerId = activeGwentTurnPlayerId
+            return !turnPlayerId.isEmpty && turnPlayerId == ownPlayerId
+        }
+        return jsonBool(legalActions, key: "is_player_turn")
+    }
+
+    var activeGwentShouldShowHandMode: Bool {
+        (activeGwentIsPlayerTurn && (activeGwentCanPlay || activeGwentCanPass || activeGwentCanUseLeader))
+            || (model.screenshotMode && selectedCardId != nil)
+    }
+
+    var serverTurnStartedAt: Date? {
+        for key in ["turn_started_at", "updated_at", "created_at"] {
+            let value = roundState?.string(key).trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if let date = parseGwentDate(value) {
+                return date
+            }
+        }
+        return nil
+    }
+
+    var activeTurnDeadline: Date? {
+        guard activeGwentTurnIsActive else { return nil }
+        let startedAt = serverTurnStartedAt ?? localTurnStartedAt
+        return startedAt?.addingTimeInterval(TimeInterval(turnLimitSeconds))
+    }
+
+    var activeTurnCountdownSeconds: Int? {
+        guard let deadline = activeTurnDeadline else { return nil }
+        let remaining = Int(ceil(deadline.timeIntervalSince(countdownNow)))
+        return min(turnLimitSeconds, max(0, remaining))
+    }
+
+    var turnCountdownPrefix: String {
+        activeGwentIsPlayerTurn ? "Ваш ход" : "Ход соперника"
     }
 
     var activeGwentCanPlay: Bool {
@@ -1895,6 +2870,74 @@ private extension GwentTableView {
         return roundState?.arrayStrings("ready_players").contains(ownPlayerId) ?? false
     }
 
+    func syncHandModeForTurn(animated: Bool = true) {
+        let updates = {
+            if activeGwentShouldShowHandMode {
+                handExpanded = true
+                syncBoardFocusForSelectedCard()
+            } else {
+                handExpanded = false
+                selectedCardId = nil
+                boardFocusSide = .own
+                pendingLeaderActivation = nil
+            }
+        }
+        if animated {
+            withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
+                updates()
+            }
+        } else {
+            updates()
+        }
+    }
+
+    func syncTurnTimerForCurrentState(now: Date = Date()) {
+        let key = activeGwentTurnKey
+        countdownNow = now
+        guard observedTurnKey != key else { return }
+        observedTurnKey = key
+        autoPassTurnKey = nil
+        localTurnStartedAt = activeGwentTurnIsActive ? (serverTurnStartedAt ?? now) : nil
+    }
+
+    func handleTurnTimerTick(_ now: Date) {
+        syncTurnTimerForCurrentState(now: now)
+        maybeAutoPassTimedOutTurn()
+    }
+
+    func maybeAutoPassTimedOutTurn() {
+        guard !model.screenshotMode,
+              activeGwentIsPlayerTurn,
+              activeGwentCanPass,
+              let remaining = activeTurnCountdownSeconds,
+              remaining == 0,
+              let match = activeMatch
+        else { return }
+        let turnKey = activeGwentTurnKey
+        guard autoPassTurnKey != turnKey else { return }
+        autoPassTurnKey = turnKey
+        Task { await autoPassTimedOutTurn(match: match, turnKey: turnKey) }
+    }
+
+    @MainActor
+    func autoPassTimedOutTurn(match: [String: JSONValue], turnKey: String) async {
+        guard turnKey == activeGwentTurnKey, activeGwentIsPlayerTurn, activeGwentCanPass else { return }
+        model.infoMessage = "Время хода истекло: пас."
+        await pass(match: match)
+    }
+
+    func syncBoardFocusForSelectedCard() {
+        guard let selectedCardId else {
+            boardFocusSide = .own
+            return
+        }
+        boardFocusSide = boardFocusSide(for: selectedCardId)
+    }
+
+    func boardFocusSide(for cardId: String) -> GwentBoardFocusSide {
+        cardTargetsOpponentSide(cardId) ? .opponent : .own
+    }
+
     func deckState(playerId: String) -> [String: JSONValue] {
         activeMatch?.object("deck_state")?.object(playerId) ?? [:]
     }
@@ -1945,6 +2988,21 @@ private extension GwentTableView {
 
     func roundLosses(_ playerId: String) -> Int {
         activeMatch?.object("round_losses")?.int(playerId) ?? 0
+    }
+
+    func roundWins(_ playerId: String) -> Int {
+        let rounds = activeMatch?.array("rounds").compactMap(\.objectValue) ?? []
+        let resolvedRounds = rounds.filter { round in
+            !round.string("winner_id").isEmpty || jsonBool(round, key: "tie")
+        }
+        if !resolvedRounds.isEmpty {
+            return resolvedRounds.filter { $0.string("winner_id") == playerId }.count
+        }
+        return playerIds
+            .filter { $0 != playerId }
+            .reduce(0) { partial, opponentId in
+                partial + roundLosses(opponentId)
+            }
     }
 
     func roundHistoryText(_ match: [String: JSONValue]) -> String {
@@ -2051,6 +3109,7 @@ private extension GwentTableView {
         cardId: String? = nil,
         row: String? = nil,
         targetCardId: String? = nil,
+        discardCardIds: [String]? = nil,
         reviveCardId: String? = nil,
         reviveRow: String? = nil
     ) async {
@@ -2070,6 +3129,7 @@ private extension GwentTableView {
             cardId: cardId,
             row: row,
             targetCardId: targetCardId,
+            discardCardIds: discardCardIds,
             reviveCardId: reviveCardId,
             reviveRow: reviveRow,
             actionId: actionId
@@ -2135,17 +3195,37 @@ private extension GwentTableView {
 
     @MainActor
     func submitTargetedPlay(_ selection: GwentTargetSelection, target: [String: JSONValue]) async {
+        let targetKind = selection.targetKind
+        let leaderTargetKinds: Set<String> = ["leader_own_graveyard_unit", "leader_opponent_graveyard_unit"]
         await submitGwentAction(
             matchId: selection.matchId,
             roundNumber: selection.roundNumber,
-            action: "play_card",
+            action: selection.action,
             cardId: selection.cardId,
             row: selection.row,
-            targetCardId: selection.targetKind == "own_non_hero_unit" ? target.string("card_id") : nil,
-            reviveCardId: selection.targetKind == "graveyard_unit" ? target.string("card_id") : nil
+            targetCardId: targetKind == "own_non_hero_unit" || leaderTargetKinds.contains(targetKind) ? target.string("card_id") : nil,
+            discardCardIds: selection.discardCardIds.isEmpty ? nil : selection.discardCardIds,
+            reviveCardId: targetKind == "graveyard_unit" ? target.string("card_id") : nil
         )
         selectedCardId = nil
         pendingTargetSelection = nil
+    }
+
+    @MainActor
+    func submitLeaderDiscardPlay(_ selection: GwentLeaderDiscardSelection) async {
+        let discardIds = Array(selectedLeaderDiscardIds).sorted()
+        guard discardIds.count == 2 else { return }
+        await submitGwentAction(
+            matchId: selection.matchId,
+            roundNumber: selection.roundNumber,
+            action: "use_leader",
+            cardId: selection.cardId,
+            targetCardId: selection.drawCardId,
+            discardCardIds: discardIds
+        )
+        selectedCardId = nil
+        selectedLeaderDiscardIds.removeAll()
+        pendingLeaderDiscardSelection = nil
     }
 
     @MainActor
@@ -2158,13 +3238,111 @@ private extension GwentTableView {
         selectedCardId = nil
     }
 
+    func showLeaderActivation(match: [String: JSONValue]) {
+        guard activeGwentCanUseLeader else { return }
+        let leaderCardId = legalActions?.string("leader_card_id") ?? ""
+        guard !leaderCardId.isEmpty else { return }
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+            activeEffectInfo = nil
+            pendingLeaderActivation = GwentLeaderActivation(
+                match: match,
+                leaderCardId: leaderCardId,
+                effectInfo: leaderActivationInfo(cardId: leaderCardId)
+            )
+        }
+    }
+
+    func leaderActivationInfo(cardId: String) -> GwentEffectInfo {
+        let card = gwentCardMeta(cardId)
+        let effect = (card.map(gwentCardEffects)?.first ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let body = card?.effectText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedBody: String
+        if !body.isEmpty {
+            resolvedBody = body
+        } else if effect.isEmpty {
+            resolvedBody = "Активируйте способность лидера как особый эффект матча."
+        } else {
+            resolvedBody = gwentEffectDescription(effect, row: nil, playerId: ownPlayerId, cardTitle: gwentCardTitle(cardId))
+        }
+        return GwentEffectInfo(
+            id: "leader-activation:\(cardId):\(effect)",
+            title: effect.isEmpty ? "Способность лидера" : gwentEffectTitle(effect),
+            subtitle: gwentCardTitle(cardId),
+            body: resolvedBody,
+            icon: effect.isEmpty ? "crown.fill" : gwentEffectIcon(effect),
+            badge: "Лидер",
+            color: effect.isEmpty ? .yellow : gwentEffectColor(effect),
+            usesDarkText: false
+        )
+    }
+
     @MainActor
     func useLeader(match: [String: JSONValue]) async {
+        pendingLeaderActivation = nil
+        let leaderCardId = legalActions?.string("leader_card_id") ?? ""
+        guard !leaderCardId.isEmpty else { return }
+        let leaderEffect = gwentCardMeta(leaderCardId).map(gwentCardEffects)?.first ?? ""
+        switch leaderEffect {
+        case "leader_emhyr_graveyard_theft":
+            let targets = leaderGraveyardTargets(playerId: opponentPlayerId)
+            guard !targets.isEmpty else {
+                model.errorMessage = "В сбросе соперника нет обычной карты для лидера."
+                return
+            }
+            pendingTargetSelection = GwentTargetSelection(
+                action: "use_leader",
+                matchId: match.string("match_id"),
+                roundNumber: activeGwentRoundNumber,
+                cardId: leaderCardId,
+                row: nil,
+                targetKind: "leader_opponent_graveyard_unit",
+                discardCardIds: [],
+                targets: targets
+            )
+            return
+        case "leader_eredin_graveyard_return":
+            let targets = leaderGraveyardTargets(playerId: ownPlayerId)
+            guard !targets.isEmpty else {
+                model.errorMessage = "В вашем сбросе нет обычной карты для лидера."
+                return
+            }
+            pendingTargetSelection = GwentTargetSelection(
+                action: "use_leader",
+                matchId: match.string("match_id"),
+                roundNumber: activeGwentRoundNumber,
+                cardId: leaderCardId,
+                row: nil,
+                targetKind: "leader_own_graveyard_unit",
+                discardCardIds: [],
+                targets: targets
+            )
+            return
+        case "leader_eredin_discard_draw":
+            let hand = activeGwentHand
+            let drawPile = deckState(playerId: ownPlayerId).arrayStrings("draw_pile")
+            guard hand.count >= 2, let drawCardId = drawPile.first else {
+                model.errorMessage = "Для лидера нужны две карты в руке и карта в колоде."
+                return
+            }
+            selectedLeaderDiscardIds = []
+            pendingLeaderDiscardSelection = GwentLeaderDiscardSelection(
+                matchId: match.string("match_id"),
+                roundNumber: activeGwentRoundNumber,
+                cardId: leaderCardId,
+                hand: hand,
+                drawCardId: drawCardId
+            )
+            return
+        default:
+            break
+        }
         await submitGwentAction(
             matchId: match.string("match_id"),
             roundNumber: activeGwentRoundNumber,
             action: "use_leader",
-            cardId: legalActions?.string("leader_card_id"),
+            cardId: leaderCardId,
             row: "melee"
         )
         selectedCardId = nil
@@ -2205,9 +3383,10 @@ private extension GwentTableView {
 
     func cardTargetsOpponentSide(_ cardId: String) -> Bool {
         if let action = playableAction(for: cardId) {
-            return action.string("effect") == "spy"
+            return action.string("effect") == "spy" || action.arrayStrings("effects").contains("spy")
         }
-        return gwentCardMeta(cardId)?.effect == "spy"
+        guard let meta = gwentCardMeta(cardId) else { return false }
+        return meta.effect == "spy" || meta.abilityTags.contains("spy")
     }
 
     func handCardPlacementLabel(_ cardId: String, row: String) -> String {
@@ -2237,8 +3416,11 @@ private extension GwentTableView {
 
     func selectedCardCanPlay(row: String, isOpponent: Bool) -> Bool {
         guard activeGwentCanPlay, let selectedCardId else { return false }
+        guard !selectedCardNeedsBoardTarget(selectedCardId) else { return false }
+        let rows = legalRows(for: selectedCardId)
+        guard !rows.isEmpty else { return false }
         return cardCanUseBoardSide(selectedCardId, isOpponent: isOpponent)
-            && cardCanPlay(selectedCardId, on: row)
+            && rows.contains(row)
     }
 
     func wrongSideMessage(for cardId: String) -> String {
@@ -2271,6 +3453,10 @@ private extension GwentTableView {
         object.object("stake") ?? object.object("stake_json")
     }
 
+    func stakeIsPractice(_ stake: [String: JSONValue]) -> Bool {
+        stake.string("asset_type").lowercased() == "practice"
+    }
+
     func stakeLabel(_ stake: [String: JSONValue]) -> String {
         let assetType = stake.string("asset_type").lowercased()
         let assetId = stake.string("asset_id")
@@ -2285,6 +3471,23 @@ private extension GwentTableView {
         return quantity > 1
             ? "\(assetTypeLabel(assetType)) \(assetName) x\(quantity)"
             : "\(assetTypeLabel(assetType)) \(assetName)"
+    }
+
+    func formatTurnCountdown(_ seconds: Int) -> String {
+        let clamped = max(0, seconds)
+        return "\(clamped / 60):\(String(format: "%02d", clamped % 60))"
+    }
+
+    func parseGwentDate(_ value: String) -> Date? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: trimmed) {
+            return date
+        }
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: trimmed)
     }
 
     func stakeStatusLabel(_ stake: [String: JSONValue]) -> String {
@@ -2363,7 +3566,12 @@ private extension GwentTableView {
     }
 
     func gwentDeckTitle(_ deck: GwentDeck) -> String {
-        readableIdentifier(deck.deckId, droppingPrefixes: ["deck_", "gwent_deck_"])
+        let playerName = gwentPlayerName(deck.playerId)
+        let faction = gwentFactionLabel(gwentDeckFaction(deck))
+        if !playerName.isEmpty {
+            return "\(playerName) - \(faction)"
+        }
+        return faction
     }
 
     func gwentDeckFaction(_ deck: GwentDeck) -> String {
@@ -2445,10 +3653,10 @@ private extension GwentTableView {
     func gwentDeckWarnings(_ metrics: GwentDeckMetrics) -> [String] {
         var warnings: [String] = []
         if metrics.units < 22 {
-            warnings.append("Нужно минимум 22 unit-карты.")
+            warnings.append("Нужно минимум 22 карты отрядов.")
         }
         if metrics.specials > 10 {
-            warnings.append("Special-карт должно быть не больше 10.")
+            warnings.append("Особых карт должно быть не больше 10.")
         }
         if metrics.activeRows < 2 {
             warnings.append("Колода почти не покрывает боевые ряды.")
@@ -2460,18 +3668,20 @@ private extension GwentTableView {
         guard let meta = gwentCardMeta(cardId) else {
             return readableIdentifier(cardId)
         }
-        let effect = meta.effect == "none" ? "без эффекта" : gwentEffectLabel(meta.effect)
+        let effect = meta.effectText.isEmpty
+            ? gwentEffectSummary(meta)
+            : meta.effectText
         return "\(gwentRowLabel(meta.row)) · \(gwentTypeLabel(meta.type)) · \(effect)"
     }
 
     func gwentTypeLabel(_ type: String) -> String {
         switch type.lowercased() {
         case "unit":
-            return "unit"
+            return "отряд"
         case "special":
-            return "special"
+            return "особая карта"
         case "leader":
-            return "leader"
+            return "лидер"
         default:
             return readableIdentifier(type)
         }
@@ -2482,19 +3692,19 @@ private extension GwentTableView {
         case "none":
             return "без эффекта"
         case "hero":
-            return "hero"
+            return "герой"
         case "spy":
-            return "spy"
+            return "шпион"
         case "medic":
-            return "medic"
+            return "лекарь"
         case "muster":
-            return "muster"
+            return "сбор"
         case "morale":
-            return "morale"
+            return "боевой дух"
         case "bond", "tight_bond":
-            return "tight bond"
+            return "связка"
         case "agile":
-            return "agile"
+            return "гибкая"
         case "weather_melee", "biting_frost":
             return "погода: ближний ряд"
         case "weather_ranged", "impenetrable_fog":
@@ -2506,19 +3716,47 @@ private extension GwentTableView {
         case "commanders_horn":
             return "командирский рог"
         case "decoy":
-            return "приманка"
+            return "чучело"
         case "scorch":
             return "казнь"
-        case "leader_order_rally":
-            return "приказ лидера"
+        case "scorch_melee":
+            return "казнь ближнего ряда"
+        case "scorch_ranged":
+            return "казнь дальнего ряда"
+        case "scorch_siege":
+            return "казнь осады"
+        case "leader_foltest_fog":
+            return "Фольтест: туман"
         case "leader_foltest_clear_weather":
             return "Фольтест: ясная погода"
+        case "leader_foltest_siege_horn":
+            return "Фольтест: рог осады"
+        case "leader_foltest_siege_scorch":
+            return "Фольтест: казнь осады"
+        case "leader_emhyr_spy_hand":
+            return "Эмгыр: разведка"
+        case "leader_emhyr_rain":
+            return "Эмгыр: ливень"
         case "leader_emhyr_graveyard_theft":
             return "Эмгыр: карта из сброса"
+        case "leader_emhyr_cancel_leader":
+            return "Эмгыр: запрет лидера"
+        case "leader_francesca_draw":
+            return "Францеска: добор"
+        case "leader_francesca_frost":
+            return "Францеска: мороз"
+        case "leader_francesca_melee_scorch":
+            return "Францеска: казнь ближнего ряда"
         case "leader_francesca_ranged_horn":
             return "Францеска: рог дальнего ряда"
+        case "leader_eredin_graveyard_return":
+            return "Эредин: вернуть из сброса"
         case "leader_eredin_melee_horn":
             return "Эредин: рог ближнего ряда"
+        case "leader_eredin_discard_draw":
+            return "Эредин: сброс и добор"
+        case "leader_eredin_weather":
+            return "Эредин: погода"
         case "leader_crach_graveyard_shuffle":
             return "Крах: замешать сброс"
         case "coin_toss_first_turn":
@@ -2551,11 +3789,12 @@ private extension GwentTableView {
             }
         }
         guard let meta = gwentCardMeta(cardId) else { return ownRows }
-        if meta.effect == "agile" {
+        let effects = [meta.effect] + meta.abilityTags
+        if effects.contains("agile") {
             return ["melee", "ranged"]
         }
         if meta.type == "special" {
-            return meta.effect == "commanders_horn" ? ownRows : []
+            return effects.contains("commanders_horn") ? ownRows : []
         }
         return ownRows.contains(meta.row) ? [meta.row] : ownRows
     }
@@ -2576,11 +3815,13 @@ private extension GwentTableView {
             return nil
         }
         return GwentTargetSelection(
+            action: "play_card",
             matchId: match.string("match_id"),
             roundNumber: activeGwentRoundNumber,
             cardId: cardId,
             row: row,
             targetKind: targetKind,
+            discardCardIds: [],
             targets: targets
         )
     }
@@ -2599,8 +3840,517 @@ private extension GwentTableView {
         return action.array("targets").compactMap(\.objectValue).first?.string("card_id")
     }
 
+    func leaderGraveyardTargets(playerId: String) -> [[String: JSONValue]] {
+        deckState(playerId: playerId).arrayStrings("graveyard").compactMap { cardId in
+            guard let meta = gwentCardMeta(cardId),
+                  meta.type.lowercased() == "unit",
+                  !gwentCardEffects(meta).contains("hero")
+            else { return nil }
+            return [
+                "card_id": .string(cardId),
+                "row": .string(meta.row),
+                "strength": .int(meta.strength),
+                "effect": .string(meta.effect)
+            ]
+        }
+    }
+
     func rowBackground(_ row: String) -> Color {
         gwentRowColor(row).opacity(0.12)
+    }
+
+    func boardRowBackground(row: String, playable: Bool, effectTarget: Bool) -> Color {
+        if playable {
+            return .yellow.opacity(0.24)
+        }
+        if effectTarget, let selectedCardId {
+            return selectedCardActionColor(selectedCardId).opacity(0.18)
+        }
+        return rowBackground(row)
+    }
+
+    func boardRowBackgroundView(
+        row: String,
+        activeEffects: [GwentEffectInfo],
+        playable: Bool,
+        effectTarget: Bool
+    ) -> some View {
+        let hasWeather = activeEffects.contains { $0.id.hasPrefix("weather:") }
+        let hasHorn = activeEffects.contains { $0.id.hasPrefix("horn:") }
+        return ZStack {
+            boardRowBackground(row: row, playable: playable, effectTarget: effectTarget)
+
+            if hasWeather {
+                LinearGradient(
+                    colors: [
+                        .blue.opacity(0.36),
+                        .cyan.opacity(0.16),
+                        .blue.opacity(0.28)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            }
+
+            if hasHorn {
+                LinearGradient(
+                    colors: [
+                        .clear,
+                        .orange.opacity(0.26),
+                        .yellow.opacity(0.18)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            }
+        }
+    }
+
+    func boardRowStrokeColor(
+        row: String,
+        activeEffects: [GwentEffectInfo],
+        playable: Bool,
+        effectTarget: Bool
+    ) -> Color {
+        if playable {
+            return .yellow.opacity(0.82)
+        }
+        if effectTarget, let selectedCardId {
+            return selectedCardActionColor(selectedCardId).opacity(0.68)
+        }
+        if let effect = activeEffects.first {
+            return effect.color.opacity(0.78)
+        }
+        return gwentRowColor(row).opacity(0.38)
+    }
+
+    func activeWeatherRows() -> Set<String> {
+        Set(roundState?.arrayStrings("weather_rows") ?? [])
+    }
+
+    func activeHornRows(playerId: String) -> Set<String> {
+        Set(roundState?.object("horn_rows")?.arrayStrings(playerId) ?? [])
+    }
+
+    func activeWeatherEffectInfos() -> [GwentEffectInfo] {
+        let rows = activeWeatherRows()
+        return ownRows
+            .filter { rows.contains($0) }
+            .map { activeWeatherEffectInfo(row: $0) }
+    }
+
+    func privateRevealEffectInfo() -> GwentEffectInfo? {
+        let reveals = deckState(playerId: ownPlayerId).array("private_reveals").compactMap(\.objectValue)
+        guard let latestReveal = reveals.last else { return nil }
+        let cardIds = latestReveal.arrayStrings("card_ids")
+        guard !cardIds.isEmpty else { return nil }
+        let titles = cardIds.map(gwentCardTitle)
+        return GwentEffectInfo(
+            id: "private-reveal:\(cardIds.joined(separator: ","))",
+            title: gwentEffectTitle("leader_emhyr_spy_hand"),
+            subtitle: "Раскрыто карт: \(cardIds.count)",
+            body: titles.joined(separator: ", "),
+            icon: gwentEffectIcon("leader_emhyr_spy_hand"),
+            badge: "\(cardIds.count)",
+            color: gwentEffectColor("leader_emhyr_spy_hand"),
+            usesDarkText: false
+        )
+    }
+
+    func activeRowEffects(playerId: String, row: String) -> [GwentEffectInfo] {
+        var effects: [GwentEffectInfo] = []
+        if activeWeatherRows().contains(row) {
+            effects.append(activeWeatherEffectInfo(row: row))
+        }
+        if activeHornRows(playerId: playerId).contains(row) {
+            effects.append(activeHornEffectInfo(playerId: playerId, row: row))
+        }
+        return effects
+    }
+
+    func activeWeatherEffectInfo(row: String) -> GwentEffectInfo {
+        let effect = activeWeatherEffectKey(for: row)
+        let rowLabel = shortRowLabel(row).lowercased()
+        return GwentEffectInfo(
+            id: "weather:\(row):\(effect)",
+            title: gwentEffectTitle(effect),
+            subtitle: "Влияет на \(rowLabel) ряд у обоих игроков",
+            body: gwentEffectDescription(effect, row: row, playerId: nil, cardTitle: nil),
+            icon: gwentEffectIcon(effect),
+            badge: gwentEffectBadge(effect),
+            color: gwentEffectColor(effect),
+            usesDarkText: false
+        )
+    }
+
+    func activeHornEffectInfo(playerId: String, row: String) -> GwentEffectInfo {
+        GwentEffectInfo(
+            id: "horn:\(playerId):\(row)",
+            title: gwentEffectTitle("commanders_horn"),
+            subtitle: "\(gwentPlayerName(playerId)): \(shortRowLabel(row).lowercased()) ряд",
+            body: gwentEffectDescription("commanders_horn", row: row, playerId: playerId, cardTitle: nil),
+            icon: gwentEffectIcon("commanders_horn"),
+            badge: gwentEffectBadge("commanders_horn"),
+            color: gwentEffectColor("commanders_horn"),
+            usesDarkText: false
+        )
+    }
+
+    func cardEffectInfo(effect: String, cardId: String, row: String?, playerId: String?) -> GwentEffectInfo {
+        let normalizedEffect = effect.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return GwentEffectInfo(
+            id: "card:\(cardId):\(normalizedEffect)",
+            title: gwentEffectTitle(normalizedEffect),
+            subtitle: gwentCardTitle(cardId),
+            body: gwentEffectDescription(normalizedEffect, row: row, playerId: playerId, cardTitle: gwentCardTitle(cardId)),
+            icon: gwentEffectIcon(normalizedEffect),
+            badge: gwentEffectBadge(normalizedEffect),
+            color: gwentEffectColor(normalizedEffect),
+            usesDarkText: normalizedEffect == "clear_weather"
+        )
+    }
+
+    func activeWeatherEffectKey(for row: String) -> String {
+        let appliedEffects = roundState?.array("effects_applied").compactMap(\.objectValue) ?? []
+        for effectRecord in appliedEffects.reversed() {
+            let effect = effectRecord.string("effect").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if weatherAffectedRows([effect]).contains(row) {
+                return effect
+            }
+
+            let weatherCardId = effectRecord.string("weather_card_id").trimmingCharacters(in: .whitespacesAndNewlines)
+            if let card = gwentCardMeta(weatherCardId) {
+                for cardEffect in gwentCardEffects(card) where weatherAffectedRows([cardEffect]).contains(row) {
+                    return cardEffect
+                }
+            }
+        }
+        return fallbackWeatherEffect(for: row)
+    }
+
+    func fallbackWeatherEffect(for row: String) -> String {
+        switch row.lowercased() {
+        case "melee":
+            return "weather_melee"
+        case "ranged":
+            return "weather_ranged"
+        case "siege":
+            return "weather_siege"
+        default:
+            return "weather_melee"
+        }
+    }
+
+    func gwentEffectTitle(_ effect: String) -> String {
+        switch effect.lowercased() {
+        case "weather_melee", "biting_frost":
+            return "Мороз"
+        case "weather_ranged", "impenetrable_fog":
+            return "Туман"
+        case "weather_siege", "torrential_rain":
+            return "Ливень"
+        case "clear_weather":
+            return "Ясная погода"
+        case "commanders_horn":
+            return "Командирский рог"
+        case "decoy":
+            return "Чучело"
+        case "scorch":
+            return "Казнь"
+        case "scorch_melee":
+            return "Казнь ближнего ряда"
+        case "scorch_ranged":
+            return "Казнь дальнего ряда"
+        case "scorch_siege":
+            return "Казнь осады"
+        default:
+            let label = gwentEffectLabel(effect)
+            guard let first = label.first else { return label }
+            return String(first).uppercased() + label.dropFirst()
+        }
+    }
+
+    func gwentEffectBadge(_ effect: String) -> String {
+        switch effect.lowercased() {
+        case "weather_melee", "biting_frost":
+            return "Мороз"
+        case "weather_ranged", "impenetrable_fog":
+            return "Туман"
+        case "weather_siege", "torrential_rain":
+            return "Ливень"
+        case "clear_weather":
+            return "Ясно"
+        case "commanders_horn":
+            return "Рог"
+        case "decoy":
+            return "Чучело"
+        case "scorch", "scorch_melee", "scorch_ranged", "scorch_siege":
+            return "Казнь"
+        case "bond", "tight_bond":
+            return "Связка"
+        case "morale":
+            return "Дух"
+        case "muster":
+            return "Сбор"
+        case "medic":
+            return "Лекарь"
+        case "spy":
+            return "Шпион"
+        case "hero":
+            return "Герой"
+        default:
+            return gwentEffectLabel(effect)
+        }
+    }
+
+    func gwentEffectDescription(_ effect: String, row: String?, playerId: String?, cardTitle: String?) -> String {
+        let rowLabel = row.map { shortRowLabel($0).lowercased() } ?? "выбранный"
+        let playerLabel = playerId.map(gwentPlayerName) ?? "этой стороны"
+        switch effect.lowercased() {
+        case "weather_melee", "biting_frost", "weather_ranged", "impenetrable_fog", "weather_siege", "torrential_rain":
+            return "Обычные карты в \(rowLabel) ряду у обоих игроков считаются силой 1. Герои не ослабляются. Ясная погода снимает этот эффект."
+        case "clear_weather":
+            return "Снимает всю активную погоду со всех боевых рядов. Уже сыгранные роги, герои и прочие способности остаются на столе."
+        case "commanders_horn":
+            return "Удваивает силу обычных отрядов в \(rowLabel) ряду игрока \(playerLabel). Герои не меняются; при погоде обычная карта сначала становится силой 1, потом удваивается."
+        case "decoy":
+            return "Верните один свой обычный отряд со стола в руку и положите чучело на его место. Героя так вернуть нельзя."
+        case "scorch":
+            return "Убирает с поля самые сильные обычные отряды. Герои не сгорают."
+        case "scorch_melee":
+            return "Убирает самые сильные обычные отряды в ближнем ряду. Герои не сгорают."
+        case "scorch_ranged":
+            return "Убирает самые сильные обычные отряды в дальнем ряду. Герои не сгорают."
+        case "scorch_siege":
+            return "Убирает самые сильные обычные отряды в осадном ряду. Герои не сгорают."
+        case "hero":
+            return "Герой не подвержен погоде, рогу, казни и большинству способностей. Его сила остается напечатанной на карте."
+        case "spy":
+            return "Шпион кладется на сторону соперника, но дает вам добор карт. Очки шпиона получает сторона, на которой он лежит."
+        case "medic":
+            return "Позволяет вернуть один обычный отряд из своего сброса на стол. Герои обычно не выбираются целью лекаря."
+        case "muster":
+            return "Когда карта выходит на стол, она подтягивает связанные карты той же группы, если они доступны в колоде или руке."
+        case "morale":
+            return "Дает +1 к силе другим обычным отрядам в этом же ряду. Сам носитель боевого духа себя не усиливает."
+        case "bond", "tight_bond":
+            return "Одинаковые или связанные отряды усиливают друг друга в одном ряду. Чем больше таких карт рядом, тем выше сила группы."
+        case "agile":
+            return "Гибкую карту можно сыграть в ближний или дальний ряд."
+        default:
+            if effect.hasPrefix("leader_") {
+                return "Способность лидера применяется как особый эффект матча. Смотрите подсветку на столе: она показывает, какие ряды или карты уже затронуты."
+            }
+            if let cardTitle {
+                return "\(cardTitle): \(gwentEffectLabel(effect))."
+            }
+            return gwentEffectLabel(effect)
+        }
+    }
+
+    func selectedCardEffectKeys(_ cardId: String) -> [String] {
+        if let meta = gwentCardMeta(cardId) {
+            return gwentCardEffects(meta)
+        }
+        guard let action = playableAction(for: cardId) else { return [] }
+        var seen: Set<String> = []
+        var result: [String] = []
+        for rawEffect in [action.string("effect")] + action.arrayStrings("effects") {
+            let effect = rawEffect.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !effect.isEmpty, effect != "none", !seen.contains(effect) else { continue }
+            seen.insert(effect)
+            result.append(effect)
+        }
+        return result
+    }
+
+    func selectedCardActionIcon(_ cardId: String) -> String {
+        if let effect = selectedCardEffectKeys(cardId).first {
+            return gwentEffectIcon(effect)
+        }
+        return gwentRowIcon(gwentCardMeta(cardId)?.row ?? "special")
+    }
+
+    func selectedCardActionColor(_ cardId: String) -> Color {
+        let effects = selectedCardEffectKeys(cardId)
+        if effects.contains("decoy") || selectedCardNeedsBoardTarget(cardId) {
+            return .gray
+        }
+        if effects.contains("bond") || effects.contains("tight_bond") {
+            return .red
+        }
+        if effects.contains("commanders_horn") {
+            return .orange
+        }
+        if effects.contains(where: isWeatherEffect) {
+            return .cyan
+        }
+        if effects.contains("hero") {
+            return .yellow
+        }
+        if let effect = effects.first {
+            return gwentEffectColor(effect)
+        }
+        return .yellow
+    }
+
+    func selectedCardActionTitle(_ cardId: String) -> String {
+        let effects = selectedCardEffectKeys(cardId)
+        if effects.contains("decoy") || selectedCardNeedsBoardTarget(cardId) {
+            return "Чучело: выбери цель"
+        }
+        if effects.contains("commanders_horn") {
+            return "Рог: выбери ряд"
+        }
+        if effects.contains(where: isWeatherEffect) {
+            return "Погода: сыграй карту"
+        }
+        if effects.contains("bond") || effects.contains("tight_bond") {
+            return "Связка: усили ряд"
+        }
+        if effects.contains("hero") {
+            return "Герой: выбери ряд"
+        }
+        return "Выбери действие"
+    }
+
+    func selectedCardActionHint(_ cardId: String) -> String {
+        let effects = selectedCardEffectKeys(cardId)
+        if effects.contains("decoy") || selectedCardNeedsBoardTarget(cardId) {
+            return "Подсвечены ваши обычные отряды, которые можно вернуть в руку."
+        }
+        if effects.contains("commanders_horn") {
+            return "Подсвечены ваши боевые ряды для удвоения силы."
+        }
+        if effects.contains(where: isWeatherEffect) {
+            return "Подсвечен ряд, который погода ослабит у обоих игроков."
+        }
+        if effects.contains("bond") || effects.contains("tight_bond") {
+            return "Подсвечены такие же отряды на вашей стороне."
+        }
+        if effects.contains("hero") {
+            return "Неуязвим к погоде, рогу, казни и большинству способностей."
+        }
+        return legalRows(for: cardId).isEmpty ? "Эта карта играется без выбора ряда." : "Подсвечены доступные ряды."
+    }
+
+    func selectedRowEffectLabel(row: String) -> String {
+        guard let selectedCardId else { return "" }
+        let effects = selectedCardEffectKeys(selectedCardId)
+        if effects.contains("commanders_horn") {
+            return "Рог"
+        }
+        if effects.contains(where: isWeatherEffect) {
+            return "Погода"
+        }
+        return shortRowLabel(row)
+    }
+
+    func selectedCardNeedsBoardTarget(_ cardId: String) -> Bool {
+        if playableAction(for: cardId)?.string("target_kind") == "own_non_hero_unit" {
+            return true
+        }
+        return selectedCardEffectKeys(cardId).contains("decoy")
+    }
+
+    func selectedCardPlaysWithoutSpecificRow(_ cardId: String) -> Bool {
+        legalRows(for: cardId).isEmpty
+    }
+
+    func selectedCardHighlightsRow(row: String, playerId: String, isOpponent: Bool) -> Bool {
+        guard let selectedCardId else { return false }
+        let effects = selectedCardEffectKeys(selectedCardId)
+        if effects.contains("commanders_horn") {
+            return !isOpponent && ownRows.contains(row)
+        }
+        if effects.contains(where: isWeatherEffect) {
+            return weatherAffectedRows(effects).contains(row)
+        }
+        return false
+    }
+
+    var selectedCardDimsUnrelatedBoardCards: Bool {
+        guard let selectedCardId else { return false }
+        let effects = selectedCardEffectKeys(selectedCardId)
+        return selectedCardNeedsBoardTarget(selectedCardId)
+            || effects.contains("bond")
+            || effects.contains("tight_bond")
+    }
+
+    func selectedCardHighlightsAnyCard(in cards: [JSONValue], playerId: String) -> Bool {
+        cards.contains { selectedBoardCardIsHighlighted($0, playerId: playerId) }
+    }
+
+    func selectedBoardCardIsHighlighted(_ value: JSONValue, playerId: String) -> Bool {
+        guard let selectedCardId else { return false }
+        let targetCardId = gwentCardId(value)
+        if selectedCardNeedsBoardTarget(selectedCardId) {
+            guard playerId == ownPlayerId else { return false }
+            let targetIds = selectedCardTargetIds(selectedCardId)
+            if !targetIds.isEmpty {
+                return targetIds.contains(targetCardId)
+            }
+            guard let targetMeta = gwentCardMeta(targetCardId) else { return false }
+            return targetMeta.type.lowercased() == "unit" && !gwentCardEffects(targetMeta).contains("hero")
+        }
+        guard playerId == ownPlayerId,
+              let selectedReference = selectedCardBondReference(selectedCardId),
+              let targetMeta = gwentCardMeta(targetCardId)
+        else { return false }
+        return cardMatchesBondReference(targetMeta, reference: selectedReference)
+    }
+
+    func selectedCardTargetIds(_ cardId: String) -> Set<String> {
+        guard let action = playableAction(for: cardId) else { return [] }
+        return Set(action.array("targets").compactMap(\.objectValue).map { $0.string("card_id") })
+    }
+
+    func selectedCardBondReference(_ cardId: String) -> String? {
+        guard let card = gwentCardMeta(cardId) else { return nil }
+        let effects = gwentCardEffects(card)
+        guard effects.contains("bond") || effects.contains("tight_bond") else { return nil }
+        let bondGroup = card.bondGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !bondGroup.isEmpty {
+            return "bond:\(bondGroup)"
+        }
+        let nameGroup = card.nameGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        return nameGroup.isEmpty ? nil : "name:\(nameGroup)"
+    }
+
+    func cardMatchesBondReference(_ card: GwentCard, reference: String) -> Bool {
+        if reference.hasPrefix("bond:") {
+            return card.bondGroup == String(reference.dropFirst("bond:".count))
+        }
+        if reference.hasPrefix("name:") {
+            return card.nameGroup == String(reference.dropFirst("name:".count))
+        }
+        return false
+    }
+
+    func isWeatherEffect(_ effect: String) -> Bool {
+        switch effect.lowercased() {
+        case "weather_melee", "biting_frost", "weather_ranged", "impenetrable_fog", "weather_siege", "torrential_rain":
+            return true
+        default:
+            return false
+        }
+    }
+
+    func weatherAffectedRows(_ effects: [String]) -> Set<String> {
+        var rows: Set<String> = []
+        for effect in effects {
+            switch effect.lowercased() {
+            case "weather_melee", "biting_frost":
+                rows.insert("melee")
+            case "weather_ranged", "impenetrable_fog":
+                rows.insert("ranged")
+            case "weather_siege", "torrential_rain":
+                rows.insert("siege")
+            default:
+                continue
+            }
+        }
+        return rows
     }
 
     func jsonBool(_ object: [String: JSONValue], key: String) -> Bool {
@@ -2619,14 +4369,157 @@ private extension GwentTableView {
     }
 
     func gwentCardStrength(_ value: JSONValue) -> Int? {
-        if let object = value.objectValue, let strength = object["strength"]?.intValue {
-            return strength
+        if let object = value.objectValue {
+            let cardId = gwentCardId(value)
+            for key in ["effective_strength", "current_strength", "modified_strength", "score", "strength", "base_strength"] {
+                if let strength = object[key]?.intValue {
+                    return normalizedPayloadStrength(strength, key: key, cardId: cardId)
+                }
+            }
         }
         return gwentCardMeta(gwentCardId(value))?.strength
     }
 
+    func gwentBoardCardBaseStrength(_ value: JSONValue) -> Int? {
+        if let object = value.objectValue {
+            let cardId = gwentCardId(value)
+            for key in ["base_strength", "strength", "card_strength"] {
+                if let strength = object[key]?.intValue {
+                    return normalizedPayloadStrength(strength, key: key, cardId: cardId)
+                }
+            }
+        }
+        return gwentCardMeta(gwentCardId(value))?.strength
+    }
+
+    func gwentBoardCardProvidedStrength(_ value: JSONValue) -> Int? {
+        guard let object = value.objectValue else { return nil }
+        for key in ["effective_strength", "current_strength", "modified_strength", "score"] {
+            if let strength = object[key]?.intValue {
+                return strength
+            }
+        }
+        return nil
+    }
+
+    func gwentBoardCardDisplayStrength(
+        _ value: JSONValue,
+        row: String,
+        playerId: String,
+        rowCards: [JSONValue]
+    ) -> Int? {
+        if let provided = gwentBoardCardProvidedStrength(value) {
+            return provided
+        }
+        guard let base = gwentBoardCardBaseStrength(value) else { return nil }
+
+        let cardId = gwentCardId(value)
+        let meta = gwentCardMeta(cardId)
+        let effects = gwentBoardCardEffects(value, meta: meta)
+        guard !effects.contains("hero") else { return base }
+
+        var strength = base
+        let weatherRows = Set(roundState?.arrayStrings("weather_rows") ?? [])
+        if weatherRows.contains(row) {
+            strength = 1
+        }
+
+        if effects.contains("bond") || effects.contains("tight_bond") {
+            let group = gwentBoardCardGroup(value, meta: meta, key: "bond_group", fallback: cardId)
+            let bondCount = rowCards.filter { candidate in
+                guard !gwentBoardCardIsRemoved(candidate) else { return false }
+                let candidateMeta = gwentCardMeta(gwentCardId(candidate))
+                let candidateEffects = gwentBoardCardEffects(candidate, meta: candidateMeta)
+                guard candidateEffects.contains("bond") || candidateEffects.contains("tight_bond") else { return false }
+                return gwentBoardCardGroup(candidate, meta: candidateMeta, key: "bond_group", fallback: gwentCardId(candidate)) == group
+            }.count
+            strength *= max(1, bondCount)
+        }
+
+        let hornRows = Set(roundState?.object("horn_rows")?.arrayStrings(playerId) ?? [])
+        if hornRows.contains(row) {
+            strength *= 2
+        }
+
+        if !effects.contains("morale") {
+            let moraleCount = rowCards.filter { candidate in
+                guard !gwentBoardCardIsRemoved(candidate) else { return false }
+                return gwentBoardCardEffects(candidate, meta: gwentCardMeta(gwentCardId(candidate))).contains("morale")
+            }.count
+            strength += moraleCount
+        }
+
+        return strength
+    }
+
+    func gwentBoardCardEffects(_ value: JSONValue, meta: GwentCard?) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+
+        func append(_ raw: String) {
+            let effect = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !effect.isEmpty, effect != "none", !seen.contains(effect) else { return }
+            seen.insert(effect)
+            result.append(effect)
+        }
+
+        if let object = value.objectValue {
+            for effect in object.arrayStrings("effects") {
+                append(effect)
+            }
+            append(object.string("effect"))
+            if jsonBool(object, key: "hero") {
+                append("hero")
+            }
+        }
+        if let meta {
+            for effect in gwentCardEffects(meta) {
+                append(effect)
+            }
+        }
+        return result
+    }
+
+    func gwentBoardCardGroup(_ value: JSONValue, meta: GwentCard?, key: String, fallback: String) -> String {
+        if let rawGroup = value.objectValue?.string(key) {
+            let group = rawGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !group.isEmpty {
+                return group
+            }
+        }
+        if key == "bond_group" {
+            let bondGroup = meta?.bondGroup.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !bondGroup.isEmpty {
+                return bondGroup
+            }
+        }
+        let nameGroup = meta?.nameGroup.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return nameGroup.isEmpty ? fallback : nameGroup
+    }
+
+    func gwentBoardCardIsRemoved(_ value: JSONValue) -> Bool {
+        guard let object = value.objectValue else { return false }
+        return jsonBool(object, key: "removed")
+    }
+
     func gwentCardMeta(_ cardId: String) -> GwentCard? {
-        model.snapshot?.gwentCards.first { $0.cardId == cardId }
+        let snapshotCard = model.snapshot?.gwentCards.first { $0.cardId == cardId }
+        if let snapshotCard, !snapshotCard.displayName.isEmpty {
+            return snapshotCard
+        }
+        return GwentStaticCatalog.card(cardId) ?? snapshotCard
+    }
+
+    func normalizedPayloadStrength(_ strength: Int, key: String, cardId: String) -> Int {
+        guard strength == 0,
+              ["strength", "base_strength", "card_strength"].contains(key),
+              let meta = gwentCardMeta(cardId),
+              meta.type.lowercased() == "unit",
+              meta.strength > 0
+        else {
+            return strength
+        }
+        return meta.strength
     }
 
     func gwentRowTotal(_ cards: [JSONValue]) -> Int {
@@ -2636,33 +4529,91 @@ private extension GwentTableView {
     }
 
     func gwentCardTitle(_ cardId: String) -> String {
+        if let meta = gwentCardMeta(cardId), !meta.displayName.isEmpty {
+            return meta.displayName
+        }
         let knownTitles = [
             "gwent_leader_wolf": "Наставник Школы Волка",
             "gwent_leader_nilfgaard": "Посол Империи",
             "gwent_leader_scoiatael": "Старейшина леса",
-            "gwent_unit_01": "Серебряный клинок",
-            "gwent_unit_02": "Следопыт Каэр Морхена",
-            "gwent_unit_03": "Арбалетчик Темерии",
-            "gwent_unit_04": "Каэдвенский копейщик",
-            "gwent_unit_07": "Лучник Синих Полос",
-            "gwent_unit_08": "Осадная команда",
-            "gwent_weather_frost": "Белый Хлад",
-            "gwent_horn": "Командирский рог"
+            "gwent_unit_01": "Реданский пехотинец",
+            "gwent_unit_02": "Зигфрид из Денесле",
+            "gwent_unit_03": "Боец Синих Полос",
+            "gwent_unit_04": "Боец Синих Полос",
+            "gwent_unit_05": "Каэдвенский осадный мастер",
+            "gwent_unit_06": "Принц Стеннис",
+            "gwent_unit_07": "Кейра Мец",
+            "gwent_unit_08": "Сабрина Глевиссиг",
+            "gwent_unit_09": "Лекарь Бурой Хоругви",
+            "gwent_unit_10": "Детмольд",
+            "gwent_unit_11": "Осадная башня",
+            "gwent_unit_12": "Охотник на драконов из Кринфрида",
+            "gwent_unit_13": "Баллиста",
+            "gwent_unit_14": "Требушет",
+            "gwent_unit_15": "Осадная команда",
+            "gwent_unit_16": "Катапульта",
+            "gwent_unit_17": "Барклай Эльс",
+            "gwent_unit_18": "Краснолюд-застрельщик",
+            "gwent_unit_19": "Накер",
+            "gwent_unit_20": "Накер",
+            "gwent_unit_21": "Шилярд Фиц-Эстерлен",
+            "gwent_unit_22": "Осадный техник",
+            "gwent_weather_frost": "Мороз",
+            "gwent_weather_fog": "Непроницаемый туман",
+            "gwent_weather_rain": "Ливень",
+            "gwent_clear_weather": "Ясная погода",
+            "gwent_horn": "Командирский рог",
+            "gwent_decoy": "Чучело",
+            "gwent_scorch": "Казнь"
         ]
         if let title = knownTitles[cardId] {
             return title
         }
         if cardId.hasPrefix("gwent_unit_") {
-            let suffix = cardId.replacingOccurrences(of: "gwent_unit_", with: "")
-            return suffix.isEmpty ? "Боевая карта" : "Боевая карта \(suffix)"
+            return "Отряд"
         }
         if cardId.hasPrefix("gwent_weather_") {
-            return "Погода: \(readableIdentifier(cardId, droppingPrefixes: ["gwent_weather_"]))"
+            return "Погодная карта"
         }
-        if let meta = gwentCardMeta(cardId), meta.type.lowercased() == "leader" {
-            return "Лидер \(readableIdentifier(cardId, droppingPrefixes: ["gwent_leader_", "gwent_"]))"
+        if cardId.hasPrefix("gwent_leader_") {
+            return "Лидер"
         }
-        return readableIdentifier(cardId, droppingPrefixes: ["gwent_"])
+        if cardId.hasPrefix("rare_gwent_") {
+            return "Редкая карта Гвинта"
+        }
+        if cardId.hasPrefix("nr_") {
+            return "Карта Северных королевств"
+        }
+        if cardId.hasPrefix("ng_") {
+            return "Карта Нильфгаарда"
+        }
+        if cardId.hasPrefix("sc_") {
+            return "Карта Скоя'таэлей"
+        }
+        if cardId.hasPrefix("mo_") {
+            return "Карта чудовищ"
+        }
+        if cardId.hasPrefix("neutral_") || cardId.hasPrefix("gwent_") {
+            return "Карта Гвинта"
+        }
+        return "Карта"
+    }
+
+    func gwentEffectSummary(_ card: GwentCard) -> String {
+        let labels = gwentCardEffects(card).map(gwentEffectLabel)
+        return labels.isEmpty ? "без эффекта" : labels.joined(separator: " · ")
+    }
+
+    func gwentCardEffects(_ card: GwentCard) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for rawEffect in [card.effect] + card.abilityTags {
+            let effect = rawEffect.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !effect.isEmpty, effect != "none", !seen.contains(effect) else { continue }
+            seen.insert(effect)
+            result.append(effect)
+        }
+        return result
     }
 
     func gwentRowLabel(_ row: String) -> String {
@@ -2809,5 +4760,137 @@ private extension GwentTableView {
         default:
             return "suit.club"
         }
+    }
+
+    func gwentBattleArtworkIcon(cardId: String, row: String) -> String {
+        if let meta = gwentCardMeta(cardId) {
+            switch meta.effect.lowercased() {
+            case "spy":
+                return "eye"
+            case "medic":
+                return "cross.case"
+            case "hero":
+                return "star.fill"
+            case "muster", "morale":
+                return "flag.fill"
+            case "commanders_horn":
+                return "horn"
+            case "decoy":
+                return "arrow.uturn.backward.circle"
+            case "scorch", "scorch_melee", "scorch_ranged", "scorch_siege":
+                return "flame.fill"
+            default:
+                break
+            }
+        }
+        return gwentRowIcon(row)
+    }
+
+    func gwentBattleCardBadgeText(card: GwentCard?, strength: Int?, row: String) -> String {
+        let type = card?.type.lowercased() ?? ""
+        let normalizedRow = row.lowercased()
+        if type == "leader" || normalizedRow == "leader" {
+            return "Л"
+        }
+        if normalizedRow == "weather" {
+            return "П"
+        }
+        if type == "special" || normalizedRow == "special" {
+            return "О"
+        }
+        return "\(strength ?? card?.strength ?? 0)"
+    }
+
+    func gwentBattleCardBadgeColor(card: GwentCard?, row: String) -> Color {
+        let type = card?.type.lowercased() ?? ""
+        let normalizedRow = row.lowercased()
+        let effects = card.map(gwentCardEffects) ?? []
+        if type == "leader" || normalizedRow == "leader" || effects.contains("hero") {
+            return .yellow
+        }
+        if normalizedRow == "weather" {
+            return .cyan
+        }
+        if type == "special" || normalizedRow == "special" {
+            return .orange
+        }
+        return .white
+    }
+
+    func gwentEffectIcon(_ effect: String) -> String {
+        switch effect.lowercased() {
+        case "none":
+            return "circle"
+        case "hero":
+            return "star.fill"
+        case "spy":
+            return "eye.fill"
+        case "medic":
+            return "cross.case.fill"
+        case "muster":
+            return "person.3.fill"
+        case "morale":
+            return "flag.fill"
+        case "bond", "tight_bond":
+            return "link"
+        case "agile":
+            return "arrow.left.arrow.right"
+        case "weather_melee", "biting_frost":
+            return "snowflake"
+        case "weather_ranged", "impenetrable_fog":
+            return "cloud.fog.fill"
+        case "weather_siege", "torrential_rain":
+            return "cloud.rain.fill"
+        case "clear_weather":
+            return "sun.max.fill"
+        case "commanders_horn":
+            return "horn"
+        case "decoy":
+            return "arrow.uturn.backward.circle.fill"
+        case "scorch", "scorch_melee", "scorch_ranged", "scorch_siege":
+            return "flame.fill"
+        default:
+            return effect.hasPrefix("leader_") ? "crown.fill" : "sparkles"
+        }
+    }
+
+    func gwentEffectColor(_ effect: String) -> Color {
+        switch effect.lowercased() {
+        case "none":
+            return .white.opacity(0.34)
+        case "hero":
+            return .yellow
+        case "spy":
+            return .purple
+        case "medic":
+            return .green
+        case "muster":
+            return .orange
+        case "morale":
+            return .mint
+        case "bond", "tight_bond":
+            return .red
+        case "agile":
+            return .cyan
+        case "weather_melee", "biting_frost", "weather_ranged", "impenetrable_fog", "weather_siege", "torrential_rain":
+            return .blue
+        case "clear_weather":
+            return .yellow
+        case "commanders_horn":
+            return .orange
+        case "decoy":
+            return .gray
+        case "scorch", "scorch_melee", "scorch_ranged", "scorch_siege":
+            return .red
+        default:
+            return effect.hasPrefix("leader_") ? .yellow : .indigo
+        }
+    }
+
+    func gwentArtworkAssetName(_ cardId: String) -> String? {
+        let normalizedCardId = cardId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCardId.isEmpty else { return nil }
+        let assetName = "gwent_card_art_\(normalizedCardId)"
+        return UIImage(named: assetName) == nil ? nil : assetName
     }
 }

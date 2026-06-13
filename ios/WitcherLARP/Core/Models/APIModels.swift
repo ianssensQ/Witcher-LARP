@@ -192,6 +192,7 @@ struct GwentActionRequest: Encodable {
     let cardId: String?
     let row: String?
     let targetCardId: String?
+    let discardCardIds: [String]?
     let reviveCardId: String?
     let reviveRow: String?
     let actionId: String?
@@ -203,6 +204,7 @@ struct GwentActionRequest: Encodable {
         case cardId = "card_id"
         case row
         case targetCardId = "target_card_id"
+        case discardCardIds = "discard_card_ids"
         case reviveCardId = "revive_card_id"
         case reviveRow = "revive_row"
         case actionId = "action_id"
@@ -270,6 +272,20 @@ struct TradeCreateRequest: Encodable {
         case mode
         case transferId = "transfer_id"
         case autoAccept = "auto_accept"
+        case source
+    }
+}
+
+struct MaterialMarketSellRequest: Encodable {
+    let materialId: String
+    let quantity: Int
+    let saleId: String?
+    let source: String
+
+    enum CodingKeys: String, CodingKey {
+        case materialId = "material_id"
+        case quantity
+        case saleId = "sale_id"
         case source
     }
 }

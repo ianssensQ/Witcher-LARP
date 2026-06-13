@@ -3,9 +3,13 @@ import SwiftUI
 
 struct QRScannerSheet: View {
     @Environment(\.dismiss) private var dismiss
+    var onMissionStarted: () -> Void = {}
 
     var body: some View {
         QRScannerFlowView(showsDismissControls: true) {
+            dismiss()
+        } onMissionStarted: {
+            onMissionStarted()
             dismiss()
         }
     }
@@ -20,10 +24,16 @@ struct QRScannerFlowView: View {
     @FocusState private var manualCodeFocused: Bool
     private let showsDismissControls: Bool
     private let onDone: () -> Void
+    private let onMissionStarted: () -> Void
 
-    init(showsDismissControls: Bool = false, onDone: @escaping () -> Void = {}) {
+    init(
+        showsDismissControls: Bool = false,
+        onDone: @escaping () -> Void = {},
+        onMissionStarted: @escaping () -> Void = {}
+    ) {
         self.showsDismissControls = showsDismissControls
         self.onDone = onDone
+        self.onMissionStarted = onMissionStarted
     }
 
     var body: some View {
@@ -103,30 +113,9 @@ private extension QRScannerFlowView {
         normalizeQRCode(manualCode)
     }
 
-    var currentResult: PvESceneDraft? {
-        guard let result = model.lastPvEResult, !normalizedCode.isEmpty else { return nil }
-        return result.qr.qrId.uppercased() == normalizedCode || result.qr.manualCode.uppercased() == normalizedCode
-            ? result
-            : nil
-    }
-
     @ViewBuilder
     var qrFeedback: some View {
-        if let result = currentResult {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(result.resultLabel)
-                    .font(.headline)
-                Text(result.result == "success" ? result.scenario.successText : result.scenario.failureText)
-                    .font(.subheadline)
-                Text("Награда: \(result.rewardLine)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        } else if let error = qrSpecificError {
+        if let error = qrSpecificError {
             Label(error, systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
                 .foregroundStyle(.orange)
@@ -187,7 +176,9 @@ private extension QRScannerFlowView {
         manualCode = normalized
         manualCodeFocused = false
         model.lastQRLookup = nil
-        model.completePVE(code: normalized, source: .camera)
+        if model.beginPVE(code: normalized, source: .camera) {
+            onMissionStarted()
+        }
         DispatchQueue.main.async {
             applyingScannedCode = false
         }
@@ -200,7 +191,9 @@ private extension QRScannerFlowView {
         inputSource = .manual
         manualCodeFocused = false
         model.lastQRLookup = nil
-        model.completePVE(code: normalized, source: inputSource)
+        if model.beginPVE(code: normalized, source: inputSource) {
+            onMissionStarted()
+        }
     }
 
     func normalizeQRCode(_ raw: String) -> String {

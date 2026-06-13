@@ -16,14 +16,14 @@ Current player release scope is iOS with PvP Gwent enabled:
 - player-facing PvP/Gwent and deck setup tabs with bot training, challenges,
   fullscreen table and deck review.
 
-The iOS app uses the dedicated iOS FastAPI server:
+The iOS app uses the same local FastAPI/SQLite game server as the master and
+lord browser panels:
 
 ```text
-http://192.168.0.102:8003
+http://192.168.68.118:8002
 ```
 
-Port `8002` is reserved for the lord server in the current LAN setup. If the
-master laptop IP changes, change only the host and keep port `8003` for iOS.
+If the master laptop IP changes, change only the host and keep port `8002`.
 
 ## Build Host
 
@@ -89,7 +89,7 @@ Before handing out phones, run the no-PvP HTTP smoke against the same server the
 iPhones will use:
 
 ```bash
-scripts/ios_no_pvp_http_smoke.py --server http://192.168.0.102:8003
+scripts/ios_no_pvp_http_smoke.py --server http://192.168.68.118:8002
 ```
 
 Default smoke is read-oriented: `/health`, `POST /api/auth/player-code`, and
@@ -102,7 +102,7 @@ full iOS contract smoke:
 
 ```bash
 scripts/ios_no_pvp_http_smoke.py \
-  --server http://192.168.0.102:8003 \
+  --server http://192.168.68.118:8002 \
   --include-qr-lookup \
   --include-empty-sync \
   --json-report /private/tmp/ios-no-pvp-smoke-report.json
@@ -143,11 +143,11 @@ sessions where `uv` is absent from PATH, use the existing `.venv/bin/python`.
 
 After a Release simulator build, run the visual smoke against a booted iOS
 Simulator. It installs the `.app`, seeds local player storage from the live
-`8003` snapshot, launches the app and screenshots the real Home screen:
+`8002` snapshot, launches the app and screenshots the real Home screen:
 
 ```bash
 scripts/ios_no_pvp_sim_visual_smoke.py \
-  --server http://192.168.0.102:8003 \
+  --server http://192.168.68.118:8002 \
   --app /private/tmp/witcher-ios-release-dd/Build/Products/Release-iphonesimulator/WitcherLARP.app \
   --artifact-dir /private/tmp/ios-no-pvp-sim-visual-smoke
 ```
@@ -163,13 +163,13 @@ Run the combined no-PvP iOS machine gate before real-device sign-off:
 
 ```bash
 scripts/ios_no_pvp_release_gate.py \
-  --server http://192.168.0.102:8003 \
+  --server http://192.168.68.118:8002 \
   --artifact-dir /private/tmp/ios-no-pvp-release-gate
 ```
 
 The gate compiles the smoke script, runs `tests/test_ios_project_scaffold.py`,
 builds Debug and Release for the iOS simulator and runs the read-oriented
-no-PvP HTTP smoke against `8003`. It writes
+no-PvP HTTP smoke against `8002`. It writes
 `ios-no-pvp-release-gate.json` in the artifact directory. A machine-passed
 report with `ready_for_players: false` means the remaining blocker is real
 iPhone evidence, not a simulator/build/backend contract failure.
@@ -179,7 +179,7 @@ gate to include the screenshot/nonblank Home check in the same report:
 
 ```bash
 scripts/ios_no_pvp_release_gate.py \
-  --server http://192.168.0.102:8003 \
+  --server http://192.168.68.118:8002 \
   --include-sim-visual-smoke \
   --artifact-dir /private/tmp/ios-no-pvp-release-gate
 ```
@@ -188,7 +188,7 @@ When Xcode sees a connected iPhone, add an unsigned device-target build:
 
 ```bash
 scripts/ios_no_pvp_release_gate.py \
-  --server http://192.168.0.102:8003 \
+  --server http://192.168.68.118:8002 \
   --device-id 00008110-000C75203AE1401E \
   --artifact-dir /private/tmp/ios-no-pvp-release-gate
 ```
@@ -197,7 +197,7 @@ To also verify local Apple Development signing and the provisioning profile:
 
 ```bash
 scripts/ios_no_pvp_release_gate.py \
-  --server http://192.168.0.102:8003 \
+  --server http://192.168.68.118:8002 \
   --device-id 00008110-000C75203AE1401E \
   --signed-device-build \
   --artifact-dir /private/tmp/ios-no-pvp-release-gate
@@ -207,7 +207,7 @@ To install the signed app through the same gate, add the explicit install flag:
 
 ```bash
 scripts/ios_no_pvp_release_gate.py \
-  --server http://192.168.0.102:8003 \
+  --server http://192.168.68.118:8002 \
   --device-id 00008110-000C75203AE1401E \
   --include-sim-visual-smoke \
   --signed-device-build \
@@ -237,7 +237,7 @@ After filling that file from an actual iPhone run, use
 
 ## First Real iPhone Smoke
 
-1. Start the iOS FastAPI server on the master laptop at `0.0.0.0:8003`.
+1. Start the FastAPI server on the master laptop at `0.0.0.0:8002`.
 2. Connect the iPhone to the same local Wi-Fi.
 3. Install from Xcode/free provisioning, TestFlight or the install gate above.
 4. Allow Local Network and Camera permissions.
@@ -252,7 +252,7 @@ After filling that file from an actual iPhone run, use
 ## Remaining Release Evidence
 
 The app is not fully signed off until the real-device smoke above passes on the
-actual game Wi-Fi and the actual `8003` server. Simulator builds, device builds,
+actual game Wi-Fi and the actual `8002` server. Simulator builds, device builds,
 signed install and read-only HTTP smoke are necessary evidence, but they do not
 replace camera, Local Network permission, restart persistence and sync retry on
 a real iPhone.

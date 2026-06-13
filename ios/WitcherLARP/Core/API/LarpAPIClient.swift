@@ -261,6 +261,7 @@ struct LarpAPIClient {
         cardId: String?,
         row: String?,
         targetCardId: String?,
+        discardCardIds: [String]?,
         reviveCardId: String?,
         reviveRow: String?,
         actionId: String?,
@@ -283,6 +284,7 @@ struct LarpAPIClient {
                 cardId: cardId?.trimmingCharacters(in: .whitespacesAndNewlines),
                 row: row?.trimmingCharacters(in: .whitespacesAndNewlines),
                 targetCardId: targetCardId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                discardCardIds: discardCardIds?.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty },
                 reviveCardId: reviveCardId?.trimmingCharacters(in: .whitespacesAndNewlines),
                 reviveRow: reviveRow?.trimmingCharacters(in: .whitespacesAndNewlines),
                 actionId: requestActionId,
@@ -335,6 +337,26 @@ struct LarpAPIClient {
                 mode: mode,
                 transferId: "ios-trade-\(UUID().uuidString)",
                 autoAccept: false,
+                source: "ios_player_app"
+            ),
+            playerCode: playerCode
+        )
+        return try await decode(JSONValue.self, from: request)
+    }
+
+    func sellMaterial(
+        player: PlayerProfile,
+        materialId: String,
+        quantity: Int,
+        playerCode: String
+    ) async throws -> JSONValue {
+        let request = try jsonRequest(
+            path: "/api/players/\(player.playerId)/material-market/sell",
+            method: "POST",
+            body: MaterialMarketSellRequest(
+                materialId: materialId,
+                quantity: max(1, quantity),
+                saleId: "ios-material-sale-\(UUID().uuidString)",
                 source: "ios_player_app"
             ),
             playerCode: playerCode

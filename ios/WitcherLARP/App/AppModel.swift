@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     @Published var syncState: SyncState = .offline
     @Published var errorMessage: String?
     @Published var infoMessage: String?
+    @Published var activePVEMission: PvESceneDraft?
     @Published var lastPvEResult: PvESceneDraft?
     @Published var lastQRLookup: JSONValue?
     @Published var pvpTables: PvpTablesResponse?
@@ -17,6 +18,7 @@ final class AppModel: ObservableObject {
     @Published var lastPvpActionResult: JSONValue?
     @Published var runtimeGwentDecks: [GwentDeck] = []
     @Published var lastTradeResult: JSONValue?
+    @Published var lastMaterialMarketResult: JSONValue?
     @Published var localUnlockedActIds: Set<String> = []
     @Published var serverHealth: HealthResponse?
     @Published var serverHealthChecked = false
@@ -25,6 +27,11 @@ final class AppModel: ObservableObject {
     private let queue = EventQueueStore.shared
     private var api: LarpAPIClient
     private let deviceId: String
+    static let canonicalStats = ["Сила", "Ловкость", "Разум", "Харизма", "Воля"]
+    static let startStatBudget = 7
+    static let startStatMax = 3
+    static let defaultRuntimeStatMax = 7
+    static let defaultServerURLString = "http://192.168.68.118:8002"
     private let requiredAPIRevision = "ios-gwent-pvp-v1"
     private let requiredGwentFeatures: Set<String> = [
         "ios_gwent_bot_match",
@@ -79,6 +86,11 @@ final class AppModel: ObservableObject {
         return api.revision == requiredAPIRevision && requiredGwentFeatures.isSubset(of: features)
     }
 
+    var runtimeStatMax: Int {
+        let configured = snapshot?.checks.xpRules.first?.int("max_stat") ?? 0
+        return configured > 0 ? configured : Self.defaultRuntimeStatMax
+    }
+
     var serverConnectionLabel: String {
         guard serverHealth != nil else {
             return "Проверяем связь с сервером игры..."
@@ -107,7 +119,7 @@ final class AppModel: ObservableObject {
         self.screenshotShowsGwentTable = false
         self.demoSnapshotMode = false
         #endif
-        let defaultURL = URL(string: "http://192.168.0.102:8003")!
+        let defaultURL = URL(string: Self.defaultServerURLString)!
         let savedURL = LocalStore.shared.loadServerURL() ?? defaultURL
         self.serverURL = savedURL
         self.playerCode = LocalStore.shared.loadPlayerCode() ?? ""
@@ -139,7 +151,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func updateServerURL(from text: String) -> Bool {
         guard let url = Self.normalizedServerURL(from: text) else {
-            errorMessage = "Адрес сервера должен выглядеть как http://192.168.0.102:8003"
+            errorMessage = "Адрес сервера должен выглядеть как \(Self.defaultServerURLString)"
             infoMessage = nil
             return false
         }
@@ -159,8 +171,10 @@ final class AppModel: ObservableObject {
         lastPvpActionResult = nil
         runtimeGwentDecks = []
         lastPvEResult = nil
+        activePVEMission = nil
         lastQRLookup = nil
         lastTradeResult = nil
+        lastMaterialMarketResult = nil
         syncState = .offline
         infoMessage = "Локальная сессия сброшена. Войди по коду персонажа заново."
         errorMessage = nil
@@ -195,6 +209,7 @@ final class AppModel: ObservableObject {
             localUnlockedActIds = []
             lastPvpActionResult = try JSONDecoder().decode(JSONValue.self, from: gwentData)
             pvpPlayerState = nil
+            activePVEMission = nil
             store.savePlayerCode(playerCode)
             store.saveSnapshot(demo)
             store.saveUnlockedActIds(localUnlockedActIds)
@@ -262,6 +277,8 @@ final class AppModel: ObservableObject {
             playerCode = code
             snapshot = loadedSnapshot
             runtimeGwentDecks = []
+            activePVEMission = nil
+            lastPvEResult = nil
             store.savePlayerCode(code)
             store.saveSnapshot(loadedSnapshot)
             syncState = .synced
@@ -279,6 +296,7 @@ final class AppModel: ObservableObject {
             syncState = .syncing
             let loadedSnapshot = try await api.fetchSnapshot(playerCode: playerCode)
             snapshot = loadedSnapshot
+            activePVEMission = nil
             store.saveSnapshot(loadedSnapshot)
             syncState = pendingEvents.isEmpty ? .synced : .pending
             infoMessage = "Игровой дневник обновлен."
@@ -336,49 +354,132 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func completePVE(code rawCode: String, source: QRInputSource) {
-        guard let snapshot, let player = snapshot.currentPlayer else { return }
+    @discardableResult
+    func beginPVE(code rawCode: String, source: QRInputSource) -> Bool {
+        guard let snapshot, let player = snapshot.currentPlayer else { return false }
         let normalized = rawCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard let qr = snapshot.qrObjects.first(where: {
             $0.manualCode.uppercased() == normalized || $0.qrId.uppercased() == normalized
         }) else {
             appendQRAttempt(qrId: normalized, source: source, reviewReason: "unknown_qr")
             errorMessage = "Код не найден в сохраненных данных игры. Попытка уйдет мастеру на проверку."
-            return
+            return false
         }
         guard effectiveUnlockedActIds.contains(qr.actId) else {
             appendQRAttempt(qrId: normalized, source: source, reviewReason: "future_act_locked")
             errorMessage = "Этот объект из будущего акта. Нужна синхронизация или код мастера после объявления акта."
-            return
+            return false
         }
         guard let scenario = snapshot.pveScenarios.first(where: { $0.scenarioId == qr.scenarioId }) else {
             appendQRAttempt(qrId: normalized, source: source, reviewReason: "missing_local_scenario")
             errorMessage = "Сцена не найдена в сохраненных данных игры. Попытка уйдет мастеру на проверку."
-            return
+            return false
         }
 
         let reward = snapshot.rewards.first(where: { $0.rewardId == scenario.rewardId })
-        let draft = PvESceneDraft(
+        let draft = PvESceneDraft.start(
             qr: qr,
             scenario: scenario,
             reward: reward,
             player: player,
-            source: source,
-            roll: Int.random(in: 1...20),
-            checkId: "ios-check-\(UUID().uuidString)",
-            rollId: "ios-roll-\(UUID().uuidString)",
-            createdAt: Date()
+            source: source
         )
+        activePVEMission = draft
+        lastPvEResult = nil
+        infoMessage = "Миссия открыта: \(qr.manualCode)."
+        errorMessage = nil
+        return true
+    }
+
+    func choosePVEOption(_ choiceId: String) {
+        guard var draft = activePVEMission else { return }
+        guard let updated = draft.selecting(choiceId: choiceId) else { return }
+        draft = updated
+        activePVEMission = draft
+        infoMessage = draft.isReadyForChecks ? "Выбор сделан. Начинаются испытания." : "Выбор сохранен."
+        errorMessage = nil
+    }
+
+    func rollNextPVECheck() {
+        guard var draft = activePVEMission else { return }
+        guard let updated = draft.rollingNextCheck() else { return }
+        draft = updated
+        activePVEMission = draft
+        if draft.isComplete {
+            finishPVE(draft)
+        } else {
+            infoMessage = "Проверка сохранена: \(draft.lastRollSummary)."
+            errorMessage = nil
+        }
+    }
+
+    private func finishPVE(_ draft: PvESceneDraft) {
         let event = queue.makeEvent(
-            playerId: player.playerId,
+            playerId: draft.player.playerId,
             eventType: "pve_completed",
             payload: draft.eventPayload
         )
         queue.append(event)
         lastPvEResult = draft
+        activePVEMission = nil
         pendingEvents = queue.loadEvents()
         syncState = .pending
-        infoMessage = "Результат сцены сохранен на телефоне: \(draft.resultLabel), d20=\(draft.roll)."
+        infoMessage = "Результат миссии сохранен на телефоне: \(draft.resultLabel)."
+        errorMessage = nil
+    }
+
+    func initialStatPointsRemaining(for player: PlayerProfile) -> Int {
+        max(0, Self.startStatBudget - player.stats.values.reduce(0, +))
+    }
+
+    func allocatableStatPoints(for player: PlayerProfile) -> Int {
+        initialStatPointsRemaining(for: player) + max(0, player.unspentStatPoints)
+    }
+
+    func canAllocateStat(_ stat: String, for player: PlayerProfile) -> Bool {
+        let current = player.stats[stat] ?? 0
+        if initialStatPointsRemaining(for: player) > 0 {
+            return current < Self.startStatMax
+        }
+        return player.unspentStatPoints > 0 && current < runtimeStatMax
+    }
+
+    func allocateStatPoint(_ stat: String) {
+        guard let snapshot, let player = snapshot.currentPlayer else { return }
+        guard Self.canonicalStats.contains(stat), canAllocateStat(stat, for: player) else {
+            errorMessage = "Этот стат сейчас нельзя повысить."
+            return
+        }
+        let initialRemaining = initialStatPointsRemaining(for: player)
+        let allocationType = initialRemaining > 0 ? "initial" : "level_up"
+        let unspentAfter = allocationType == "level_up"
+            ? max(0, player.unspentStatPoints - 1)
+            : player.unspentStatPoints
+        let updatedPlayer = player.applyingStatDelta(stat, unspentStatPointsAfter: unspentAfter)
+        let updatedSnapshot = snapshot.updatingCurrentPlayer(updatedPlayer)
+        self.snapshot = updatedSnapshot
+        store.saveSnapshot(updatedSnapshot)
+        let statsAfterPayload: [String: JSONValue] = Dictionary(uniqueKeysWithValues: Self.canonicalStats.map {
+            ($0, JSONValue.int(updatedPlayer.stats[$0] ?? 0))
+        })
+
+        queue.append(queue.makeEvent(
+            playerId: player.playerId,
+            eventType: "player_stats_allocated",
+            payload: [
+                "player_id": .string(player.playerId),
+                "allocation_type": .string(allocationType),
+                "stat_deltas": .object([stat: .int(1)]),
+                "stats_after": .object(statsAfterPayload),
+                "unspent_stat_points_after": .int(unspentAfter),
+                "source": .string("ios_player_app"),
+                "created_offline": .bool(true),
+                "device_id": .string(deviceId)
+            ]
+        ))
+        pendingEvents = queue.loadEvents()
+        syncState = .pending
+        infoMessage = "\(stat) повышен. Изменение уйдет при следующей синхронизации."
         errorMessage = nil
     }
 
@@ -756,6 +857,7 @@ final class AppModel: ObservableObject {
         cardId: String? = nil,
         row: String? = nil,
         targetCardId: String? = nil,
+        discardCardIds: [String]? = nil,
         reviveCardId: String? = nil,
         reviveRow: String? = nil,
         actionId: String? = nil
@@ -775,6 +877,7 @@ final class AppModel: ObservableObject {
                 cardId: cardId,
                 row: row,
                 targetCardId: targetCardId,
+                discardCardIds: discardCardIds,
                 reviveCardId: reviveCardId,
                 reviveRow: reviveRow,
                 actionId: actionId,
@@ -921,6 +1024,36 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func sellMaterial(materialId: String, quantity: Int) async {
+        guard let player, !playerCode.isEmpty else {
+            errorMessage = "Нужен вход по коду игрока перед продажей материалов."
+            return
+        }
+        let normalizedMaterialId = materialId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedMaterialId.isEmpty else {
+            errorMessage = "Выбери материал для продажи."
+            return
+        }
+
+        do {
+            syncState = .syncing
+            let result = try await api.sellMaterial(
+                player: player,
+                materialId: normalizedMaterialId,
+                quantity: max(1, quantity),
+                playerCode: playerCode
+            )
+            lastMaterialMarketResult = result
+            syncState = pendingEvents.isEmpty ? .synced : .pending
+            infoMessage = "Материал продан рынку."
+            errorMessage = nil
+            await refreshSnapshot()
+        } catch {
+            syncState = .syncError
+            errorMessage = readable(error)
+        }
+    }
+
     func acceptTradeTransfer(id transferId: String) async {
         guard let player, !playerCode.isEmpty else { return }
         let id = transferId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1010,6 +1143,7 @@ final class AppModel: ObservableObject {
         "level": "2",
         "xp": "14",
         "gold": "35",
+        "challenge_tokens": "3",
         "stats_json": "{\\"Сила\\":3,\\"Ловкость\\":2,\\"Разум\\":1,\\"Харизма\\":1,\\"Воля\\":2}",
         "reputation_state": {"player_descriptor": "Нейтральная репутация"}
       },
@@ -1021,6 +1155,7 @@ final class AppModel: ObservableObject {
           "level": "2",
           "xp": "14",
           "gold": "35",
+          "challenge_tokens": "3",
           "stats_json": "{\\"Сила\\":3,\\"Ловкость\\":2,\\"Разум\\":1,\\"Харизма\\":1,\\"Воля\\":2}",
           "reputation_state": {"player_descriptor": "Нейтральная репутация"}
         },
@@ -1134,16 +1269,25 @@ final class AppModel: ObservableObject {
         {"reward_id": "reward_pve_t1", "xp": "4", "gold": "10", "rarity": "Common", "approval_policy": "auto"}
       ],
       "items": [
-        {"item_id": "item_silver_dust", "item_type": "material", "tier": "2", "effect_json": "{\\"use\\":\\"monster_bonus\\",\\"modifier\\":2}"},
         {"item_id": "item_monster_trophy", "item_type": "trophy", "tier": "3", "effect_json": "{\\"use\\":\\"lord_influence_claim\\"}"},
-        {"item_id": "item_order_seal", "item_type": "order_token", "tier": "2", "effect_json": "{\\"use\\":\\"order_completion_proof\\"}"}
+        {"item_id": "item_order_seal", "item_type": "order_token", "tier": "2", "effect_json": "{\\"use\\":\\"order_completion_proof\\"}"},
+        {"item_id": "item_secret_writ", "item_type": "quest_object", "tier": "2", "effect_json": "{\\"use\\":\\"quest_leverage\\"}"}
+      ],
+      "materials": [
+        {"material_id": "mat_herbs", "display_name": "Травы", "rarity": "Common", "category": "alchemy", "description": "База для простых зелий.", "effect_json": "{\\"market_only\\":true}"},
+        {"material_id": "mat_silver_dust", "display_name": "Серебряная пыль", "rarity": "Uncommon", "category": "monster", "description": "След чудовищ и серебра.", "effect_json": "{\\"market_only\\":true}"}
+      ],
+      "material_market": [
+        {"market_id": "market_herbs", "material_id": "mat_herbs", "display_name": "Травы", "category": "alchemy", "description": "База для простых зелий.", "base_price": "4", "min_price": "2", "max_price": "8", "current_price": "5", "total_player_quantity": "9", "trend": "balanced"},
+        {"market_id": "market_silver_dust", "material_id": "mat_silver_dust", "display_name": "Серебряная пыль", "category": "monster", "description": "След чудовищ и серебра.", "base_price": "9", "min_price": "5", "max_price": "18", "current_price": "14", "total_player_quantity": "3", "trend": "scarce"}
       ],
       "cards": [
         {"card_id": "pc_infantry_t1", "card_type": "personal_to_army", "tier": "1", "name": "Infantry Favor", "conversion_rule": "may_transfer_to_lord_once"},
         {"card_id": "pc_guard_t1", "card_type": "personal_to_army", "tier": "1", "name": "Guard Contract", "conversion_rule": "may_transfer_to_lord_once"}
       ],
       "potions": [
-        {"potion_id": "potion_common_swallow", "rarity": "Common", "wholesale_cost": "8", "effect_json": "{\\"effect\\":\\"minor_heal_scene_hp\\"}"}
+        {"potion_id": "potion_common_swallow", "rarity": "Common", "wholesale_cost": "8", "effect_json": "{\\"effect\\":\\"any_check_modifier_plus_1\\",\\"modifier\\":1}"},
+        {"potion_id": "potion_common_cat", "rarity": "Common", "wholesale_cost": "8", "effect_json": "{\\"effect\\":\\"extra_hint\\"}"}
       ],
       "artifacts": [
         {"artifact_id": "artifact_silver_chain", "rarity": "Rare", "visibility": "owner_visible", "counterplay": "can_be_stolen_by_order"}
@@ -1154,6 +1298,10 @@ final class AppModel: ObservableObject {
       ],
       "potion_inventory": [
         {"player_id": "p_witcher_1", "potion_id": "potion_common_swallow", "quantity": "2"}
+      ],
+      "material_inventory": [
+        {"player_id": "p_witcher_1", "material_id": "mat_herbs", "display_name": "Травы", "category": "alchemy", "description": "База для простых зелий.", "quantity": "5"},
+        {"player_id": "p_witcher_1", "material_id": "mat_silver_dust", "display_name": "Серебряная пыль", "category": "monster", "description": "След чудовищ и серебра.", "quantity": "1"}
       ],
       "trade_transfers": [
         {"transfer_id": "trade_pending_demo", "from_player_id": "p_witcher_1", "to_player_id": "p_lord_1", "asset_type": "item", "asset_id": "item_monster_trophy", "quantity": "1", "price_gold": "0", "mode": "gift", "status": "pending_locked"},
@@ -1168,6 +1316,7 @@ final class AppModel: ObservableObject {
         {"card_id": "gwent_unit_02", "faction": "northern", "row": "melee", "type": "unit", "strength": "4", "effect": "none", "rarity": "Common", "ability_tags": "", "name_group": "kaer_morhen_tracker", "bond_group": "", "muster_group": ""},
         {"card_id": "gwent_unit_03", "faction": "northern", "row": "melee", "type": "unit", "strength": "5", "effect": "tight_bond", "rarity": "Common", "ability_tags": "", "name_group": "blue_stripes_soldier", "bond_group": "blue_stripes", "muster_group": ""},
         {"card_id": "gwent_unit_04", "faction": "northern", "row": "melee", "type": "unit", "strength": "5", "effect": "tight_bond", "rarity": "Common", "ability_tags": "", "name_group": "blue_stripes_soldier", "bond_group": "blue_stripes", "muster_group": ""},
+        {"card_id": "rare_gwent_02", "faction": "neutral", "row": "melee", "type": "unit", "strength": "15", "effect": "hero", "rarity": "Hero", "ability_tags": "hero", "name_group": "geralt_of_rivia", "bond_group": "", "muster_group": "", "display_name": "Геральт из Ривии", "effect_text": "Не подвержен погоде, командирскому рогу, казни и большинству способностей."},
         {"card_id": "gwent_weather_frost", "faction": "neutral", "row": "weather", "type": "special", "strength": "0", "effect": "weather_melee", "rarity": "Common", "ability_tags": "", "name_group": "biting_frost", "bond_group": "", "muster_group": ""},
         {"card_id": "gwent_clear_weather", "faction": "neutral", "row": "special", "type": "special", "strength": "0", "effect": "clear_weather", "rarity": "Common", "ability_tags": "", "name_group": "clear_weather", "bond_group": "", "muster_group": ""},
         {"card_id": "gwent_horn", "faction": "neutral", "row": "special", "type": "special", "strength": "0", "effect": "commanders_horn", "rarity": "Uncommon", "ability_tags": "", "name_group": "commanders_horn", "bond_group": "", "muster_group": ""}
@@ -1177,7 +1326,7 @@ final class AppModel: ObservableObject {
           "deck_id": "deck_witcher_wolf",
           "player_id": "p_witcher_1",
           "leader_card_id": "gwent_leader_wolf",
-          "card_ids": "gwent_unit_01;gwent_unit_02;gwent_unit_03;gwent_unit_04;gwent_weather_frost;gwent_clear_weather;gwent_horn"
+          "card_ids": "rare_gwent_02;gwent_unit_01;gwent_unit_02;gwent_unit_03;gwent_unit_04;gwent_weather_frost;gwent_clear_weather;gwent_horn"
         }
       ],
       "goals": {
@@ -1239,7 +1388,7 @@ final class AppModel: ObservableObject {
         "status": "round_in_progress",
         "deck_state": {
           "p_witcher_1": {
-            "hand": ["gwent_unit_01", "gwent_unit_02", "gwent_weather_frost"],
+            "hand": ["rare_gwent_02", "gwent_unit_01", "gwent_unit_02", "gwent_weather_frost"],
             "graveyard": ["gwent_unit_03"],
             "leader_used": false
           },
@@ -1261,7 +1410,7 @@ final class AppModel: ObservableObject {
           "passed": {"p_witcher_1": false, "p_witcher_2": false},
           "board": {
             "p_witcher_1": {
-              "melee": [],
+              "melee": ["rare_gwent_02"],
               "ranged": [],
               "siege": []
             },
