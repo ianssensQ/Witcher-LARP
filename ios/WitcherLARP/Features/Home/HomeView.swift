@@ -13,7 +13,7 @@ struct HomeView: View {
                     }
 
                     if let quest = model.activePvEScenario {
-                        questCard(quest)
+                        questCard(quest, qrMode: model.activeQRMode)
                     }
 
                     Button {
@@ -64,7 +64,7 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    private func questCard(_ quest: PvEScenarioCard) -> some View {
+    private func questCard(_ quest: PvEScenarioCard, qrMode: String?) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label(
@@ -116,6 +116,8 @@ struct HomeView: View {
                     .font(.footnote)
             }
 
+            ordinaryQuestNotice(qrMode: qrMode)
+
             if let rewardPolicy = quest.branchRewardPolicy {
                 Text(rewardPolicy)
                     .font(.footnote)
@@ -132,6 +134,22 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func ordinaryQuestNotice(qrMode: String?) -> some View {
+        if isOrdinaryQuest(qrMode) {
+            Label(
+                "После награды не забирайте этот QR-знак или лист. Это общий повторяемый квест: оставьте его на месте для других игроков.",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.footnote.bold())
+            .foregroundStyle(.orange)
+        }
+    }
+
+    private func isOrdinaryQuest(_ qrMode: String?) -> Bool {
+        qrMode == "repeatable_scene" || qrMode == "always_available_scene"
     }
 
     private var queueCard: some View {

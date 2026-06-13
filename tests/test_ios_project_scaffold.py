@@ -61,9 +61,14 @@ def test_ios_qr_lookup_renders_pve_card_contract():
     assert "encounterStepsJSON = \"encounter_steps_json\"" in snapshot_models
     assert "victoryRule = \"victory_rule\"" in snapshot_models
     assert "func lookupQRCode" in app_model
+    assert "var activeQRMode: String?" in app_model
     assert "savePlayerCode" in app_model
     assert "lookupQRCode(normalized" in qr_sheet
-    assert "questCard(quest)" in home_view
+    assert "questCard(quest, qrMode: model.activeQRMode)" in home_view
+    assert "ordinaryQuestNotice(qrMode: qrMode)" in home_view
+    assert "После награды не забирайте" in home_view
+    assert 'qrMode == "repeatable_scene"' in home_view
+    assert 'qrMode == "always_available_scene"' in home_view
 
 
 def test_ios_plan_marks_godot_as_legacy_not_deleted():

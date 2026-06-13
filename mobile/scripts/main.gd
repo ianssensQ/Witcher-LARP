@@ -562,6 +562,7 @@ func _pve_event_status_message(label: String, event: Dictionary) -> String:
 			str(local_reward.get("xp_gain", 0)),
 			str(local_reward.get("gold_gain", 0))
 		]
+	var leave_in_place_note := _ordinary_qr_leave_in_place_note(payload)
 	return "%s queued as client event #%s: d20 %s + %s %s + modifiers %d = %s (%s).%s" % [
 		label,
 		str(event.get("client_sequence", "")),
@@ -571,5 +572,12 @@ func _pve_event_status_message(label: String, event: Dictionary) -> String:
 		modifier_total,
 		str(payload.get("total", roll_entry.get("total", ""))),
 		str(payload.get("outcome", payload.get("result", ""))),
-		reward_note
+		reward_note + leave_in_place_note
 	]
+
+
+func _ordinary_qr_leave_in_place_note(payload: Dictionary) -> String:
+	var qr_mode := str(payload.get("qr_mode", ""))
+	if qr_mode == "repeatable_scene" or qr_mode == "always_available_scene":
+		return " После награды не забирайте этот QR-знак или лист: оставьте его на месте для других игроков."
+	return ""

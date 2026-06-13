@@ -16,6 +16,10 @@ final class AppModel: ObservableObject {
     private let deviceId: String
     private var playerCode: String?
 
+    var activeQRMode: String? {
+        lastQRLookup?.qr?.qrMode
+    }
+
     init() {
         let defaultURL = URL(string: "http://127.0.0.1:8000")!
         let savedURL = LocalStore.shared.loadServerURL() ?? defaultURL
