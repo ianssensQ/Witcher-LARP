@@ -260,6 +260,130 @@ class LordRuntimeTests(unittest.TestCase):
         self.assertEqual(river_fort_view["bonus_type"], "defense")
         self.assertEqual(river_fort_view["garrisons"][0]["status"], "hidden_foreign_garrison")
 
+    def test_captured_territory_keeps_one_garrison_unit_until_replaced(self) -> None:
+        settings = self._settings("lord_captured_min_garrison")
+        self._import_seed(settings)
+        client = TestClient(create_app(settings))
+        now = "2026-06-02T10:00:00+00:00"
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            connection.execute(
+                """
+                UPDATE territory_runtime_state
+                SET owner_domain_id = 'domain_river',
+                    status = 'capture_pending_garrison',
+                    contested_by_domain_id = 'domain_north',
+                    updated_at = ?
+                WHERE territory_id = 'territory_fort_east'
+                """,
+                (now,),
+            )
+            connection.execute(
+                """
+                INSERT INTO territory_claim_runtime (
+                    claim_id, territory_id, claimant_domain_id, defender_domain_id,
+                    status, source, created_at, resolved_at, battle_required
+                )
+                VALUES (
+                    'claim_north_fort_min_garrison',
+                    'territory_fort_east',
+                    'domain_north',
+                    'domain_river',
+                    'awaiting_garrison',
+                    'test',
+                    ?,
+                    ?,
+                    0
+                )
+                """,
+                (now, now),
+            )
+            connection.execute(
+                """
+                UPDATE domain_runtime_state
+                SET current_node_id = 'node_fort_east',
+                    updated_at = ?
+                WHERE domain_id = 'domain_north'
+                """,
+                (now,),
+            )
+            connection.execute("DELETE FROM active_army_runtime WHERE domain_id = 'domain_north'")
+            connection.executemany(
+                """
+                INSERT INTO active_army_runtime (
+                    army_id, domain_id, card_id, count, location_node_id, status, updated_at
+                )
+                VALUES (?, 'domain_north', ?, ?, 'node_fort_east', 'active', ?)
+                """,
+                [
+                    ("army_north_capture_infantry", "unit_infantry_t1", 1, now),
+                    ("army_north_capture_guard", "unit_guard_t1", 1, now),
+                ],
+            )
+
+        captured = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "active_to_fort",
+                "territory_id": "territory_fort_east",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(captured.status_code, 200, captured.text)
+        self.assertEqual(captured.json()["status"], "captured")
+
+        last_unit = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "fort_to_active",
+                "territory_id": "territory_fort_east",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(last_unit.status_code, 400, last_unit.text)
+        self.assertEqual(last_unit.json()["detail"]["code"], "minimum_garrison_required")
+
+        replacement = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "active_to_fort",
+                "territory_id": "territory_fort_east",
+                "card_id": "unit_guard_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(replacement.status_code, 200, replacement.text)
+        self.assertEqual(replacement.json()["status"], "reinforced")
+
+        swapped = client.post(
+            "/api/lords/p_lord_1/garrisons/transfer",
+            headers=self._headers("north"),
+            json={
+                "operation": "fort_to_active",
+                "territory_id": "territory_fort_east",
+                "card_id": "unit_infantry_t1",
+                "count": 1,
+            },
+        )
+        self.assertEqual(swapped.status_code, 200, swapped.text)
+        self.assertEqual(swapped.json()["status"], "active_army_updated")
+        with connect(settings) as connection:
+            garrison_total = connection.execute(
+                """
+                SELECT COALESCE(SUM(count), 0)
+                FROM garrison_runtime_state
+                WHERE territory_id = 'territory_fort_east'
+                  AND domain_id = 'domain_north'
+                  AND status = 'active'
+                """
+            ).fetchone()[0]
+        self.assertEqual(garrison_total, 1)
+
     def test_reserve_to_active_spends_gold_and_rejects_insufficient_gold(self) -> None:
         settings = self._settings("lord_reserve_to_active_cost")
         self._import_seed(settings)

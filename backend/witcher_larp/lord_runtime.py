@@ -746,6 +746,7 @@ def transfer_garrison(
                     _required_stack_id(source_stack_id),
                     count,
                     now,
+                    keep_captured_territory_garrisoned=True,
                 )
                 card_id = str(consumed["card_id"])
                 target = _insert_active_army_stack(
@@ -760,7 +761,15 @@ def transfer_garrison(
             _assert_active_army_stack_capacity_available(
                 connection, domain_id, card_id, capacity
             )
-            _consume_garrison(connection, domain_id, territory_id, card_id, count, now)
+            _consume_garrison(
+                connection,
+                domain_id,
+                territory_id,
+                card_id,
+                count,
+                now,
+                keep_captured_territory_garrisoned=True,
+            )
             target = _upsert_active_army(
                 connection,
                 domain_id=domain_id,
@@ -4884,6 +4893,7 @@ def _transfer_garrison_stack_to_active_army_stack(
         source_garrison_id,
         count,
         now,
+        keep_captured_territory_garrisoned=True,
     )
     target_count = _to_int(target_stack["count"]) + count
     connection.execute(
@@ -5040,10 +5050,16 @@ def _consume_garrison_stack(
     garrison_id: str,
     count: int,
     now: str,
+    *,
+    keep_captured_territory_garrisoned: bool = False,
 ) -> sqlite3.Row:
     row = _garrison_stack(connection, domain_id, territory_id, garrison_id)
     if _to_int(row["count"]) < count:
         raise LordRuntimeError("insufficient_garrison", "Not enough fort garrison units.")
+    if keep_captured_territory_garrisoned:
+        _assert_captured_territory_keeps_garrison(
+            connection, domain_id, territory_id, count
+        )
     remaining = _to_int(row["count"]) - count
     connection.execute(
         """
@@ -5184,6 +5200,8 @@ def _consume_garrison(
     card_id: str,
     count: int,
     now: str,
+    *,
+    keep_captured_territory_garrisoned: bool = False,
 ) -> None:
     row = connection.execute(
         """
@@ -5201,6 +5219,10 @@ def _consume_garrison(
     ).fetchone()
     if row is None or _to_int(row["count"]) < count:
         raise LordRuntimeError("insufficient_garrison", "Not enough fort garrison units.")
+    if keep_captured_territory_garrisoned:
+        _assert_captured_territory_keeps_garrison(
+            connection, domain_id, territory_id, count
+        )
     remaining = _to_int(row["count"]) - count
     connection.execute(
         """
@@ -5212,6 +5234,44 @@ def _consume_garrison(
         """,
         (remaining, "active" if remaining > 0 else "empty", now, row["garrison_id"]),
     )
+
+
+def _assert_captured_territory_keeps_garrison(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    territory_id: str,
+    withdraw_count: int,
+) -> None:
+    captured = connection.execute(
+        """
+        SELECT 1
+        FROM territory_claim_runtime
+        WHERE territory_id = ?
+          AND claimant_domain_id = ?
+          AND status = 'controlled'
+        LIMIT 1
+        """,
+        (territory_id, domain_id),
+    ).fetchone()
+    if captured is None:
+        return
+    row = connection.execute(
+        """
+        SELECT COALESCE(SUM(count), 0) AS count
+        FROM garrison_runtime_state
+        WHERE territory_id = ?
+          AND domain_id = ?
+          AND status = 'active'
+          AND count > 0
+        """,
+        (territory_id, domain_id),
+    ).fetchone()
+    total = _to_int(row["count"] if row is not None else 0)
+    if total - withdraw_count < 1:
+        raise LordRuntimeError(
+            "minimum_garrison_required",
+            "Captured territory must keep at least one fort garrison unit.",
+        )
 
 
 def _upsert_active_army(
