@@ -1,0 +1,127 @@
+{
+  "mission_id": "pve_bell_chapel_v1",
+  "quest_id": "quest_example_bell_chapel",
+  "scenario_id": "scn_example_bell_chapel",
+  "status": "prototype",
+  "act_id": "act2",
+  "loc_code": "CHT",
+  "location_node_id": "node_swamp_black",
+  "tier": 2,
+  "scene_type": "monster_hunt",
+  "qr_mode": "unique_object",
+  "content_lane": "story_quest",
+  "estimated_minutes": 12,
+  "title": "Звонарь из утопленной часовни",
+  "assets": {
+    "location_hero": "data/authoring/pve_mission_assets/bell_chapel/bell-chapel-location-v1.png",
+    "combat_hero": "data/authoring/pve_mission_assets/bell_chapel/bell-ringer-monster-v1.png"
+  },
+  "location_screen": {
+    "title": "Утопленная часовня",
+    "eyebrow": "QR-заказ · Черная Топь",
+    "visible_hook": "В трясине снова звонят три колокола, хотя веревки давно сгнили, а часовня стоит по пояс в черной воде.",
+    "scan_reveal": "На ступенях лежит детская кукла, обсыпанная солью. Каждый удар колокола звучит чужим именем, и после третьего имени кто-то из деревни идет к болоту во сне.",
+    "choice_prompt": "Перед боем выберите, какую цену вы готовы заплатить за преимущество.",
+    "choices": [
+      {
+        "id": "save_sleeper_first",
+        "label": "Вытащить спящего до первого удара",
+        "description": "Вы начинаете бой без подготовки: -2 к первой проверке, но при победе спасаете жертву.",
+        "modifier": -2,
+        "applies_to_step": 1,
+        "stakes": "лучший эпилог для живых",
+        "morality": {
+          "alignment": "good_tilt",
+          "good_evil_delta": 1,
+          "moral_axis": "self_risk_vs_victim_rescue",
+          "master_note": "Герой рискует собой ради того, кто еще жив."
+        }
+      },
+      {
+        "id": "salt_the_threshold",
+        "label": "Замкнуть порог солью и знаками",
+        "description": "Вы получаете +2 к первой проверке, но жертва остается внутри часовни до конца боя.",
+        "modifier": 2,
+        "applies_to_step": 1,
+        "stakes": "безопаснее для героя, темнее эпилог",
+        "morality": {
+          "alignment": "evil_tilt",
+          "good_evil_delta": -1,
+          "moral_axis": "certainty_vs_life_at_risk",
+          "master_note": "Герой ставит контроль над ситуацией выше немедленного спасения."
+        }
+      },
+      {
+        "id": "answer_the_bells",
+        "label": "Ответить колоколам своим именем",
+        "description": "Вы получаете +1 к Воле, но звонарь запомнит героя и потребует личную цену при провале.",
+        "modifier": 1,
+        "applies_to_step": 3,
+        "stakes": "сильная защита от проклятия, личный риск",
+        "morality": {
+          "alignment": "neutral",
+          "good_evil_delta": 0,
+          "moral_axis": "personal_oath_vs_pragmatism",
+          "master_note": "Герой принимает риск на себя, но не решает чужую судьбу напрямую."
+        }
+      }
+    ]
+  },
+  "combat_screen": {
+    "monster_name": "Утопленный звонарь",
+    "monster_tags": [
+      "утопец-звонарь",
+      "часовенная нежить",
+      "колокольное проклятие"
+    ],
+    "combat_profile_id": "mob_neutral_beast_t2",
+    "combat_rule_id": "pve_combat_default",
+    "primary_stat": "Сила",
+    "secondary_stat": "Воля",
+    "base_dc": 14,
+    "trial_type": "combat",
+    "trial_prompt": "Пройдите 3 проверки. Победа: минимум 2 успеха из 3. Поражение: меньше 2 успехов, кулдаун QR 30 минут для этого игрока.",
+    "encounter_steps": [
+      {
+        "step": 1,
+        "title": "Не дать колоколу ударить",
+        "stat": "Ловкость",
+        "dc": 14,
+        "text": "Звонарь поднимает мокрый язык колокола как молот. Нужно войти под удар и сбить ритм.",
+        "success": "Удар сорван: враг теряет 1 сегмент стойкости.",
+        "failure": "Колокол бьет рядом с ухом: герой теряет 1 сегмент стойкости."
+      },
+      {
+        "step": 2,
+        "title": "Разорвать веревки на груди",
+        "stat": "Сила",
+        "dc": 15,
+        "text": "Гнилые канаты держат в твари чужие имена. Их нужно рвать серебром или голыми руками.",
+        "success": "Одна связка имен рвется: враг теряет 1 сегмент стойкости.",
+        "failure": "Веревка захлестывает руку: герой теряет 1 сегмент стойкости."
+      },
+      {
+        "step": 3,
+        "title": "Выдержать третий звон",
+        "stat": "Воля",
+        "dc": 13,
+        "text": "Последний звон говорит голосом того, кого вы могли спасти иначе.",
+        "success": "Герой не отвечает голосу: враг теряет 1 сегмент стойкости.",
+        "failure": "Сомнение ломает темп боя: герой теряет 1 сегмент стойкости."
+      }
+    ],
+    "victory_rule": "Победа: минимум 2 успешные проверки из 3.",
+    "failure_rule": "Поражение: меньше 2 успехов, QR уходит на кулдаун 30 минут для этого игрока."
+  },
+  "outcomes": {
+    "success_text": "Третий колокол захлебывается водой. Часовня остается гнилой, но имена больше не зовут живых к трясине.",
+    "partial_consequence": "Одна успешная проверка раскрывает слабость звонаря, но герой отступает; повтор возможен после кулдауна.",
+    "failure_text": "Колокол отвечает чужим голосом, и болото закрывает тропу до новой попытки.",
+    "reward_summary": "+8 XP, +20 золота, предмет: item_bronze_clapper; карта: pc_guard_t1, после подтверждения мастера, редкость Uncommon",
+    "world_effect": "Победа прекращает ночной зов в Черной Топи. Выбранная ветка определяет слух и возможный сдвиг Добро/Зло."
+  },
+  "image_generation": {
+    "mode": "built_in_image_gen",
+    "notes": "Generated as original dark Slavic fantasy art for mobile top-panel use. Images intentionally contain no readable text or UI."
+  }
+}
