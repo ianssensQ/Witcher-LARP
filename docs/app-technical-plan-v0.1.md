@@ -60,10 +60,10 @@ Production profile текущей игры: 15 человек всего = 13 и
 - deterministic lord battle 5x6: `attack`, `defense`, `hp`, `initiative`, `move_range`, `attack_range`, `tier`, `unit_class`, damage `count_alive * max(1, attack - defense + modifiers)`, 60s turn timer, auto-resolve;
 - lord battle appendix: V1 фиксирует `unit_power`, `deployed_army_power`, `domain_army_power`, partial stack wounds, deployment caps, line of sight, hero targeting, neutral AI priority and auto-resolve score;
 - lord defaults: старт `80g`, base income `25g/hour`, territory income T1/T2/T3 = `8/14/22g`, building cost T1/T2/T3/T4 = `40/75/120/180g`, lord HP `clamp(30 + floor(deployed_army_power / 10), 35, 70)`, anti-snowball `>=130%/-30%` и `>=170%/-50%`;
-- favorites lifecycle: consent, max 1 primary + 1 secondary per sorceress, max 2 sorceresses per favored player, change 1 per act, no passive runtime bonus by default;
+- favorites lifecycle: legacy/future контур; в текущем player-facing MVP фавориты не реализуются и предметы/эликсиры на них не ссылаются;
 - sorceress alignment: стартовая связь с лордом не запрещает интригу, двойную игру, нового патрона или открытое предательство; финал считает evidence фактической лояльности;
-- mana defaults: maximum mana `6 + level`, hourly regen `2 + floor(level/3) + bonuses`, spell cost T1/T2/T3/T4 = `1/2/3/4`;
-- spell/potion V0 catalog: T1-T4 spell roles для hint/boost/reveal/ward/curse/ritual, potion wholesale `8g/18g/40g`, resale bands `12-15g/25-30g/55-70g`, стартовое золото ведьмаков `20g`, чародеек `30g`, max 1 potion per scene by default;
+- mana defaults: legacy/future контур; текущий предметный MVP не требует маны и не списывает ее в player-facing UX;
+- potion V0 catalog: без HP/scene-damage/reroll/favorite effects; potion wholesale `8g/18g/40g`, resale bands `12-15g/25-30g/55-70g`, стартовое золото ведьмаков `20g`, чародеек `30g`, max 1 potion per scene by default;
 - rarity model: `Common/Uncommon/Rare/Legendary`, rare Gwent cards 6 всего и максимум 2 на акт, artifacts 8 всего, legendary artifacts 2 всего не раньше Act 2, plot/strategic keys 6 всего;
 - reputation thresholds: `-5..-4` Тьма, `-3..-2` Запятнанный, `-1..+1` Нейтральный, `+2..+3` Добро, `+4..+5` Свет;
 - финал содержит NPC-led турнир: система готовит `final_summary`, missing evidence, locks, NPC prices, locked magical intent, personal hooks и export, но сетку, веса evidence, спорные трактовки, победителей и объявления решают NPC-мастера;
@@ -152,13 +152,13 @@ URL/IP подключения является скрытой мастерско
 `0.0.0.0:8002`, который одновременно раздает Admin Studio, лордские экраны и
 API над одной базой. Для текущей локальной сети адреса такие:
 
-- Admin Studio мастера: `http://192.168.0.102:8002/admin`;
-- вход лордов: `http://192.168.0.102:8002/lords/login`;
-- игровые экраны лордов: `http://192.168.0.102:8002/lords/...`;
-- API: `http://192.168.0.102:8002/api/...`.
+- Admin Studio мастера: `http://192.168.68.118:8002/admin`;
+- вход лордов: `http://192.168.68.118:8002/lords/login`;
+- игровые экраны лордов: `http://192.168.68.118:8002/lords/...`;
+- API: `http://192.168.68.118:8002/api/...`.
 
 Если IPv4 мастерского ноутбука изменился, меняется только host
-`192.168.0.102`; порт `8002` и единый сервер остаются production path.
+`192.168.68.118`; порт `8002` и единый сервер остаются production path.
 Dev/Vite-порты вроде `5174`, `5178` и похожих не являются
 продакшен-серверами и не должны использоваться для мастерской/лордской игры.
 
@@ -331,7 +331,7 @@ PvE - пошаговый нарративный бой, не автобой.
 - cooldown при поражении;
 - запись результата в `event_queue`.
 
-PvE combat v1 не использует постоянное здоровье персонажа. Для каждой сцены клиент считает временный `player_scene_hp = 6 + level + armor_or_ward_bonus`, минимум 7; после исхода сцены это HP сбрасывается. Враг/опасность сцены имеет `scene_hp`, `combat_dc`, `scene_damage`, `round_limit` и `timeout_outcome`. Default `scene_hp` по тирам: T1 = 6, T2 = 10, T3 = 14, T4 = 18; default `round_limit` = 5. Атака или опасное действие - это app-generated `single_d20` против `combat_dc`; успех наносит `base_damage`, каждые полные 5 очков margin дают +1 damage, провал наносит `scene_damage` или двигает сцену к плохому исходу. Зелье или подготовка дают только логируемый modifier/снятие помехи, без reroll.
+PvE combat fields (`player_scene_hp`, `scene_hp`, `scene_damage`, `base_damage`) остаются legacy/internal совместимостью для старого combat contract, но текущий предметный MVP не вводит экипировку, HP-экономику или scene-damage эффекты. Клиентская PvE-петля для предметов использует `single_d20 + стат + логируемые modifiers`; зелье или подготовка дают только modifier, подсказку, раскрытие лучшего стата или снятие помехи, без reroll. Материалы выпадают после принятых PvE-событий на сервере и хранятся отдельно в `material_inventory`; цена рынка считается в `material_market_state` от суммарного количества материала у игроков, продажа идет через `/api/players/{player_id}/material-market/sell` и начисляет золото игроку.
 
 Для MVP лучше начать с собственного JSON/CSV-формата сценариев, а Dialogic рассматривать позже. Это снижает риск мобильной сборки и ускоряет импорт контента из таблиц.
 
@@ -339,7 +339,7 @@ PvE combat v1 не использует постоянное здоровье п
 
 Личный PvP нужен для ведьмаков и чародеек.
 
-Первая версия реализует full Gwent по core rules Witcher 3 Gwent с кастомным LARP-набором карт:
+Первая версия реализует full Gwent по core rules Witcher 3 Gwent на базовых 4 сторонах без дополнений: Королевства Севера, Нильфгаард, Скоя'таэли, Чудовища и нейтральные карты базовой игры. Официальные изображения не копируются; visual assets для приложения остаются original/local/generated.
 
 - фиксирует участников;
 - проверяет жетоны вызова;
@@ -525,7 +525,7 @@ Android/iOS install-launch-auto-connect-code-login-snapshot-restart-sync дол�
 
 - `uv 0.11.14`;
 - Python через `uv`: `3.12.10`;
-- текущий IPv4 мастерского ноутбука в локальной сети: `192.168.0.102`;
+- текущий IPv4 мастерского ноутбука в локальной сети: `192.168.68.118`;
 - production port сервера: `8002`;
 - canonical command path:
 
@@ -539,13 +539,13 @@ Health URLs для smoke:
 
 - мастерский ноутбук: `http://127.0.0.1:8002/health`;
 - телефоны и лордские ноутбуки в той же Wi-Fi-сети:
-  `http://192.168.0.102:8002/health` для текущего IP; на репетиции IP
+  `http://192.168.68.118:8002/health` для текущего IP; на репетиции IP
   нужно заменить на фактический адрес game-day ноутбука.
 
 Gameplay URLs для smoke:
 
-- мастер: `http://192.168.0.102:8002/admin`;
-- лорды: `http://192.168.0.102:8002/lords/login`;
+- мастер: `http://192.168.68.118:8002/admin`;
+- лорды: `http://192.168.68.118:8002/lords/login`;
 - проверка, что админка и лорды связаны: действие мастера в Admin Studio должно
   отражаться в лордском экране, потому что оба идут через тот же `8002` и ту же
   SQLite базу.
@@ -798,7 +798,7 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, pre-2B au
 - хранить контент в CSV;
 - импортировать контент автоматически;
 - тестировать баланс на малом наборе до расширения.
-- не принимать full content pack без personal goal hooks, QR mix 15+25, custom Gwent cards, trade/favorite/final hooks and final_summary evidence fields.
+- не принимать full content pack без personal goal hooks, QR mix 15+25, базового Gwent-каталога с полными описаниями эффектов, trade/favorite/final hooks and final_summary evidence fields.
 
 ## Источники для проверки платформенных решений
 

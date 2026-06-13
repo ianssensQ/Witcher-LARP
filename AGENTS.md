@@ -37,13 +37,13 @@ instead of a manually created virtual environment.
 FastAPI/SQLite процесс на мастерском ноутбуке, запущенный на `0.0.0.0:8002`.
 Он одновременно раздает Admin Studio, игру лордов и API над одной базой:
 
-- Admin Studio: `http://192.168.0.102:8002/admin`;
-- вход лордов: `http://192.168.0.102:8002/lords/login`;
-- игровые экраны лордов: `http://192.168.0.102:8002/lords/...`;
-- API: `http://192.168.0.102:8002/api/...`.
+- Admin Studio: `http://192.168.68.118:8002/admin`;
+- вход лордов: `http://192.168.68.118:8002/lords/login`;
+- игровые экраны лордов: `http://192.168.68.118:8002/lords/...`;
+- API: `http://192.168.68.118:8002/api/...`.
 
 Если локальный IP мастерского ноутбука изменился, заменяй только host
-`192.168.0.102` на новый LAN IPv4, но сохраняй port `8002` и единый сервер.
+`192.168.68.118` на новый LAN IPv4, но сохраняй port `8002` и единый сервер.
 Dev/Vite ports such as `5174`, `5178` or similar are not production servers and
 must not be used for master/lord gameplay unless the user explicitly asks for
 visual frontend development.
