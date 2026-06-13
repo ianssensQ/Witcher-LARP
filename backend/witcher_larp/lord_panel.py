@@ -2410,7 +2410,13 @@ def _garrison_targets(
     return targets
 
 
-FINAL_LORD_BATTLE_STATUSES = {"finished", "needs_master_review"}
+FINAL_LORD_BATTLE_STATUSES = {
+    "finished",
+    "needs_master_review",
+    "cancelled",
+    "closed",
+    "resolved",
+}
 
 
 def _active_battle_payloads(
@@ -2437,8 +2443,11 @@ def _active_battle_payloads(
         opponent_domain_id = (
             defender_domain_id if actor_side == "attacker" else attacker_domain_id
         )
+        queue_state = str(battle.get("queue_state") or "ready").strip().lower()
+        queue_position = _int_value(battle.get("queue_position")) or 1
+        is_queue_ready = queue_state != "waiting"
         active_side = str(battle.get("active_side") or "")
-        can_act = bool(actor_side and active_side == actor_side)
+        can_act = bool(is_queue_ready and actor_side and active_side == actor_side)
         payloads.append(
             {
                 "battle_id": battle.get("battle_id"),
@@ -2454,10 +2463,14 @@ def _active_battle_payloads(
                 "active_stack_id": battle.get("active_stack_id"),
                 "opponent_domain_id": opponent_domain_id,
                 "opponent_name": domain_names.get(opponent_domain_id or "", "Neutral defense"),
+                "created_at": battle.get("created_at"),
+                "queue_state": queue_state,
+                "queue_position": queue_position,
+                "blocking_battle_ids": battle.get("blocking_battle_ids") or [],
                 "can_act": can_act,
                 "cta": {
-                    "action": "open_battle",
-                    "label": "Act in battle" if can_act else "View battle",
+                    "action": "open_battle" if is_queue_ready else "wait_for_battle",
+                    "label": "В бой" if is_queue_ready else "Ждет очереди",
                     "battle_id": battle.get("battle_id"),
                     "territory_id": battle.get("territory_id"),
                     "territory_name": territory_names.get(
@@ -2466,6 +2479,14 @@ def _active_battle_payloads(
                 },
             }
         )
+    payloads.sort(
+        key=lambda battle: (
+            0 if battle.get("queue_state") != "waiting" else 1,
+            _int_value(battle.get("queue_position")),
+            str(battle.get("created_at") or ""),
+            str(battle.get("battle_id") or ""),
+        )
+    )
     return payloads
 
 
@@ -2474,6 +2495,8 @@ def _battle_alert_payloads(
 ) -> list[dict[str, Any]]:
     alerts: list[dict[str, Any]] = []
     for battle in active_battles:
+        if battle.get("queue_state") == "waiting":
+            continue
         alerts.append(
             {
                 "alert_id": f"battle:{battle.get('battle_id')}",

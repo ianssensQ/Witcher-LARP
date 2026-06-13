@@ -55,9 +55,14 @@ const isActiveBattleSummary = (battle: LordBackendBattleSummary) => {
   return !finalBattleStatuses.has(status);
 };
 
+const isReadyBattleSummary = (battle: LordBackendBattleSummary) => {
+  const queueState = String(battle.queue_state ?? "ready").trim().toLowerCase();
+  return isActiveBattleSummary(battle) && queueState !== "waiting";
+};
+
 const normalizeActiveBattle = (payload: LordBackendStatePayload | null): LordActiveBattleUiState => {
   const battles = Array.isArray(payload?.battles) ? payload?.battles : [];
-  const battle = battles.find(isActiveBattleSummary) ?? null;
+  const battle = battles.find(isReadyBattleSummary) ?? null;
   const battleId = getBattleId(battle);
 
   return {

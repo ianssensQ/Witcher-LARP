@@ -361,12 +361,14 @@ def get_lord_battle(
     )
     if state_changed:
         _save_state(connection, state, current_time)
-    return _state_payload(
+    payload = _state_payload(
         connection,
         state,
         viewer_domain_id=viewer_domain_id,
         viewer_role_type=viewer_role_type,
     )
+    payload.update(_lord_battle_queue_annotations(connection).get(str(state["battle_id"]), {}))
+    return payload
 
 
 def list_lord_battles(
@@ -391,18 +393,78 @@ def list_lord_battles(
         """,
         params,
     ).fetchall()
+    queue_annotations = _lord_battle_queue_annotations(connection)
     return {
         "items": [
-            _battle_payload(
-                connection,
-                row,
-                include_log=False,
-                viewer_domain_id=viewer_domain_id,
-                viewer_role_type=viewer_role_type,
-            )
+            {
+                **_battle_payload(
+                    connection,
+                    row,
+                    include_log=False,
+                    include_queue=False,
+                    viewer_domain_id=viewer_domain_id,
+                    viewer_role_type=viewer_role_type,
+                ),
+                **queue_annotations.get(str(row["battle_id"]), {}),
+            }
             for row in rows
         ]
     }
+
+
+def _lord_battle_queue_annotations(connection: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT battle_id, attacker_domain_id, defender_domain_id, status, created_at
+        FROM lord_battles
+        WHERE status NOT IN ('finished', 'needs_master_review', 'cancelled', 'closed', 'resolved')
+        ORDER BY created_at ASC, battle_id ASC
+        """
+    ).fetchall()
+    first_battle_by_domain: dict[str, str] = {}
+    queue_counts_by_domain: dict[str, int] = {}
+    annotations: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        battle_id = str(row["battle_id"])
+        participants = [
+            domain_id
+            for domain_id in (
+                _optional(row["attacker_domain_id"]),
+                _optional(row["defender_domain_id"]),
+            )
+            if domain_id
+        ]
+        blocking_battle_ids = sorted(
+            {
+                first_battle_by_domain[domain_id]
+                for domain_id in participants
+                if domain_id in first_battle_by_domain
+            }
+        )
+        previous_counts = [queue_counts_by_domain.get(domain_id, 0) for domain_id in participants]
+        annotations[battle_id] = {
+            "queue_state": "waiting" if blocking_battle_ids else "ready",
+            "queue_position": (max(previous_counts) if previous_counts else 0) + 1,
+            "blocking_battle_ids": blocking_battle_ids,
+        }
+        for domain_id in participants:
+            first_battle_by_domain.setdefault(domain_id, battle_id)
+            queue_counts_by_domain[domain_id] = queue_counts_by_domain.get(domain_id, 0) + 1
+    return annotations
+
+
+def _assert_lord_battle_queue_ready(
+    connection: sqlite3.Connection, state: dict[str, Any], actor_role_type: str | None
+) -> None:
+    if actor_role_type == "npc_master" or state["status"] in FINAL_BATTLE_STATES:
+        return
+    annotation = _lord_battle_queue_annotations(connection).get(str(state["battle_id"]))
+    if annotation and annotation.get("queue_state") == "waiting":
+        raise LordBattleError(
+            "battle_waiting_for_previous",
+            "This battle waits for an earlier lord battle to finish.",
+            409,
+        )
 
 
 def record_lord_battle_action(
@@ -427,6 +489,7 @@ def record_lord_battle_action(
     action_type = action_type.strip().lower()
     actor_side = _side_name(actor_side)
     _assert_actor_allowed(state, actor_side, actor_domain_id, actor_role_type)
+    _assert_lord_battle_queue_ready(connection, state, actor_role_type)
     _start_deployment_timer_for_actor(
         state,
         current_time,
@@ -2513,16 +2576,20 @@ def _battle_payload(
     row: sqlite3.Row,
     *,
     include_log: bool = True,
+    include_queue: bool = True,
     viewer_domain_id: str | None = None,
     viewer_role_type: str | None = None,
 ) -> dict[str, Any]:
-    return _state_payload(
+    payload = _state_payload(
         connection,
         _state_from_row(row),
         include_log=include_log,
         viewer_domain_id=viewer_domain_id,
         viewer_role_type=viewer_role_type,
     )
+    if include_queue:
+        payload.update(_lord_battle_queue_annotations(connection).get(str(row["battle_id"]), {}))
+    return payload
 
 
 def _state_payload(

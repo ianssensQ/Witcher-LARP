@@ -207,8 +207,8 @@ type LordHomeBackendState = LordBackendStatePayload & {
     territory_id?: string;
     pending_move_active?: boolean;
   };
-  battles?: Array<Record<string, unknown> & { battle_id?: string; status?: string }>;
-  active_battles?: Array<Record<string, unknown> & { battle_id?: string; status?: string }>;
+  battles?: Array<Record<string, unknown> & { battle_id?: string; status?: string; queue_state?: string }>;
+  active_battles?: Array<Record<string, unknown> & { battle_id?: string; status?: string; queue_state?: string }>;
   claims?: LordMapClaimPayload[];
   battle_alerts?: LordMapBattleAlertPayload[];
   route_options?: unknown;
@@ -1081,12 +1081,15 @@ const lordMapBattleClaimStatuses = new Set(["in_battle", "contested", "contested
 const lordMapGarrisonClaimStatuses = new Set(["awaiting_garrison", "capture_pending_garrison"]);
 const lordMapFinalBattleStatuses = new Set(["finished", "needs_master_review", "cancelled", "closed", "resolved"]);
 
+const isLordMapReadyBattle = (item: Record<string, unknown> & { battle_id?: string; status?: string; queue_state?: string }) => {
+  const battleId = String(item.battle_id ?? "").trim();
+  const status = String(item.status ?? "").trim().toLowerCase();
+  const queueState = String(item.queue_state ?? "ready").trim().toLowerCase();
+  return Boolean(battleId) && queueState !== "waiting" && !lordMapFinalBattleStatuses.has(status);
+};
+
 const getLordMapActiveBattleId = (state: LordMapBackendState | null | undefined) => {
-  const battle = [...(state?.active_battles ?? []), ...(state?.battles ?? [])].find((item) => {
-    const battleId = String(item.battle_id ?? "").trim();
-    const status = String(item.status ?? "").trim().toLowerCase();
-    return Boolean(battleId) && !lordMapFinalBattleStatuses.has(status);
-  });
+  const battle = [...(state?.active_battles ?? []), ...(state?.battles ?? [])].find(isLordMapReadyBattle);
   if (battle?.battle_id) {
     return String(battle.battle_id);
   }

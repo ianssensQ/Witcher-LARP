@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
 import unittest
 from uuid import uuid4
 
@@ -247,6 +248,161 @@ class LordPanelContractTests(unittest.TestCase):
                     json=body,
                 )
                 self.assertEqual(cross_scope.status_code, 403, cross_scope.text)
+
+    def test_lord_panel_queues_simultaneous_attacks_against_same_lord(self) -> None:
+        settings = self._settings("lord_battle_queue")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings))
+        now = datetime.now(UTC)
+        board = {
+            "width": 5,
+            "height": 6,
+            "rules": {"turn_timer_seconds": 60},
+            "stacks": [],
+            "hero_cells": {
+                "attacker": {"x": 2, "y": 0},
+                "defender": {"x": 2, "y": 5},
+            },
+        }
+        deployment = {
+            "deployment_cap": 5,
+            "hand": {"attacker": [], "defender": []},
+            "deployed": {"attacker": [], "defender": []},
+            "undeployed": {"attacker": [], "defender": []},
+            "ready": {"attacker": True, "defender": True},
+            "phase": "complete",
+        }
+        hero_hp = {
+            "attacker": {"current": 40, "max": 40},
+            "defender": {"current": 40, "max": 40},
+        }
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            for index, (battle_id, attacker_domain_id, territory_id) in enumerate(
+                [
+                    ("lord_panel_queue_first", "domain_river", "territory_fort_east"),
+                    ("lord_panel_queue_second", "domain_forest", "territory_black_mire"),
+                ]
+            ):
+                created_at = now + timedelta(seconds=index)
+                connection.execute(
+                    """
+                    INSERT INTO lord_battles (
+                        battle_id, battle_type, territory_id, claim_id,
+                        attacker_domain_id, defender_domain_id, defender_control,
+                        status, seed, round_number, active_side, active_stack_id,
+                        turn_started_at, timeout_at, timeout_counts_json, board_json,
+                        hero_hp_json, deployment_json, initiative_json,
+                        burned_cards_json, result_json, created_at, updated_at,
+                        target_duration_seconds, auto_resolve_after_seconds,
+                        master_takeover_enabled
+                    )
+                    VALUES (?, 'lord_vs_lord', ?, NULL, ?, 'domain_north', 'lord',
+                            'active', ?, 1, 'defender', NULL, ?, ?, '{}', ?, ?, ?,
+                            '[]', '[]', '{}', ?, ?, 1200, 1500, 0)
+                    """,
+                    (
+                        battle_id,
+                        territory_id,
+                        attacker_domain_id,
+                        f"seed-{battle_id}",
+                        created_at.isoformat(),
+                        (created_at + timedelta(seconds=60)).isoformat(),
+                        json.dumps(board),
+                        json.dumps(hero_hp),
+                        json.dumps(deployment),
+                        created_at.isoformat(),
+                        created_at.isoformat(),
+                    ),
+                )
+
+        defender_state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+        )
+        self.assertEqual(defender_state.status_code, 200, defender_state.text)
+        defender_payload = defender_state.json()
+        first = next(
+            battle
+            for battle in defender_payload["active_battles"]
+            if battle["battle_id"] == "lord_panel_queue_first"
+        )
+        second = next(
+            battle
+            for battle in defender_payload["active_battles"]
+            if battle["battle_id"] == "lord_panel_queue_second"
+        )
+        self.assertEqual(first["queue_state"], "ready")
+        self.assertEqual(first["queue_position"], 1)
+        self.assertEqual(first["cta"]["action"], "open_battle")
+        self.assertTrue(first["can_act"])
+        self.assertEqual(second["queue_state"], "waiting")
+        self.assertEqual(second["queue_position"], 2)
+        self.assertEqual(second["blocking_battle_ids"], ["lord_panel_queue_first"])
+        self.assertEqual(second["cta"]["action"], "wait_for_battle")
+        self.assertFalse(second["can_act"])
+        self.assertEqual(
+            [
+                alert["battle_id"]
+                for alert in defender_payload["battle_alerts"]
+                if alert["type"] == "active_battle"
+            ],
+            ["lord_panel_queue_first"],
+        )
+
+        waiting_attacker = client.get(
+            "/api/lords/p_lord_3/state",
+            headers={"X-Role-Token": "LORD-FOREST-P6W3"},
+        )
+        self.assertEqual(waiting_attacker.status_code, 200, waiting_attacker.text)
+        waiting_battle = next(
+            battle
+            for battle in waiting_attacker.json()["active_battles"]
+            if battle["battle_id"] == "lord_panel_queue_second"
+        )
+        self.assertEqual(waiting_battle["queue_state"], "waiting")
+        self.assertEqual(waiting_battle["cta"]["action"], "wait_for_battle")
+        blocked_action = client.post(
+            "/api/lord-battles/lord_panel_queue_second/actions",
+            headers={"X-Role-Token": "LORD-FOREST-P6W3"},
+            json={
+                "action_id": "queued-battle-action",
+                "action_type": "auto_resolve",
+                "actor_side": "attacker",
+            },
+        )
+        self.assertEqual(blocked_action.status_code, 409, blocked_action.text)
+        self.assertEqual(
+            blocked_action.json()["detail"]["code"],
+            "battle_waiting_for_previous",
+        )
+
+        with connect(settings) as connection:
+            finished_at = (now + timedelta(minutes=2)).isoformat()
+            connection.execute(
+                """
+                UPDATE lord_battles
+                SET status = 'finished', finished_at = ?, updated_at = ?
+                WHERE battle_id = 'lord_panel_queue_first'
+                """,
+                (finished_at, finished_at),
+            )
+
+        released_state = client.get(
+            "/api/lords/p_lord_1/state",
+            headers={"X-Role-Token": "LORD-NORTH-R8K4"},
+        )
+        self.assertEqual(released_state.status_code, 200, released_state.text)
+        released_payload = released_state.json()
+        released_battle = next(
+            battle
+            for battle in released_payload["active_battles"]
+            if battle["battle_id"] == "lord_panel_queue_second"
+        )
+        self.assertEqual(released_battle["queue_state"], "ready")
+        self.assertEqual(released_battle["queue_position"], 1)
+        self.assertEqual(released_battle["cta"]["action"], "open_battle")
+        self.assertTrue(released_battle["can_act"])
 
     def test_capture_pending_foreign_territory_is_garrison_target_from_panel(self) -> None:
         settings = self._settings("lord_capture_pending_panel")

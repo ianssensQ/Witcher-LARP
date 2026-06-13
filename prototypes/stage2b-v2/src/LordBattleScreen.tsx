@@ -150,6 +150,8 @@ type LordBattlePayload = Record<string, unknown> & {
   defender_domain_id?: unknown;
   defender_control?: unknown;
   status?: unknown;
+  queue_state?: unknown;
+  blocking_battle_ids?: unknown;
   round_number?: unknown;
   active_side?: unknown;
   active_stack_id?: unknown;
@@ -486,6 +488,9 @@ const getPlayerSideForBattle = (payload: LordBattlePayload | null, playerDomainI
 };
 
 const getBattleStatus = (payload: LordBattlePayload | null) => toSafeString(payload?.status);
+
+const getBattleQueueState = (payload: LordBattlePayload | null) =>
+  toSafeString(payload?.queue_state).toLowerCase();
 
 const getBattleTimerSeconds = (payload: LordBattlePayload | null) => {
   const timeoutAt = toSafeString(payload?.timeout_at);
@@ -1150,6 +1155,7 @@ function LordBattleScreen() {
 
   const isProductionBattle = !useDemoState && Boolean(serverBattle);
   const currentBattleId = toSafeString(serverBattle?.battle_id) || lordUiState.activeBattle.battleId || requestedBattleId;
+  const isWaitingForBattleQueue = !useDemoState && getBattleQueueState(serverBattle) === "waiting";
   const playerServerSide = getPlayerSideForBattle(serverBattle, playerDomainId);
   const playerUiSide = playerServerSide ? serverSideToUiSide[playerServerSide] : "north";
   const activeServerSide = normalizeServerSide(serverBattle?.active_side);
@@ -1943,6 +1949,16 @@ function LordBattleScreen() {
 
   if (!useDemoState && !serverBattle && isBattleLoading) {
     return <LordBattleOpeningScreen />;
+  }
+
+  if (!useDemoState && serverBattle && isWaitingForBattleQueue) {
+    return (
+      <LordBattleReadOnlyScreen
+        battleId={currentBattleId || null}
+        message="Этот бой ждет очереди. Сначала должен закончиться другой бой одного из лордов."
+        mpState={battleMpState}
+      />
+    );
   }
 
   if (!useDemoState && !serverBattle) {

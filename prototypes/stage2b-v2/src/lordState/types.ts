@@ -11,6 +11,7 @@ export type LordMpUiState = {
 export type LordBackendBattleSummary = Record<string, unknown> & {
   battle_id?: string;
   status?: string;
+  queue_state?: string;
 };
 
 export type LordBackendStatePayload = Record<string, unknown> & {

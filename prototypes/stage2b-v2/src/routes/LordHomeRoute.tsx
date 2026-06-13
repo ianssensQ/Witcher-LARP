@@ -757,8 +757,8 @@ type LordHomeBackendState = LordBackendStatePayload & {
   active_raid_effects?: LordHomeRaidEffect[];
   raid_history?: LordHomeRaidEffect[];
   raid_effects?: LordHomeRaidEffect[];
-  battles?: Array<Record<string, unknown> & { battle_id?: string; status?: string }>;
-  active_battles?: Array<Record<string, unknown> & { battle_id?: string; status?: string }>;
+  battles?: Array<Record<string, unknown> & { battle_id?: string; status?: string; queue_state?: string }>;
+  active_battles?: Array<Record<string, unknown> & { battle_id?: string; status?: string; queue_state?: string }>;
   claims?: LordMapClaimPayload[];
   battle_alerts?: LordMapBattleAlertPayload[];
   recruit_market?: Array<{
@@ -1958,6 +1958,8 @@ const getLordHomeApiErrorMessage = (payload: unknown, fallback: string) =>
 const getLordHomeCaughtErrorMessage = (error: unknown, fallback: string) =>
   getLordClientErrorMessage(error, fallback);
 
+const getLordHomeText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
 const normalizeStringArray = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value.map((item) => String(item)).filter(Boolean);
@@ -2620,6 +2622,7 @@ function LordHomeScreen() {
   const [lordRaidStatus, setLordRaidStatus] = useState("");
   const [isLordRaidSubmitting, setIsLordRaidSubmitting] = useState(false);
   const [openPanel, setOpenPanel] = useState<LordHomePanel | null>(initialOpenPanel);
+  const [dismissedBattleNoticeId, setDismissedBattleNoticeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isMissingLordRuntimeSession) {
@@ -2808,6 +2811,17 @@ function LordHomeScreen() {
   );
   const activeBattle = lordUiState.activeBattle.active;
   const activeBattleId = lordUiState.activeBattle.battleId;
+  const activeBattleSummary = lordUiState.activeBattle.battle;
+  const activeBattleTerritoryName =
+    getLordHomeText(activeBattleSummary?.territory_name) ||
+    getLordHomeText(activeBattleSummary?.territory_id) ||
+    "ваше владение";
+  const activeBattleOpponentName =
+    getLordHomeText(activeBattleSummary?.opponent_name) ||
+    "противник";
+  const showBattleAttackNotice = Boolean(
+    activeBattle && activeBattleId && dismissedBattleNoticeId !== activeBattleId
+  );
   const canShowRuntimeResources = lordUiState.hasAuthoritativeState || useDemoState;
   const goldResourceLabel = canShowRuntimeResources ? String(lordGold) : "--";
   const incomeResourceLabel = canShowRuntimeResources ? `+${domainStats.incomePerHour}/тик` : "--";
@@ -2840,6 +2854,18 @@ function LordHomeScreen() {
     clearLordRuntimeSession({ clearApiBaseUrl: true });
     window.location.assign(withLordRuntimeQuery("/lords/login", apiBaseUrl));
   }, [apiBaseUrl]);
+
+  const openActiveBattle = useCallback(() => {
+    if (!activeBattleId) {
+      setOpenPanel(null);
+      return;
+    }
+    window.location.assign(withLordRuntimeQuery(
+      `/lords/battle?battle_id=${activeBattleId}&return_to=home`,
+      apiBaseUrl,
+      { lordId: backendLordId }
+    ));
+  }, [activeBattleId, apiBaseUrl, backendLordId]);
 
   const applyBackendState = useCallback((
     state: LordHomeBackendState,
@@ -4385,6 +4411,51 @@ function LordHomeScreen() {
           </div>
         ) : null}
 
+        <AnimatePresence>
+          {showBattleAttackNotice ? (
+            <motion.div
+              className="lord-home-battle-alert"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="lord-home-battle-alert-title"
+              initial={prefersReducedMotion ? false : { opacity: 0 }}
+              animate={prefersReducedMotion ? undefined : { opacity: 1 }}
+              exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+            >
+              <motion.div
+                className="lord-home-battle-alert-panel"
+                initial={prefersReducedMotion ? false : { y: 24, scale: 0.98, opacity: 0 }}
+                animate={prefersReducedMotion ? undefined : { y: 0, scale: 1, opacity: 1 }}
+                exit={prefersReducedMotion ? undefined : { y: 16, scale: 0.98, opacity: 0 }}
+                transition={prefersReducedMotion ? undefined : { type: "spring", stiffness: 220, damping: 24 }}
+              >
+                <button
+                  className="lord-home-battle-alert-close"
+                  type="button"
+                  aria-label="Закрыть уведомление"
+                  onClick={() => setDismissedBattleNoticeId(activeBattleId)}
+                >
+                  <XCircle size={30} />
+                </button>
+                <div className="lord-home-battle-alert-sigil" aria-hidden="true">
+                  <Shield size={44} />
+                  <Swords size={34} />
+                </div>
+                <div className="lord-home-battle-alert-copy">
+                  <span>Тревога</span>
+                  <h1 id="lord-home-battle-alert-title">На владение напали</h1>
+                  <p>{activeBattleOpponentName} у ворот: {activeBattleTerritoryName}</p>
+                  <small>Остальные нападения ждут, пока этот бой закончится.</small>
+                </div>
+                <button className="lord-home-battle-alert-action" type="button" onClick={openActiveBattle}>
+                  <Swords size={20} />
+                  <span>В бой</span>
+                </button>
+              </motion.div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
         {homeView === "orders" ? (
           <LordHomeOrdersBoard
             orders={lordOrders}
@@ -4489,15 +4560,7 @@ function LordHomeScreen() {
                   }
 
                   if (action.id === "battle") {
-                    if (!activeBattleId) {
-                      setOpenPanel(null);
-                      return;
-                    }
-                    window.location.assign(withLordRuntimeQuery(
-                      `/lords/battle?battle_id=${activeBattleId}&return_to=home`,
-                      apiBaseUrl,
-                      { lordId: backendLordId }
-                    ));
+                    openActiveBattle();
                     return;
                   }
                 }}
