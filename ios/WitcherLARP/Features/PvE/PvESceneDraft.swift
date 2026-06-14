@@ -31,8 +31,20 @@ struct PvESceneDraft: Identifiable, Equatable {
         )
     }
 
+    var boardDescriptionText: String? {
+        cleaned(scenario.boardDescription)
+    }
+
+    var scanRevealText: String? {
+        cleaned(scenario.scanReveal)
+    }
+
+    var visualAssetName: String? {
+        cleaned(scenario.visualAssetId)
+    }
+
     var missionText: String {
-        if let text = scenario.missionText?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+        if let text = scanRevealText ?? cleaned(scenario.missionText) ?? boardDescriptionText {
             return text
         }
         switch scenario.sceneType {
@@ -56,7 +68,11 @@ struct PvESceneDraft: Identifiable, Equatable {
     }
 
     var choiceStages: [[PVEMissionChoice]] {
-        [
+        let configured = configuredChoices
+        if !configured.isEmpty {
+            return [configured]
+        }
+        return [
             [
                 PVEMissionChoice(choiceId: "approach_cautious", title: "Осмотреться"),
                 PVEMissionChoice(choiceId: "approach_rushed", title: "Действовать резко"),
@@ -76,10 +92,49 @@ struct PvESceneDraft: Identifiable, Equatable {
     }
 
     var isComplete: Bool {
-        rollLog.count >= checkStats.count
+        rollLog.count >= encounterSteps.count
     }
 
     var checkStats: [String] {
+        encounterSteps.map(\.stat)
+    }
+
+    var nextCheckStep: PVEEncounterStepDraft? {
+        guard isReadyForChecks, rollLog.count < encounterSteps.count else { return nil }
+        return encounterSteps[rollLog.count]
+    }
+
+    var nextCheckStat: String? {
+        nextCheckStep?.stat
+    }
+
+    private var encounterSteps: [PVEEncounterStepDraft] {
+        let configured = configuredEncounterSteps
+        if !configured.isEmpty {
+            var steps = Array(configured.prefix(3))
+            let fallback = fallbackCheckStats
+            while steps.count < 3 {
+                let index = steps.count
+                steps.append(PVEEncounterStepDraft(
+                    stepId: "fallback-\(index + 1)",
+                    title: "Испытание \(index + 1)",
+                    stat: fallback[index],
+                    dc: scenario.dc
+                ))
+            }
+            return steps
+        }
+        return fallbackCheckStats.enumerated().map { index, stat in
+            PVEEncounterStepDraft(
+                stepId: "fallback-\(index + 1)",
+                title: "Испытание \(index + 1)",
+                stat: stat,
+                dc: scenario.dc
+            )
+        }
+    }
+
+    private var fallbackCheckStats: [String] {
         let primary = canonicalStat(scenario.primaryStat)
         let preferred: [String]
         switch scenario.sceneType {
@@ -102,11 +157,6 @@ struct PvESceneDraft: Identifiable, Equatable {
             if result.count == 3 { break }
         }
         return result
-    }
-
-    var nextCheckStat: String? {
-        guard isReadyForChecks, rollLog.count < checkStats.count else { return nil }
-        return checkStats[rollLog.count]
     }
 
     var successCount: Int {
@@ -133,9 +183,18 @@ struct PvESceneDraft: Identifiable, Equatable {
         result == "success" ? scenario.successText : scenario.failureText
     }
 
+    var effectiveRewardApprovalPolicy: String {
+        reward?.approvalPolicy ?? scenario.rewardApprovalPolicy ?? "auto"
+    }
+
     var rewardStatus: String {
-        guard result == "success", let reward else { return "none" }
-        return reward.approvalPolicy == "pending_master_approval" ? "pending_master_approval" : "auto"
+        guard result == "success" else { return "none" }
+        switch effectiveRewardApprovalPolicy.lowercased() {
+        case "pending_master_approval", "master_approval", "needs_master_review":
+            return "pending_master_approval"
+        default:
+            return "auto"
+        }
     }
 
     var rewardStatusLabel: String {
@@ -177,14 +236,14 @@ struct PvESceneDraft: Identifiable, Equatable {
 
     var rollSummary: String {
         rollLog.map { roll in
-            "\(roll.stat): d20 \(roll.roll) + \(roll.statValue(player: player)) + \(roll.modifierTotal) = \(roll.total(player: player))"
+            "\(roll.stepTitle ?? roll.stat): d20 \(roll.roll) + \(roll.statValue(player: player)) + \(roll.modifierTotal) = \(roll.total(player: player))"
         }
         .joined(separator: "\n")
     }
 
     var lastRollSummary: String {
         guard let roll = rollLog.last else { return "" }
-        return "\(roll.stat): d20 \(roll.roll) + \(roll.statValue(player: player)) + \(roll.modifierTotal) = \(roll.total(player: player))"
+        return "\(roll.stepTitle ?? roll.stat): d20 \(roll.roll) + \(roll.statValue(player: player)) + \(roll.modifierTotal) = \(roll.total(player: player))"
     }
 
     var eventPayload: [String: JSONValue] {
@@ -205,11 +264,14 @@ struct PvESceneDraft: Identifiable, Equatable {
             "outcome": .string(result),
             "result": .string(result),
             "reward_id": .string(reward?.rewardId ?? scenario.rewardId),
-            "reward_approval_policy": .string(reward?.approvalPolicy ?? "auto"),
+            "reward_approval_policy": .string(effectiveRewardApprovalPolicy),
             "reward_status": .string(rewardStatus),
             "qr_mode": .string(qr.qrMode),
             "physical_presence_confirmed": .bool(true),
-            "source": .string(source.apiValue)
+            "source": .string(source.apiValue),
+            "choice_source": .string(configuredChoices.isEmpty ? "fallback" : "snapshot"),
+            "encounter_source": .string(configuredEncounterSteps.isEmpty ? "fallback" : "snapshot"),
+            "visual_asset_id": .string(visualAssetName ?? "")
         ]
     }
 
@@ -223,25 +285,132 @@ struct PvESceneDraft: Identifiable, Equatable {
     }
 
     func rollingNextCheck() -> PvESceneDraft? {
-        guard let stat = nextCheckStat else { return nil }
+        guard let step = nextCheckStep else { return nil }
         var updated = self
         updated.rollLog.append(PVERollDraft(
             checkIndex: rollLog.count + 1,
-            stat: stat,
+            stat: step.stat,
             roll: Int.random(in: 1...20),
-            dc: scenario.dc,
-            modifiers: choiceModifiers(for: stat),
-            checkId: "ios-check-\(UUID().uuidString)",
+            dc: step.dc,
+            modifiers: choiceModifiers(for: step.stat),
+            checkId: step.stepId.isEmpty ? "ios-check-\(UUID().uuidString)" : step.stepId,
             rollId: "ios-roll-\(UUID().uuidString)",
+            stepTitle: step.title,
             createdAt: Date()
         ))
         return updated
     }
 
     func choiceModifiers(for stat: String) -> [PVEMissionModifier] {
-        selectedChoiceIds.compactMap { choiceId in
+        let configured = configuredChoiceModifiers(for: stat)
+        if !configured.isEmpty {
+            return configured
+        }
+        return selectedChoiceIds.compactMap { choiceId in
             guard let value = Self.choiceEffects[choiceId]?[stat], value != 0 else { return nil }
             return PVEMissionModifier(source: "system", label: "choice:\(choiceId)", value: value)
+        }
+    }
+
+    private var configuredChoices: [PVEMissionChoice] {
+        Self.jsonObjectArray(from: scenario.choiceOptionsJSON, nestedKeys: ["choices", "options"])
+            .enumerated()
+            .compactMap { index, object in
+                let title = Self.stringValue(
+                    object["title"] ?? object["label"] ?? object["text"] ?? object["name"]
+                )
+                guard let title, !title.isEmpty else { return nil }
+                let choiceId = Self.stringValue(object["choice_id"] ?? object["id"])
+                    ?? "choice_\(index + 1)"
+                return PVEMissionChoice(choiceId: choiceId, title: title)
+            }
+    }
+
+    private var configuredEncounterSteps: [PVEEncounterStepDraft] {
+        Self.jsonObjectArray(from: scenario.encounterStepsJSON, nestedKeys: ["steps", "checks", "encounter_steps"])
+            .enumerated()
+            .compactMap { index, object in
+                let stat = canonicalStat(
+                    Self.stringValue(object["stat"] ?? object["primary_stat"] ?? object["check_stat"]) ?? scenario.primaryStat
+                )
+                let title = Self.stringValue(
+                    object["title"] ?? object["label"] ?? object["text"] ?? object["description"]
+                ) ?? "Испытание \(index + 1)"
+                let stepId = Self.stringValue(object["step_id"] ?? object["check_id"] ?? object["id"])
+                    ?? "snapshot-step-\(index + 1)"
+                let dc = Self.intValue(object["dc"] ?? object["difficulty"]) ?? scenario.dc
+                return PVEEncounterStepDraft(stepId: stepId, title: title, stat: stat, dc: dc)
+            }
+    }
+
+    private func configuredChoiceModifiers(for stat: String) -> [PVEMissionModifier] {
+        let objects = Self.jsonObjectArray(from: scenario.choiceOptionsJSON, nestedKeys: ["choices", "options"])
+        var modifiers: [PVEMissionModifier] = []
+        for choiceId in selectedChoiceIds {
+            guard let object = objects.first(where: { object in
+                let id = Self.stringValue(object["choice_id"] ?? object["id"])
+                return id == choiceId
+            }) else { continue }
+            guard let modifierMap = (object["stat_modifiers"] ?? object["modifiers"]) as? [String: Any] else {
+                continue
+            }
+            let value = modifierMap.first { key, _ in
+                canonicalStat(key) == stat
+            }.flatMap { Self.intValue($0.value) } ?? 0
+            guard value != 0 else { continue }
+            modifiers.append(PVEMissionModifier(source: "choice", label: "choice:\(choiceId)", value: value))
+        }
+        return modifiers
+    }
+
+    private func cleaned(_ raw: String?) -> String? {
+        let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
+
+    private static func jsonObjectArray(from raw: String?, nestedKeys: [String]) -> [[String: Any]] {
+        guard
+            let raw,
+            let data = raw.data(using: .utf8),
+            let decoded = try? JSONSerialization.jsonObject(with: data)
+        else { return [] }
+        if let array = decoded as? [[String: Any]] {
+            return array
+        }
+        if let object = decoded as? [String: Any] {
+            for key in nestedKeys {
+                if let array = object[key] as? [[String: Any]] {
+                    return array
+                }
+            }
+        }
+        return []
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        switch value {
+        case let string as String:
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        case let int as Int:
+            return String(int)
+        case let double as Double:
+            return String(Int(double))
+        default:
+            return nil
+        }
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        switch value {
+        case let int as Int:
+            return int
+        case let double as Double:
+            return Int(double)
+        case let string as String:
+            return Int(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
         }
     }
 
@@ -312,6 +481,13 @@ struct PVEMissionChoice: Identifiable, Equatable {
     var id: String { choiceId }
 }
 
+struct PVEEncounterStepDraft: Equatable {
+    let stepId: String
+    let title: String
+    let stat: String
+    let dc: Int
+}
+
 struct PVEMissionModifier: Equatable {
     let source: String
     let label: String
@@ -334,6 +510,7 @@ struct PVERollDraft: Identifiable, Equatable {
     let modifiers: [PVEMissionModifier]
     let checkId: String
     let rollId: String
+    let stepTitle: String?
     let createdAt: Date
 
     var id: String { rollId }
@@ -366,6 +543,7 @@ struct PVERollDraft: Identifiable, Equatable {
             "die": .string("d20"),
             "roll": .int(roll),
             "roll_value": .int(roll),
+            "step_title": .string(stepTitle ?? ""),
             "stat": .string(stat),
             "stat_value": .int(statValue(player: draft.player)),
             "modifiers": .array(modifiers.map { .object($0.json) }),

@@ -24,8 +24,10 @@ struct PlayerSnapshot: Codable, Equatable {
     let gwentDecks: [GwentDeck]
     let assetOwnership: [SnapshotRow]
     let potionInventory: [SnapshotRow]
+    let potionMarket: [SnapshotRow]
     let materialInventory: [SnapshotRow]
     let materialMarket: [SnapshotRow]
+    let cardMarket: [SnapshotRow]
     let tradeTransfers: [SnapshotRow]
     let rewardApprovals: [SnapshotRow]
     let checks: SnapshotChecks
@@ -63,8 +65,10 @@ struct PlayerSnapshot: Codable, Equatable {
         gwentDecks: [GwentDeck],
         assetOwnership: [SnapshotRow],
         potionInventory: [SnapshotRow],
+        potionMarket: [SnapshotRow],
         materialInventory: [SnapshotRow],
         materialMarket: [SnapshotRow],
+        cardMarket: [SnapshotRow],
         tradeTransfers: [SnapshotRow],
         rewardApprovals: [SnapshotRow],
         checks: SnapshotChecks,
@@ -93,8 +97,10 @@ struct PlayerSnapshot: Codable, Equatable {
         self.gwentDecks = gwentDecks
         self.assetOwnership = assetOwnership
         self.potionInventory = potionInventory
+        self.potionMarket = potionMarket
         self.materialInventory = materialInventory
         self.materialMarket = materialMarket
+        self.cardMarket = cardMarket
         self.tradeTransfers = tradeTransfers
         self.rewardApprovals = rewardApprovals
         self.checks = checks
@@ -128,8 +134,10 @@ struct PlayerSnapshot: Codable, Equatable {
             gwentDecks: gwentDecks,
             assetOwnership: assetOwnership,
             potionInventory: potionInventory,
+            potionMarket: potionMarket,
             materialInventory: materialInventory,
             materialMarket: materialMarket,
+            cardMarket: cardMarket,
             tradeTransfers: tradeTransfers,
             rewardApprovals: rewardApprovals,
             checks: checks,
@@ -161,8 +169,10 @@ struct PlayerSnapshot: Codable, Equatable {
         case gwentDecks = "gwent_decks"
         case assetOwnership = "asset_ownership"
         case potionInventory = "potion_inventory"
+        case potionMarket = "potion_market"
         case materialInventory = "material_inventory"
         case materialMarket = "material_market"
+        case cardMarket = "card_market"
         case tradeTransfers = "trade_transfers"
         case rewardApprovals = "reward_approvals"
         case checks
@@ -194,8 +204,10 @@ struct PlayerSnapshot: Codable, Equatable {
         gwentDecks = (try? container.decode([GwentDeck].self, forKey: .gwentDecks)) ?? []
         assetOwnership = (try? container.decode([SnapshotRow].self, forKey: .assetOwnership)) ?? []
         potionInventory = (try? container.decode([SnapshotRow].self, forKey: .potionInventory)) ?? []
+        potionMarket = (try? container.decode([SnapshotRow].self, forKey: .potionMarket)) ?? []
         materialInventory = (try? container.decode([SnapshotRow].self, forKey: .materialInventory)) ?? []
         materialMarket = (try? container.decode([SnapshotRow].self, forKey: .materialMarket)) ?? []
+        cardMarket = (try? container.decode([SnapshotRow].self, forKey: .cardMarket)) ?? []
         tradeTransfers = (try? container.decode([SnapshotRow].self, forKey: .tradeTransfers)) ?? []
         rewardApprovals = (try? container.decode([SnapshotRow].self, forKey: .rewardApprovals)) ?? []
         checks = (try? container.decode(SnapshotChecks.self, forKey: .checks)) ?? SnapshotChecks()
@@ -448,6 +460,12 @@ struct PVEScenario: Codable, Equatable, Identifiable {
     let combatProfileId: String
     let rewardId: String
     let missionText: String?
+    let boardDescription: String?
+    let scanReveal: String?
+    let visualAssetId: String?
+    let choiceOptionsJSON: String?
+    let encounterStepsJSON: String?
+    let rewardApprovalPolicy: String?
     let successText: String
     let failureText: String
 
@@ -464,6 +482,12 @@ struct PVEScenario: Codable, Equatable, Identifiable {
         case combatProfileId = "combat_profile_id"
         case rewardId = "reward_id"
         case missionText = "mission_text"
+        case boardDescription = "board_description"
+        case scanReveal = "scan_reveal"
+        case visualAssetId = "visual_asset_id"
+        case choiceOptionsJSON = "choice_options_json"
+        case encounterStepsJSON = "encounter_steps_json"
+        case rewardApprovalPolicy = "reward_approval_policy"
         case successText = "success_text"
         case failureText = "failure_text"
     }
@@ -485,7 +509,15 @@ struct PVEScenario: Codable, Equatable, Identifiable {
         checkPolicy = container.decodeFlexibleStringIfPresent(forKey: .checkPolicy) ?? "single_d20"
         combatProfileId = container.decodeFlexibleString(forKey: .combatProfileId)
         rewardId = container.decodeFlexibleString(forKey: .rewardId)
+        boardDescription = container.decodeFlexibleStringIfPresent(forKey: .boardDescription)
+        scanReveal = container.decodeFlexibleStringIfPresent(forKey: .scanReveal)
+        visualAssetId = container.decodeFlexibleStringIfPresent(forKey: .visualAssetId)
+        choiceOptionsJSON = container.decodeFlexibleStringIfPresent(forKey: .choiceOptionsJSON)
+        encounterStepsJSON = container.decodeFlexibleStringIfPresent(forKey: .encounterStepsJSON)
+        rewardApprovalPolicy = container.decodeFlexibleStringIfPresent(forKey: .rewardApprovalPolicy)
         missionText = container.decodeFlexibleStringIfPresent(forKey: .missionText)
+            ?? scanReveal
+            ?? boardDescription
             ?? fallbackContainer.decodeFlexibleStringIfPresent(forKey: .description)
             ?? fallbackContainer.decodeFlexibleStringIfPresent(forKey: .hook)
         successText = container.decodeFlexibleStringIfPresent(forKey: .successText) ?? "Успех"
@@ -504,6 +536,12 @@ struct PVEScenario: Codable, Equatable, Identifiable {
         try container.encode(combatProfileId, forKey: .combatProfileId)
         try container.encode(rewardId, forKey: .rewardId)
         try container.encodeIfPresent(missionText, forKey: .missionText)
+        try container.encodeIfPresent(boardDescription, forKey: .boardDescription)
+        try container.encodeIfPresent(scanReveal, forKey: .scanReveal)
+        try container.encodeIfPresent(visualAssetId, forKey: .visualAssetId)
+        try container.encodeIfPresent(choiceOptionsJSON, forKey: .choiceOptionsJSON)
+        try container.encodeIfPresent(encounterStepsJSON, forKey: .encounterStepsJSON)
+        try container.encodeIfPresent(rewardApprovalPolicy, forKey: .rewardApprovalPolicy)
         try container.encode(successText, forKey: .successText)
         try container.encode(failureText, forKey: .failureText)
     }
@@ -569,10 +607,18 @@ struct OrderSummary: Codable, Equatable, Identifiable {
     let visibility: String
     let status: String
     let escrowRewardId: String
+    let visibleHook: String
+    let rewardLabel: String
+    let rewardGold: Int
+    let rewardXP: Int
+    let proofQrId: String
+    let scenarioId: String
+    let locationLabel: String
 
     var id: String { orderId }
     var isAcceptable: Bool { ["published", "addressed_pending", "failed_retryable"].contains(status) }
     var isSubmittable: Bool { ["accepted", "in_progress", "claimed_at_prop", "submitted_pending_sync"].contains(status) }
+    var effectiveProofQrId: String { proofQrId.isEmpty ? objectId : proofQrId }
 
     enum CodingKeys: String, CodingKey {
         case orderId = "order_id"
@@ -586,6 +632,13 @@ struct OrderSummary: Codable, Equatable, Identifiable {
         case visibility
         case status
         case escrowRewardId = "escrow_reward_id"
+        case visibleHook = "visible_hook"
+        case rewardLabel = "reward_label"
+        case rewardGold = "reward_gold"
+        case rewardXP = "reward_xp"
+        case proofQrId = "proof_qr_id"
+        case scenarioId = "scenario_id"
+        case locationLabel = "location_label"
     }
 
     init(from decoder: Decoder) throws {
@@ -601,6 +654,13 @@ struct OrderSummary: Codable, Equatable, Identifiable {
         visibility = container.decodeFlexibleString(forKey: .visibility)
         status = container.decodeFlexibleString(forKey: .status)
         escrowRewardId = container.decodeFlexibleString(forKey: .escrowRewardId)
+        visibleHook = container.decodeFlexibleStringIfPresent(forKey: .visibleHook) ?? ""
+        rewardLabel = container.decodeFlexibleStringIfPresent(forKey: .rewardLabel) ?? ""
+        rewardGold = container.decodeFlexibleInt(forKey: .rewardGold)
+        rewardXP = container.decodeFlexibleInt(forKey: .rewardXP)
+        proofQrId = container.decodeFlexibleStringIfPresent(forKey: .proofQrId) ?? ""
+        scenarioId = container.decodeFlexibleStringIfPresent(forKey: .scenarioId) ?? ""
+        locationLabel = container.decodeFlexibleStringIfPresent(forKey: .locationLabel) ?? ""
     }
 }
 

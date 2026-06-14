@@ -20,6 +20,7 @@ final class AppModel: ObservableObject {
     @Published var lastTradeResult: JSONValue?
     @Published var lastMaterialMarketResult: JSONValue?
     @Published var localUnlockedActIds: Set<String> = []
+    @Published var localPVECooldowns: [String: Date] = [:]
     @Published var serverHealth: HealthResponse?
     @Published var serverHealthChecked = false
 
@@ -34,7 +35,8 @@ final class AppModel: ObservableObject {
     static let defaultServerURLString = "http://192.168.68.118:8002"
     private static let staleDefaultServerURLStrings: Set<String> = [
         "http://127.0.0.1:8000",
-        "http://192.168.1.9:8000"
+        "http://192.168.1.9:8000",
+        "http://192.168.0.150:8002"
     ]
     private let requiredAPIRevision = "ios-gwent-pvp-v1"
     private let requiredGwentFeatures: Set<String> = [
@@ -135,6 +137,7 @@ final class AppModel: ObservableObject {
         self.snapshot = LocalStore.shared.loadSnapshot()
         self.pendingEvents = EventQueueStore.shared.loadEvents()
         self.localUnlockedActIds = LocalStore.shared.loadUnlockedActIds()
+        self.localPVECooldowns = LocalStore.shared.loadPVECooldowns()
         if didOverrideStoredServerURL {
             self.infoMessage = "Адрес сервера автоматически выставлен: \(startupURL.absoluteString)"
         }
@@ -179,6 +182,7 @@ final class AppModel: ObservableObject {
         snapshot = nil
         pendingEvents = []
         localUnlockedActIds = []
+        localPVECooldowns = [:]
         pvpTables = nil
         pvpPlayerState = nil
         lastPvpActionResult = nil
@@ -320,14 +324,19 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func appendQRAttempt(qrId: String, source: QRInputSource, reviewReason: String? = nil) {
+    func appendQRAttempt(
+        qrId: String,
+        source: QRInputSource,
+        reviewReason: String? = nil,
+        physicalPresenceConfirmed: Bool = true
+    ) {
         guard let player else { return }
         var payload: [String: JSONValue] = [
             "player_id": .string(player.playerId),
             "manual_code": .string(qrId),
             "normalized_code": .string(qrId.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()),
             "source": .string(source.apiValue),
-            "physical_presence_confirmed": .bool(true),
+            "physical_presence_confirmed": .bool(physicalPresenceConfirmed),
             "local_status": .string(reviewReason == nil ? "started" : "needs_master_review")
         ]
         if let reviewReason {
@@ -335,7 +344,7 @@ final class AppModel: ObservableObject {
         }
         queue.append(queue.makeEvent(playerId: player.playerId, eventType: "qr_attempt", payload: payload))
         pendingEvents = queue.loadEvents()
-        syncState = .pending
+        syncState = queueSyncState(for: pendingEvents)
     }
 
     func lookupQR(
@@ -368,14 +377,26 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
-    func beginPVE(code rawCode: String, source: QRInputSource) -> Bool {
+    func beginPVE(
+        code rawCode: String,
+        source: QRInputSource,
+        recordUnknownAttempt: Bool = true
+    ) -> Bool {
         guard let snapshot, let player = snapshot.currentPlayer else { return false }
         let normalized = rawCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard let qr = snapshot.qrObjects.first(where: {
             $0.manualCode.uppercased() == normalized || $0.qrId.uppercased() == normalized
         }) else {
-            appendQRAttempt(qrId: normalized, source: source, reviewReason: "unknown_qr")
+            if recordUnknownAttempt {
+                appendQRAttempt(qrId: normalized, source: source, reviewReason: "unknown_qr")
+            }
             errorMessage = "Код не найден в сохраненных данных игры. Попытка уйдет мастеру на проверку."
+            return false
+        }
+        pruneExpiredPVECooldowns()
+        if let blockedUntil = localPVECooldowns[qr.qrId], blockedUntil > Date() {
+            errorMessage = "Этот QR на перезарядке до \(Self.cooldownTimeFormatter.string(from: blockedUntil)). Попробуй позже или обратись к мастеру."
+            infoMessage = nil
             return false
         }
         guard effectiveUnlockedActIds.contains(qr.actId) else {
@@ -404,6 +425,101 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func resolvePVE(code rawCode: String, source: QRInputSource) async -> Bool {
+        let normalized = rawCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if beginPVE(code: normalized, source: source, recordUnknownAttempt: false) {
+            return true
+        }
+        if localSnapshotContainsQR(normalized) {
+            return false
+        }
+        guard let player, !playerCode.isEmpty else {
+            appendQRAttempt(qrId: normalized, source: source, reviewReason: "unknown_qr")
+            return false
+        }
+
+        do {
+            let lookup = try await api.lookupQR(
+                code: normalized,
+                playerId: player.playerId,
+                deviceId: deviceId,
+                source: source,
+                playerCode: playerCode,
+                physicalPresenceConfirmed: true
+            )
+            lastQRLookup = lookup
+            let object = lookup.objectValue ?? [:]
+            let status = object.string("status")
+            let reason = object.string("reason")
+            let message = object.string("message")
+
+            if status == "ok" {
+                if startPVEFromLookup(lookup, player: player, source: source) {
+                    return true
+                }
+                let loadedSnapshot = try await api.fetchSnapshot(playerCode: playerCode)
+                snapshot = loadedSnapshot
+                activePVEMission = nil
+                store.saveSnapshot(loadedSnapshot)
+                if beginPVE(code: normalized, source: source, recordUnknownAttempt: false) {
+                    return true
+                }
+                appendQRAttempt(qrId: normalized, source: source, reviewReason: "missing_local_scenario_after_server_lookup")
+                errorMessage = "Сервер QR знает, но этой сцены нет в сохраненном snapshot. Обнови дневник или позови мастера."
+                return false
+            }
+
+            let reviewReason = reason.isEmpty ? "server_qr_lookup_\(status.isEmpty ? "unknown" : status)" : reason
+            appendQRAttempt(qrId: normalized, source: source, reviewReason: reviewReason)
+            if status == "locked" || reason == "requires_act_unlock" {
+                errorMessage = "Этот QR из будущего акта. Он станет доступен после мастерского объявления или sync/unlock акта."
+            } else {
+                errorMessage = message.isEmpty
+                    ? "Сервер не открыл QR: \(readableSyncReason(reviewReason))."
+                    : message
+            }
+            infoMessage = nil
+            return false
+        } catch {
+            appendQRAttempt(qrId: normalized, source: source, reviewReason: "unknown_qr")
+            errorMessage = "Код не найден в сохраненных данных игры, а сервер сейчас недоступен для проверки. Попытка уйдет мастеру на проверку."
+            infoMessage = nil
+            return false
+        }
+    }
+
+    private func startPVEFromLookup(
+        _ lookup: JSONValue,
+        player: PlayerProfile,
+        source: QRInputSource
+    ) -> Bool {
+        guard
+            let object = lookup.objectValue,
+            let qrValue = object["qr"],
+            let scenarioValue = object["scenario"],
+            let qrData = try? JSONEncoder().encode(qrValue),
+            let scenarioData = try? JSONEncoder().encode(scenarioValue),
+            let qr = try? JSONDecoder().decode(QRObject.self, from: qrData),
+            let scenario = try? JSONDecoder().decode(PVEScenario.self, from: scenarioData)
+        else {
+            return false
+        }
+        let reward = snapshot?.rewards.first(where: { $0.rewardId == scenario.rewardId })
+        let draft = PvESceneDraft.start(
+            qr: qr,
+            scenario: scenario,
+            reward: reward,
+            player: player,
+            source: source
+        )
+        activePVEMission = draft
+        lastPvEResult = nil
+        infoMessage = "Миссия открыта с сервера: \(qr.manualCode)."
+        errorMessage = nil
+        return true
+    }
+
     func choosePVEOption(_ choiceId: String) {
         guard var draft = activePVEMission else { return }
         guard let updated = draft.selecting(choiceId: choiceId) else { return }
@@ -427,16 +543,23 @@ final class AppModel: ObservableObject {
     }
 
     private func finishPVE(_ draft: PvESceneDraft) {
+        var payload = draft.eventPayload
+        if draft.result == "failure" {
+            let blockedUntil = Date().addingTimeInterval(30 * 60)
+            localPVECooldowns[draft.qr.qrId] = blockedUntil
+            store.savePVECooldowns(localPVECooldowns)
+            payload["client_cooldown_until"] = .string(ISO8601DateFormatter().string(from: blockedUntil))
+        }
         let event = queue.makeEvent(
             playerId: draft.player.playerId,
             eventType: "pve_completed",
-            payload: draft.eventPayload
+            payload: payload
         )
         queue.append(event)
         lastPvEResult = draft
         activePVEMission = nil
         pendingEvents = queue.loadEvents()
-        syncState = .pending
+        syncState = queueSyncState(for: pendingEvents)
         infoMessage = "Результат миссии сохранен на телефоне: \(draft.resultLabel)."
         errorMessage = nil
     }
@@ -491,7 +614,7 @@ final class AppModel: ObservableObject {
             ]
         ))
         pendingEvents = queue.loadEvents()
-        syncState = .pending
+        syncState = queueSyncState(for: pendingEvents)
         infoMessage = "\(stat) повышен. Изменение уйдет при следующей синхронизации."
         errorMessage = nil
     }
@@ -555,7 +678,7 @@ final class AppModel: ObservableObject {
             ))
         }
         pendingEvents = queue.loadEvents()
-        syncState = .pending
+        syncState = queueSyncState(for: pendingEvents)
         infoMessage = alreadyQueued
             ? "\(actId) уже открыт на этом телефоне; событие синхронизации уже в очереди."
             : "\(actId) открыт на этом телефоне; событие синхронизации добавлено."
@@ -585,10 +708,12 @@ final class AppModel: ObservableObject {
             )
             queue.applySyncResults(response.results)
             pendingEvents = queue.loadEvents()
-            syncState = pendingEvents.isEmpty ? .synced : .needsReview
+            syncState = queueSyncState(for: pendingEvents)
             infoMessage = syncSummary(response.results)
             errorMessage = nil
         } catch {
+            queue.markSyncError(readable(error))
+            pendingEvents = queue.loadEvents()
             syncState = .syncError
             errorMessage = readable(error)
         }
@@ -598,7 +723,7 @@ final class AppModel: ObservableObject {
         guard let player, !playerCode.isEmpty else { return }
         do {
             _ = try await api.acceptOrder(order, player: player, playerCode: playerCode)
-            infoMessage = "Заказ принят: \(order.objectLabel)"
+            infoMessage = "Заказ принят: \(order.objectLabel.isEmpty ? order.objectId : order.objectLabel)"
             await refreshSnapshot()
         } catch {
             errorMessage = readable(error)
@@ -608,9 +733,10 @@ final class AppModel: ObservableObject {
     func submitOrder(_ order: OrderSummary) async {
         guard let player, !playerCode.isEmpty else { return }
         let events = queue.loadEvents()
+        let proofQrIds = Set([order.objectId, order.effectiveProofQrId].filter { !$0.isEmpty })
         guard let proofEvent = events.last(where: {
             $0.eventType == "pve_completed"
-                && $0.payload.string("qr_id") == order.objectId
+                && proofQrIds.contains($0.payload.string("qr_id"))
                 && $0.payload.string("player_id", default: player.playerId) == player.playerId
         }) else {
             errorMessage = "Для сдачи заказа сначала пройди QR/PvE на объекте «\(order.objectLabel)»."
@@ -636,7 +762,7 @@ final class AppModel: ObservableObject {
             ))
         }
         pendingEvents = queue.loadEvents()
-        syncState = .pending
+        syncState = queueSyncState(for: pendingEvents)
         infoMessage = alreadyQueued
             ? "Сдача заказа уже есть в очереди синхронизации."
             : "Сдача заказа сохранена на телефоне и отправится через синхронизацию."
@@ -1088,6 +1214,67 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func buyPotion(potionId: String, quantity: Int) async {
+        guard let player, !playerCode.isEmpty else {
+            errorMessage = "Нужен вход по коду игрока перед покупкой зелий."
+            return
+        }
+        guard player.roleType.lowercased() == "sorceress" else {
+            errorMessage = "Зелья с рынка покупают только чародейки."
+            return
+        }
+        let normalizedPotionId = potionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedPotionId.isEmpty else {
+            errorMessage = "Выбери зелье."
+            return
+        }
+
+        do {
+            syncState = .syncing
+            _ = try await api.buyPotion(
+                player: player,
+                potionId: normalizedPotionId,
+                quantity: max(1, quantity),
+                playerCode: playerCode
+            )
+            syncState = pendingEvents.isEmpty ? .synced : .pending
+            infoMessage = "Зелье куплено."
+            errorMessage = nil
+            await refreshSnapshot()
+        } catch {
+            syncState = .syncError
+            errorMessage = readable(error)
+        }
+    }
+
+    func buyMarketCard(cardId: String) async {
+        guard let player, !playerCode.isEmpty else {
+            errorMessage = "Нужен вход по коду игрока перед покупкой карты."
+            return
+        }
+        let normalizedCardId = cardId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCardId.isEmpty else {
+            errorMessage = "Выбери карту."
+            return
+        }
+
+        do {
+            syncState = .syncing
+            _ = try await api.buyMarketCard(
+                player: player,
+                cardId: normalizedCardId,
+                playerCode: playerCode
+            )
+            syncState = pendingEvents.isEmpty ? .synced : .pending
+            infoMessage = "Карта куплена."
+            errorMessage = nil
+            await refreshSnapshot()
+        } catch {
+            syncState = .syncError
+            errorMessage = readable(error)
+        }
+    }
+
     func acceptTradeTransfer(id transferId: String) async {
         guard let player, !playerCode.isEmpty else { return }
         let id = transferId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1137,16 +1324,60 @@ final class AppModel: ObservableObject {
             .joined(separator: ", ")
     }
 
+    private func queueSyncState(for events: [QueuedEvent]) -> SyncState {
+        guard !events.isEmpty else { return .synced }
+        let statuses = Set(events.map { $0.syncStatus.lowercased() })
+        if statuses.contains("sync_error") {
+            return .syncError
+        }
+        if statuses.contains("needs_master_review")
+            || statuses.contains("needs_review")
+            || statuses.contains("pending_master_approval")
+            || statuses.contains("rejected")
+            || statuses.contains("review")
+            || statuses.contains("queued_for_review") {
+            return .needsReview
+        }
+        return .pending
+    }
+
+    private func pruneExpiredPVECooldowns() {
+        let now = Date()
+        let active = localPVECooldowns.filter { $0.value > now }
+        guard active.count != localPVECooldowns.count else { return }
+        localPVECooldowns = active
+        store.savePVECooldowns(active)
+    }
+
+    private func localSnapshotContainsQR(_ normalizedCode: String) -> Bool {
+        guard let snapshot else { return false }
+        return snapshot.qrObjects.contains { qr in
+            qr.manualCode.uppercased() == normalizedCode || qr.qrId.uppercased() == normalizedCode
+        }
+    }
+
+    private func readableSyncReason(_ reason: String) -> String {
+        reason
+            .replacingOccurrences(of: "_", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func syncStatusLabel(_ status: String) -> String {
         switch status.lowercased() {
         case "accepted":
             return "принято"
         case "duplicate":
             return "уже было принято"
-        case "needs_review", "review", "queued_for_review":
+        case "needs_review", "needs_master_review", "review", "queued_for_review":
             return "ждет мастера"
+        case "pending_master_approval":
+            return "на подтверждении награды"
         case "rejected":
             return "отклонено"
+        case "sync_error":
+            return "ошибка отправки"
+        case "pending":
+            return "ждет связи"
         default:
             return status
         }
@@ -1165,6 +1396,14 @@ final class AppModel: ObservableObject {
             .joined()
     }
 
+    private static let cooldownTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
+
     private static let demoSnapshotJSON = """
     {
       "snapshot_version": "ios-demo-local",
@@ -1178,7 +1417,7 @@ final class AppModel: ObservableObject {
         "xp": "14",
         "gold": "35",
         "challenge_tokens": "3",
-        "stats_json": "{\\"Сила\\":3,\\"Ловкость\\":2,\\"Разум\\":1,\\"Харизма\\":1,\\"Воля\\":2}",
+        "stats_json": "{}",
         "reputation_state": {"player_descriptor": "Нейтральная репутация"}
       },
       "players": [
@@ -1190,7 +1429,7 @@ final class AppModel: ObservableObject {
           "xp": "14",
           "gold": "35",
           "challenge_tokens": "3",
-          "stats_json": "{\\"Сила\\":3,\\"Ловкость\\":2,\\"Разум\\":1,\\"Харизма\\":1,\\"Воля\\":2}",
+          "stats_json": "{}",
           "reputation_state": {"player_descriptor": "Нейтральная репутация"}
         },
         {
@@ -1210,7 +1449,7 @@ final class AppModel: ObservableObject {
           "level": "1",
           "xp": "0",
           "gold": "45",
-          "stats_json": "{\\"Воля\\":3,\\"Разум\\":3}",
+          "stats_json": "{}",
           "reputation_state": {"player_descriptor": "Опасная репутация"}
         },
         {
@@ -1220,7 +1459,7 @@ final class AppModel: ObservableObject {
           "level": "1",
           "xp": "4",
           "gold": "18",
-          "stats_json": "{\\"Сила\\":2,\\"Ловкость\\":3}",
+          "stats_json": "{}",
           "reputation_state": {"player_descriptor": "Добрая слава"}
         }
       ],
@@ -1255,7 +1494,7 @@ final class AppModel: ObservableObject {
       "qr_objects": [
         {
           "qr_id": "qr_a1_001",
-          "manual_code": "QR-A1-K7Q2",
+          "manual_code": "QR-A1-TRV-001-K7Q2",
           "scenario_id": "scn_a1_001",
           "qr_mode": "repeatable_scene",
           "act_id": "act1",

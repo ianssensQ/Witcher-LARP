@@ -13,8 +13,8 @@ Current player release scope is iOS with PvP Gwent enabled:
 - QR/manual-code PvE with physical-presence confirmation;
 - local event queue and later Wi-Fi sync;
 - orders, inventory, bag, trade-transfer controls and server-synced act gating;
-- player-facing PvP/Gwent and deck setup tabs with bot training, challenges,
-  fullscreen table and deck review.
+- player-facing PvP/Gwent and deck setup tabs with production challenges,
+  flexible stakes, fullscreen table re-entry and deck review.
 
 The iOS app uses the same local FastAPI/SQLite game server as the master and
 lord browser panels:
@@ -79,7 +79,7 @@ Fast path without a running backend:
 6. In Debug, use `Открыть демо экранов` for local screen review.
 7. Review `Журнал`, `PvP`, `Колода`, `Инвентарь` and `Заказы`.
 8. In `Журнал`, use `Сканировать QR`.
-9. In the QR screen, scan or enter `QR-A1-K7Q2`, then apply the code.
+9. In the QR screen, scan or enter `QR-A1-TRV-001-K7Q2`, then apply the code.
 10. In `Заказы`, use the QR path first, then submit an order when proof exists.
 11. In journal settings, verify pending event count, server status and send button.
 

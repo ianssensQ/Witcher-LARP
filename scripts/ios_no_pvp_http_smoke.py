@@ -98,7 +98,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--server", default="http://192.168.68.118:8002", help="FastAPI base URL.")
     parser.add_argument("--player-code", default="WC-WOLF-6GF4", help="Seed player code to test.")
     parser.add_argument("--device-id", default=f"ios-no-pvp-smoke-{int(time.time())}")
-    parser.add_argument("--qr-code", default="QR-A1-K7Q2", help="QR/manual code for optional lookup.")
+    parser.add_argument("--qr-code", default="QR-A1-TRV-001-K7Q2", help="QR/manual code for optional lookup.")
     parser.add_argument("--include-qr-lookup", action="store_true", help="Also call /api/qr/lookup.")
     parser.add_argument("--include-empty-sync", action="store_true", help="Also call /api/events/sync with no events.")
     parser.add_argument("--timeout", type=float, default=5.0)

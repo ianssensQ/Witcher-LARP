@@ -63,16 +63,16 @@ playable offline proof.
 ## QR/manual smoke
 
 1. Load a server-scoped snapshot with `WC-WOLF-6GF4`.
-2. Enter `QR-A1-K7Q2` as `Manual ID`.
+2. Enter `QR-A1-TRV-001-K7Q2` as `Manual ID`.
 3. Confirm physical presence; the context should become `qr_scene_started` with
    `repeatable_scene`.
-4. Enter a future-act code such as `QR-A2-B4K8`; it should stay blocked until
+4. Enter a future-act code such as `QR-A2-TRV-013-B4K8`; it should stay blocked until
    sync or master unlock.
 5. Enter several wrong manual IDs; the fifth bad attempt should move to
    `needs_master_review` with `manual_rate_limit`.
 
 The M2 QR order screen opens the camera immediately and accepts QR payload text
-such as `witcher-larp://qr?code=QR-A1-K7Q2` from the native scanner/plugin
+such as `witcher-larp://qr?code=QR-A1-TRV-001-K7Q2` from the native scanner/plugin
 bridge through `receive_scanned_qr()`. Manual opaque ID remains the guaranteed
 fallback. The order gate is offline-first: it checks the code against the last
 server-scoped snapshot on the phone and must not require a network request to
@@ -84,7 +84,7 @@ the target-device scanner smoke.
 ## Event queue smoke
 
 1. Load a server-scoped snapshot with `WC-WOLF-6GF4`.
-2. Enter `QR-A1-K7Q2`, press `Manual ID`, then `Confirm Physical Presence`.
+2. Enter `QR-A1-TRV-001-K7Q2`, press `Manual ID`, then `Confirm Physical Presence`.
 3. Press `Roll PvE d20`; the app generates one immutable d20 roll and the Event
    Queue block should show one offline `pve_completed` event.
 4. Quit and run again; the queued event should still be visible from

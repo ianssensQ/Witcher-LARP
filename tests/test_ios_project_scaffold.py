@@ -49,16 +49,22 @@ def test_ios_plan_marks_godot_as_legacy_not_deleted():
     assert "Android выходит из scope" in plan
 
 
-def test_ios_gwent_bot_training_button_starts_match_before_opening_table():
+def test_ios_pvp_screen_starts_with_challenge_and_table_reentry():
     home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
-    marker = 'Text("Тренировка против компьютера")'
+    pvp_screen = home[home.index("private var pvp: some View"): home.index("private var deckSetup")]
+    challenge = home[home.index("private var gwentChallengeCard"): home.index("private var gwentOpponentOptions")]
+    table_launcher = home[home.index("private var gwentTableLauncher"): home.index("@ViewBuilder\n    private var gwentStatusNotice")]
 
-    bot_card = home[home.index(marker): home.index(marker) + 1_200]
-
-    assert "await model.startGwentBotMatch()" in bot_card
-    assert "showGwentTable = true" in bot_card
-    assert 'Label(isStartingBotMatch ? "Стартую..." : "Начать"' in bot_card
-    assert 'Label("Подготовить"' not in bot_card
+    assert "gwentChallengeCard\n                    gwentStatusNotice\n                    gwentTableLauncher" in pvp_screen
+    assert "pvpTablesCard" in pvp_screen
+    assert "gwentBotTrainingCard" not in pvp_screen
+    assert 'Text("Бросить вызов")' in challenge
+    assert "Ставкой может быть золото, карта, предмет, артефакт или зелье из инвентаря." in challenge
+    assert 'Label("Бросить вызов", systemImage: "flag.checkered")' in challenge
+    assert "ownedPotions.compactMap(gwentPotionStakeOption)" in home
+    assert "Вернуться в уже начатую партию" in table_launcher
+    assert "startGwentBotMatch" not in table_launcher
+    assert "Тренировка против компьютера" not in home
 
 
 def test_ios_gwent_table_requests_landscape_orientation():
@@ -212,19 +218,22 @@ def test_ios_server_settings_normalize_local_http_address():
     assert "model.updateServerURL(from: serverURLText)" in home
 
 
-def test_ios_gwent_finished_match_hides_raw_ids_and_can_restart_bot_training():
+def test_ios_gwent_finished_match_hides_raw_ids_and_does_not_offer_training():
     table = (ROOT / "ios/WitcherLARP/Features/Gwent/GwentTableView.swift").read_text(encoding="utf-8")
 
     subtitle = table[table.index("var tableSubtitle"): table.index("func activeGwentPlayerSubmitted")]
     weather = table[table.index("private func weatherStrip"): table.index("private func handStrip")]
     resolution = table[table.index("private func matchResolutionPanel"): table.index("private func resolutionMetric")]
+    empty = table[table.index("private var emptyTablePanel"): table.index("private var portraitRotationPrompt")]
 
     assert "shortGameCode" not in subtitle
     assert "match_id" not in weather
     assert "Ваши раунды" in resolution
     assert "Раунды соперника" in resolution
-    assert "await model.startGwentBotMatch()" in resolution
-    assert "Новая тренировка" in resolution
+    assert "await model.startGwentBotMatch()" not in resolution
+    assert "Новая тренировка" not in resolution
+    assert "Против компьютера" not in empty
+    assert "К PvP" in empty
     assert "var shouldAutoPollGwentTable" in table
     assert "return !isMatchResolutionVisible(match)" in table
 
@@ -344,6 +353,24 @@ def test_ios_deck_builder_has_top_save_and_visible_leader_abilities():
     assert "Один раз за партию: удваивает силу вашего осадного ряда" in home
 
 
+def test_ios_deck_builder_includes_bought_runtime_cards():
+    home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
+    deck_cards = home[
+        home.index("private var deckAvailableCards: [GwentCard]"):
+        home.index("private var gwentCatalogCards: [GwentCard]")
+    ]
+    owned_runtime = home[
+        home.index("private var ownedRuntimeGwentCardIds: [String]"):
+        home.index("private var runtimeGwentDecksForCurrentPlayer")
+    ]
+
+    assert "deckAvailableCardIds" in deck_cards
+    assert "appendUnique(ownedRuntimeGwentCardIds)" in deck_cards
+    assert "var cardIds = Set(deckAvailableCardIds)" in home
+    assert 'row.string("asset_type").lowercased() == "card"' in owned_runtime
+    assert 'row.string("status", default: "active").lowercased() == "active"' in owned_runtime
+
+
 def test_ios_journal_character_card_shows_xp_bar_reputation_and_pvp_tokens():
     home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
     snapshot = (ROOT / "ios/WitcherLARP/Core/Models/SnapshotModels.swift").read_text(encoding="utf-8")
@@ -379,9 +406,18 @@ def test_ios_valid_qr_opens_pve_mission_screen_outside_scanner():
     mission = (ROOT / "ios/WitcherLARP/Features/PvE/PVEMissionSheet.swift").read_text(encoding="utf-8")
     app_model = (ROOT / "ios/WitcherLARP/App/AppModel.swift").read_text(encoding="utf-8")
 
-    assert "func beginPVE(code rawCode: String, source: QRInputSource) -> Bool" in app_model
+    assert "func beginPVE(" in app_model
+    assert "recordUnknownAttempt: Bool = true" in app_model
+    assert "func resolvePVE(code rawCode: String, source: QRInputSource) async -> Bool" in app_model
     assert "onMissionStarted" in scanner
-    assert "if model.beginPVE(code: normalized, source: inputSource)" in scanner
+    assert "await model.resolvePVE(code: normalized, source: inputSource)" in scanner
+    assert "try await api.lookupQR(" in app_model
+    assert "startPVEFromLookup(lookup, player: player, source: source)" in app_model
+    assert "requires_act_unlock" in app_model
+    assert "presenceConfirmation" in scanner
+    assert 'Label(resolvingCode ? "Проверяю..." : "Я на месте", systemImage: "checkmark.seal")' in scanner
+    assert 'reviewReason: "physical_presence_issue"' in scanner
+    assert "physicalPresenceConfirmed: false" in scanner
     assert "missionCard(" not in scanner
     assert "resultCard(" not in scanner
     assert "@State private var showPVEMission" in home
@@ -414,10 +450,13 @@ def test_ios_gwent_tools_target_ios_server_port():
     smoke = (ROOT / "scripts/ios_gwent_http_smoke.py").read_text(encoding="utf-8")
 
     assert 'defaultServerURLString = "http://192.168.68.118:8002"' in app_model
+    assert '"http://192.168.0.150:8002"' in app_model
     assert "Self.startupServerURL(storedURL: storedURL, defaultURL: defaultURL)" in app_model
     assert "LocalStore.shared.saveServerURL(startupURL)" in app_model
     assert "private static func startupServerURL(storedURL: URL?, defaultURL: URL) -> URL" in app_model
     assert "normalizedStored.absoluteString == normalizedDefault.absoluteString" in app_model
+    assert "staleDefaultURLs.contains(normalizedStored.absoluteString)" in app_model
+    assert 'Text("Адрес игры: \\(model.serverURL.absoluteString)")' in login
     assert "TextField(AppModel.defaultServerURLString" in login
     assert 'default="http://192.168.68.118:8002"' in smoke
 
@@ -510,8 +549,10 @@ def test_ios_qr_screen_is_camera_manual_only_and_has_keyboard_dismiss():
     assert "offlineNotice" in qr
     assert "foregroundStyle(.red)" not in qr
     assert "Проверка сервера" not in qr
-    assert "Я физически у объекта" not in qr
     assert "Бросить d20" not in qr
+    assert 'Label("Подтверждение места", systemImage: "mappin.and.ellipse")' in qr
+    assert 'Label(resolvingCode ? "Проверяю..." : "Я на месте", systemImage: "checkmark.seal")' in qr
+    assert "resolvingCode ? \"Проверяю...\" : \"Я на месте\"" in qr
 
 
 def test_ios_qr_camera_scan_marks_source_before_updating_manual_code():
@@ -521,6 +562,87 @@ def test_ios_qr_camera_scan_marks_source_before_updating_manual_code():
         qr.index("func submitManualCode")
     ]
 
-    assert "normalizeQRCode(rawCode)" in scanner_callback
+    assert "QRCodeNormalizer.normalize(rawCode)" in scanner_callback
     assert scanner_callback.index("inputSource = .camera") < scanner_callback.index("manualCode = normalized")
-    assert "model.beginPVE(code: normalized, source: .camera)" in scanner_callback
+    assert "requestPresenceConfirmation(code: normalized, source: .camera)" in scanner_callback
+    assert "model.beginPVE(code: normalized, source: .camera)" not in scanner_callback
+
+
+def test_ios_qr_ocr_normalizer_extracts_canonical_code_from_print_card_noise():
+    scanner_sheet = (ROOT / "ios/WitcherLARP/Features/QR/QRScannerSheet.swift").read_text(encoding="utf-8")
+    scanner_view = (ROOT / "ios/WitcherLARP/Features/QR/QRScannerView.swift").read_text(encoding="utf-8")
+    normalizer = (ROOT / "ios/WitcherLARP/Features/QR/QRCodeNormalizer.swift").read_text(encoding="utf-8")
+    project = (ROOT / "ios/WitcherLARP.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+
+    strict_pattern = r'#"QR-(?:A[0-9]|FA)-[A-Z0-9]{3}-[0-9]{3}-[A-Z0-9]{4}"#'
+    assert strict_pattern in normalizer
+    assert "QRCodeNormalizer.normalize(manualCode)" in scanner_sheet
+    assert "QRCodeNormalizer.normalize(rawCode)" in scanner_sheet
+    assert "QRCodeNormalizer.normalize(normalized)" in scanner_view
+    assert "QRCodeNormalizer.swift in Sources" in project
+    assert 'request.customWords = ["QR-A1", "QR-A2", "QR-A3", "QR-FA"]' in scanner_view
+    assert 'QR-[A-Z0-9]+(?:-[A-Z0-9]+)*"#' in normalizer
+    assert normalizer.index(strict_pattern) < normalizer.index('QR-[A-Z0-9]+(?:-[A-Z0-9]+)*"#')
+    assert "recoverPrintedQRCode(from: uppercased)" in normalizer
+    assert 'prefixPattern = #"QR(A[0-9]|FA)([A-Z]{3})"#' in normalizer
+    assert 'compactSuffix.firstRegexRange(#"ACT[0-9]"#)' in normalizer
+    assert "NSRegularExpression(pattern: pattern)" in normalizer
+    assert '"QR-\\(actToken)-\\(lane)-\\(sequence)-\\(secret)"' in normalizer
+    assert "QR-A1-ZPR420-F4C9ACT1ZERKALNYPRUD020QR" in normalizer
+    assert "QR-A2-SCI-019-K9Z2ACT2DVUKHYARNSNAYAMANUFAKTURA019QR" in normalizer
+
+
+def test_ios_pve_runtime_reads_snapshot_scene_fields_and_local_cooldown():
+    snapshot = (ROOT / "ios/WitcherLARP/Core/Models/SnapshotModels.swift").read_text(encoding="utf-8")
+    draft = (ROOT / "ios/WitcherLARP/Features/PvE/PvESceneDraft.swift").read_text(encoding="utf-8")
+    mission = (ROOT / "ios/WitcherLARP/Features/PvE/PVEMissionSheet.swift").read_text(encoding="utf-8")
+    app_model = (ROOT / "ios/WitcherLARP/App/AppModel.swift").read_text(encoding="utf-8")
+    store = (ROOT / "ios/WitcherLARP/Core/Storage/LocalStore.swift").read_text(encoding="utf-8")
+
+    for field in [
+        "boardDescription",
+        "scanReveal",
+        "visualAssetId",
+        "choiceOptionsJSON",
+        "encounterStepsJSON",
+        "rewardApprovalPolicy",
+    ]:
+        assert field in snapshot
+
+    assert 'case boardDescription = "board_description"' in snapshot
+    assert 'case scanReveal = "scan_reveal"' in snapshot
+    assert 'case visualAssetId = "visual_asset_id"' in snapshot
+    assert 'case choiceOptionsJSON = "choice_options_json"' in snapshot
+    assert 'case encounterStepsJSON = "encounter_steps_json"' in snapshot
+    assert "Self.jsonObjectArray(from: scenario.choiceOptionsJSON" in draft
+    assert "Self.jsonObjectArray(from: scenario.encounterStepsJSON" in draft
+    assert '"choice_source": .string(configuredChoices.isEmpty ? "fallback" : "snapshot")' in draft
+    assert '"encounter_source": .string(configuredEncounterSteps.isEmpty ? "fallback" : "snapshot")' in draft
+    assert '"visual_asset_id": .string(visualAssetName ?? "")' in draft
+    assert "Image(assetName)" in mission
+    assert "mission.boardDescriptionText" in mission
+    assert '"client_cooldown_until"' in app_model
+    assert "Date().addingTimeInterval(30 * 60)" in app_model
+    assert "loadPVECooldowns()" in store
+    assert "savePVECooldowns" in store
+
+
+def test_ios_event_queue_persists_sync_status_and_server_review_reasons():
+    queue = (ROOT / "ios/WitcherLARP/Core/Sync/EventQueueStore.swift").read_text(encoding="utf-8")
+    app_model = (ROOT / "ios/WitcherLARP/App/AppModel.swift").read_text(encoding="utf-8")
+    home = (ROOT / "ios/WitcherLARP/Features/Home/HomeView.swift").read_text(encoding="utf-8")
+
+    assert 'case syncStatus = "sync_status"' in queue
+    assert 'case syncReason = "sync_reason"' in queue
+    assert 'case serverEventId = "server_event_id"' in queue
+    assert 'case lastSyncedAt = "last_synced_at"' in queue
+    assert 'syncStatus = (try? container.decodeIfPresent(String.self, forKey: .syncStatus)) ?? "pending"' in queue
+    assert "markingSyncResult(_ result: SyncEventResult" in queue
+    assert "markingSyncError(_ message: String)" in queue
+    assert 'syncStatus: "sync_error"' in queue
+    assert 'case "pending_master_approval":' in app_model
+    assert 'case "sync_error":' in app_model
+    assert "queue.markSyncError(readable(error))" in app_model
+    assert "eventSyncDetail(_ event: QueuedEvent)" in home
+    assert 'case "pending_master_approval":' in home
+    assert 'case "needs_master_review", "needs_review", "review", "queued_for_review":' in home

@@ -26,6 +26,10 @@ struct LoginView: View {
                 .background(.thinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
+            Text("Адрес игры: \(model.serverURL.absoluteString)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             TextField("Код персонажа", text: $playerCode)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
@@ -88,6 +92,10 @@ struct LoginView: View {
             NavigationStack {
                 Form {
                     Section("Мастерская настройка") {
+                        Text("Адрес игры: \(model.serverURL.absoluteString)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
                         TextField(AppModel.defaultServerURLString, text: $serverURLText)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()

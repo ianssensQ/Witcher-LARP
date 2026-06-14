@@ -16,12 +16,16 @@ final class EventQueueStore {
     }
 
     func loadEvents() -> [QueuedEvent] {
+        loadAllEvents().filter { !$0.isTerminalSynced }
+    }
+
+    private func loadAllEvents() -> [QueuedEvent] {
         guard let data = try? Data(contentsOf: queueURL) else { return [] }
         return (try? JSONDecoder().decode([QueuedEvent].self, from: data)) ?? []
     }
 
     func append(_ event: QueuedEvent) {
-        var events = loadEvents()
+        var events = loadAllEvents()
         events.append(event)
         save(events)
     }
@@ -49,12 +53,21 @@ final class EventQueueStore {
     }
 
     func applySyncResults(_ results: [SyncEventResult]) {
-        let statuses = Dictionary(uniqueKeysWithValues: results.map { ($0.eventId, $0.status) })
-        let remaining = loadEvents().filter { event in
-            guard let status = statuses[event.id] else { return true }
-            return status != "accepted" && status != "duplicate"
+        let byEventId = Dictionary(uniqueKeysWithValues: results.map { ($0.eventId, $0) })
+        let syncedAt = Date()
+        let remaining = loadAllEvents().compactMap { event -> QueuedEvent? in
+            guard let result = byEventId[event.id] else { return event }
+            let updated = event.markingSyncResult(result, syncedAt: syncedAt)
+            return updated.isTerminalSynced ? nil : updated
         }
         save(remaining)
+    }
+
+    func markSyncError(_ message: String) {
+        let updated = loadAllEvents().map { event in
+            event.markingSyncError(message)
+        }
+        save(updated)
     }
 
     private func save(_ events: [QueuedEvent]) {
@@ -86,6 +99,19 @@ struct QueuedEvent: Codable, Identifiable, Equatable {
     let createdAt: Date
     let eventType: String
     let payload: [String: JSONValue]
+    let syncStatus: String
+    let syncReason: String?
+    let serverEventId: Int?
+    let lastSyncedAt: Date?
+
+    var isTerminalSynced: Bool {
+        switch syncStatus.lowercased() {
+        case "accepted", "duplicate", "synced":
+            return true
+        default:
+            return false
+        }
+    }
 
     init(
         id: UUID = UUID(),
@@ -93,7 +119,11 @@ struct QueuedEvent: Codable, Identifiable, Equatable {
         clientSequence: Int,
         createdAt: Date = Date(),
         eventType: String,
-        payload: [String: JSONValue]
+        payload: [String: JSONValue],
+        syncStatus: String = "pending",
+        syncReason: String? = nil,
+        serverEventId: Int? = nil,
+        lastSyncedAt: Date? = nil
     ) {
         self.id = id
         self.playerId = playerId
@@ -101,6 +131,10 @@ struct QueuedEvent: Codable, Identifiable, Equatable {
         self.createdAt = createdAt
         self.eventType = eventType
         self.payload = payload
+        self.syncStatus = syncStatus
+        self.syncReason = syncReason
+        self.serverEventId = serverEventId
+        self.lastSyncedAt = lastSyncedAt
     }
 
     enum CodingKeys: String, CodingKey {
@@ -110,5 +144,53 @@ struct QueuedEvent: Codable, Identifiable, Equatable {
         case createdAt = "created_at"
         case eventType = "event_type"
         case payload
+        case syncStatus = "sync_status"
+        case syncReason = "sync_reason"
+        case serverEventId = "server_event_id"
+        case lastSyncedAt = "last_synced_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        playerId = try container.decode(String.self, forKey: .playerId)
+        clientSequence = try container.decode(Int.self, forKey: .clientSequence)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        eventType = try container.decode(String.self, forKey: .eventType)
+        payload = try container.decode([String: JSONValue].self, forKey: .payload)
+        syncStatus = (try? container.decodeIfPresent(String.self, forKey: .syncStatus)) ?? "pending"
+        syncReason = try? container.decodeIfPresent(String.self, forKey: .syncReason)
+        serverEventId = try? container.decodeIfPresent(Int.self, forKey: .serverEventId)
+        lastSyncedAt = try? container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
+    }
+
+    func markingSyncResult(_ result: SyncEventResult, syncedAt: Date) -> QueuedEvent {
+        QueuedEvent(
+            id: id,
+            playerId: playerId,
+            clientSequence: clientSequence,
+            createdAt: createdAt,
+            eventType: eventType,
+            payload: payload,
+            syncStatus: result.status,
+            syncReason: result.reason,
+            serverEventId: result.serverEventId,
+            lastSyncedAt: syncedAt
+        )
+    }
+
+    func markingSyncError(_ message: String) -> QueuedEvent {
+        QueuedEvent(
+            id: id,
+            playerId: playerId,
+            clientSequence: clientSequence,
+            createdAt: createdAt,
+            eventType: eventType,
+            payload: payload,
+            syncStatus: "sync_error",
+            syncReason: message,
+            serverEventId: serverEventId,
+            lastSyncedAt: lastSyncedAt
+        )
     }
 }

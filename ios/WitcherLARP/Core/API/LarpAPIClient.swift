@@ -364,6 +364,43 @@ struct LarpAPIClient {
         return try await decode(JSONValue.self, from: request)
     }
 
+    func buyPotion(
+        player: PlayerProfile,
+        potionId: String,
+        quantity: Int,
+        playerCode: String
+    ) async throws -> JSONValue {
+        let request = try jsonRequest(
+            path: "/api/sorceresses/\(player.playerId)/potions/buy",
+            method: "POST",
+            body: PotionBuyRequest(
+                potionId: potionId,
+                quantity: max(1, quantity),
+                source: "ios_player_app"
+            ),
+            playerCode: playerCode
+        )
+        return try await decode(JSONValue.self, from: request)
+    }
+
+    func buyMarketCard(
+        player: PlayerProfile,
+        cardId: String,
+        playerCode: String
+    ) async throws -> JSONValue {
+        let request = try jsonRequest(
+            path: "/api/players/\(player.playerId)/card-market/buy",
+            method: "POST",
+            body: CardMarketBuyRequest(
+                cardId: cardId,
+                purchaseId: "ios-card-buy-\(UUID().uuidString)",
+                source: "ios_player_app"
+            ),
+            playerCode: playerCode
+        )
+        return try await decode(JSONValue.self, from: request)
+    }
+
     func acceptTradeTransfer(
         transferId: String,
         player: PlayerProfile,

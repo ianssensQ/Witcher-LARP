@@ -21,6 +21,9 @@ struct QRScannerFlowView: View {
     @State private var useCamera = true
     @State private var inputSource: QRInputSource = .manual
     @State private var applyingScannedCode = false
+    @State private var resolvingCode = false
+    @State private var pendingPresenceCode: String?
+    @State private var pendingPresenceSource: QRInputSource = .manual
     @FocusState private var manualCodeFocused: Bool
     private let showsDismissControls: Bool
     private let onDone: () -> Void
@@ -77,6 +80,8 @@ struct QRScannerFlowView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(normalizedCode.isEmpty)
 
+                    presenceConfirmation
+
                     qrFeedback
 
                     if showsDismissControls {
@@ -110,12 +115,14 @@ struct QRScannerFlowView: View {
 
 private extension QRScannerFlowView {
     var normalizedCode: String {
-        normalizeQRCode(manualCode)
+        QRCodeNormalizer.normalize(manualCode)
     }
 
     @ViewBuilder
     var qrFeedback: some View {
-        if let error = qrSpecificError {
+        if pendingPresenceCode != nil {
+            EmptyView()
+        } else if let error = qrSpecificError {
             Label(error, systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
                 .foregroundStyle(.orange)
@@ -168,17 +175,49 @@ private extension QRScannerFlowView {
         return "Оффлайн-режим: QR работает по данным на телефоне."
     }
 
+    @ViewBuilder
+    var presenceConfirmation: some View {
+        if let pendingPresenceCode {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Подтверждение места", systemImage: "mappin.and.ellipse")
+                    .font(.headline)
+                Text("Код \(pendingPresenceCode) найден. Начинай сцену только если ты физически стоишь у этого объекта.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button {
+                        confirmPresence()
+                    } label: {
+                        Label(resolvingCode ? "Проверяю..." : "Я на месте", systemImage: "checkmark.seal")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(resolvingCode)
+
+                    Button {
+                        reportPresenceIssue()
+                    } label: {
+                        Label("Проблема", systemImage: "exclamationmark.triangle")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.thinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
     func handleScannedCode(_ rawCode: String) {
-        let normalized = normalizeQRCode(rawCode)
+        let normalized = QRCodeNormalizer.normalize(rawCode)
         guard !normalized.isEmpty else { return }
         applyingScannedCode = true
         inputSource = .camera
         manualCode = normalized
         manualCodeFocused = false
         model.lastQRLookup = nil
-        if model.beginPVE(code: normalized, source: .camera) {
-            onMissionStarted()
-        }
+        requestPresenceConfirmation(code: normalized, source: .camera)
         DispatchQueue.main.async {
             applyingScannedCode = false
         }
@@ -191,34 +230,42 @@ private extension QRScannerFlowView {
         inputSource = .manual
         manualCodeFocused = false
         model.lastQRLookup = nil
-        if model.beginPVE(code: normalized, source: inputSource) {
-            onMissionStarted()
+        requestPresenceConfirmation(code: normalized, source: inputSource)
+    }
+
+    func requestPresenceConfirmation(code: String, source: QRInputSource) {
+        pendingPresenceCode = code
+        pendingPresenceSource = source
+        model.infoMessage = "Подтверди физическое присутствие у объекта \(code)."
+        model.errorMessage = nil
+    }
+
+    func confirmPresence() {
+        let normalized = pendingPresenceCode ?? normalizedCode
+        guard !normalized.isEmpty, !resolvingCode else { return }
+        inputSource = pendingPresenceSource
+        pendingPresenceCode = nil
+        resolvingCode = true
+        Task { @MainActor in
+            let started = await model.resolvePVE(code: normalized, source: inputSource)
+            resolvingCode = false
+            if started {
+                onMissionStarted()
+            }
         }
     }
 
-    func normalizeQRCode(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
-
-        if let components = URLComponents(string: trimmed) {
-            let queryCode = components.queryItems?
-                .first { ["code", "qr", "qr_id", "manual_code"].contains($0.name.lowercased()) }?
-                .value
-            if let queryCode, !queryCode.isEmpty {
-                return normalizeQRCode(queryCode)
-            }
-        }
-
-        let uppercased = trimmed.uppercased()
-        let patterns = [
-            #"QR-[A-Z0-9]+(?:-[A-Z0-9]+)*"#,
-            #"QR_[A-Z0-9_]+"#
-        ]
-        for pattern in patterns {
-            if let range = uppercased.range(of: pattern, options: .regularExpression) {
-                return String(uppercased[range])
-            }
-        }
-        return uppercased
+    func reportPresenceIssue() {
+        guard let pendingPresenceCode else { return }
+        model.appendQRAttempt(
+            qrId: pendingPresenceCode,
+            source: pendingPresenceSource,
+            reviewReason: "physical_presence_issue",
+            physicalPresenceConfirmed: false
+        )
+        self.pendingPresenceCode = nil
+        model.infoMessage = "Попытка сохранена и уйдет мастеру на проверку."
+        model.errorMessage = nil
     }
+
 }

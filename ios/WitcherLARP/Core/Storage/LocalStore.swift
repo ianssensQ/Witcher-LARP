@@ -50,6 +50,7 @@ final class LocalStore {
         remove("player_code.json")
         remove("snapshot.json")
         remove("unlocked_act_ids.json")
+        remove("pve_cooldowns.json")
     }
 
     func loadUnlockedActIds() -> Set<String> {
@@ -59,6 +60,14 @@ final class LocalStore {
 
     func saveUnlockedActIds(_ actIds: Set<String>) {
         save(actIds.sorted(), as: "unlocked_act_ids.json")
+    }
+
+    func loadPVECooldowns() -> [String: Date] {
+        load("pve_cooldowns.json") ?? [:]
+    }
+
+    func savePVECooldowns(_ cooldowns: [String: Date]) {
+        save(cooldowns, as: "pve_cooldowns.json")
     }
 
     private func load<T: Decodable>(_ fileName: String) -> T? {

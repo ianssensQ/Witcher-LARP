@@ -32,7 +32,6 @@ struct HomeView: View {
     @State private var gwentStakeId = "gold"
     @State private var gwentGoldStakeAmount = 5
     @State private var gwentRefusalReason = "safety_stop"
-    @State private var isStartingBotMatch = false
     @State private var showServerSettings = false
     @State private var serverURLText = ""
     @State private var deckMode: DeckSetupMode = .builder
@@ -482,6 +481,9 @@ struct HomeView: View {
             Form {
                 Section("Связь с игрой") {
                     Label(syncStateLabel(model.syncState), systemImage: syncStateIcon(model.syncState))
+                    Text("Адрес игры: \(model.serverURL.absoluteString)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Text(model.serverConnectionLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -521,6 +523,10 @@ struct HomeView: View {
                 }
 
                 Section("Сервер игры") {
+                    Text("Адрес игры: \(model.serverURL.absoluteString)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     TextField(AppModel.defaultServerURLString, text: $serverURLText)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -587,10 +593,6 @@ struct HomeView: View {
             materialInventoryCard
             potionInventoryCard
             ownedAssetsCard
-            catalogItemsCard
-            personalCardsCard
-            potionCatalogCard
-            artifactsCard
             lockedRewardsCard
         }
     }
@@ -1088,16 +1090,11 @@ struct HomeView: View {
             }
             .cardStyle()
 
-            if let result = model.lastMaterialMarketResult {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Последняя продажа")
-                        .font(.headline)
-                    Text(result.displayText)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .cardStyle()
+            if canUsePotionMarket {
+                potionMarketSection
             }
+
+            cardMarketSection
         }
         .onAppear {
             normalizeMaterialMarketDefaults()
@@ -1124,7 +1121,7 @@ struct HomeView: View {
                         .font(.caption.monospacedDigit().bold())
                         .foregroundStyle(materialTrendColor(row.string("trend")))
                 }
-                Text("\(materialCategoryLabel(row.string("category"))) · \(materialTrendLabel(row.string("trend"))) · у игроков \(row.int("total_player_quantity"))")
+                Text("\(materialCategoryLabel(row.string("category"))) · \(materialTrendLabel(row.string("trend")))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 let description = row.string("description")
@@ -1138,17 +1135,122 @@ struct HomeView: View {
         .padding(.vertical, 4)
     }
 
+    private var potionMarketSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Зелья")
+                .font(.headline)
+
+            if potionMarketRows.isEmpty {
+                Text("Зелья сейчас разобраны.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(potionMarketRows.prefix(8).enumerated()), id: \.offset) { _, row in
+                    potionMarketOfferRow(row)
+                }
+            }
+        }
+        .cardStyle()
+    }
+
+    private func potionMarketOfferRow(_ row: SnapshotRow) -> some View {
+        let potionId = row.string("potion_id")
+        let stock = row.int("stock")
+        let cost = row.int("wholesale_cost")
+
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "cross.vial")
+                .font(.headline)
+                .foregroundStyle(.purple)
+                .frame(width: 28, height: 28)
+                .background(.purple.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(assetDisplayName(potionId))
+                    .font(.subheadline.bold())
+                Text("\(gwentRarityLabel(row.string("rarity"))) · \(stock) шт.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(assetEffectLine(potionId))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button {
+                Task { await model.buyPotion(potionId: potionId, quantity: 1) }
+            } label: {
+                Text("\(cost)g")
+                    .font(.caption.bold())
+                    .monospacedDigit()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(stock <= 0 || cost <= 0)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var cardMarketSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Карты")
+                .font(.headline)
+
+            if cardMarketRows.isEmpty {
+                Text("Подходящих карт в продаже нет.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(cardMarketRows.prefix(10).enumerated()), id: \.offset) { _, row in
+                    cardMarketOfferRow(row)
+                }
+            }
+        }
+        .cardStyle()
+    }
+
+    private func cardMarketOfferRow(_ row: SnapshotRow) -> some View {
+        let cardId = row.string("card_id")
+        let cost = row.int("unit_cost")
+
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "rectangle.stack")
+                .font(.headline)
+                .foregroundStyle(.orange)
+                .frame(width: 28, height: 28)
+                .background(.orange.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(gwentCardTitle(cardId))
+                    .font(.subheadline.bold())
+                Text("\(gwentFactionLabel(row.string("faction"))) · \(gwentRowLabel(row.string("row"))) · сила \(row.int("strength"))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                let effectText = row.string("effect_text")
+                Text(effectText.isEmpty ? gwentEffectLabel(row.string("effect")) : effectText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button {
+                Task { await model.buyMarketCard(cardId: cardId) }
+            } label: {
+                Text("\(cost)g")
+                    .font(.caption.bold())
+                    .monospacedDigit()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(cost <= 0)
+        }
+        .padding(.vertical, 4)
+    }
+
     private var tradeSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Передать вещь")
                     .font(.headline)
-                Text("Выбери получателя и предмет. Заблокированные награды и уже потраченные вещи здесь не показываются.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 
                 if tradeRecipients.isEmpty {
-                    Label("В дневнике пока нет доступных получателей. Обнови данные игры в Wi-Fi зоне.", systemImage: "person.crop.circle.badge.exclamationmark")
+                    Label("Нет доступных игроков для обмена.", systemImage: "person.crop.circle.badge.exclamationmark")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
@@ -1239,22 +1341,6 @@ struct HomeView: View {
             }
             .cardStyle()
 
-            if model.snapshot?.tradeTransfers.isEmpty ?? true {
-                Text("Обмен работает только при связи с сервером. Если ты офлайн, договорись устно и вернись к передаче после подключения.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let result = model.lastTradeResult {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Последняя передача")
-                        .font(.headline)
-                    Text(result.displayText)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .cardStyle()
-            }
         }
         .onAppear {
             normalizeTradeDefaults()
@@ -1402,7 +1488,7 @@ struct HomeView: View {
     private func tradeTransferRow(_ row: SnapshotRow, incoming: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(assetDisplayName(row.string("asset_id")))
+                Text(tradeTransferParties(row))
                     .font(.subheadline.bold())
                 Spacer()
                 Text(tradeStatusLabel(row.string("status")))
@@ -1440,22 +1526,17 @@ struct HomeView: View {
     }
 
     private func tradeTransferDetail(_ row: SnapshotRow, incoming: Bool) -> String {
-        let otherPlayerId = incoming ? row.string("from_player_id") : row.string("to_player_id")
-        let direction = incoming ? "от \(playerName(otherPlayerId))" : "для \(playerName(otherPlayerId))"
         let quantity = max(1, row.int("quantity", default: 1))
         let price = row.int("price_gold")
-        var parts = [
-            direction,
-            "\(assetTypeLabel(row.string("asset_type"))) · x\(quantity)"
-        ]
+        var parts = ["\(assetDisplayName(row.string("asset_id"))) x\(quantity)"]
         if price > 0 {
-            parts.append("\(price)g")
-        }
-        let mode = row.string("mode")
-        if !mode.isEmpty {
-            parts.append(tradeModeLabel(mode))
+            parts.append("за \(price)g")
         }
         return parts.joined(separator: " · ")
+    }
+
+    private func tradeTransferParties(_ row: SnapshotRow) -> String {
+        "\(playerName(row.string("from_player_id"))) -> \(playerName(row.string("to_player_id")))"
     }
 
     private func isOpenTradeStatus(_ status: String) -> Bool {
@@ -1521,13 +1602,28 @@ struct HomeView: View {
                                     .clipShape(Capsule())
                             }
 
-                            Text("\(orderVisibilityLabel(order.visibility)) · \(orderObjectTypeLabel(order.objectType)) · награда зарезервирована")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                            if let missionBrief = orderMissionBrief(order) {
+                                Text(missionBrief)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary.opacity(0.86))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
 
-                            Text(orderProgressHint(order))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Label(orderRewardText(order), systemImage: "seal.fill")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.orange)
+
+                            if let location = orderLocationText(order) {
+                                Text(location)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if let progressHint = orderProgressHint(order) {
+                                Text(progressHint)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
 
                             HStack {
                                 orderActionButton(title: "Взять", icon: "hand.raised") {
@@ -1579,10 +1675,16 @@ struct HomeView: View {
     }
 
     private func orderTitle(_ order: OrderSummary) -> String {
-        if !order.objectLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return order.objectLabel
+        let label = order.objectLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !label.isEmpty,
+           label != order.objectId,
+           !label.lowercased().hasPrefix("interest_") {
+            return label
         }
-        return readableIdentifier(order.objectId, droppingPrefixes: ["qr_", "order_"])
+        if let scenario = orderScenario(order), let text = scenario.missionText, !text.isEmpty {
+            return firstSentence(text)
+        }
+        return readableIdentifier(order.objectId, droppingPrefixes: ["qr_", "order_", "interest_"])
     }
 
     private func orderStatusLabel(_ status: String) -> String {
@@ -1651,7 +1753,78 @@ struct HomeView: View {
         }
     }
 
-    private func orderProgressHint(_ order: OrderSummary) -> String {
+    private func orderMissionBrief(_ order: OrderSummary) -> String? {
+        let hook = order.visibleHook.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !hook.isEmpty {
+            return hook
+        }
+        if let scenario = orderScenario(order), let text = scenario.missionText, !text.isEmpty {
+            return text
+        }
+        return nil
+    }
+
+    private func orderRewardText(_ order: OrderSummary) -> String {
+        let label = order.rewardLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !label.isEmpty {
+            return "Награда: \(label)"
+        }
+        if order.rewardGold > 0 || order.rewardXP > 0 {
+            var parts: [String] = []
+            if order.rewardGold > 0 {
+                parts.append("\(order.rewardGold) золота")
+            }
+            if order.rewardXP > 0 {
+                parts.append("\(order.rewardXP) опыта")
+            }
+            return "Награда: \(parts.joined(separator: ", "))"
+        }
+        if let reward = model.snapshot?.rewards.first(where: { $0.rewardId == order.escrowRewardId }) {
+            var parts: [String] = []
+            if reward.gold > 0 {
+                parts.append("\(reward.gold) золота")
+            }
+            if reward.xp > 0 {
+                parts.append("\(reward.xp) опыта")
+            }
+            if !parts.isEmpty {
+                return "Награда: \(parts.joined(separator: ", "))"
+            }
+        }
+        return "Награда указана лордом"
+    }
+
+    private func orderLocationText(_ order: OrderSummary) -> String? {
+        let location = order.locationLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !location.isEmpty, location != order.objectLabel {
+            return "Место: \(location)"
+        }
+        return nil
+    }
+
+    private func orderScenario(_ order: OrderSummary) -> PVEScenario? {
+        guard let snapshot = model.snapshot else { return nil }
+        let scenarioId = order.scenarioId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !scenarioId.isEmpty,
+           let scenario = snapshot.pveScenarios.first(where: { $0.scenarioId == scenarioId }) {
+            return scenario
+        }
+        let proofQrIds = Set([order.objectId, order.effectiveProofQrId].filter { !$0.isEmpty })
+        guard let qr = snapshot.qrObjects.first(where: {
+            proofQrIds.contains($0.qrId) || proofQrIds.contains($0.manualCode)
+        }) else { return nil }
+        return snapshot.pveScenarios.first(where: { $0.scenarioId == qr.scenarioId })
+    }
+
+    private func firstSentence(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let end = trimmed.firstIndex(where: { ".!?".contains($0) }) else {
+            return trimmed
+        }
+        return String(trimmed[...end])
+    }
+
+    private func orderProgressHint(_ order: OrderSummary) -> String? {
         if hasQueuedOrderSubmission(order) {
             return "Сдача уже сохранена на телефоне. Вернись в Wi-Fi и отправь события."
         }
@@ -1659,19 +1832,17 @@ struct HomeView: View {
             return "Подтверждение найдено на телефоне. Можно сдать заказ."
         }
         if order.isSubmittable {
-            return "Пройди QR/PvE на объекте заказа, затем вернись сюда и нажми «Сдать»."
+            return "После прохождения QR/PvE можно сдать заказ здесь."
         }
-        if order.isAcceptable {
-            return "Награда в escrow. Возьми заказ, если готов идти к объекту."
-        }
-        return "Следи за статусом после обновления дневника."
+        return nil
     }
 
     private func localOrderProof(_ order: OrderSummary) -> QueuedEvent? {
-        model.pendingEvents.last { event in
+        let proofQrIds = Set([order.objectId, order.effectiveProofQrId].filter { !$0.isEmpty })
+        return model.pendingEvents.last { event in
             event.eventType == "pve_completed"
-                && event.payload.string("qr_id") == order.objectId
-                && event.payload.string("player_id", default: model.player?.playerId ?? "") == model.player?.playerId
+                && proofQrIds.contains(event.payload.string("qr_id"))
+                && event.playerId == model.player?.playerId
         }
     }
 
@@ -1686,11 +1857,11 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    gwentTableLauncher
-                    gwentBotTrainingCard
-                    gwentStatusNotice
-                    gwentActionCard
                     gwentChallengeCard
+                    gwentStatusNotice
+                    gwentTableLauncher
+                    gwentActionCard
+                    pvpTablesCard
                 }
                 .padding()
             }
@@ -2052,9 +2223,7 @@ struct HomeView: View {
     }
 
     private var gwentTableLauncher: some View {
-        Button {
-            showGwentTable = true
-        } label: {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Image(systemName: "iphone.landscape")
                     .font(.title2.bold())
@@ -2064,52 +2233,21 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Открыть игровой стол")
                         .font(.headline)
-                    Text("Крупная рука, три ряда, счет и пас в fullscreen.")
+                    Text("Вернуться в уже начатую партию, если кто-то вышел с экрана или перезапустил приложение.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.plain)
-        .cardStyle()
-    }
 
-    private var gwentBotTrainingCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "cpu")
-                .font(.title2.bold())
-                .frame(width: 42, height: 42)
-                .background(.orange.opacity(0.16))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Тренировка против компьютера")
-                    .font(.headline)
-                Text("Серверный соперник играет по тем же правилам, без ставки.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
             Button {
-                Task {
-                    guard !isStartingBotMatch else { return }
-                    isStartingBotMatch = true
-                    await model.startGwentBotMatch()
-                    isStartingBotMatch = false
-                    if model.errorMessage == nil {
-                        showGwentTable = true
-                    }
-                }
+                showGwentTable = true
             } label: {
-                Label(isStartingBotMatch ? "Стартую..." : "Начать", systemImage: "rectangle.stack.badge.play")
+                Label("Открыть стол", systemImage: "rectangle.stack.badge.play")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.orange)
-            .disabled(isStartingBotMatch)
         }
         .cardStyle()
     }
@@ -2719,9 +2857,29 @@ struct HomeView: View {
     }
 
     private var deckAvailableCards: [GwentCard] {
-        (deckCollectionSource?.cardIds ?? currentPlayerGwentDeck?.cardIds ?? [])
+        deckAvailableCardIds
             .compactMap(gwentCardMeta)
             .filter { $0.type.lowercased() != "leader" && $0.row.lowercased() != "leader" }
+    }
+
+    private var deckAvailableCardIds: [String] {
+        var ids: [String] = []
+        var seen: Set<String> = []
+
+        func appendUnique(_ cardIds: [String]) {
+            for rawCardId in cardIds {
+                let cardId = rawCardId.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cardId.isEmpty, !seen.contains(cardId) else { continue }
+                seen.insert(cardId)
+                ids.append(cardId)
+            }
+        }
+
+        appendUnique(deckCollectionSource?.cardIds ?? [])
+        appendUnique(currentPlayerGwentDeck?.cardIds ?? [])
+        appendUnique(runtimeGwentDecksForCurrentPlayer.flatMap(\.cardIds))
+        appendUnique(ownedRuntimeGwentCardIds)
+        return ids
     }
 
     private var gwentCatalogCards: [GwentCard] {
@@ -2790,7 +2948,8 @@ struct HomeView: View {
     }
 
     private var ownedEncyclopediaCardIds: Set<String> {
-        var cardIds = Set(deckCollectionSource?.cardIds ?? deckDraftCardIds)
+        var cardIds = Set(deckAvailableCardIds)
+        cardIds.formUnion(deckDraftCardIds)
         let leaderId = selectedDeckLeaderId.trimmingCharacters(in: .whitespacesAndNewlines)
         if !leaderId.isEmpty {
             cardIds.insert(leaderId)
@@ -3332,7 +3491,7 @@ struct HomeView: View {
     private var gwentActionCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Лобби партии")
+                Text("Текущая партия")
                     .font(.headline)
                 Spacer()
                 Button {
@@ -3413,7 +3572,7 @@ struct HomeView: View {
                         }
                     }
                 } else {
-                    Text("Активного вызова нет. Создай вызов ниже или обнови столы.")
+                    Text("Активного вызова нет. Брось вызов выше или обнови состояние.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -3549,7 +3708,7 @@ struct HomeView: View {
 
     private var pvpTablesCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Открытые партии")
+            Text("Игровые столы")
                 .font(.headline)
             if let throttle = model.pvpTables?.throttle {
                 Text(pvpThrottleSummary(throttle))
@@ -3569,7 +3728,7 @@ struct HomeView: View {
                     .padding(.vertical, 3)
                 }
             } else {
-                Text("Нажми «Столы», когда iPhone в Wi-Fi зоне.")
+                Text("Обнови состояние, когда iPhone в Wi-Fi зоне.")
                     .foregroundStyle(.secondary)
             }
             if let queued = model.pvpTables?.queuedChallenges, !queued.isEmpty {
@@ -3602,7 +3761,7 @@ struct HomeView: View {
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Вызов")
+                Text("Бросить вызов")
                     .font(.headline)
                 Spacer()
                 Label("\(challengeTokens)", systemImage: "seal.fill")
@@ -3616,8 +3775,12 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Text("Ставкой может быть золото, карта, предмет, артефакт или зелье из инвентаря.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             if opponents.isEmpty {
-                Text("В snapshot нет доступных ведьмаков или чародеек для вызова.")
+                Text("На сервере нет доступных ведьмаков или чародеек для вызова.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
@@ -3638,7 +3801,7 @@ struct HomeView: View {
             Divider()
 
             if stakes.isEmpty {
-                Text("Нет активных вещей, карт или артефактов, которые можно поставить.")
+                Text("Нет золота, карт, предметов, артефактов или зелий, которые можно поставить.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
@@ -3689,7 +3852,7 @@ struct HomeView: View {
                     }
                 }
             } label: {
-                Label("Вызвать на Гвинт", systemImage: "flag.checkered")
+                Label("Бросить вызов", systemImage: "flag.checkered")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -3702,21 +3865,31 @@ struct HomeView: View {
         .onChange(of: model.snapshot?.snapshotVersion ?? "") { _ in
             normalizeGwentChallengeDefaults()
         }
+        .onChange(of: model.pvpPlayerState) { _ in
+            normalizeGwentChallengeDefaults()
+        }
     }
 
-    private var gwentOpponentOptions: [PlayerProfile] {
+    private var gwentOpponentOptions: [GwentOpponentOption] {
         guard let player = model.player else { return [] }
+        let serverOptions = (model.pvpPlayerState?.objectValue?.array("opponents") ?? [])
+            .compactMap(\.objectValue)
+            .compactMap { GwentOpponentOption(object: $0) }
+            .filter { $0.playerId != player.playerId }
+        if !serverOptions.isEmpty {
+            return serverOptions.sorted { $0.displayName < $1.displayName }
+        }
         return (model.snapshot?.players ?? [])
             .filter { candidate in
                 candidate.playerId != player.playerId
                     && ["witcher", "sorceress"].contains(candidate.roleType.lowercased())
             }
+            .map { GwentOpponentOption(player: $0) }
             .sorted { $0.displayName < $1.displayName }
     }
 
     private var gwentStakeOptions: [GwentStakeOption] {
-        let assetOptions = ownedAssets
-            .compactMap(gwentStakeOption)
+        let assetOptions = (ownedAssets.compactMap(gwentStakeOption) + ownedPotions.compactMap(gwentPotionStakeOption))
             .sorted { lhs, rhs in
                 if lhs.assetType == rhs.assetType {
                     return lhs.title < rhs.title
@@ -3808,6 +3981,24 @@ struct HomeView: View {
             quantity: 1,
             title: title,
             detail: detail
+        )
+    }
+
+    private func gwentPotionStakeOption(_ row: SnapshotRow) -> GwentStakeOption? {
+        guard let player = model.player,
+              row.string("player_id") == player.playerId
+        else { return nil }
+
+        let potionId = row.string("potion_id")
+        let quantity = row.int("quantity", default: 1)
+        guard !potionId.isEmpty, quantity > 0 else { return nil }
+
+        return GwentStakeOption(
+            assetType: "potion",
+            assetId: potionId,
+            quantity: 1,
+            title: assetDisplayName(potionId),
+            detail: "зелье из инвентаря · x\(quantity)"
         )
     }
 
@@ -4717,19 +4908,46 @@ struct HomeView: View {
         case "pve_completed":
             let qr = qrDisplayName(event.payload.string("manual_code", default: event.payload.string("qr_id")))
             let result = event.payload.string("result", default: event.payload.string("outcome"))
-            return "\(qr) · \(pveResultLabel(result)) · ожидает отправки"
+            return "\(qr) · \(pveResultLabel(result)) · \(eventSyncDetail(event))"
         case "order_submission":
             let orderId = event.payload.string("order_id")
-            return "\(orderDisplayName(orderId)) · подтверждение сохранено · ожидает отправки"
+            return "\(orderDisplayName(orderId)) · подтверждение сохранено · \(eventSyncDetail(event))"
         case "qr_attempt":
             let code = event.payload.string("manual_code", default: event.payload.string("normalized_code"))
             let reason = event.payload.string("review_reason")
-            return reason.isEmpty ? "\(code) · ожидает отправки" : "\(code) · \(reviewReasonLabel(reason))"
+            let localReason = reason.isEmpty ? "" : " · \(reviewReasonLabel(reason))"
+            return "\(code)\(localReason) · \(eventSyncDetail(event))"
         case "act_unlocked_offline":
-            return "\(actDisplayName(event.payload.string("act_id"))) · открыто на этом телефоне · ожидает отправки"
+            return "\(actDisplayName(event.payload.string("act_id"))) · открыто на этом телефоне · \(eventSyncDetail(event))"
         default:
-            return "Событие \(event.clientSequence) ожидает отправки"
+            return "Событие \(event.clientSequence) · \(eventSyncDetail(event))"
         }
+    }
+
+    private func eventSyncDetail(_ event: QueuedEvent) -> String {
+        let label: String
+        switch event.syncStatus.lowercased() {
+        case "pending":
+            label = "ждет связи"
+        case "sync_error":
+            label = "ошибка отправки"
+        case "pending_master_approval":
+            label = "на подтверждении награды"
+        case "needs_master_review", "needs_review", "review", "queued_for_review":
+            label = "у мастера на проверке"
+        case "rejected":
+            label = "отклонено"
+        case "accepted":
+            label = "принято"
+        case "duplicate":
+            label = "уже было принято"
+        default:
+            label = readableIdentifier(event.syncStatus)
+        }
+        guard let reason = event.syncReason, !reason.isEmpty else {
+            return label
+        }
+        return "\(label): \(reviewReasonLabel(reason))"
     }
 
     private func pveResultLabel(_ result: String) -> String {
@@ -4800,6 +5018,25 @@ struct HomeView: View {
             ?? []
     }
 
+    private var canUsePotionMarket: Bool {
+        model.player?.roleType.lowercased() == "sorceress"
+    }
+
+    private var potionMarketRows: [SnapshotRow] {
+        guard canUsePotionMarket else { return [] }
+        return (model.snapshot?.potionMarket ?? [])
+            .filter {
+                $0.string("seller_role").lowercased() == "sorceress"
+                    && $0.int("stock") > 0
+            }
+            .sorted {
+                if $0.int("wholesale_cost") != $1.int("wholesale_cost") {
+                    return $0.int("wholesale_cost") < $1.int("wholesale_cost")
+                }
+                return assetDisplayName($0.string("potion_id")) < assetDisplayName($1.string("potion_id"))
+            }
+    }
+
     private var materialMarketRows: [SnapshotRow] {
         (model.snapshot?.materialMarket ?? model.snapshot?.materialMarkets ?? [])
             .sorted { lhs, rhs in
@@ -4808,6 +5045,48 @@ struct HomeView: View {
                 }
                 return assetDisplayName(lhs.string("material_id")) < assetDisplayName(rhs.string("material_id"))
             }
+    }
+
+    private var cardMarketRows: [SnapshotRow] {
+        let ownedIds = playerAvailableGwentCardIds
+        return (model.snapshot?.cardMarket ?? [])
+            .filter {
+                $0.string("status").lowercased() != "owned"
+                    && !ownedIds.contains($0.string("card_id"))
+            }
+            .sorted {
+                if $0.int("unit_cost") != $1.int("unit_cost") {
+                    return $0.int("unit_cost") < $1.int("unit_cost")
+                }
+                return gwentCardTitle($0.string("card_id")) < gwentCardTitle($1.string("card_id"))
+            }
+    }
+
+    private var playerAvailableGwentCardIds: Set<String> {
+        guard let player = model.player else { return [] }
+        var ids = Set((model.snapshot?.gwentDecks ?? [])
+            .filter { $0.playerId == player.playerId }
+            .flatMap { [$0.leaderCardId] + $0.cardIds })
+        ids.formUnion(runtimeGwentDecksForCurrentPlayer.flatMap { [$0.leaderCardId] + $0.cardIds })
+        ids.formUnion(ownedRuntimeGwentCardIds)
+        return ids
+    }
+
+    private var ownedRuntimeGwentCardIds: [String] {
+        guard let player = model.player else { return [] }
+        return model.snapshot?.assetOwnership.compactMap { row in
+            row.string("owner_player_id") == player.playerId
+                && row.string("asset_type").lowercased() == "card"
+                && row.string("status", default: "active").lowercased() == "active"
+                && row.int("quantity", default: 1) > 0
+                ? row.string("asset_id")
+                : nil
+        } ?? []
+    }
+
+    private var runtimeGwentDecksForCurrentPlayer: [GwentDeck] {
+        guard let playerId = model.player?.playerId else { return [] }
+        return model.runtimeGwentDecks.filter { $0.playerId == playerId }
     }
 
     private var selectedMaterialMarket: SnapshotRow? {
@@ -5014,6 +5293,54 @@ private struct GwentStakeOption: Identifiable, Equatable {
 
     var id: String {
         "\(assetType)|\(assetId)"
+    }
+}
+
+private struct GwentOpponentOption: Identifiable, Equatable {
+    let playerId: String
+    let roleType: String
+    let displayName: String
+    let reputationLabel: String
+
+    var id: String { playerId }
+
+    init(playerId: String, roleType: String, displayName: String, reputationLabel: String) {
+        self.playerId = playerId
+        self.roleType = roleType
+        self.displayName = displayName
+        self.reputationLabel = reputationLabel
+    }
+
+    init(player: PlayerProfile) {
+        self.init(
+            playerId: player.playerId,
+            roleType: player.roleType,
+            displayName: player.displayName,
+            reputationLabel: player.reputationLabel
+        )
+    }
+
+    init?(object: [String: JSONValue]) {
+        let playerId = object.string("player_id").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !playerId.isEmpty else { return nil }
+
+        let roleType = object.string("role_type").trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = object.string("display_name").trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitReputation = object.string("reputation_label").trimmingCharacters(in: .whitespacesAndNewlines)
+        let stateReputation = object.object("reputation_state")?.string("canonical_label")
+            ?? object.object("reputation_state")?.string("state_label")
+            ?? object.object("reputation_state")?.string("player_descriptor")
+            ?? ""
+        let reputationLabel = explicitReputation.isEmpty
+            ? (stateReputation.isEmpty ? "Нейтральный" : stateReputation)
+            : explicitReputation
+
+        self.init(
+            playerId: playerId,
+            roleType: roleType.isEmpty ? "player" : roleType,
+            displayName: displayName.isEmpty ? playerId : displayName,
+            reputationLabel: reputationLabel
+        )
     }
 }
 

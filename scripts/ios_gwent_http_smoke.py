@@ -81,6 +81,12 @@ class ApiClient:
         return value
 
 
+def player_state_path(*, include_training: bool = False) -> str:
+    if include_training:
+        return "/api/pvp/player-state?include_training=1"
+    return "/api/pvp/player-state"
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description="Smoke the live HTTP Gwent PvP flow used by the iOS client."
@@ -242,6 +248,7 @@ def run_preflight(
             client,
             player,
             require_challenge_token=(p2 is not None and player.player_id == p1.player_id),
+            include_training=p2 is None,
         )
         add_step(
             report,
@@ -444,7 +451,7 @@ def run_bot_smoke(
     print(f"Server: {client.base_url}")
     print(f"Bot training player: {player.player_id}")
     if not args.skip_preflight:
-        state = preflight_player_clear(client, player)
+        state = preflight_player_clear(client, player, include_training=True)
         add_step(
             report,
             "preflight_clear",
@@ -557,7 +564,7 @@ def run_bot_smoke(
 
         result_match = result.get("match") if isinstance(result.get("match"), dict) else {}
         if result_match.get("status") == "finished":
-            final_state = client.get("/api/pvp/player-state", player_code=player.code)
+            final_state = client.get(player_state_path(include_training=True), player_code=player.code)
             break
     else:
         raise SmokeError(f"bot match did not finish within {args.bot_max_actions} human actions")
@@ -629,7 +636,7 @@ def wait_for_player_or_finished(
 ) -> dict[str, Any]:
     last_state: dict[str, Any] = {}
     for _ in range(args.poll_attempts):
-        state = client.get("/api/pvp/player-state", player_code=player.code)
+        state = client.get(player_state_path(include_training=True), player_code=player.code)
         last_state = state
         recent = state.get("recent_match") if isinstance(state.get("recent_match"), dict) else None
         if recent and recent.get("match_id") == match_id and recent.get("status") == "finished":
@@ -652,8 +659,9 @@ def preflight_player_clear(
     player: Player,
     *,
     require_challenge_token: bool = False,
+    include_training: bool = False,
 ) -> dict[str, Any]:
-    state = client.get("/api/pvp/player-state", player_code=player.code)
+    state = client.get(player_state_path(include_training=include_training), player_code=player.code)
     active_match = state.get("active_match")
     active_challenge = state.get("active_challenge")
     if active_match or active_challenge:

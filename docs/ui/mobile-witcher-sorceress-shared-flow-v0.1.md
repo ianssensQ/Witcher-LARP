@@ -18,7 +18,7 @@ locked magical intent остаются future layer и не блокируют �
 
 ## Ревизия текущего состояния
 
-- Канон уже требует Godot 4 mobile client для 9 мобильных ролей: 5 ведьмаков и
+- Канон уже требует mobile client для 11 мобильных ролей: 7 ведьмаков и
   4 чародейки.
 - В `mobile/` уже есть shell: connection URL, player-code login, snapshot,
   bundled fallback, QR/manual ID, physical presence, offline event queue,

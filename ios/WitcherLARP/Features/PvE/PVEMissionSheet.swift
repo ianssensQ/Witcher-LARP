@@ -39,6 +39,24 @@ private extension PVEMissionSheet {
         VStack(alignment: .leading, spacing: 16) {
             missionHeader(mission)
 
+            if let assetName = mission.visualAssetName {
+                Image(assetName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 240)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            if let boardDescription = mission.boardDescriptionText {
+                Text(boardDescription)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .missionCard()
+            }
+
             Text(mission.missionText)
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
@@ -121,11 +139,11 @@ private extension PVEMissionSheet {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let stat = mission.nextCheckStat {
+            if let step = mission.nextCheckStep {
                 Button {
                     model.rollNextPVECheck()
                 } label: {
-                    Label("Проверка: \(stat)", systemImage: "die.face.5")
+                    Label("\(step.title): \(step.stat), DC \(step.dc)", systemImage: "die.face.5")
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)

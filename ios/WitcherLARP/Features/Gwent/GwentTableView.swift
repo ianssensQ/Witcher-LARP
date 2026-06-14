@@ -2123,17 +2123,6 @@ struct GwentTableView: View {
             }
 
             HStack(spacing: 10) {
-                if status == "finished" {
-                    Button {
-                        Task { await model.startGwentBotMatch() }
-                    } label: {
-                        Label("Новая тренировка", systemImage: "play.fill")
-                            .frame(width: 190, height: 40)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                }
-
                 Button {
                     Task { await model.refreshPvpState() }
                 } label: {
@@ -2183,7 +2172,7 @@ struct GwentTableView: View {
                 .foregroundStyle(.yellow)
             Text("Нет активной партии")
                 .font(.title3.bold())
-            Text("Обнови столы в Wi-Fi зоне или создай вызов на экране Гвинта.")
+            Text("Брось вызов на экране PvP или открой уже начатую партию после обновления.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.66))
                 .multilineTextAlignment(.center)
@@ -2197,15 +2186,9 @@ struct GwentTableView: View {
             .buttonStyle(.borderedProminent)
 
             Button {
-                Task {
-                    await model.startGwentBotMatch(
-                        mulligans: Array(selectedMulliganCardIds),
-                        deckId: selectedDeckIdForRequest
-                    )
-                    selectedMulliganCardIds.removeAll()
-                }
+                dismiss()
             } label: {
-                Label("Против компьютера", systemImage: "cpu")
+                Label("К PvP", systemImage: "chevron.left")
                     .frame(width: 190, height: 40)
             }
             .buttonStyle(.bordered)
@@ -3488,7 +3471,7 @@ private extension GwentTableView {
         if assetType == "gold" {
             return "\(quantity)g"
         }
-        let assetName = readableIdentifier(assetId, droppingPrefixes: ["item_", "card_", "artifact_", "rare_"])
+        let assetName = readableIdentifier(assetId, droppingPrefixes: ["item_", "card_", "artifact_", "potion_", "rare_"])
         return quantity > 1
             ? "\(assetTypeLabel(assetType)) \(assetName) x\(quantity)"
             : "\(assetTypeLabel(assetType)) \(assetName)"
@@ -3545,6 +3528,8 @@ private extension GwentTableView {
             return "карта"
         case "artifact":
             return "артефакт"
+        case "potion":
+            return "зелье"
         case "material":
             return "материал"
         case "trophy":
@@ -3566,6 +3551,8 @@ private extension GwentTableView {
             return "rectangle.stack.fill"
         case "artifact":
             return "sparkles"
+        case "potion":
+            return "cross.vial"
         case "practice":
             return "cpu"
         default:

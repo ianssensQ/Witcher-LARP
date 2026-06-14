@@ -175,7 +175,7 @@ func _build_manual_area() -> void:
 	_make_label("ManualLabel", Rect2(38, 478, 314, 18), "код знака", 11, Color(0.76, 0.58, 0.36), HORIZONTAL_ALIGNMENT_CENTER)
 	_manual_input = LineEdit.new()
 	_manual_input.name = "ManualCodeInput"
-	_manual_input.placeholder_text = "QR-A1-X3L5"
+	_manual_input.placeholder_text = "QR-A1-EAZ-006-X3L5"
 	_manual_input.clear_button_enabled = true
 	_manual_input.text_submitted.connect(_on_manual_submitted)
 	_manual_input.text_changed.connect(_on_manual_text_changed)

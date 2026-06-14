@@ -290,6 +290,30 @@ struct MaterialMarketSellRequest: Encodable {
     }
 }
 
+struct PotionBuyRequest: Encodable {
+    let potionId: String
+    let quantity: Int
+    let source: String
+
+    enum CodingKeys: String, CodingKey {
+        case potionId = "potion_id"
+        case quantity
+        case source
+    }
+}
+
+struct CardMarketBuyRequest: Encodable {
+    let cardId: String
+    let purchaseId: String?
+    let source: String
+
+    enum CodingKeys: String, CodingKey {
+        case cardId = "card_id"
+        case purchaseId = "purchase_id"
+        case source
+    }
+}
+
 struct TradeAcceptRequest: Encodable {
     let acceptedByPlayerId: String
     let source: String

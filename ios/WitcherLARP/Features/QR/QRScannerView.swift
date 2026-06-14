@@ -230,7 +230,7 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
         request.recognitionLevel = .fast
         request.usesLanguageCorrection = false
         request.recognitionLanguages = ["en-US"]
-        request.customWords = ["QR-A1", "QR-A2", "QR-A3"]
+        request.customWords = ["QR-A1", "QR-A2", "QR-A3", "QR-FA"]
 
         let handler = VNImageRequestHandler(
             cvPixelBuffer: pixelBuffer,
@@ -251,10 +251,7 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
             .replacingOccurrences(of: "–", with: "-")
             .replacingOccurrences(of: "—", with: "-")
             .replacingOccurrences(of: "_", with: "-")
-        let pattern = #"QR-A[0-9]-[A-Z0-9]+(?:-[A-Z0-9]+)+"#
-        guard let range = normalized.range(of: pattern, options: .regularExpression) else {
-            return nil
-        }
-        return String(normalized[range])
+        let code = QRCodeNormalizer.normalize(normalized)
+        return code.hasPrefix("QR-") ? code : nil
     }
 }
