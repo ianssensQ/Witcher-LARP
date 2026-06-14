@@ -8,6 +8,7 @@ from backend.witcher_larp.database import connect
 from backend.witcher_larp.event_models import EventSyncEvent, EventSyncRequest
 from backend.witcher_larp.event_service import sync_events
 from backend.witcher_larp.game_ops_service import GameOpsCorrectionError
+from backend.witcher_larp.game_ops_service import apply_admin_setup_grant
 from backend.witcher_larp.game_ops_service import apply_game_ops_correction, build_master_state
 from backend.witcher_larp.import_service import import_seed_pack
 from backend.witcher_larp.runtime_schema import log_event
@@ -98,7 +99,10 @@ class GameOpsServiceTests(unittest.TestCase):
                 connection,
                 target_type="player",
                 target_id=player["player_id"],
-                patch={"gold": int(player["gold"]) + 5},
+                patch={
+                    "gold": int(player["gold"]) + 5,
+                    "challenge_tokens": int(player["challenge_tokens"]) + 2,
+                },
                 operator="gm_ops",
                 reason="paper economy recovery checked",
             )
@@ -109,6 +113,23 @@ class GameOpsServiceTests(unittest.TestCase):
                 patch={"public_text": "Закрыть контракт на чудовище у мастера"},
                 operator="gm_ops",
                 reason="player goal text clarified for journal screen",
+            )
+            gold_grant = apply_admin_setup_grant(
+                connection,
+                player_id="p_witcher_1",
+                grant_type="gold",
+                quantity=7,
+                operator="gm_ops",
+                reason="starting purse counted at registration",
+            )
+            card_grant = apply_admin_setup_grant(
+                connection,
+                player_id="p_witcher_1",
+                grant_type="card",
+                asset_id="pc_infantry_t1",
+                quantity=2,
+                operator="gm_ops",
+                reason="starting cards counted at registration",
             )
             final_state = build_master_state(connection, settings)
             scoped_snapshot = build_snapshot_from_database(
@@ -123,6 +144,20 @@ class GameOpsServiceTests(unittest.TestCase):
         self.assertEqual(trade_correction["after"]["price_gold"], 3)
         self.assertEqual(player_correction["target_type"], "player")
         self.assertEqual(player_correction["after"]["gold"], int(player["gold"]) + 5)
+        self.assertEqual(
+            player_correction["after"]["challenge_tokens"],
+            int(player["challenge_tokens"]) + 2,
+        )
+        self.assertEqual(gold_grant["grant"]["grant_type"], "gold")
+        self.assertEqual(
+            gold_grant["grant"]["after"]["gold"],
+            player_correction["after"]["gold"] + 7,
+        )
+        self.assertEqual(card_grant["grant"]["grant_type"], "card")
+        self.assertEqual(
+            card_grant["grant"]["after"]["quantity"],
+            card_grant["grant"]["before"]["quantity"] + 2,
+        )
         self.assertEqual(goal_correction["target_type"], "personal_goal")
         self.assertEqual(
             goal_correction["after"]["public_text"],
@@ -140,6 +175,14 @@ class GameOpsServiceTests(unittest.TestCase):
         self.assertIn("player", recent_types)
         self.assertIn("personal_goal", recent_types)
         self.assertTrue(final_state["economy"]["personal_goals"])
+        self.assertGreaterEqual(final_state["admin_setup"]["summary"]["field_players"], 9)
+        setup_player = next(
+            row for row in final_state["admin_setup"]["players"] if row["player_id"] == "p_witcher_1"
+        )
+        self.assertEqual(setup_player["readiness_status"], "ready")
+        self.assertGreaterEqual(setup_player["asset_counts"]["card"]["quantity"], 2)
+        self.assertTrue(final_state["admin_setup"]["asset_catalog"]["card"])
+        self.assertEqual(final_state["admin_setup"]["recent_grants"][0]["grant_type"], "card")
 
     def test_master_state_exposes_lord_command_center_payloads(self) -> None:
         settings = self._settings("game_ops_lord_command")

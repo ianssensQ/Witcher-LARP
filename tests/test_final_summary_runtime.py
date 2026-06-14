@@ -160,7 +160,7 @@ class FinalSummaryRuntimeTests(unittest.TestCase):
             self._role_item(summary["evidence_by_role"]["lords"], "p_lord_1")["domain"]["influence"],
             3,
         )
-        self.assertEqual(len(summary["evidence_by_role"]["witchers"]), 5)
+        self.assertEqual(len(summary["evidence_by_role"]["witchers"]), 7)
         self.assertEqual(len(summary["evidence_by_role"]["sorceresses"]), 4)
         witcher_one = self._role_item(summary["evidence_by_role"]["witchers"], "p_witcher_1")
         self.assertEqual(witcher_one["pve_attempts"][0]["result"], "success")

@@ -1,5 +1,8 @@
 item_id,item_type,tier,stat_requirement_json,effect_json
+item_herb_bundle,quest_object,1,"{""Разум"":1}","{""use"":""potion_discount"",""description"":""Пучок трав для зельеварения и дешевой награды PvE.""}"
+item_silver_dust,quest_object,2,"{""Разум"":2}","{""use"":""monster_bonus"",""scene_types"":[""monster_hunt""],""modifier_stat"":""Сила"",""modifier"":2,""description"":""Серебряная пыль для охотничьих сцен и заказов.""}"
 item_monster_trophy,trophy,3,"{}","{""use"":""lord_influence_claim"",""description"":""Доказательство охоты для лорда или NPC-сделки.""}"
+item_ancient_relic,plot_key,4,"{""Разум"":4}","{""use"":""final_evidence"",""description"":""Древняя реликвия для редкой PvE-награды и финального evidence.""}"
 item_beast_fang,trophy,2,"{}","{""use"":""order_completion_proof"",""scene_types"":[""monster_hunt""],""description"":""Трофей для заказов на чудовищ.""}"
 item_curse_mark,trophy,3,"{}","{""use"":""reputation_evidence"",""description"":""След проклятия: сильное доказательство для мастера/NPC.""}"
 item_order_seal,order_token,2,"{}","{""use"":""order_completion_proof"",""description"":""Печать, подтверждающая выполнение заказа.""}"

@@ -30,36 +30,9 @@ class SorceressError(ValueError):
 
 
 def ensure_sorceress_runtime_state(connection: sqlite3.Connection) -> None:
-    ensure_runtime_schema(connection)
-    ensure_runtime_content_state(connection)
+    ensure_potion_market_runtime_state(connection)
     current_time = datetime.now(UTC)
     now = _iso(current_time)
-
-    if _table_exists(connection, "potion_markets"):
-        for row in connection.execute(
-            """
-            SELECT market_id, seller_role, potion_id, stock, refresh_rule
-            FROM potion_markets
-            ORDER BY _row_number
-            """
-        ).fetchall():
-            connection.execute(
-                """
-                INSERT INTO potion_market_runtime (
-                    market_id, seller_role, potion_id, stock, refresh_rule, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(market_id) DO NOTHING
-                """,
-                (
-                    row["market_id"],
-                    row["seller_role"],
-                    row["potion_id"],
-                    _to_int(row["stock"]),
-                    row["refresh_rule"],
-                    now,
-                ),
-            )
 
     if _table_exists(connection, "trade_transfers"):
         for row in connection.execute(
@@ -159,6 +132,38 @@ def ensure_sorceress_runtime_state(connection: sqlite3.Connection) -> None:
             )
 
 
+def ensure_potion_market_runtime_state(connection: sqlite3.Connection) -> None:
+    ensure_runtime_schema(connection)
+    ensure_runtime_content_state(connection)
+    now = _iso(datetime.now(UTC))
+
+    if _table_exists(connection, "potion_markets"):
+        for row in connection.execute(
+            """
+            SELECT market_id, seller_role, potion_id, stock, refresh_rule
+            FROM potion_markets
+            ORDER BY _row_number
+            """
+        ).fetchall():
+            connection.execute(
+                """
+                INSERT INTO potion_market_runtime (
+                    market_id, seller_role, potion_id, stock, refresh_rule, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(market_id) DO NOTHING
+                """,
+                (
+                    row["market_id"],
+                    row["seller_role"],
+                    row["potion_id"],
+                    _to_int(row["stock"]),
+                    row["refresh_rule"],
+                    now,
+                ),
+            )
+
+
 def _apply_seed_trade_transfer_effects(
     connection: sqlite3.Connection,
     transfer: sqlite3.Row,
@@ -171,6 +176,32 @@ def _apply_seed_trade_transfer_effects(
     transfer_id = str(transfer["transfer_id"])
     status = str(transfer["status"])
     if status == "pending_locked":
+        if str(transfer["asset_type"]) == "gold":
+            if imported_new:
+                quantity = _to_int(transfer["quantity"]) or 1
+                timestamp = _iso(now)
+                reserved = connection.execute(
+                    """
+                    UPDATE player_runtime_state
+                    SET gold = gold - ?, updated_at = ?
+                    WHERE player_id = ? AND gold >= ?
+                    """,
+                    (quantity, timestamp, transfer["from_player_id"], quantity),
+                )
+                if not reserved.rowcount:
+                    connection.execute(
+                        """
+                        UPDATE trade_transfer_runtime
+                        SET status = 'contested_review',
+                            closed_at = ?,
+                            close_reason = 'insufficient gold for seed pending transfer',
+                            closed_by_player_id = 'seed_import',
+                            updated_at = ?
+                        WHERE transfer_id = ?
+                        """,
+                        (timestamp, timestamp, transfer_id),
+                    )
+            return
         if active_locks_for_source(
             connection,
             lock_type="trade_transfer",
@@ -245,7 +276,41 @@ def _apply_seed_trade_transfer_effects(
     asset_type = str(transfer["asset_type"])
     asset_id = str(transfer["asset_id"])
     quantity = _to_int(transfer["quantity"]) or 1
-    if asset_type == "potion":
+    if asset_type == "gold":
+        from_player = _require_player(connection, str(transfer["from_player_id"]))
+        if _to_int(from_player["gold"]) >= quantity:
+            connection.execute(
+                """
+                UPDATE player_runtime_state
+                SET gold = gold - ?, updated_at = ?
+                WHERE player_id = ?
+                """,
+                (quantity, _iso(now), transfer["from_player_id"]),
+            )
+        else:
+            timestamp = _iso(now)
+            connection.execute(
+                """
+                UPDATE trade_transfer_runtime
+                SET status = 'contested_review',
+                    closed_at = ?,
+                    close_reason = 'insufficient gold for seed accepted transfer',
+                    closed_by_player_id = 'seed_import',
+                    updated_at = ?
+                WHERE transfer_id = ?
+                """,
+                (timestamp, timestamp, transfer_id),
+            )
+            return
+        connection.execute(
+            """
+            UPDATE player_runtime_state
+            SET gold = gold + ?, updated_at = ?
+            WHERE player_id = ?
+            """,
+            (quantity, _iso(now), transfer["to_player_id"]),
+        )
+    elif asset_type == "potion":
         from_inventory = _inventory_quantity(connection, str(transfer["from_player_id"]), asset_id)
         if from_inventory >= quantity:
             _take_inventory(
@@ -314,6 +379,11 @@ def get_sorceress_state(
         "locked_magical_intent": _locked_intents_for_sorceress(connection, sorceress_id),
         "rules": {"favorite": _favorite_rule(connection), "max_potions_per_scene": 1},
     }
+
+
+def potion_market_rows(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    ensure_potion_market_runtime_state(connection)
+    return _potion_markets(connection)
 
 
 def cast_spell(
@@ -603,6 +673,19 @@ def create_trade_transfer(
 ) -> dict[str, Any]:
     ensure_sorceress_runtime_state(connection)
     normalized_type = asset_type.strip().lower()
+    if normalized_type == "gold":
+        return _create_gold_trade_transfer(
+            connection,
+            from_player_id=from_player_id,
+            to_player_id=to_player_id,
+            quantity=quantity,
+            price_gold=price_gold,
+            mode=mode,
+            transfer_id=transfer_id,
+            auto_accept=auto_accept,
+            source=source,
+            now=now,
+        )
     if normalized_type == "potion":
         return transfer_potion(
             connection,
@@ -698,6 +781,86 @@ def create_trade_transfer(
     return {**created, "duplicate": False}
 
 
+def _create_gold_trade_transfer(
+    connection: sqlite3.Connection,
+    *,
+    from_player_id: str,
+    to_player_id: str,
+    quantity: int = 1,
+    price_gold: int = 0,
+    mode: str = "gift",
+    transfer_id: str | None = None,
+    auto_accept: bool = False,
+    source: str = "trade_api",
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current_time = now or datetime.now(UTC)
+    new_transfer_id = transfer_id or f"trade_transfer_{uuid4().hex}"
+    existing = _fetch_optional_row(
+        connection,
+        "trade_transfer_runtime",
+        "transfer_id",
+        new_transfer_id,
+    )
+    if existing is not None:
+        return {**_trade_transfer_payload(existing), "duplicate": True}
+    if quantity <= 0:
+        raise SorceressError("invalid_quantity", "Gold transfer quantity must be positive.")
+
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in POTION_TRANSFER_MODES:
+        raise SorceressError("invalid_transfer_mode", f"Unsupported transfer mode: {mode}.")
+    if price_gold != 0:
+        raise SorceressError("gold_transfer_price_forbidden", "Gold transfers cannot also carry a price.")
+    _require_player(connection, from_player_id)
+    _require_player(connection, to_player_id)
+
+    timestamp = _iso(current_time)
+    updated = connection.execute(
+        """
+        UPDATE player_runtime_state
+        SET gold = gold - ?, updated_at = ?
+        WHERE player_id = ? AND gold >= ?
+        """,
+        (quantity, timestamp, from_player_id, quantity),
+    )
+    if not updated.rowcount:
+        _assert_gold_available(connection, from_player_id, quantity)
+
+    connection.execute(
+        """
+        INSERT INTO trade_transfer_runtime (
+            transfer_id, from_player_id, to_player_id, asset_type, asset_id,
+            quantity, price_gold, mode, status, source, created_at, updated_at
+        )
+        VALUES (?, ?, ?, 'gold', 'gold', ?, 0, ?, 'pending_locked', ?, ?, ?)
+        """,
+        (
+            new_transfer_id,
+            from_player_id,
+            to_player_id,
+            quantity,
+            normalized_mode,
+            source,
+            timestamp,
+            timestamp,
+        ),
+    )
+    created = _trade_transfer_payload(
+        _fetch_required_row(connection, "trade_transfer_runtime", "transfer_id", new_transfer_id)
+    )
+    log_event(connection, "trade_transfer_requested", created, source=source, created_at=current_time)
+    if auto_accept:
+        return accept_trade_transfer(
+            connection,
+            new_transfer_id,
+            accepted_by_player_id=to_player_id,
+            source=source,
+            now=current_time,
+        )
+    return {**created, "duplicate": False}
+
+
 def accept_trade_transfer(
     connection: sqlite3.Connection,
     transfer_id: str,
@@ -716,8 +879,9 @@ def accept_trade_transfer(
     if str(transfer["status"]) != "pending_locked":
         raise SorceressError("trade_not_pending", "Only pending locked transfers can be accepted.")
 
+    asset_type = str(transfer["asset_type"])
     price_gold = _to_int(transfer["price_gold"])
-    if price_gold > 0:
+    if asset_type != "gold" and price_gold > 0:
         _assert_gold_available(connection, accepted_by_player_id, price_gold)
         timestamp = _iso(current_time)
         connection.execute(
@@ -737,8 +901,16 @@ def accept_trade_transfer(
             (price_gold, timestamp, transfer["from_player_id"]),
         )
 
-    asset_type = str(transfer["asset_type"])
-    if asset_type == "potion":
+    if asset_type == "gold":
+        connection.execute(
+            """
+            UPDATE player_runtime_state
+            SET gold = gold + ?, updated_at = ?
+            WHERE player_id = ?
+            """,
+            (_to_int(transfer["quantity"]), _iso(current_time), transfer["to_player_id"]),
+        )
+    elif asset_type == "potion":
         _add_inventory(
             connection,
             str(transfer["to_player_id"]),
@@ -831,7 +1003,16 @@ def decline_trade_transfer(
         if declined_by_player_id == str(transfer["from_player_id"])
         else "declined"
     )
-    if str(transfer["asset_type"]) == "potion":
+    if str(transfer["asset_type"]) == "gold":
+        connection.execute(
+            """
+            UPDATE player_runtime_state
+            SET gold = gold + ?, updated_at = ?
+            WHERE player_id = ?
+            """,
+            (_to_int(transfer["quantity"]), _iso(current_time), transfer["from_player_id"]),
+        )
+    elif str(transfer["asset_type"]) == "potion":
         _add_inventory(
             connection,
             str(transfer["from_player_id"]),
@@ -839,18 +1020,19 @@ def decline_trade_transfer(
             _to_int(transfer["quantity"]),
             now=_iso(current_time),
         )
-    try:
-        settle_owned_asset_lock(
-            connection,
-            lock_type="trade_transfer",
-            source_ref_id=transfer_id,
-            target_player_id=None,
-            final_status="released",
-            reason=reason,
-            now=current_time,
-        )
-    except AssetContractError as exc:
-        raise _asset_to_sorceress_error(exc) from exc
+    if str(transfer["asset_type"]) != "gold":
+        try:
+            settle_owned_asset_lock(
+                connection,
+                lock_type="trade_transfer",
+                source_ref_id=transfer_id,
+                target_player_id=None,
+                final_status="released",
+                reason=reason,
+                now=current_time,
+            )
+        except AssetContractError as exc:
+            raise _asset_to_sorceress_error(exc) from exc
     connection.execute(
         """
         UPDATE trade_transfer_runtime

@@ -143,6 +143,20 @@ def _game_ops_section(connection: sqlite3.Connection) -> dict[str, Any]:
                 "ready",
             ),
             _action(
+                "admin_setup_grant",
+                "Предыгровая выдача ресурсов",
+                "POST",
+                "/api/master/admin-setup/grants",
+                "ready",
+            ),
+            _action(
+                "registration_hard_reset",
+                "Хард-резет в регистрацию",
+                "POST",
+                "/api/master/game/start-setup",
+                "ready",
+            ),
+            _action(
                 "potion_trade_corrections",
                 "Коррекции зелий/обмена",
                 "POST",

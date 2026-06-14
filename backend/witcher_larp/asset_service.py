@@ -11,7 +11,7 @@ from typing import Any
 from .runtime_schema import ensure_runtime_schema
 
 
-ASSET_TYPES = {"item", "card", "artifact", "potion", "order_object", "final_object"}
+ASSET_TYPES = {"item", "card", "artifact", "potion", "order_object", "quest_object", "final_object"}
 OWNERSHIP_ASSET_TYPES = ASSET_TYPES - {"potion"}
 ACTIVE_LOCK_STATUS = "active"
 FINAL_LOCK_STATUSES = {"released", "consumed"}

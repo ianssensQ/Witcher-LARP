@@ -9,7 +9,9 @@ from typing import Any
 from uuid import uuid4
 
 from .act_service import get_act_state
-from .asset_service import active_reward_approvals, ensure_asset_contract_schema
+from .asset_service import AssetContractError, active_reward_approvals
+from .asset_service import ensure_asset_contract_schema, grant_asset_ownership
+from .asset_service import ownership_for_asset
 from .config import Settings
 from .event_schema import ensure_event_schema
 from .lord_runtime import (
@@ -221,6 +223,7 @@ def build_master_state(
             "sync_statuses": _sync_statuses(connection),
         },
         "reward_approvals": rewards,
+        "admin_setup": _admin_setup_state(connection),
         "lord_map": _lord_map_state(connection),
         "visibility_audit": build_visibility_audit(connection),
         "pvp": {
@@ -236,6 +239,143 @@ def build_master_state(
             *backups["blocking_alerts"],
         ],
     }
+
+
+def apply_admin_setup_grant(
+    connection: sqlite3.Connection,
+    *,
+    player_id: str,
+    grant_type: str,
+    quantity: int,
+    operator: str,
+    reason: str,
+    asset_id: str | None = None,
+    source: str = "master_admin_setup",
+) -> dict[str, Any]:
+    """Grant game-day starting resources to field players with audit."""
+
+    _ensure_game_ops_schema(connection)
+    ensure_asset_contract_schema(connection)
+    ensure_sorceress_runtime_state(connection)
+    player_id = str(player_id or "").strip()
+    grant_type = _normalize_grant_type(grant_type)
+    asset_id = str(asset_id or "").strip()
+    operator = str(operator or "").strip()
+    reason = str(reason or "").strip()
+    source = str(source or "").strip() or "master_admin_setup"
+    try:
+        quantity = int(quantity)
+    except (TypeError, ValueError) as exc:
+        raise GameOpsCorrectionError(
+            "Grant quantity must be an integer.",
+            code="invalid_grant_quantity",
+        ) from exc
+
+    if not player_id:
+        raise GameOpsCorrectionError("Grant player_id is required.", code="missing_player_id")
+    if not operator:
+        raise GameOpsCorrectionError("Grant operator is required.", code="missing_operator")
+    if not reason:
+        raise GameOpsCorrectionError("Grant reason is required.", code="missing_reason")
+    if quantity <= 0:
+        raise GameOpsCorrectionError(
+            "Grant quantity must be positive.",
+            code="invalid_grant_quantity",
+        )
+
+    player = _setup_player_row(connection, player_id)
+    if player is None:
+        raise GameOpsCorrectionError(
+            f"Unknown setup player: {player_id}.",
+            status_code=404,
+            code="setup_player_not_found",
+        )
+    if str(player.get("role_type")) not in {"witcher", "sorceress"}:
+        raise GameOpsCorrectionError(
+            "Admin setup grants are limited to witchers and sorceresses.",
+            code="unsupported_setup_player_role",
+        )
+
+    now = _iso()
+    grant_id = f"setup_grant_{uuid4().hex}"
+    if grant_type == "gold":
+        before = _fetch_by_pk(connection, "player_runtime_state", "player_id", player_id) or {}
+        connection.execute(
+            """
+            UPDATE player_runtime_state
+            SET gold = gold + ?, updated_at = ?
+            WHERE player_id = ?
+            """,
+            (quantity, now, player_id),
+        )
+        after = _fetch_by_pk(connection, "player_runtime_state", "player_id", player_id) or {}
+    else:
+        if not asset_id:
+            raise GameOpsCorrectionError(
+                "Asset grant requires asset_id.",
+                code="missing_asset_id",
+            )
+        _assert_setup_asset_exists(connection, grant_type, asset_id)
+        before = ownership_for_asset(
+            connection,
+            owner_player_id=player_id,
+            asset_type=grant_type,
+            asset_id=asset_id,
+        )
+        try:
+            after = grant_asset_ownership(
+                connection,
+                owner_player_id=player_id,
+                asset_type=grant_type,
+                asset_id=asset_id,
+                quantity=quantity,
+                source=source,
+                source_ref_id=grant_id,
+            )
+        except AssetContractError as exc:
+            raise GameOpsCorrectionError(
+                exc.message,
+                status_code=exc.status_code,
+                code=exc.code,
+            ) from exc
+
+    payload = {
+        "grant_id": grant_id,
+        "player_id": player_id,
+        "grant_type": grant_type,
+        "asset_id": asset_id,
+        "quantity": quantity,
+        "operator": operator,
+        "reason": reason,
+        "before": before,
+        "after": after,
+        "source": source,
+        "created_at": now,
+    }
+    connection.execute(
+        """
+        INSERT INTO admin_setup_grants (
+            grant_id, player_id, grant_type, asset_id, quantity, operator,
+            reason, before_json, after_json, source, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            grant_id,
+            player_id,
+            grant_type,
+            asset_id,
+            quantity,
+            operator,
+            reason,
+            _json_dumps(before),
+            _json_dumps(after),
+            source,
+            now,
+        ),
+    )
+    log_event(connection, "admin_setup_grant", payload, source=source)
+    return {"status": "granted", "grant": payload}
 
 
 def list_master_player_codes(connection: sqlite3.Connection) -> dict[str, Any]:
@@ -876,6 +1016,181 @@ def _economy_recovery_state(connection: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def _admin_setup_state(connection: sqlite3.Connection) -> dict[str, Any]:
+    players = _admin_setup_players(connection)
+    ready_players = [player for player in players if player["readiness_status"] == "ready"]
+    return {
+        "players": players,
+        "summary": {
+            "field_players": len(players),
+            "ready_players": len(ready_players),
+            "needs_attention": len(players) - len(ready_players),
+        },
+        "asset_catalog": _setup_asset_catalog(connection),
+        "recent_grants": _recent_admin_setup_grants(connection),
+    }
+
+
+def _admin_setup_players(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    runtime_by_player = {
+        row["player_id"]: row
+        for row in _rows(
+            connection,
+            """
+            SELECT player_id, role_type, level, xp, gold, mana, max_mana,
+                   challenge_tokens, updated_at
+            FROM player_runtime_state
+            ORDER BY player_id
+            """,
+            table_name="player_runtime_state",
+        )
+    }
+    code_by_player = {
+        row["player_id"]: row
+        for row in _rows(
+            connection,
+            """
+            SELECT player_id, code, enabled
+            FROM player_codes
+            ORDER BY player_id
+            """,
+            table_name="player_codes",
+        )
+    }
+    goals_by_player = _group_by(
+        _rows(
+            connection,
+            """
+            SELECT player_id, goal_id, public_text, act_id
+            FROM personal_goals
+            ORDER BY player_id, act_id, goal_id
+            """,
+            table_name="personal_goals",
+        ),
+        "player_id",
+    )
+    assets_by_player = _group_by(
+        _rows(
+            connection,
+            """
+            SELECT owner_player_id AS player_id, asset_type,
+                   COUNT(*) AS distinct_assets, COALESCE(SUM(quantity), 0) AS quantity
+            FROM asset_ownership
+            WHERE status = 'active'
+            GROUP BY owner_player_id, asset_type
+            ORDER BY owner_player_id, asset_type
+            """,
+            table_name="asset_ownership",
+        ),
+        "player_id",
+    )
+    snapshot_version = latest_snapshot_version(connection)
+    result = []
+    for player in _table(connection, "players"):
+        if player.get("role_type") not in {"witcher", "sorceress"}:
+            continue
+        player_id = str(player.get("player_id") or "")
+        runtime = runtime_by_player.get(player_id, {})
+        code = code_by_player.get(player_id, {})
+        goals = goals_by_player.get(player_id, [])
+        asset_counts = {
+            str(row.get("asset_type")): {
+                "distinct_assets": _to_int(row.get("distinct_assets")),
+                "quantity": _to_int(row.get("quantity")),
+            }
+            for row in assets_by_player.get(player_id, [])
+        }
+        checks = {
+            "player_code_enabled": _to_bool(code.get("enabled")),
+            "runtime_ready": bool(runtime),
+            "snapshot_ready": bool(snapshot_version),
+            "goals_ready": bool(goals),
+        }
+        missing = [name for name, ok in checks.items() if not ok]
+        result.append(
+            {
+                **player,
+                **runtime,
+                "display_name": _display_name(
+                    player.get("display_name"),
+                    fallback=player_id,
+                ),
+                "player_code": code.get("code"),
+                "player_code_enabled": checks["player_code_enabled"],
+                "goal_count": len(goals),
+                "goals": goals,
+                "asset_counts": asset_counts,
+                "readiness_checks": checks,
+                "readiness_missing": missing,
+                "readiness_status": "ready" if not missing else "needs_attention",
+            }
+        )
+    role_order = {"witcher": 1, "sorceress": 2}
+    return sorted(
+        result,
+        key=lambda row: (role_order.get(str(row.get("role_type")), 9), str(row.get("player_id"))),
+    )
+
+
+def _setup_asset_catalog(connection: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
+    cards = [
+        {
+            "asset_type": "card",
+            "asset_id": row.get("card_id"),
+            "label": row.get("name") or row.get("card_id"),
+            "tier": row.get("tier"),
+        }
+        for row in _table(connection, "cards")
+        if row.get("card_id")
+    ]
+    items = [
+        {
+            "asset_type": "item",
+            "asset_id": row.get("item_id"),
+            "label": row.get("item_id"),
+            "tier": row.get("tier"),
+            "item_type": row.get("item_type"),
+        }
+        for row in _table(connection, "items")
+        if row.get("item_id")
+    ]
+    artifacts = [
+        {
+            "asset_type": "artifact",
+            "asset_id": row.get("artifact_id"),
+            "label": row.get("name") or row.get("artifact_id"),
+            "visibility": row.get("visibility"),
+        }
+        for row in _table(connection, "artifacts")
+        if row.get("artifact_id")
+    ]
+    return {
+        "card": cards,
+        "item": items,
+        "artifact": artifacts,
+    }
+
+
+def _recent_admin_setup_grants(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    return [
+        {
+            **row,
+            "before": _json_loads(row.get("before_json"), {}),
+            "after": _json_loads(row.get("after_json"), {}),
+        }
+        for row in _rows(
+            connection,
+            """
+            SELECT *
+            FROM admin_setup_grants
+            ORDER BY created_at DESC, grant_id DESC
+            LIMIT 20
+            """,
+            table_name="admin_setup_grants",
+        )
+    ]
+
+
 def _domain_ids(connection: sqlite3.Connection) -> list[str]:
     ids = {
         str(row.get("domain_id") or "")
@@ -1223,6 +1538,23 @@ def _ensure_game_ops_schema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admin_setup_grants (
+            grant_id TEXT PRIMARY KEY,
+            player_id TEXT NOT NULL,
+            grant_type TEXT NOT NULL,
+            asset_id TEXT,
+            quantity INTEGER NOT NULL,
+            operator TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            before_json TEXT NOT NULL DEFAULT '{}',
+            after_json TEXT NOT NULL DEFAULT '{}',
+            source TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
 
 
 def _normalize_target_type(value: str) -> str:
@@ -1247,6 +1579,74 @@ def _normalize_target_type(value: str) -> str:
         "player_goal": "personal_goal",
     }
     return aliases.get(normalized, normalized)
+
+
+def _normalize_grant_type(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    aliases = {
+        "money": "gold",
+        "coins": "gold",
+        "coin": "gold",
+        "золото": "gold",
+        "card": "card",
+        "cards": "card",
+        "gwent_card": "card",
+        "item": "item",
+        "items": "item",
+        "artifact": "artifact",
+        "artifacts": "artifact",
+    }
+    result = aliases.get(normalized, normalized)
+    if result not in {"gold", "card", "item", "artifact"}:
+        raise GameOpsCorrectionError(
+            f"Unsupported admin setup grant type: {value}.",
+            code="unsupported_grant_type",
+        )
+    return result
+
+
+def _setup_player_row(connection: sqlite3.Connection, player_id: str) -> dict[str, Any] | None:
+    row = connection.execute(
+        """
+        SELECT player_id, role_type, display_name
+        FROM players
+        WHERE player_id = ?
+        """,
+        (player_id,),
+    ).fetchone()
+    return _clean_row(row) if row is not None else None
+
+
+def _assert_setup_asset_exists(
+    connection: sqlite3.Connection,
+    asset_type: str,
+    asset_id: str,
+) -> None:
+    table_by_type = {
+        "card": ("cards", "card_id"),
+        "item": ("items", "item_id"),
+        "artifact": ("artifacts", "artifact_id"),
+    }
+    table_name, pk = table_by_type[asset_type]
+    if not _table_exists(connection, table_name):
+        raise GameOpsCorrectionError(
+            f"Setup asset table is missing: {table_name}.",
+            code="setup_asset_catalog_missing",
+        )
+    row = connection.execute(
+        f"""
+        SELECT 1
+        FROM {quote_identifier(table_name)}
+        WHERE {quote_identifier(pk)} = ?
+        """,
+        (asset_id,),
+    ).fetchone()
+    if row is None:
+        raise GameOpsCorrectionError(
+            f"Unknown setup asset: {asset_type}:{asset_id}.",
+            status_code=404,
+            code="setup_asset_not_found",
+        )
 
 
 def _normalize_patch_value(

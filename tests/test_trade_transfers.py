@@ -204,6 +204,46 @@ class TradeTransferContractTests(unittest.TestCase):
         self.assertEqual(owners, {"p_witcher_2": 1})
         self.assertEqual(active_locks, 0)
 
+    def test_gold_transfer_escrows_accepts_once_and_has_no_asset_lock(self) -> None:
+        settings = self.prepare_seed("trade_gold")
+        with connect(settings) as connection:
+            created = create_trade_transfer(
+                connection,
+                transfer_id="trade_gold_accept",
+                from_player_id="p_witcher_1",
+                to_player_id="p_witcher_2",
+                asset_type="gold",
+                asset_id="gold",
+                quantity=7,
+            )
+            gold_after_create = {
+                "from": self.gold(connection, "p_witcher_1"),
+                "to": self.gold(connection, "p_witcher_2"),
+            }
+            active_after_create = self.active_lock_count(connection)
+            accepted = accept_trade_transfer(
+                connection,
+                created["transfer_id"],
+                accepted_by_player_id="p_witcher_2",
+            )
+            duplicate = accept_trade_transfer(
+                connection,
+                created["transfer_id"],
+                accepted_by_player_id="p_witcher_2",
+            )
+            gold_after_accept = {
+                "from": self.gold(connection, "p_witcher_1"),
+                "to": self.gold(connection, "p_witcher_2"),
+            }
+
+        self.assertEqual(created["status"], "pending_locked")
+        self.assertEqual(gold_after_create, {"from": 13, "to": 20})
+        self.assertEqual(active_after_create, 0)
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertFalse(accepted["duplicate"])
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(gold_after_accept, {"from": 13, "to": 27})
+
     def test_seed_contested_trade_import_has_no_asset_lock_or_grant_side_effects(self) -> None:
         settings = self.prepare_seed("trade_seed_contested_review")
         with connect(settings) as connection:
@@ -310,6 +350,15 @@ class TradeTransferContractTests(unittest.TestCase):
             connection.execute(
                 "SELECT COUNT(*) FROM asset_locks WHERE status = 'active'"
             ).fetchone()[0]
+        )
+
+    @staticmethod
+    def gold(connection, player_id: str) -> int:
+        return int(
+            connection.execute(
+                "SELECT gold FROM player_runtime_state WHERE player_id = ?",
+                (player_id,),
+            ).fetchone()["gold"]
         )
 
 

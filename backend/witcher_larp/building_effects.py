@@ -17,8 +17,8 @@ RITUAL_CHAMBER_BUILDING_ID = "b_ritual_chamber"
 
 PUBLIC_ORDER_LIMIT_WITH_BUILDING = 2
 ADDRESSED_ORDER_LIMIT_WITH_BUILDING = 1
-STOREHOUSE_STOCK_CAP_PERCENT = 125
-TAX_OFFICE_TERRITORY_INCOME_BONUS_PERCENT = 25
+STOREHOUSE_STOCK_CAP_PERCENT = 200
+TAX_OFFICE_TERRITORY_INCOME_BONUS_PERCENT = 50
 TREASURY_INCOME_FLOOR_PERCENT = 50
 BANK_LOOT_REDUCTION_PERCENT = 50
 MAGE_STUDY_RESIDENCE_DEFENSE_BONUS = 1
@@ -26,9 +26,9 @@ ALCHEMY_RAID_DURATION_REDUCTION_MINUTES = 15
 RITUAL_CLEANSE_CHARGE_CAP = 1
 
 FLAT_INCOME_BY_BUILDING_ID = {
-    "b_market": 5,
-    BANK_BUILDING_ID: 10,
-    TREASURY_HALL_BUILDING_ID: 20,
+    "b_market": 8,
+    BANK_BUILDING_ID: 15,
+    TREASURY_HALL_BUILDING_ID: 25,
 }
 
 BUILDING_EFFECT_LABELS = {
@@ -48,15 +48,15 @@ BUILDING_EFFECT_LABELS = {
         "Открывает найм инженеров",
         "Кап рейдовых жетонов +2",
     ],
-    "b_market": ["Доход за тик +5 золота"],
-    "b_tax_office": ["Доход с контролируемых территорий +25%"],
-    "b_storehouse": ["Лимит накопления открытых войск +25%"],
+    "b_market": ["Доход за тик +8 золота"],
+    "b_tax_office": ["Доход с контролируемых территорий +50%"],
+    "b_storehouse": ["Лимит накопления открытых войск: 4 тика вместо 2"],
     BANK_BUILDING_ID: [
-        "Доход за тик +10 золота",
+        "Доход за тик +15 золота",
         "Налет за добычей крадет на 50% меньше золота",
     ],
     TREASURY_HALL_BUILDING_ID: [
-        "Доход за тик +20 золота",
+        "Доход за тик +25 золота",
         "Итоговый доход не падает ниже 50% от дохода до штрафов",
     ],
     PUBLIC_ORDER_BUILDING_ID: [

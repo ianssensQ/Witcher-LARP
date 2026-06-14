@@ -170,6 +170,7 @@ MONSTERS_TEST_UNITS = (
     "mo_ghoul_1",
     "mo_ghoul_2",
     "mo_ghoul_3",
+    "mo_nekker_3",
     "gwent_unit_19",
     "gwent_unit_20",
 )
@@ -223,6 +224,7 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(report.status, "success")
         with connect(settings) as connection:
             self.copy_gwent_deck(connection, *extra_deck_players)
+            self.install_legacy_pvp_test_decks(connection)
             self.grant_pvp_test_stake_assets(connection)
             start_act(
                 connection,
@@ -269,6 +271,100 @@ class PvpRuntimeTests(unittest.TestCase):
             (asset_id, asset_id),
         )
 
+    def install_legacy_pvp_test_decks(self, connection) -> None:
+        nilfgaard_starter = connection.execute(
+            """
+            SELECT card_ids
+            FROM gwent_decks
+            WHERE player_id = 'p_witcher_3'
+            LIMIT 1
+            """
+        ).fetchone()
+        self.assertIsNotNone(nilfgaard_starter)
+        decks = (
+            (
+                "deck_witcher_wolf",
+                "p_witcher_1",
+                "gwent_leader_wolf",
+                NORTHERN_TEST_UNITS,
+            ),
+            (
+                "deck_witcher_wolf_scoiatael",
+                "p_witcher_1",
+                "gwent_leader_scoiatael",
+                SCOIATAEL_TEST_UNITS,
+            ),
+            (
+                "deck_witcher_wolf_nilfgaard",
+                "p_witcher_1",
+                "gwent_leader_nilfgaard",
+                tuple(str(nilfgaard_starter["card_ids"]).split(";")),
+            ),
+            (
+                "deck_witcher_wolf_monsters",
+                "p_witcher_1",
+                "gwent_leader_monsters",
+                MONSTERS_TEST_UNITS,
+            ),
+            (
+                "deck_witcher_cat",
+                "p_witcher_2",
+                "gwent_leader_wolf",
+                NORTHERN_TEST_UNITS,
+            ),
+            (
+                "deck_p_witcher_2_scoiatael",
+                "p_witcher_2",
+                "gwent_leader_scoiatael",
+                SCOIATAEL_TEST_UNITS,
+            ),
+        )
+        import_run_id = connection.execute(
+            "SELECT _import_run_id FROM gwent_decks LIMIT 1"
+        ).fetchone()["_import_run_id"]
+        for index, (deck_id, player_id, leader_card_id, card_ids) in enumerate(decks, start=1):
+            card_ids_value = ";".join(card_ids)
+            updated = connection.execute(
+                """
+                UPDATE gwent_decks
+                SET player_id = ?,
+                    leader_card_id = ?,
+                    card_ids = ?
+                WHERE deck_id = ?
+                """,
+                (player_id, leader_card_id, card_ids_value, deck_id),
+            )
+            if updated.rowcount:
+                continue
+            connection.execute(
+                """
+                INSERT INTO gwent_decks (
+                    _import_run_id, _row_number, deck_id, player_id,
+                    leader_card_id, card_ids
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    import_run_id,
+                    800 + index,
+                    deck_id,
+                    player_id,
+                    leader_card_id,
+                    card_ids_value,
+                ),
+            )
+
+    def potion_quantity(self, connection, player_id: str, potion_id: str) -> int:
+        row = connection.execute(
+            """
+            SELECT quantity
+            FROM potion_inventory
+            WHERE player_id = ? AND potion_id = ?
+            """,
+            (player_id, potion_id),
+        ).fetchone()
+        return int(row["quantity"]) if row is not None else 0
+
     def copy_gwent_deck(self, connection, *player_ids: str) -> None:
         source = connection.execute(
             """
@@ -290,7 +386,7 @@ class PvpRuntimeTests(unittest.TestCase):
                 """,
                 (
                     source["_import_run_id"],
-                    900 + index,
+                    -100 + index,
                     f"deck_{player_id}",
                     player_id,
                     source["leader_card_id"],
@@ -334,17 +430,6 @@ class PvpRuntimeTests(unittest.TestCase):
         return shuffled[:10]
 
     def make_player_scoiatael_start(self, connection, player_id: str = "p_witcher_1") -> None:
-        scoiatael_deck = connection.execute(
-            """
-            SELECT card_ids
-            FROM gwent_decks
-            WHERE player_id = ? AND leader_card_id = 'gwent_leader_scoiatael'
-            ORDER BY _row_number
-            LIMIT 1
-            """,
-            (player_id,),
-        ).fetchone()
-        self.assertIsNotNone(scoiatael_deck)
         default_deck = connection.execute(
             """
             SELECT deck_id
@@ -363,7 +448,7 @@ class PvpRuntimeTests(unittest.TestCase):
                 card_ids = ?
             WHERE deck_id = ?
             """,
-            (scoiatael_deck["card_ids"], default_deck["deck_id"]),
+            (";".join(SCOIATAEL_TEST_UNITS), default_deck["deck_id"]),
         )
 
     def strongest_legal_unit_action(self, connection, player_state: dict) -> dict:
@@ -558,6 +643,12 @@ class PvpRuntimeTests(unittest.TestCase):
             unrelated_state = get_player_pvp_state(connection, "p_witcher_3")
             self.assertIsNone(unrelated_state["active_match"])
             self.assertIsNone(unrelated_state["active_challenge"])
+            opponent_ids = {row["player_id"] for row in unrelated_state["opponents"]}
+            self.assertIn("p_witcher_1", opponent_ids)
+            self.assertIn("p_witcher_2", opponent_ids)
+            self.assertIn("p_sorc_1", opponent_ids)
+            self.assertNotIn("p_witcher_3", opponent_ids)
+            self.assertNotIn("p_lord_1", opponent_ids)
 
     def test_gwent_preparation_requires_both_players_ready_before_starting_match(self) -> None:
         settings = self.prepare_seed("pvp_gwent_preparation", extra_deck_players=("p_witcher_2",))
@@ -1138,6 +1229,10 @@ class PvpRuntimeTests(unittest.TestCase):
             match_id = started["match"]["match_id"]
             self.assertEqual(started["match"]["target_id"], "p_gwent_bot_training")
             self.assertEqual(started["current_round"]["turn_player_id"], "p_witcher_1")
+            ordinary_state = get_player_pvp_state(connection, "p_witcher_1")
+            self.assertIsNone(ordinary_state["active_challenge"])
+            self.assertIsNone(ordinary_state["active_match"])
+            self.assertTrue(ordinary_state["can_create_challenge"])
 
             for index in range(8):
                 row = connection.execute(
@@ -1146,7 +1241,7 @@ class PvpRuntimeTests(unittest.TestCase):
                 ).fetchone()
                 if row["status"] == "finished":
                     break
-                state = get_player_pvp_state(connection, "p_witcher_1")
+                state = get_player_pvp_state(connection, "p_witcher_1", include_training=True)
                 legal = state["legal_actions"]
                 if legal.get("can_pass"):
                     record_gwent_action(
@@ -1173,7 +1268,8 @@ class PvpRuntimeTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM pvp_stake_ledger WHERE challenge_id = ?",
                 (started["challenge"]["challenge_id"],),
             ).fetchone()[0]
-            finished_state = get_player_pvp_state(connection, "p_witcher_1")
+            finished_state = get_player_pvp_state(connection, "p_witcher_1", include_training=True)
+            ordinary_finished_state = get_player_pvp_state(connection, "p_witcher_1")
 
         self.assertEqual(match["status"], "finished")
         self.assertIn(match["winner_id"], {"p_witcher_1", "p_gwent_bot_training"})
@@ -1183,6 +1279,34 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertIsNone(finished_state["active_match"])
         self.assertEqual(finished_state["recent_match"]["match_id"], match_id)
         self.assertEqual(finished_state["recent_match"]["status"], "finished")
+        self.assertIsNone(ordinary_finished_state["recent_match"])
+
+    def test_gwent_bot_training_state_does_not_block_regular_pvp_state(self) -> None:
+        settings = self.prepare_seed("pvp_bot_state_hidden", extra_deck_players=("p_witcher_2",))
+        with connect(settings) as connection:
+            start_gwent_bot_match(
+                connection,
+                GwentBotMatchInput(player_id="p_witcher_1"),
+            )
+            ordinary_state = get_player_pvp_state(connection, "p_witcher_1")
+            self.assertIsNone(ordinary_state["active_challenge"])
+            self.assertIsNone(ordinary_state["active_match"])
+            self.assertTrue(ordinary_state["can_create_challenge"])
+
+            challenge = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenger_id="p_witcher_1",
+                    target_id="p_witcher_2",
+                    challenge_id="challenge_after_hidden_bot",
+                    stake={"asset_type": "gold", "asset_id": "gold", "amount": 1},
+                ),
+            )
+            state_after_challenge = get_player_pvp_state(connection, "p_witcher_1")
+
+        self.assertEqual(challenge["challenge_id"], "challenge_after_hidden_bot")
+        self.assertEqual(state_after_challenge["active_challenge"]["challenge_id"], "challenge_after_hidden_bot")
+        self.assertIsNone(state_after_challenge["active_match"])
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_api_player_pvp_state_exposes_active_match_and_pending_submission(self) -> None:
@@ -1263,6 +1387,12 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertIsNone(unrelated_state["active_challenge"])
         self.assertEqual(unrelated_state["challenge_tokens"], 3)
         self.assertTrue(unrelated_state["can_create_challenge"])
+        opponent_ids = {row["player_id"] for row in unrelated_state["opponents"]}
+        self.assertIn("p_witcher_1", opponent_ids)
+        self.assertIn("p_witcher_2", opponent_ids)
+        self.assertIn("p_sorc_1", opponent_ids)
+        self.assertNotIn("p_witcher_3", opponent_ids)
+        self.assertNotIn("p_lord_1", opponent_ids)
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_api_ios_gwent_preflight_requires_challenge_token_before_pvp_mutation(self) -> None:
@@ -1814,6 +1944,136 @@ class PvpRuntimeTests(unittest.TestCase):
             },
         )
 
+    def test_potion_stake_refunds_or_transfers_inventory_once(self) -> None:
+        settings = self.prepare_seed(
+            "pvp_potion_stakes",
+            extra_deck_players=("p_witcher_2", "p_witcher_3", "p_witcher_4"),
+        )
+        with connect(settings) as connection:
+            now = datetime(2026, 6, 2, 10, 5, tzinfo=UTC).isoformat(timespec="seconds")
+            connection.execute(
+                """
+                INSERT INTO potion_inventory (
+                    inventory_id, player_id, potion_id, quantity, updated_at
+                )
+                VALUES
+                    ('inv_pvp_potion_refund', 'p_witcher_1', 'potion_common_swallow', 2, ?),
+                    ('inv_pvp_potion_finish', 'p_witcher_3', 'potion_common_swallow', 1, ?)
+                """,
+                (now, now),
+            )
+
+            cancelled = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenge_id="challenge_potion_cancel",
+                    challenger_id="p_witcher_1",
+                    target_id="p_witcher_2",
+                    stake={
+                        "asset_type": "potion",
+                        "asset_id": "potion_common_swallow",
+                        "quantity": 2,
+                    },
+                ),
+            )
+            p1_after_lock = self.potion_quantity(connection, "p_witcher_1", "potion_common_swallow")
+            record_pvp_refusal(
+                connection,
+                cancelled["challenge_id"],
+                reason="safety_stop",
+                actor_id="p_witcher_2",
+            )
+            p1_after_refund = self.potion_quantity(connection, "p_witcher_1", "potion_common_swallow")
+            refunded_stake = connection.execute(
+                """
+                SELECT status, asset_type, asset_id, quantity
+                FROM pvp_stake_ledger
+                WHERE challenge_id = 'challenge_potion_cancel'
+                """
+            ).fetchone()
+
+            challenge = create_pvp_challenge(
+                connection,
+                ChallengeCreateInput(
+                    challenge_id="challenge_potion_finish",
+                    challenger_id="p_witcher_3",
+                    target_id="p_witcher_4",
+                    stake={"asset_type": "potion", "asset_id": "potion_common_swallow"},
+                ),
+            )
+            started = start_pvp_challenge(
+                connection,
+                ChallengeStartInput(challenge_id=challenge["challenge_id"]),
+            )
+            match_id = started["match"]["match_id"]
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_3": ["gwent_unit_01"],
+                    "p_witcher_4": ["gwent_unit_02", "gwent_unit_03"],
+                },
+            )
+            record_gwent_round(
+                connection,
+                match_id,
+                {
+                    "plays": [
+                        {"player_id": "p_witcher_3", "card_id": "gwent_unit_01"},
+                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_02"},
+                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_03"},
+                    ],
+                    "passed": {"p_witcher_3": True, "p_witcher_4": True},
+                },
+                round_number=1,
+            )
+            self.force_cards_into_match_hands(
+                connection,
+                match_id,
+                {
+                    "p_witcher_3": ["gwent_unit_08"],
+                    "p_witcher_4": ["gwent_unit_08", "gwent_unit_05"],
+                },
+            )
+            record_gwent_round(
+                connection,
+                match_id,
+                {
+                    "plays": [
+                        {"player_id": "p_witcher_3", "card_id": "gwent_unit_08"},
+                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_08"},
+                        {"player_id": "p_witcher_4", "card_id": "gwent_unit_05"},
+                    ],
+                    "passed": {"p_witcher_3": True, "p_witcher_4": True},
+                },
+                round_number=2,
+            )
+            finished = finish_gwent_match(connection, match_id, winner_id="p_witcher_4")
+            duplicate_finish = finish_gwent_match(connection, match_id, winner_id="p_witcher_4")
+            p3_after_finish = self.potion_quantity(connection, "p_witcher_3", "potion_common_swallow")
+            p4_after_finish = self.potion_quantity(connection, "p_witcher_4", "potion_common_swallow")
+            active_stake_locks = connection.execute(
+                "SELECT COUNT(*) FROM asset_locks WHERE lock_type = 'pvp_stake' AND status = 'active'"
+            ).fetchone()[0]
+
+        self.assertEqual(p1_after_lock, 0)
+        self.assertEqual(p1_after_refund, 2)
+        self.assertEqual(
+            dict(refunded_stake),
+            {
+                "status": "refunded",
+                "asset_type": "potion",
+                "asset_id": "potion_common_swallow",
+                "quantity": 2,
+            },
+        )
+        self.assertEqual(finished["stake_transfer"]["status"], "applied")
+        self.assertFalse(finished["duplicate"])
+        self.assertTrue(duplicate_finish["duplicate"])
+        self.assertEqual(p3_after_finish, 0)
+        self.assertEqual(p4_after_finish, 1)
+        self.assertEqual(active_stake_locks, 0)
+
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
     def test_api_player_gwent_round_submission_requires_master(self) -> None:
         settings = self.prepare_seed("pvp_api_player_round_submit_rejected", extra_deck_players=("p_witcher_2",))
@@ -2176,7 +2436,7 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(missing_refusal.status_code, 400)
         self.assertIn("Unknown PvP challenge", missing_refusal.json()["detail"])
         self.assertEqual(invalid_conversion.status_code, 400)
-        self.assertIn("Unknown lord player", invalid_conversion.json()["detail"])
+        self.assertIn("cannot be converted into lord army unit cards", invalid_conversion.json()["detail"])
         self.assertEqual(missing_master.status_code, 401)
         self.assertEqual(accepted_throttle.status_code, 200)
         self.assertEqual(accepted_throttle.json()["throttle"]["mode"], "limited")
@@ -2281,11 +2541,23 @@ class PvpRuntimeTests(unittest.TestCase):
             )
             match_id = started["match"]["match_id"]
             p1_state = get_player_pvp_state(connection, "p_witcher_1")
-            not_in_hand = next(
-                card_id
-                for card_id in started["match"]["deck_state"]["p_witcher_1"]["draw_pile"]
-                if card_id not in p1_state["player_hand"]
-            )
+            not_in_hand = None
+            not_in_hand_row = None
+            for card_id in started["match"]["deck_state"]["p_witcher_1"]["draw_pile"]:
+                if card_id in p1_state["player_hand"]:
+                    continue
+                card = connection.execute(
+                    "SELECT row, type FROM gwent_cards WHERE card_id = ?",
+                    (card_id,),
+                ).fetchone()
+                if card is None or str(card["type"]) != "unit":
+                    continue
+                row = str(card["row"] or "melee")
+                not_in_hand = card_id
+                not_in_hand_row = row if row in {"melee", "ranged", "siege"} else "melee"
+                break
+            self.assertIsNotNone(not_in_hand)
+            self.assertIsNotNone(not_in_hand_row)
 
             with self.assertRaisesRegex(PvpError, "not in current hand"):
                 record_gwent_action(
@@ -2295,7 +2567,7 @@ class PvpRuntimeTests(unittest.TestCase):
                         player_id="p_witcher_1",
                         action="play_card",
                         card_id=not_in_hand,
-                        row="melee",
+                        row=not_in_hand_row,
                     ),
                 )
 
@@ -3131,12 +3403,13 @@ class PvpRuntimeTests(unittest.TestCase):
                 match_id,
                 {"p_witcher_2": ["gwent_unit_01"]},
             )
+            p1_leader = started["match"]["deck_state"]["p_witcher_1"]["leader_card_id"]
             record_gwent_round(
                 connection,
                 match_id,
                 {
                     "plays": [
-                        {"player_id": "p_witcher_1", "card_id": "gwent_leader_wolf"},
+                        {"player_id": "p_witcher_1", "card_id": p1_leader},
                         {"player_id": "p_witcher_2", "card_id": "gwent_unit_01"},
                     ]
                 },
@@ -3146,7 +3419,7 @@ class PvpRuntimeTests(unittest.TestCase):
                 record_gwent_round(
                     connection,
                     match_id,
-                    {"plays": [{"player_id": "p_witcher_1", "card_id": "gwent_leader_wolf"}]},
+                    {"plays": [{"player_id": "p_witcher_1", "card_id": p1_leader}]},
                     round_number=2,
                 )
             with self.assertRaisesRegex(PvpError, "non-participant"):
@@ -4192,10 +4465,10 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(stake["status"], "locked")
         self.assertEqual(review["reason"], "manual_override_requires_master_review")
 
-    def test_personal_card_conversion_rejects_unknown_lord_and_non_convertible_card(self) -> None:
+    def test_personal_card_conversion_is_not_a_supported_runtime_path(self) -> None:
         settings = self.prepare_seed("pvp_conversion_rejects", extra_deck_players=())
         with connect(settings) as connection:
-            with self.assertRaisesRegex(PvpError, "Unknown lord player"):
+            with self.assertRaisesRegex(PvpError, "cannot be converted into lord army unit cards"):
                 convert_personal_card_to_lord(
                     connection,
                     player_id="p_witcher_1",
@@ -4211,7 +4484,7 @@ class PvpRuntimeTests(unittest.TestCase):
                 WHERE card_id = 'pc_infantry_t1'
                 """
             )
-            with self.assertRaisesRegex(PvpError, "cannot be converted"):
+            with self.assertRaisesRegex(PvpError, "cannot be converted into lord army unit cards"):
                 convert_personal_card_to_lord(
                     connection,
                     player_id="p_witcher_1",
@@ -4222,7 +4495,7 @@ class PvpRuntimeTests(unittest.TestCase):
     def test_personal_card_conversion_rejects_non_owned_card_without_minting(self) -> None:
         settings = self.prepare_seed("pvp_card_conversion_non_owned", extra_deck_players=())
         with connect(settings) as connection:
-            with self.assertRaisesRegex(PvpError, "does not own personal card"):
+            with self.assertRaisesRegex(PvpError, "cannot be converted into lord army unit cards"):
                 convert_personal_card_to_lord(
                     connection,
                     player_id="p_witcher_1",
@@ -4261,7 +4534,7 @@ class PvpRuntimeTests(unittest.TestCase):
                 now=datetime(2026, 6, 2, 11, 0, tzinfo=UTC),
             )
 
-            with self.assertRaisesRegex(PvpError, "locked"):
+            with self.assertRaisesRegex(PvpError, "cannot be converted into lord army unit cards"):
                 convert_personal_card_to_lord(
                     connection,
                     player_id="p_witcher_1",
@@ -4300,7 +4573,7 @@ class PvpRuntimeTests(unittest.TestCase):
         self.assertEqual(active_lock_count, 1)
 
     @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
-    def test_api_personal_card_to_lord_conversion_is_permanent_and_idempotent(self) -> None:
+    def test_api_personal_card_to_lord_conversion_rejects_without_consuming_card(self) -> None:
         settings = self.prepare_seed("pvp_card_conversion", extra_deck_players=())
         with connect(settings) as connection:
             grant_asset_ownership(
@@ -4332,13 +4605,10 @@ class PvpRuntimeTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(first.status_code, 200)
-        payload = first.json()
-        self.assertEqual(payload["army_unit_card_id"], "unit_infantry_t1")
-        self.assertEqual(payload["tier"], 1)
-        self.assertFalse(payload["duplicate"])
-        self.assertEqual(second.status_code, 200)
-        self.assertTrue(second.json()["duplicate"])
+        self.assertEqual(first.status_code, 400)
+        self.assertIn("cannot be converted into lord army unit cards", first.json()["detail"])
+        self.assertEqual(second.status_code, 400)
+        self.assertIn("cannot be converted into lord army unit cards", second.json()["detail"])
 
         with connect(settings) as connection:
             reserve = connection.execute(
@@ -4375,14 +4645,10 @@ class PvpRuntimeTests(unittest.TestCase):
                 LIMIT 1
                 """
             ).fetchone()
-        self.assertEqual(reserve["card_id"], "unit_infantry_t1")
-        self.assertEqual(reserve["count"], 1)
-        self.assertEqual(ownership_count, 0)
-        self.assertEqual(conversion_count, 1)
-        event_payload = json.loads(event["payload_json"])
-        self.assertEqual(event_payload["ownership_debit"]["quantity_before"], 1)
-        self.assertEqual(event_payload["ownership_debit"]["quantity_debited"], 1)
-        self.assertEqual(event_payload["ownership_debit"]["quantity_after"], 0)
+        self.assertIsNone(reserve)
+        self.assertEqual(ownership_count, 1)
+        self.assertEqual(conversion_count, 0)
+        self.assertIsNone(event)
 
 
 if __name__ == "__main__":

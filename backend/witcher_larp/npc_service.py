@@ -30,6 +30,22 @@ DEAL_EVENT_TYPES = {
 }
 FINAL_REVIEW_STATUSES = {"approved", "rejected", "corrected"}
 FINAL_NPC_EVENT_STATUSES = {"resolved", "dismissed", "closed"}
+ORDER_REVIEW_STATUSES = {
+    "published",
+    "addressed_pending",
+    "accepted",
+    "in_progress",
+    "claimed_at_prop",
+    "submitted_pending_sync",
+    "pending_master_approval",
+    "failed_retryable",
+    "contested_review",
+}
+ORDER_BLOCKING_STATUSES = {
+    "pending_master_approval",
+    "contested_review",
+    "submitted_pending_sync",
+}
 
 REVIEW_FALLBACKS: dict[str, dict[str, object]] = {
     "P0": {
@@ -299,6 +315,8 @@ def review_queue(connection: sqlite3.Connection) -> dict[str, object]:
                 }
             )
 
+    items.extend(_order_review_items(connection))
+
     for event in list_npc_events(connection, visibility="master"):
         if event["status"] in FINAL_NPC_EVENT_STATUSES or not event["blocks_progress"]:
             continue
@@ -325,6 +343,97 @@ def review_queue(connection: sqlite3.Connection) -> dict[str, object]:
 
     items.sort(key=lambda item: (_severity_rank(str(item["severity"])), str(item["created_at"])))
     return {"items": items}
+
+
+def _order_review_items(connection: sqlite3.Connection) -> list[dict[str, object]]:
+    if not _table_exists(connection, "order_runtime_state"):
+        return []
+    rows = connection.execute(
+        """
+        SELECT o.order_id, o.lord_id, o.target_player_id, o.object_id, o.visibility,
+               o.status, o.escrow_reward_id, o.accepted_by_player_id,
+               o.submitted_by_player_id, o.result_event_id, o.reason,
+               o.created_at, o.updated_at, d.domain_id
+        FROM order_runtime_state o
+        LEFT JOIN domains d ON d.lord_player_id = o.lord_id
+        WHERE o.status IN (
+            'published',
+            'addressed_pending',
+            'accepted',
+            'in_progress',
+            'claimed_at_prop',
+            'submitted_pending_sync',
+            'pending_master_approval',
+            'failed_retryable',
+            'contested_review'
+        )
+        ORDER BY o.updated_at, o.order_id
+        """
+    ).fetchall()
+    items: list[dict[str, object]] = []
+    for row in rows:
+        status = str(row["status"] or "")
+        if status not in ORDER_REVIEW_STATUSES:
+            continue
+        severity = _order_review_severity(status)
+        route = severity_route(connection, severity)
+        reason = row["reason"] or _order_review_reason(status)
+        items.append(
+            {
+                "queue_type": "lord_order",
+                "order_id": row["order_id"],
+                "lord_id": row["lord_id"],
+                "domain_id": row["domain_id"],
+                "target_player_id": row["target_player_id"],
+                "accepted_by_player_id": row["accepted_by_player_id"],
+                "submitted_by_player_id": row["submitted_by_player_id"],
+                "object_id": row["object_id"],
+                "visibility": row["visibility"],
+                "status": status,
+                "escrow_reward_id": row["escrow_reward_id"],
+                "result_event_id": row["result_event_id"],
+                "reason": reason,
+                **route,
+                "blocks_progress": status in ORDER_BLOCKING_STATUSES,
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "action_hints": _order_action_hints(status),
+            }
+        )
+    return items
+
+
+def _order_review_severity(status: str) -> str:
+    if status in {"pending_master_approval", "contested_review", "submitted_pending_sync"}:
+        return "P1"
+    if status == "failed_retryable":
+        return "P2"
+    return "P2"
+
+
+def _order_review_reason(status: str) -> str:
+    labels = {
+        "published": "order is visible on board",
+        "addressed_pending": "addressed order waits for recipient",
+        "accepted": "order accepted and awaits result",
+        "in_progress": "order in progress",
+        "claimed_at_prop": "order claimed at physical prop",
+        "submitted_pending_sync": "order result submitted and waits for master",
+        "pending_master_approval": "order reward waits for master approval",
+        "failed_retryable": "order can be retried or closed",
+        "contested_review": "order is contested and needs master decision",
+    }
+    return labels.get(status, "order needs master visibility")
+
+
+def _order_action_hints(status: str) -> list[str]:
+    if status in {"pending_master_approval", "submitted_pending_sync"}:
+        return ["complete", "fail_retryable", "contested_review"]
+    if status == "contested_review":
+        return ["fail_closed", "fail_retryable"]
+    if status == "failed_retryable":
+        return ["contested_review", "fail_closed"]
+    return ["contested_review", "fail_closed"]
 
 
 def resolve_npc_event(

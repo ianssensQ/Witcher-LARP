@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import unittest
 from uuid import uuid4
 
@@ -15,6 +17,27 @@ TEST_TMP_ROOT = PROJECT_ROOT / ".test-data"
 class SeedValidationDiagnosticsTests(unittest.TestCase):
     def setUp(self) -> None:
         TEST_TMP_ROOT.mkdir(exist_ok=True)
+
+    def _pve_scenarios_csv(self, *row_overrides: dict[str, str]) -> str:
+        with (PROJECT_ROOT / "data" / "seed" / "pve_scenarios.csv").open(
+            newline="", encoding="utf-8"
+        ) as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = list(reader.fieldnames or [])
+            base_rows = {row["scenario_id"]: row for row in reader}
+
+        rows = []
+        for overrides in row_overrides:
+            scenario_id = overrides["scenario_id"]
+            row = dict(base_rows[scenario_id])
+            row.update(overrides)
+            rows.append(row)
+
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+        return output.getvalue()
 
     def test_missing_non_id_header_reports_table_and_header_without_keyerror(self) -> None:
         fixture_dir = TEST_TMP_ROOT / f"seed_missing_header_{uuid4().hex}"
@@ -72,13 +95,13 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             "seed_extra_columns",
             "profiles.csv",
             "profile_id,total_people,player_count,npc_master_count,lord_count,sorceress_count,witcher_count\n"
-            "production_15,15,13,2,4,4,5,unexpected\n",
+            "production_17,17,15,2,4,4,7,unexpected\n",
         )
         missing_id_column = self._write_fixture(
             "seed_missing_id_column",
             "profiles.csv",
             "total_people,player_count,npc_master_count,lord_count,sorceress_count,witcher_count\n"
-            "15,13,2,4,4,5\n",
+            "17,15,2,4,4,7\n",
         )
         empty_file = self._write_fixture(
             "seed_empty_profiles",
@@ -128,26 +151,28 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             (
                 "profiles.csv",
                 "profile_id,total_people,player_count,npc_master_count,lord_count,sorceress_count,witcher_count\n"
-                "production_15,14,12,2,4,4,4\n",
+                "production_17,16,14,2,4,4,6\n",
                 {"bad_profile_counts"},
             ),
             (
                 "qr_objects.csv",
                 "qr_id,manual_code,scenario_id,qr_mode,act_id,location_node_id,physical_presence_required,rate_limit,consumption_rule\n"
                 "qr_bad,QR-BAD-1,scn_a1_001,remote_scene,act1,node_forest_dark,false,5_per_minute,repeatable\n",
-                {"bad_qr_mode", "qr_honesty_policy", "qr_content_mix"},
+                {"bad_qr_mode", "bad_qr_manual_code", "qr_honesty_policy", "qr_content_mix"},
             ),
             (
                 "pve_scenarios.csv",
-                "scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome\n"
-                "scn_a1_001,act1,1,monster_hunt,Сила,11,single_d20,mob_neutral_patrol_t1,reward_pve_t1,ok,fail,soft_timeout\n",
+                self._pve_scenarios_csv(
+                    {"scenario_id": "scn_a1_001", "timeout_outcome": "soft_timeout"}
+                ),
                 {"pve_timeout_policy"},
             ),
             (
                 "pve_scenarios.csv",
-                "scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome\n"
-                "scn_a1_001,act1,5,monster_hunt,combat,99,single_d20,mob_neutral_patrol_t1,reward_pve_t1,ok,fail,fail_and_cooldown\n"
-                "scn_a1_002,act1,1,monster_hunt,combat,1,single_d20,mob_neutral_patrol_t1,reward_pve_t1,ok,fail,fail_and_cooldown\n",
+                self._pve_scenarios_csv(
+                    {"scenario_id": "scn_a1_001", "tier": "5", "dc": "99"},
+                    {"scenario_id": "scn_a1_002", "dc": "1"},
+                ),
                 {"invalid_pve_tier", "invalid_pve_dc"},
             ),
             (
@@ -158,8 +183,9 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             ),
             (
                 "pve_scenarios.csv",
-                "scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome\n"
-                "scn_a1_001,act1,1,monster_hunt,combat,11,single_d20,mob_neutral_patrol_t1,reward_pve_t1,ok,fail,fail_and_cooldown\n",
+                self._pve_scenarios_csv(
+                    {"scenario_id": "scn_a1_001", "primary_stat": "combat"}
+                ),
                 {"invalid_pve_stat"},
             ),
             (
@@ -210,6 +236,12 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
                 "order_cap_2,p_lord_1,p_witcher_2,qr_a1_007,public,published,reward_order_success\n"
                 "order_cap_3,p_lord_1,p_witcher_3,qr_a1_008,public,published,reward_order_success\n",
                 {"order_cap"},
+            ),
+            (
+                "orders.csv",
+                "order_id,lord_id,target_player_id,object_id,visibility,status,escrow_reward_id\n"
+                "order_bad_target,p_lord_1,p_sorc_1,interest_card_infantry_favor_a1,addressed,published,reward_order_success\n",
+                {"invalid_addressed_target"},
             ),
             (
                 "gwent_cards.csv",
@@ -295,9 +327,10 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
             ),
             (
                 "pve_scenarios.csv",
-                "scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome\n"
-                "scn_a1_001,act1,1,npc_deal,РҐР°СЂРёР·РјР°,11,single_d20,mob_neutral_patrol_t1,reward_pve_t2,ok,fail,fail_and_cooldown\n"
-                "scn_a1_002,act1,1,reputation_impact,РҐР°СЂРёР·РјР°,11,single_d20,mob_neutral_patrol_t1,reward_pve_t1,ok,fail,fail_and_cooldown\n",
+                self._pve_scenarios_csv(
+                    {"scenario_id": "scn_a1_001", "scene_type": "npc_deal", "reward_id": "reward_pve_t2"},
+                    {"scenario_id": "scn_a1_002", "scene_type": "reputation_impact"},
+                ),
                 {"reward_approval_policy"},
             ),
             (
@@ -443,16 +476,16 @@ class SeedValidationDiagnosticsTests(unittest.TestCase):
 
     def test_task073_business_validation_rejects_cross_row_seed_breaks(self) -> None:
         bad_empty_required_ref = self._seed_csv("qr_objects.csv").replace(
-            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,",
-            "qr_a1_001,QR-A1-K7Q2,,",
+            "qr_a1_001,QR-A1-TRV-001-K7Q2,scn_a1_001,",
+            "qr_a1_001,QR-A1-TRV-001-K7Q2,,",
         )
         bad_qr_act = self._seed_csv("qr_objects.csv").replace(
-            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,repeatable_scene,act1,",
-            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,repeatable_scene,act2,",
+            "qr_a1_001,QR-A1-TRV-001-K7Q2,scn_a1_001,repeatable_scene,act1,",
+            "qr_a1_001,QR-A1-TRV-001-K7Q2,scn_a1_001,repeatable_scene,act2,",
         )
         bad_qr_consumption = self._seed_csv("qr_objects.csv").replace(
-            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,repeatable_scene,act1,node_forest_dark,true,5_per_minute,repeatable",
-            "qr_a1_001,QR-A1-K7Q2,scn_a1_001,repeatable_scene,act1,node_forest_dark,true,5_per_minute,consume_once",
+            "qr_a1_001,QR-A1-TRV-001-K7Q2,scn_a1_001,repeatable_scene,act1,node_forest_dark,true,5_per_minute,repeatable",
+            "qr_a1_001,QR-A1-TRV-001-K7Q2,scn_a1_001,repeatable_scene,act1,node_forest_dark,true,5_per_minute,consume_once",
         )
         bad_domains = self._seed_csv("domains.csv").replace(
             "domain_north,p_lord_1,Северный Дозор",

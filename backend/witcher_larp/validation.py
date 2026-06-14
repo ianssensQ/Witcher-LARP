@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 import csv
 import json
+import re
 
 from .content_schema import REQUIRED_FILES, TABLE_ID_COLUMNS, split_ids
 from .csv_loader import CsvRecord, CsvTable, SeedPack
@@ -17,6 +18,7 @@ from .stats import (
     START_STAT_BUDGET,
     START_STAT_MAX,
 )
+from .territory_bonuses import ALL_EFFECT_TYPES, NUMERIC_EFFECT_TYPES, RECRUIT_CARD_UNLOCK
 
 
 VALID_QR_MODES = {"unique_object", "repeatable_scene", "always_available_scene"}
@@ -25,6 +27,54 @@ QR_CONSUMPTION_RULE_BY_MODE = {
     "repeatable_scene": "repeatable",
     "always_available_scene": "always_available",
 }
+EXPECTED_QR_ACT_COUNTS = {"act1": 20, "act2": 22, "act3": 22, "final_act": 8}
+EXPECTED_QR_MODE_COUNTS = {
+    "repeatable_scene": 15,
+    "always_available_scene": 9,
+    "unique_object": 48,
+}
+PVE_CONTENT_LANE_BY_QR_MODE = {
+    "unique_object": "story_quest",
+    "repeatable_scene": "anti_idle",
+    "always_available_scene": "anti_idle",
+}
+EXPECTED_PVE_CONTENT_LANE_COUNTS = {"anti_idle": 24, "story_quest": 48}
+VALID_PVE_TRIAL_TYPES = {"combat", "choice", "ritual_check"}
+VALID_STORY_PVE_SCENE_TYPES = {"monster_hunt", "moral_choice", "puzzle_check"}
+PVE_STORY_FLOW_REQUIRED_FIELDS = [
+    "quest_flow_version",
+    "board_description",
+    "scan_reveal",
+    "choice_prompt",
+    "choice_options_json",
+    "encounter_steps_json",
+    "victory_rule",
+    "branch_reward_policy",
+    "reputation_hint",
+]
+PVE_HIDDEN_STORY_REQUIRED_FIELDS = ["choice_morality_json"]
+PVE_QUEST_CARD_REQUIRED_FIELDS = [
+    "scenario_title",
+    "visible_hook",
+    "player_brief",
+    "story_summary",
+    "visual_asset_id",
+    "icon_key",
+    "content_lane",
+    "estimated_minutes",
+    "trial_type",
+    "trial_prompt",
+    "stat_check_label",
+    "gear_tags",
+    "monster_tags",
+    "success_consequence",
+    "partial_consequence",
+    "failure_consequence",
+    "reward_summary",
+    "world_effect",
+    *PVE_STORY_FLOW_REQUIRED_FIELDS,
+]
+MANUAL_QR_CODE_PATTERN = re.compile(r"^QR-(A[123]|FA)-[A-Z]{3}-[0-9]{3}-[A-Z0-9]{4}$")
 VALID_BUILDING_BRANCHES = {"military", "economy", "order", "magic"}
 VALID_UNIT_CLASSES = {"infantry", "guard", "ranged", "cavalry", "heavy_siege", "specialist"}
 VALID_PVP_THROTTLE_MODES = {"normal", "limited", "paused"}
@@ -115,7 +165,7 @@ CANONICAL_LORD_BATTLE_RULES = {
     "grid_width": "5",
     "grid_height": "6",
     "turn_timer_seconds": "60",
-    "damage_formula": "count_alive*max(1 attack-defense+modifiers)",
+    "damage_formula": "count_alive*max(1 effective_attack-effective_defense+modifiers)",
     "initiative_tiebreaker": "initiative_desc_tier_desc_seed",
     "timeout_policy": "auto_defend_then_skip",
     "auto_resolve_policy": "repeated_timeout_master_takeover_or_auto_resolve",
@@ -212,6 +262,7 @@ def validate_seed_pack(pack: SeedPack) -> list[ImportErrorDetail]:
     errors.extend(_validate_acts_and_unlocks(tables, ids))
     errors.extend(_validate_map_and_timer_invariants(tables))
     errors.extend(_validate_territory_forts(tables))
+    errors.extend(_validate_territory_bonuses(tables, ids))
     errors.extend(_validate_qr_and_pve(tables, ids))
     errors.extend(_validate_buildings_and_units(tables, ids))
     errors.extend(_validate_signed_economy_resources(tables))
@@ -317,6 +368,7 @@ def _validate_references(
         ("map_nodes.csv", "territory_id", "territories.csv", False),
         ("territories.csv", "owner_domain_id", "domains.csv", False),
         ("territories.csv", "neutral_defense_profile_id", "mobs.csv", False),
+        ("territory_bonuses.csv", "territory_id", "territories.csv", True),
         ("territory_forts.csv", "territory_id", "territories.csv", True),
         ("movement_pools.csv", "domain_id", "domains.csv", True),
         ("movement_pools.csv", "act_id", "acts.csv", True),
@@ -333,7 +385,7 @@ def _validate_references(
         ("army_unit_cards.csv", "source_id", "buildings.csv", True),
         ("recruit_markets.csv", "domain_id", "domains.csv", True),
         ("recruit_markets.csv", "card_id", "army_unit_cards.csv", True),
-        ("cards.csv", "army_unit_card_id", "army_unit_cards.csv", True),
+        ("cards.csv", "army_unit_card_id", "army_unit_cards.csv", False),
         ("pve_scenarios.csv", "act_id", "acts.csv", True),
         ("pve_scenarios.csv", "check_policy", "check_policies.csv", True),
         ("pve_scenarios.csv", "combat_profile_id", "mobs.csv", True),
@@ -346,7 +398,7 @@ def _validate_references(
         ("gwent_matches.csv", "challenger_id", "players.csv", True),
         ("gwent_matches.csv", "target_id", "players.csv", True),
         ("orders.csv", "lord_id", "players.csv", True),
-        ("orders.csv", "target_player_id", "players.csv", True),
+        ("orders.csv", "target_player_id", "players.csv", False),
         ("orders.csv", "escrow_reward_id", "rewards.csv", False),
         ("order_interest_objects.csv", "act_id", "acts.csv", True),
         ("order_interest_objects.csv", "scenario_id", "pve_scenarios.csv", True),
@@ -647,12 +699,12 @@ def _validate_production_profile(tables: dict[str, CsvTable]) -> list[ImportErro
     profile = tables["profiles.csv"].rows[0].values
     errors: list[ImportErrorDetail] = []
     expected = {
-        "total_people": 15,
-        "player_count": 13,
+        "total_people": 17,
+        "player_count": 15,
         "npc_master_count": 2,
         "lord_count": 4,
         "sorceress_count": 4,
-        "witcher_count": 5,
+        "witcher_count": 7,
     }
     for column, value in expected.items():
         if _to_int(profile.get(column, ""), default=-1) != value:
@@ -667,12 +719,12 @@ def _validate_production_profile(tables: dict[str, CsvTable]) -> list[ImportErro
             )
 
     role_counts = Counter(record.values["role_type"] for record in tables["players.csv"].rows)
-    if role_counts != {"lord": 4, "sorceress": 4, "witcher": 5}:
+    if role_counts != {"lord": 4, "sorceress": 4, "witcher": 7}:
         errors.append(
             ImportErrorDetail(
                 code="bad_profile_counts",
                 file="players.csv",
-                message=f"Player role profile must be 4 lords, 4 sorceresses, 5 witchers: {dict(role_counts)}.",
+                message=f"Player role profile must be 4 lords, 4 sorceresses, 7 witchers: {dict(role_counts)}.",
             )
         )
     return errors
@@ -923,9 +975,8 @@ def _validate_stat_model(tables: dict[str, CsvTable]) -> list[ImportErrorDetail]
 
         stats = {str(key): _to_int(value, default=-1) for key, value in parsed.items()}
         keys = set(stats)
-        if keys != CANONICAL_STAT_SET:
-            missing = sorted(CANONICAL_STAT_SET - keys)
-            unknown = sorted(keys - CANONICAL_STAT_SET)
+        unknown = sorted(keys - CANONICAL_STAT_SET)
+        if unknown:
             errors.append(
                 ImportErrorDetail(
                     code="invalid_stat_schema",
@@ -933,9 +984,8 @@ def _validate_stat_model(tables: dict[str, CsvTable]) -> list[ImportErrorDetail]
                     row=record.row_number,
                     record_id=player_id,
                     message=(
-                        "Player stats must use exactly canonical stats "
-                        f"{', '.join(CANONICAL_STATS)}; "
-                        f"missing={missing}, unknown={unknown}."
+                        "Player stats must use only canonical stats "
+                        f"{', '.join(CANONICAL_STATS)}; unknown={unknown}."
                     ),
                 )
             )
@@ -950,17 +1000,17 @@ def _validate_stat_model(tables: dict[str, CsvTable]) -> list[ImportErrorDetail]
                     message="Player stat values must be non-negative integers.",
                 )
             )
-        if sum(stats.values()) != START_STAT_BUDGET:
+        if sum(stats.values()) > START_STAT_BUDGET:
             errors.append(
                 ImportErrorDetail(
                     code="invalid_stat_schema",
                     file="players.csv",
                     row=record.row_number,
                     record_id=player_id,
-                    message=f"Starting player stats must spend exactly {START_STAT_BUDGET} points.",
+                    message=f"Starting player stats cannot spend more than {START_STAT_BUDGET} points.",
                 )
             )
-        if max(stats.values()) > START_STAT_MAX:
+        if max(stats.values(), default=0) > START_STAT_MAX:
             errors.append(
                 ImportErrorDetail(
                     code="invalid_stat_schema",
@@ -1163,6 +1213,167 @@ def _validate_territory_forts(tables: dict[str, CsvTable]) -> list[ImportErrorDe
     return errors
 
 
+def _validate_territory_bonuses(
+    tables: dict[str, CsvTable], ids: dict[str, set[str]]
+) -> list[ImportErrorDetail]:
+    errors: list[ImportErrorDetail] = []
+    territory_rows = {
+        record.values["territory_id"]: record
+        for record in tables["territories.csv"].rows
+        if record.values["bonus_type"] != "route_waypoint"
+    }
+    bonuses_by_territory: dict[str, list[CsvRecord]] = defaultdict(list)
+    mob_tiers = {
+        record.values["mob_id"]: _to_int(record.values["tier"], default=0)
+        for record in tables["mobs.csv"].rows
+    }
+    unit_tiers = {
+        record.values["card_id"]: _to_int(record.values["tier"], default=0)
+        for record in tables["army_unit_cards.csv"].rows
+    }
+
+    capturable_effect_types: set[str] = set()
+    for record in tables["territory_bonuses.csv"].rows:
+        territory_id = record.values["territory_id"]
+        effect_type = record.values["effect_type"]
+        effect_value = record.values["effect_value"]
+        bonuses_by_territory[territory_id].append(record)
+
+        if effect_type not in ALL_EFFECT_TYPES:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_territory_bonus_effect",
+                    file="territory_bonuses.csv",
+                    row=record.row_number,
+                    record_id=record.values["bonus_id"],
+                    message=f"Unknown territory bonus effect_type: {effect_type}.",
+                )
+            )
+            continue
+
+        territory = territory_rows.get(territory_id)
+        if territory is not None and territory.values["bonus_type"] != "residence":
+            capturable_effect_types.add(effect_type)
+
+        if effect_type in NUMERIC_EFFECT_TYPES:
+            value = _to_int(effect_value, default=-1)
+            valid_value = value == 0 if effect_type == "home_base" else value > 0
+            if not valid_value:
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_territory_bonus_value",
+                        file="territory_bonuses.csv",
+                        row=record.row_number,
+                        record_id=record.values["bonus_id"],
+                        message=(
+                            "Numeric territory bonus effect_value must be positive; "
+                            "home_base must use 0."
+                        ),
+                    )
+                )
+        elif effect_type == RECRUIT_CARD_UNLOCK:
+            card_ids = split_ids(effect_value)
+            if not card_ids:
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_territory_bonus_value",
+                        file="territory_bonuses.csv",
+                        row=record.row_number,
+                        record_id=record.values["bonus_id"],
+                        message="Recruit territory bonus must name at least one army unit card.",
+                    )
+                )
+            for card_id in card_ids:
+                if card_id not in ids["army_unit_cards.csv"]:
+                    errors.append(
+                        ImportErrorDetail(
+                            code="missing_reference",
+                            file="territory_bonuses.csv",
+                            row=record.row_number,
+                            record_id=record.values["bonus_id"],
+                            message=(
+                                "Recruit territory bonus effect_value references "
+                                f"unknown army unit card {card_id}."
+                            ),
+                        )
+                    )
+
+        if territory is None or territory.values["bonus_type"] == "residence":
+            continue
+        required_guard_tier = _required_guard_tier_for_bonus(
+            record,
+            unit_tiers=unit_tiers,
+        )
+        neutral_profile_id = territory.values["neutral_defense_profile_id"]
+        if required_guard_tier and mob_tiers.get(neutral_profile_id, 0) < required_guard_tier:
+            errors.append(
+                ImportErrorDetail(
+                    code="territory_bonus_guard_mismatch",
+                    file="territories.csv",
+                    row=territory.row_number,
+                    record_id=territory_id,
+                    message=(
+                        f"Strong territory bonus {record.values['bonus_id']} requires "
+                        f"neutral defense tier >= {required_guard_tier}."
+                    ),
+                )
+            )
+
+    for territory_id in sorted(territory_rows):
+        rows = bonuses_by_territory.get(territory_id, [])
+        if not rows:
+            errors.append(
+                ImportErrorDetail(
+                    code="missing_territory_bonus",
+                    file="territory_bonuses.csv",
+                    record_id=territory_id,
+                    message=f"Playable territory {territory_id} must have one strategic bonus row.",
+                )
+            )
+        elif len(rows) > 1:
+            errors.append(
+                ImportErrorDetail(
+                    code="duplicate_territory_bonus",
+                    file="territory_bonuses.csv",
+                    record_id=territory_id,
+                    message=f"Playable territory {territory_id} has multiple strategic bonus rows.",
+                )
+            )
+
+    if len(capturable_effect_types) < 6:
+        errors.append(
+            ImportErrorDetail(
+                code="territory_bonus_diversity",
+                file="territory_bonuses.csv",
+                message="Capturable territories must offer at least 6 distinct bonus effect types.",
+            )
+        )
+    return errors
+
+
+def _required_guard_tier_for_bonus(
+    record: CsvRecord, *, unit_tiers: dict[str, int]
+) -> int:
+    effect_type = record.values["effect_type"]
+    value = record.values["effect_value"]
+    if effect_type == RECRUIT_CARD_UNLOCK:
+        highest_unit_tier = max(
+            (unit_tiers.get(card_id, 0) for card_id in split_ids(value)),
+            default=0,
+        )
+        return 2 if highest_unit_tier >= 2 else 0
+    numeric_value = _to_int(value)
+    if effect_type == "income_flat" and numeric_value >= 5:
+        return 2
+    if effect_type == "influence_flat" and numeric_value >= 2:
+        return 2
+    if effect_type in {"mp_refill_flat", "raid_token_cap"} and numeric_value >= 1:
+        return 2
+    if effect_type == "raid_defense_flat" and numeric_value >= 2:
+        return 2
+    return 0
+
+
 def _validate_map_and_timer_invariants(tables: dict[str, CsvTable]) -> list[ImportErrorDetail]:
     errors: list[ImportErrorDetail] = []
     for record in tables["map_edges.csv"].rows:
@@ -1307,6 +1518,182 @@ def _validate_map_and_timer_invariants(tables: dict[str, CsvTable]) -> list[Impo
     return errors
 
 
+def _validate_pve_json_array(
+    record: CsvRecord,
+    field_name: str,
+    *,
+    min_items: int,
+    required_keys: set[str],
+) -> list[ImportErrorDetail]:
+    errors: list[ImportErrorDetail] = []
+    scenario_id = record.values.get("scenario_id", "")
+    raw_value = record.values.get(field_name, "").strip()
+    if not raw_value:
+        errors.append(
+            ImportErrorDetail(
+                code="pve_story_flow_required",
+                file="pve_scenarios.csv",
+                row=record.row_number,
+                record_id=scenario_id,
+                message=f"PvE scenario must include {field_name}.",
+            )
+        )
+        return errors
+    try:
+        payload = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        errors.append(
+            ImportErrorDetail(
+                code="pve_story_flow_json",
+                file="pve_scenarios.csv",
+                row=record.row_number,
+                record_id=scenario_id,
+                message=f"PvE scenario {field_name} must be valid JSON: {exc.msg}.",
+            )
+        )
+        return errors
+    if not isinstance(payload, list) or len(payload) < min_items:
+        errors.append(
+            ImportErrorDetail(
+                code="pve_story_flow_json",
+                file="pve_scenarios.csv",
+                row=record.row_number,
+                record_id=scenario_id,
+                message=f"PvE scenario {field_name} must contain at least {min_items} items.",
+            )
+        )
+        return errors
+    for index, item in enumerate(payload, start=1):
+        if not isinstance(item, dict):
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_story_flow_json",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message=f"PvE scenario {field_name}[{index}] must be an object.",
+                )
+            )
+            continue
+        missing = sorted(required_keys - set(item))
+        if missing:
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_story_flow_json",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message=(
+                        f"PvE scenario {field_name}[{index}] is missing keys "
+                        f"{', '.join(missing)}."
+                    ),
+                )
+            )
+    return errors
+
+
+def _validate_pve_choice_morality(record: CsvRecord) -> list[ImportErrorDetail]:
+    errors: list[ImportErrorDetail] = []
+    scenario_id = record.values.get("scenario_id", "")
+    try:
+        choices = json.loads(record.values.get("choice_options_json", ""))
+        morality = json.loads(record.values.get("choice_morality_json", ""))
+    except json.JSONDecodeError as exc:
+        return [
+            ImportErrorDetail(
+                code="pve_choice_morality_json",
+                file="pve_scenarios.csv",
+                row=record.row_number,
+                record_id=scenario_id,
+                message=f"PvE choice morality JSON must be valid: {exc.msg}.",
+            )
+        ]
+    if not isinstance(choices, list) or not isinstance(morality, list):
+        return [
+            ImportErrorDetail(
+                code="pve_choice_morality_json",
+                file="pve_scenarios.csv",
+                row=record.row_number,
+                record_id=scenario_id,
+                message="PvE choice options and morality must be JSON arrays.",
+            )
+        ]
+    choice_ids = sorted(
+        str(choice.get("id", "")) for choice in choices if isinstance(choice, dict)
+    )
+    morality_ids = sorted(
+        str(entry.get("option_id", "")) for entry in morality if isinstance(entry, dict)
+    )
+    if choice_ids != morality_ids:
+        errors.append(
+            ImportErrorDetail(
+                code="pve_choice_morality_mismatch",
+                file="pve_scenarios.csv",
+                row=record.row_number,
+                record_id=scenario_id,
+                message="PvE choice_morality_json option_id values must match choice options.",
+            )
+        )
+    required_keys = {
+        "option_id",
+        "alignment",
+        "good_evil_delta",
+        "moral_axis",
+        "hidden_moral",
+        "reputation_reason",
+        "visibility",
+        "apply_on",
+    }
+    for index, entry in enumerate(morality, start=1):
+        if not isinstance(entry, dict):
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_choice_morality_json",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message=f"PvE choice_morality_json[{index}] must be an object.",
+                )
+            )
+            continue
+        missing = sorted(required_keys - set(entry))
+        if missing:
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_choice_morality_json",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message=(
+                        f"PvE choice_morality_json[{index}] is missing keys "
+                        f"{', '.join(missing)}."
+                    ),
+                )
+            )
+        delta = _to_int(entry.get("good_evil_delta", ""), default=99)
+        if delta < -2 or delta > 2:
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_choice_morality_delta",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message="PvE choice morality good_evil_delta must be -2..2.",
+                )
+            )
+        if entry.get("visibility") != "master_only":
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_choice_morality_visibility",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message="PvE choice morality visibility must be master_only.",
+                )
+            )
+    return errors
+
+
 def _validate_qr_and_pve(
     tables: dict[str, CsvTable], ids: dict[str, set[str]]
 ) -> list[ImportErrorDetail]:
@@ -1317,8 +1704,12 @@ def _validate_qr_and_pve(
         for record in tables["pve_scenarios.csv"].rows
         if record.values.get("scenario_id")
     }
+    qr_modes_by_scenario: dict[str, set[str]] = defaultdict(set)
     for record in qr_rows:
         mode = record.values["qr_mode"]
+        manual_code = record.values["manual_code"]
+        if record.values.get("scenario_id"):
+            qr_modes_by_scenario[record.values["scenario_id"]].add(mode)
         if mode not in VALID_QR_MODES:
             errors.append(
                 ImportErrorDetail(
@@ -1327,6 +1718,19 @@ def _validate_qr_and_pve(
                     row=record.row_number,
                     record_id=record.values["qr_id"],
                     message=f"Invalid qr_mode {mode}.",
+                )
+            )
+        if not MANUAL_QR_CODE_PATTERN.match(manual_code):
+            errors.append(
+                ImportErrorDetail(
+                    code="bad_qr_manual_code",
+                    file="qr_objects.csv",
+                    row=record.row_number,
+                    record_id=record.values["qr_id"],
+                    message=(
+                        "Manual QR code must encode act, 3-letter location code, "
+                        "3-digit slot number and 4-character opaque suffix."
+                    ),
                 )
             )
         if record.values["physical_presence_required"] != "true":
@@ -1371,28 +1775,47 @@ def _validate_qr_and_pve(
                 )
             )
 
-    mode_counts = Counter(record.values["qr_mode"] for record in qr_rows)
-    if mode_counts["repeatable_scene"] + mode_counts["always_available_scene"] < 15:
+    act_counts = Counter(record.values["act_id"] for record in qr_rows)
+    if dict(act_counts) != EXPECTED_QR_ACT_COUNTS:
         errors.append(
             ImportErrorDetail(
-                code="qr_content_mix",
+                code="qr_act_coverage",
                 file="qr_objects.csv",
-                message="Seed must include at least 15 repeatable or always-available QR scenes.",
+                message=(
+                    f"Seed QR act coverage must be {EXPECTED_QR_ACT_COUNTS}, "
+                    f"got {dict(act_counts)}."
+                ),
             )
         )
-    if mode_counts["unique_object"] < 25:
+    mode_counts = Counter(record.values["qr_mode"] for record in qr_rows)
+    if dict(mode_counts) != EXPECTED_QR_MODE_COUNTS:
         errors.append(
             ImportErrorDetail(
                 code="qr_content_mix",
                 file="qr_objects.csv",
-                message="Seed must include at least 25 unique QR objects.",
+                message=(
+                    f"Seed QR mode coverage must be {EXPECTED_QR_MODE_COUNTS}, "
+                    f"got {dict(mode_counts)}."
+                ),
             )
         )
 
+    content_lane_counts: Counter[str] = Counter()
     for record in tables["pve_scenarios.csv"].rows:
         scenario_id = record.values["scenario_id"]
         tier = _to_int(record.values["tier"], default=-1)
         dc = _to_int(record.values["dc"], default=-1)
+        scene_type = record.values["scene_type"]
+        if scene_type not in VALID_STORY_PVE_SCENE_TYPES:
+            errors.append(
+                ImportErrorDetail(
+                    code="invalid_pve_scene_type",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message=f"PvE story scene_type must be one of {sorted(VALID_STORY_PVE_SCENE_TYPES)}.",
+                )
+            )
         if tier not in PVE_DC_BY_TIER:
             errors.append(
                 ImportErrorDetail(
@@ -1428,6 +1851,118 @@ def _validate_qr_and_pve(
                     ),
                 )
             )
+        for field_name in PVE_QUEST_CARD_REQUIRED_FIELDS:
+            if not record.values.get(field_name, "").strip():
+                errors.append(
+                    ImportErrorDetail(
+                        code="pve_story_flow_required",
+                        file="pve_scenarios.csv",
+                        row=record.row_number,
+                        record_id=scenario_id,
+                        message=f"PvE scenario must include {field_name}.",
+                    )
+                )
+        for field_name in PVE_HIDDEN_STORY_REQUIRED_FIELDS:
+            if not record.values.get(field_name, "").strip():
+                errors.append(
+                    ImportErrorDetail(
+                        code="pve_hidden_story_required",
+                        file="pve_scenarios.csv",
+                        row=record.row_number,
+                        record_id=scenario_id,
+                        message=f"PvE scenario must include hidden master-only {field_name}.",
+                    )
+                )
+        content_lane = record.values.get("content_lane", "")
+        if content_lane not in EXPECTED_PVE_CONTENT_LANE_COUNTS:
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_content_lane",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message=f"PvE content_lane must be one of {sorted(EXPECTED_PVE_CONTENT_LANE_COUNTS)}.",
+                )
+            )
+        else:
+            content_lane_counts[content_lane] += 1
+            expected_lane = next(
+                (
+                    PVE_CONTENT_LANE_BY_QR_MODE[mode]
+                    for mode in qr_modes_by_scenario.get(scenario_id, set())
+                    if mode in PVE_CONTENT_LANE_BY_QR_MODE
+                ),
+                None,
+            )
+            if expected_lane is not None and expected_lane != content_lane:
+                errors.append(
+                    ImportErrorDetail(
+                        code="pve_content_lane_qr_mismatch",
+                        file="pve_scenarios.csv",
+                        row=record.row_number,
+                        record_id=scenario_id,
+                        message=f"PvE content_lane {content_lane} does not match QR mode lane {expected_lane}.",
+                    )
+                )
+        trial_type = record.values.get("trial_type", "")
+        if trial_type not in VALID_PVE_TRIAL_TYPES:
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_trial_type",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message=f"PvE trial_type must be one of {sorted(VALID_PVE_TRIAL_TYPES)}.",
+                )
+            )
+        estimated_minutes = _to_int(record.values.get("estimated_minutes", ""), default=-1)
+        if estimated_minutes <= 0 or estimated_minutes > 15:
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_duration_budget",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message="PvE estimated_minutes must fit the 10h field cadence.",
+                )
+            )
+        elif content_lane == "anti_idle" and estimated_minutes > 8:
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_duration_budget",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message="Anti-idle PvE scenes must stay under 8 minutes.",
+                )
+            )
+        elif content_lane == "story_quest" and estimated_minutes < 10:
+            errors.append(
+                ImportErrorDetail(
+                    code="pve_duration_budget",
+                    file="pve_scenarios.csv",
+                    row=record.row_number,
+                    record_id=scenario_id,
+                    message="Story PvE quests must be substantial enough for the QR chain.",
+                )
+            )
+        errors.extend(
+            _validate_pve_json_array(
+                record,
+                "choice_options_json",
+                min_items=3,
+                required_keys={"id", "label", "description", "modifier", "cost", "stakes"},
+            )
+        )
+        errors.extend(
+            _validate_pve_json_array(
+                record,
+                "encounter_steps_json",
+                min_items=3,
+                required_keys={"step", "title", "stat", "dc", "text", "success", "failure"},
+            )
+        )
+        errors.extend(_validate_pve_choice_morality(record))
         if record.values["timeout_outcome"] != "fail_and_cooldown":
             errors.append(
                 ImportErrorDetail(
@@ -1438,6 +1973,17 @@ def _validate_qr_and_pve(
                     message="PvE timeout must be fail_and_cooldown.",
                 )
             )
+    if dict(content_lane_counts) != EXPECTED_PVE_CONTENT_LANE_COUNTS:
+        errors.append(
+            ImportErrorDetail(
+                code="pve_content_lane_mix",
+                file="pve_scenarios.csv",
+                message=(
+                    f"PvE content lanes must be {EXPECTED_PVE_CONTENT_LANE_COUNTS}, "
+                    f"got {dict(content_lane_counts)}."
+                ),
+            )
+        )
     for record in tables["pve_combat_rules.csv"].rows:
         if _to_int(record.values["failure_cooldown_min"]) != 30:
             errors.append(
@@ -1547,6 +2093,28 @@ def _validate_buildings_and_units(
                         message=f"Unit {column} must be an integer in {minimum}..{maximum}.",
                     )
                 )
+    for record in tables["cards.csv"].rows:
+        card_id = record.values["card_id"]
+        if record.values.get("army_unit_card_id", "").strip():
+            errors.append(
+                ImportErrorDetail(
+                    code="personal_card_no_lord_conversion",
+                    file="cards.csv",
+                    row=record.row_number,
+                    record_id=card_id,
+                    message="Personal cards must not reference lord army unit cards.",
+                )
+            )
+        if record.values.get("conversion_rule", "").strip() != "no_lord_conversion":
+            errors.append(
+                ImportErrorDetail(
+                    code="personal_card_no_lord_conversion",
+                    file="cards.csv",
+                    row=record.row_number,
+                    record_id=card_id,
+                    message="Personal cards must use conversion_rule=no_lord_conversion.",
+                )
+            )
     return errors
 
 
@@ -1569,14 +2137,14 @@ def _validate_signed_economy_resources(tables: dict[str, CsvTable]) -> list[Impo
                     )
                 )
         reputation = _to_int(record.values["reputation"], default=-999)
-        if not -5 <= reputation <= 5:
+        if not -12 <= reputation <= 12:
             errors.append(
                 ImportErrorDetail(
                     code="invalid_resource_value",
                     file="players.csv",
                     row=record.row_number,
                     record_id=player_id,
-                    message="Player reputation must be in -5..5.",
+                    message="Player reputation must be in -12..12.",
                 )
             )
 
@@ -1862,6 +2430,11 @@ def _validate_orders(
     tables: dict[str, CsvTable], ids: dict[str, set[str]]
 ) -> list[ImportErrorDetail]:
     errors: list[ImportErrorDetail] = []
+    player_roles = {
+        record.values["player_id"]: record.values["role_type"]
+        for record in tables["players.csv"].rows
+        if record.values.get("player_id")
+    }
     status_rows = tables["order_status_rules.csv"].rows
     lock_statuses = {
         record.values["status_id"]
@@ -1904,6 +2477,18 @@ def _validate_orders(
                     message=f"Invalid order visibility {visibility}.",
                 )
             )
+        if visibility == "addressed":
+            target_player_id = record.values.get("target_player_id", "")
+            if player_roles.get(target_player_id) != "witcher":
+                errors.append(
+                    ImportErrorDetail(
+                        code="invalid_addressed_target",
+                        file="orders.csv",
+                        row=record.row_number,
+                        record_id=order_id,
+                        message="Addressed lord orders must target a witcher player.",
+                    )
+                )
         if status not in ids["order_status_rules.csv"]:
             errors.append(
                 ImportErrorDetail(
@@ -2092,6 +2677,7 @@ def _validate_trade_transfers(
         | ids["gwent_cards.csv"]
         | ids["artifacts.csv"]
         | ids["potions.csv"]
+        | {"gold"}
     )
     for record in tables["trade_transfers.csv"].rows:
         if record.values["from_player_id"] not in ids["players.csv"] or record.values["to_player_id"] not in ids["players.csv"]:
@@ -2104,7 +2690,17 @@ def _validate_trade_transfers(
                     message="Trade transfer players must exist.",
                 )
             )
-        if record.values["asset_id"] not in asset_ids:
+        if record.values["asset_type"] == "gold" and record.values["asset_id"] != "gold":
+            errors.append(
+                ImportErrorDetail(
+                    code="trade_transfer_asset",
+                    file="trade_transfers.csv",
+                    row=record.row_number,
+                    record_id=record.values["transfer_id"],
+                    message="Gold trade transfers must use asset_id=gold.",
+                )
+            )
+        elif record.values["asset_id"] not in asset_ids:
             errors.append(
                 ImportErrorDetail(
                     code="trade_transfer_asset",
@@ -2244,12 +2840,12 @@ def _validate_rules_and_final(
         for record in tables["reputation_rules.csv"].rows
         for value in range(_to_int(record.values["min_value"]), _to_int(record.values["max_value"]) + 1)
     }
-    if covered_reputation != set(range(-5, 6)):
+    if covered_reputation != set(range(-12, 13)):
         errors.append(
             ImportErrorDetail(
                 code="invalid_reputation_range",
                 file="reputation_rules.csv",
-                message="Reputation rules must cover exactly -5..+5.",
+                message="Reputation rules must cover exactly -12..+12.",
             )
         )
 

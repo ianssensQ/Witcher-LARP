@@ -19,6 +19,12 @@ BOARD_WIDTH = 5
 BOARD_HEIGHT = 6
 DEPLOYMENT_CAP = 5
 DEPLOYMENT_SECONDS = 60
+NEUTRAL_DEFENSE_COUNT_BY_TIER = {
+    1: 3,
+    2: 4,
+    3: 6,
+    4: 8,
+}
 HERO_HP_BASE = 30
 HERO_HP_POWER_DIVISOR = 10
 HERO_HP_MIN = 35
@@ -31,6 +37,39 @@ UNIT_CLASSES = {
     "heavy_siege",
     "specialist",
 }
+UNIT_CLASS_ATTACK_BONUS = {
+    "infantry": 0,
+    "guard": 0,
+    "ranged": 1,
+    "cavalry": 2,
+    "heavy_siege": 3,
+    "specialist": 1,
+}
+UNIT_CLASS_DEFENSE_BONUS = {
+    "infantry": 0,
+    "guard": 0,
+    "ranged": 0,
+    "cavalry": 1,
+    "heavy_siege": 1,
+    "specialist": 1,
+}
+UNIT_CLASS_POWER_BONUS = {
+    "infantry": 0,
+    "guard": 4,
+    "ranged": 4,
+    "cavalry": 10,
+    "heavy_siege": 16,
+    "specialist": 8,
+}
+HERO_ATTACK_MULTIPLIER = {
+    "infantry": 1,
+    "guard": 1,
+    "ranged": 1,
+    "cavalry": 1,
+    "heavy_siege": 2,
+    "specialist": 1,
+}
+ARCING_ATTACK_CLASSES = {"ranged", "heavy_siege"}
 UNIT_BATTLE_RANGES = {
     "tier": (1, 4),
     "attack": (1, 20),
@@ -41,6 +80,8 @@ UNIT_BATTLE_RANGES = {
     "attack_range": (1, BOARD_HEIGHT - 1),
 }
 FINAL_BATTLE_STATES = {"finished", "needs_master_review"}
+BATTLE_READY_CLAIM_STATUSES = {"in_battle", "contested", "contested_pending_tick"}
+GARRISON_PENDING_CLAIM_STATUSES = {"awaiting_garrison", "capture_pending_garrison"}
 
 
 class LordBattleError(ValueError):
@@ -91,6 +132,8 @@ def create_lord_battle(
             str(existing["attacker_domain_id"]),
             actor_domain_id,
             actor_role_type,
+            defender_domain_id=_optional(existing["defender_domain_id"]),
+            allow_defender_actor=True,
         )
         payload = _battle_payload(
             connection,
@@ -103,6 +146,15 @@ def create_lord_battle(
 
     claim = _claim_for_create(connection, claim_id, territory_id)
     if claim is not None:
+        claim_status = str(claim["status"] or "")
+        if claim_status not in BATTLE_READY_CLAIM_STATUSES:
+            raise LordBattleError(
+                "claim_awaiting_garrison"
+                if claim_status in GARRISON_PENDING_CLAIM_STATUSES
+                else "claim_not_battle_ready",
+                "Territory claim is already resolved; place a garrison instead of starting another battle.",
+                409,
+            )
         claim_id = str(claim["claim_id"])
         territory_id = str(claim["territory_id"])
         attacker_domain_id = attacker_domain_id or str(claim["claimant_domain_id"])
@@ -132,7 +184,13 @@ def create_lord_battle(
 
     if defender_domain_id == attacker_domain_id:
         raise LordBattleError("same_domain", "Lord battle requires two different sides.")
-    _assert_create_actor_allowed(attacker_domain_id, actor_domain_id, actor_role_type)
+    _assert_create_actor_allowed(
+        attacker_domain_id,
+        actor_domain_id,
+        actor_role_type,
+        defender_domain_id=defender_domain_id,
+        allow_defender_actor=claim is not None,
+    )
 
     battle_type = "neutral" if defender_domain_id is None else "lord_vs_lord"
     rule = _battle_rule(connection)
@@ -311,12 +369,14 @@ def get_lord_battle(
     )
     if state_changed:
         _save_state(connection, state, current_time)
-    return _state_payload(
+    payload = _state_payload(
         connection,
         state,
         viewer_domain_id=viewer_domain_id,
         viewer_role_type=viewer_role_type,
     )
+    payload.update(_lord_battle_queue_annotations(connection).get(str(state["battle_id"]), {}))
+    return payload
 
 
 def list_lord_battles(
@@ -341,18 +401,78 @@ def list_lord_battles(
         """,
         params,
     ).fetchall()
+    queue_annotations = _lord_battle_queue_annotations(connection)
     return {
         "items": [
-            _battle_payload(
-                connection,
-                row,
-                include_log=False,
-                viewer_domain_id=viewer_domain_id,
-                viewer_role_type=viewer_role_type,
-            )
+            {
+                **_battle_payload(
+                    connection,
+                    row,
+                    include_log=False,
+                    include_queue=False,
+                    viewer_domain_id=viewer_domain_id,
+                    viewer_role_type=viewer_role_type,
+                ),
+                **queue_annotations.get(str(row["battle_id"]), {}),
+            }
             for row in rows
         ]
     }
+
+
+def _lord_battle_queue_annotations(connection: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT battle_id, attacker_domain_id, defender_domain_id, status, created_at
+        FROM lord_battles
+        WHERE status NOT IN ('finished', 'needs_master_review', 'cancelled', 'closed', 'resolved')
+        ORDER BY created_at ASC, battle_id ASC
+        """
+    ).fetchall()
+    first_battle_by_domain: dict[str, str] = {}
+    queue_counts_by_domain: dict[str, int] = {}
+    annotations: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        battle_id = str(row["battle_id"])
+        participants = [
+            domain_id
+            for domain_id in (
+                _optional(row["attacker_domain_id"]),
+                _optional(row["defender_domain_id"]),
+            )
+            if domain_id
+        ]
+        blocking_battle_ids = sorted(
+            {
+                first_battle_by_domain[domain_id]
+                for domain_id in participants
+                if domain_id in first_battle_by_domain
+            }
+        )
+        previous_counts = [queue_counts_by_domain.get(domain_id, 0) for domain_id in participants]
+        annotations[battle_id] = {
+            "queue_state": "waiting" if blocking_battle_ids else "ready",
+            "queue_position": (max(previous_counts) if previous_counts else 0) + 1,
+            "blocking_battle_ids": blocking_battle_ids,
+        }
+        for domain_id in participants:
+            first_battle_by_domain.setdefault(domain_id, battle_id)
+            queue_counts_by_domain[domain_id] = queue_counts_by_domain.get(domain_id, 0) + 1
+    return annotations
+
+
+def _assert_lord_battle_queue_ready(
+    connection: sqlite3.Connection, state: dict[str, Any], actor_role_type: str | None
+) -> None:
+    if actor_role_type == "npc_master" or state["status"] in FINAL_BATTLE_STATES:
+        return
+    annotation = _lord_battle_queue_annotations(connection).get(str(state["battle_id"]))
+    if annotation and annotation.get("queue_state") == "waiting":
+        raise LordBattleError(
+            "battle_waiting_for_previous",
+            "This battle waits for an earlier lord battle to finish.",
+            409,
+        )
 
 
 def record_lord_battle_action(
@@ -377,6 +497,7 @@ def record_lord_battle_action(
     action_type = action_type.strip().lower()
     actor_side = _side_name(actor_side)
     _assert_actor_allowed(state, actor_side, actor_domain_id, actor_role_type)
+    _assert_lord_battle_queue_ready(connection, state, actor_role_type)
     _start_deployment_timer_for_actor(
         state,
         current_time,
@@ -874,7 +995,7 @@ def _attack_stack(
         payload={
             "stack_id": stack["stack_id"],
             "target_stack_id": target["stack_id"],
-            "damage_formula": "count_alive * max(1, attack - defense + modifiers)",
+            "damage_formula": "count_alive * max(1, effective_attack - effective_defense + modifiers)",
             "damage": damage,
             "casualties": casualty,
             "retaliation": retaliation,
@@ -910,9 +1031,13 @@ def _attack_hero(
         raise LordBattleError("friendly_fire", "Cannot attack your own hero.")
     hero_cell = state["board"]["hero_cells"][target_side]
     target = {"x": hero_cell["x"], "y": hero_cell["y"], "defense": 0, "side": target_side}
-    if _distance(stack, target) > int(stack["attack_range"]) or not _line_of_sight_clear(state["board"], stack, target):
+    if _distance(stack, target) > int(stack["attack_range"]) or not _can_arc_or_see(
+        state["board"],
+        stack,
+        target,
+    ):
         raise LordBattleError("illegal_hero_attack", "Hero is outside range or line of sight.")
-    damage = max(1, int(stack["attack"]))
+    damage = _hero_damage(stack)
     state["hero_hp"][target_side]["current"] = max(
         0,
         int(state["hero_hp"][target_side]["current"]) - damage,
@@ -1143,18 +1268,27 @@ def _apply_retreat(
     ]
     if not active_stacks:
         return None
-    surviving_active = [stack for stack in active_stacks if int(stack["count_alive"]) > 0]
-    retreat_node = _retreat_node(connection, loser_domain_id)
+    retreat_node = _retreat_node(
+        connection,
+        loser_domain_id,
+        battle_territory_id=_optional(state.get("territory_id")),
+    )
     if retreat_node is None:
         return {"domain_id": loser_domain_id, "status": "no_retreat_node"}
-    if surviving_active:
+    active_source_ids = {
+        str(stack["source_id"])
+        for stack in active_stacks
+        if stack.get("source_id")
+    }
+    if active_source_ids:
+        placeholders = ",".join("?" for _ in active_source_ids)
         connection.execute(
-            """
+            f"""
             UPDATE active_army_runtime
             SET location_node_id = ?, updated_at = ?
-            WHERE domain_id = ? AND status = 'active' AND count > 0
+            WHERE domain_id = ? AND army_id IN ({placeholders})
             """,
-            (retreat_node, _iso(now), loser_domain_id),
+            (retreat_node, _iso(now), loser_domain_id, *sorted(active_source_ids)),
         )
     connection.execute(
         """
@@ -1164,7 +1298,12 @@ def _apply_retreat(
         """,
         (retreat_node, _iso(now), loser_domain_id),
     )
-    return {"domain_id": loser_domain_id, "to_node_id": retreat_node, "status": "retreated"}
+    return {
+        "domain_id": loser_domain_id,
+        "to_node_id": retreat_node,
+        "territory_id": _territory_for_node(connection, retreat_node),
+        "status": "retreated",
+    }
 
 
 def _apply_capture_result(
@@ -1193,7 +1332,7 @@ def _apply_capture_result(
             connection.execute(
                 """
                 UPDATE territory_claim_runtime
-                SET status = 'awaiting_garrison', resolved_at = ?
+                SET status = 'awaiting_garrison', battle_required = 0, resolved_at = ?
                 WHERE claim_id = ?
                 """,
                 (_iso(now), state["claim_id"]),
@@ -1221,7 +1360,7 @@ def _apply_capture_result(
         connection.execute(
             """
             UPDATE territory_claim_runtime
-            SET status = 'failed_defender_won', resolved_at = ?
+            SET status = 'failed_defender_won', battle_required = 0, resolved_at = ?
             WHERE claim_id = ?
             """,
             (_iso(now), state["claim_id"]),
@@ -1740,7 +1879,7 @@ def _neutral_sources(
         FROM army_unit_cards
         WHERE CAST(tier AS INTEGER) <= ?
           AND unit_class IN ('infantry', 'guard', 'ranged', 'cavalry', 'heavy_siege', 'specialist')
-        ORDER BY CAST(tier AS INTEGER), unit_class
+        ORDER BY CAST(tier AS INTEGER) DESC, unit_class
         LIMIT ?
         """,
         (tier, max_sources),
@@ -1755,11 +1894,15 @@ def _neutral_sources(
             LIMIT 2
             """
         ).fetchall()
+    neutral_count = NEUTRAL_DEFENSE_COUNT_BY_TIER.get(
+        tier,
+        NEUTRAL_DEFENSE_COUNT_BY_TIER[max(NEUTRAL_DEFENSE_COUNT_BY_TIER)],
+    )
     return [
         {
             **_source_from_row(row, "neutral_profile", f"neutral_{profile_id or 'default'}_{row['card_id']}"),
             "domain_id": None,
-            "count": 1,
+            "count": neutral_count,
             "neutral_profile_id": profile_id,
         }
         for row in rows
@@ -1857,9 +2000,24 @@ def _damage(attacker: dict[str, Any], defender: dict[str, Any]) -> int:
     modifiers = -1 if bool(defender.get("defended")) else 0
     per_unit_damage = max(
         1,
-        int(attacker["attack"]) - int(defender["defense"]) + modifiers,
+        _effective_attack(attacker) - _effective_defense(defender) + modifiers,
     )
     return max(1, int(attacker["count_alive"]) * per_unit_damage)
+
+
+def _hero_damage(stack: dict[str, Any]) -> int:
+    multiplier = HERO_ATTACK_MULTIPLIER.get(str(stack.get("unit_class") or ""), 1)
+    return max(1, int(stack["count_alive"]) * _effective_attack(stack) * multiplier)
+
+
+def _effective_attack(stack: dict[str, Any]) -> int:
+    unit_class = str(stack.get("unit_class") or "")
+    return int(stack["attack"]) + UNIT_CLASS_ATTACK_BONUS.get(unit_class, 0)
+
+
+def _effective_defense(stack: dict[str, Any]) -> int:
+    unit_class = str(stack.get("unit_class") or "")
+    return int(stack["defense"]) + UNIT_CLASS_DEFENSE_BONUS.get(unit_class, 0)
 
 
 def _apply_damage_to_stack(stack: dict[str, Any], damage: int) -> dict[str, int]:
@@ -1892,7 +2050,17 @@ def _assert_can_move(board: dict[str, Any], stack: dict[str, Any], to_x: int, to
 
 def _can_attack(board: dict[str, Any], stack: dict[str, Any], target: dict[str, Any]) -> bool:
     distance = _distance(stack, target)
-    return distance <= int(stack["attack_range"]) and _line_of_sight_clear(board, stack, target)
+    return distance <= int(stack["attack_range"]) and _can_arc_or_see(board, stack, target)
+
+
+def _can_arc_or_see(board: dict[str, Any], stack: dict[str, Any], target: dict[str, Any]) -> bool:
+    if _uses_arcing_attack(stack):
+        return True
+    return _line_of_sight_clear(board, stack, target)
+
+
+def _uses_arcing_attack(stack: dict[str, Any]) -> bool:
+    return int(stack.get("attack_range", 1)) > 1 and str(stack.get("unit_class") or "") in ARCING_ATTACK_CLASSES
 
 
 def _line_of_sight_clear(board: dict[str, Any], stack: dict[str, Any], target: dict[str, Any]) -> bool:
@@ -1943,7 +2111,7 @@ def _battle_rule(connection: sqlite3.Connection) -> dict[str, Any]:
         "grid_width": BOARD_WIDTH,
         "grid_height": BOARD_HEIGHT,
         "turn_timer_seconds": 60,
-        "damage_formula": "count_alive*max(1 attack-defense+modifiers)",
+        "damage_formula": "count_alive*max(1 effective_attack-effective_defense+modifiers)",
         "initiative_tiebreaker": "initiative_desc_tier_desc_seed",
         "timeout_policy": "auto_defend_then_skip",
         "auto_resolve_policy": "repeated_timeout_master_takeover_or_auto_resolve",
@@ -1985,7 +2153,7 @@ def _claim_for_create(
             SELECT *
             FROM territory_claim_runtime
             WHERE territory_id = ?
-              AND status IN ('in_battle', 'contested', 'contested_pending_tick', 'awaiting_garrison')
+              AND status IN ('in_battle', 'contested', 'contested_pending_tick', 'awaiting_garrison', 'capture_pending_garrison')
             ORDER BY created_at
             LIMIT 1
             """,
@@ -2074,7 +2242,28 @@ def _domain_current_territory(connection: sqlite3.Connection, domain_id: str) ->
     return _optional(row["territory_id"]) if row is not None else None
 
 
-def _retreat_node(connection: sqlite3.Connection, domain_id: str) -> str | None:
+def _territory_for_node(connection: sqlite3.Connection, node_id: str | None) -> str | None:
+    if node_id is None:
+        return None
+    row = connection.execute(
+        "SELECT territory_id FROM map_nodes WHERE node_id = ? LIMIT 1",
+        (node_id,),
+    ).fetchone()
+    return _optional(row["territory_id"]) if row is not None else None
+
+
+def _retreat_node(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    *,
+    battle_territory_id: str | None = None,
+) -> str | None:
+    battle_node = _node_for_territory(connection, battle_territory_id)
+    candidates = _retreat_candidates(connection, domain_id, exclude_territory_id=battle_territory_id)
+    if battle_node is not None and candidates:
+        nearest = _nearest_node_by_route_cost(connection, battle_node, candidates)
+        if nearest is not None:
+            return nearest
     residence = connection.execute(
         """
         SELECT n.node_id
@@ -2088,6 +2277,8 @@ def _retreat_node(connection: sqlite3.Connection, domain_id: str) -> str | None:
     ).fetchone()
     if residence is not None:
         return _optional(residence["node_id"])
+    if candidates:
+        return candidates[0]
     row = connection.execute(
         """
         SELECT n.node_id
@@ -2100,6 +2291,95 @@ def _retreat_node(connection: sqlite3.Connection, domain_id: str) -> str | None:
         (domain_id,),
     ).fetchone()
     return _optional(row["node_id"]) if row is not None else None
+
+
+def _node_for_territory(connection: sqlite3.Connection, territory_id: str | None) -> str | None:
+    if not territory_id:
+        return None
+    row = connection.execute(
+        """
+        SELECT node_id
+        FROM map_nodes
+        WHERE territory_id = ?
+        ORDER BY _row_number
+        LIMIT 1
+        """,
+        (territory_id,),
+    ).fetchone()
+    return _optional(row["node_id"]) if row is not None else None
+
+
+def _retreat_candidates(
+    connection: sqlite3.Connection,
+    domain_id: str,
+    *,
+    exclude_territory_id: str | None,
+) -> list[str]:
+    rows = connection.execute(
+        """
+        SELECT n.node_id, t.territory_id
+        FROM territories t
+        JOIN map_nodes n ON n.territory_id = t.territory_id
+        LEFT JOIN territory_runtime_state r ON r.territory_id = t.territory_id
+        WHERE COALESCE(NULLIF(r.owner_domain_id, ''), NULLIF(t.owner_domain_id, '')) = ?
+          AND (? IS NULL OR t.territory_id != ?)
+          AND COALESCE(
+                NULLIF(r.status, ''),
+                CASE
+                    WHEN t.owner_domain_id IS NULL OR t.owner_domain_id = ''
+                    THEN 'neutral'
+                    ELSE 'controlled'
+                END
+              ) NOT IN (
+                'contested',
+                'contested_pending_tick',
+                'in_battle',
+                'awaiting_garrison',
+                'capture_pending_garrison'
+              )
+        ORDER BY n._row_number
+        """,
+        (domain_id, exclude_territory_id, exclude_territory_id),
+    ).fetchall()
+    return [str(row["node_id"]) for row in rows if _optional(row["node_id"])]
+
+
+def _nearest_node_by_route_cost(
+    connection: sqlite3.Connection,
+    start_node_id: str,
+    candidate_node_ids: list[str],
+) -> str | None:
+    candidates = set(candidate_node_ids)
+    if start_node_id in candidates:
+        return start_node_id
+    graph: dict[str, list[tuple[str, int]]] = {}
+    for edge in connection.execute(
+        "SELECT from_node_id, to_node_id, mp_cost, bidirectional FROM map_edges"
+    ).fetchall():
+        cost = max(1, _to_int(edge["mp_cost"]))
+        from_node = str(edge["from_node_id"])
+        to_node = str(edge["to_node_id"])
+        graph.setdefault(from_node, []).append((to_node, cost))
+        if str(edge["bidirectional"]).strip().lower() == "true":
+            graph.setdefault(to_node, []).append((from_node, cost))
+
+    distances: dict[str, int] = {start_node_id: 0}
+    visited: set[str] = set()
+    while True:
+        current = min(
+            (node for node in distances if node not in visited),
+            key=lambda node: distances[node],
+            default=None,
+        )
+        if current is None:
+            return None
+        if current in candidates:
+            return current
+        visited.add(current)
+        for neighbor, cost in graph.get(current, []):
+            next_cost = distances[current] + cost
+            if next_cost < distances.get(neighbor, 10**9):
+                distances[neighbor] = next_cost
 
 
 def _state_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -2304,16 +2584,20 @@ def _battle_payload(
     row: sqlite3.Row,
     *,
     include_log: bool = True,
+    include_queue: bool = True,
     viewer_domain_id: str | None = None,
     viewer_role_type: str | None = None,
 ) -> dict[str, Any]:
-    return _state_payload(
+    payload = _state_payload(
         connection,
         _state_from_row(row),
         include_log=include_log,
         viewer_domain_id=viewer_domain_id,
         viewer_role_type=viewer_role_type,
     )
+    if include_queue:
+        payload.update(_lord_battle_queue_annotations(connection).get(str(row["battle_id"]), {}))
+    return payload
 
 
 def _state_payload(
@@ -2533,12 +2817,18 @@ def _assert_create_actor_allowed(
     attacker_domain_id: str,
     actor_domain_id: str | None,
     actor_role_type: str | None,
+    *,
+    defender_domain_id: str | None = None,
+    allow_defender_actor: bool = False,
 ) -> None:
     if actor_role_type == "npc_master":
         return
     if not actor_domain_id:
         raise LordBattleError("missing_actor_token", "Lord battle creation requires a role token.", 401)
-    if actor_domain_id != attacker_domain_id:
+    allowed_domain_ids = {attacker_domain_id}
+    if allow_defender_actor and defender_domain_id:
+        allowed_domain_ids.add(defender_domain_id)
+    if actor_domain_id not in allowed_domain_ids:
         raise LordBattleError("wrong_actor_domain", "Actor domain cannot create this battle.", 403)
 
 
@@ -2605,7 +2895,14 @@ def _is_alive(stack: dict[str, Any]) -> bool:
 
 
 def _unit_power(stack: dict[str, Any]) -> int:
-    return int(stack["attack"]) + int(stack["defense"]) + int(stack["hp"]) + int(stack["tier"])
+    unit_class = str(stack.get("unit_class") or "")
+    return (
+        int(stack["attack"])
+        + int(stack["defense"])
+        + int(stack["hp"])
+        + int(stack["tier"])
+        + UNIT_CLASS_POWER_BONUS.get(unit_class, 0)
+    )
 
 
 def _domain_for_side(state: dict[str, Any], side: str) -> str | None:

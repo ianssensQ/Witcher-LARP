@@ -17,6 +17,7 @@ from backend.witcher_larp.runtime_schema import ensure_runtime_schema
 
 
 TEST_TMP_ROOT = PROJECT_ROOT / ".test-data"
+DEFAULT_WITCHER_STATS = {"Сила": 3, "Ловкость": 2, "Разум": 2, "Харизма": 0, "Воля": 0}
 
 
 class PveRuntimeTests(unittest.TestCase):
@@ -28,6 +29,7 @@ class PveRuntimeTests(unittest.TestCase):
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             payload = resolve_pve_scene(
                 connection,
                 player_id="p_witcher_1",
@@ -110,6 +112,7 @@ class PveRuntimeTests(unittest.TestCase):
 
         with connect(settings) as connection:
             ensure_runtime_schema(connection)
+            self._set_player_stats(connection, "p_witcher_1")
             connection.execute(
                 """
                 INSERT INTO potion_scene_usage (
@@ -407,6 +410,7 @@ class PveRuntimeTests(unittest.TestCase):
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             partial_payload = resolve_pve_scene(
                 connection,
                 player_id="p_witcher_1",
@@ -454,6 +458,8 @@ class PveRuntimeTests(unittest.TestCase):
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
+            self._set_player_stats(connection, "p_witcher_2")
             first_payload = resolve_pve_scene(
                 connection,
                 player_id="p_witcher_1",
@@ -517,6 +523,7 @@ class PveRuntimeTests(unittest.TestCase):
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             before_payload = resolve_pve_scene(
                 connection,
                 player_id="p_witcher_1",
@@ -620,6 +627,7 @@ class PveRuntimeTests(unittest.TestCase):
         ]
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             observed: dict[str, tuple[str, str]] = {}
             for sequence, (event_id, mutate, _expected_reason) in enumerate(variants, start=1):
                 payload = resolve_pve_scene(
@@ -665,6 +673,7 @@ class PveRuntimeTests(unittest.TestCase):
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             first_payload = resolve_pve_scene(
                 connection,
                 player_id="p_witcher_1",
@@ -764,6 +773,7 @@ class PveRuntimeTests(unittest.TestCase):
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             events = []
             for sequence in range(1, 4):
                 payload = resolve_pve_scene(
@@ -811,6 +821,7 @@ class PveRuntimeTests(unittest.TestCase):
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             connection.execute(
                 "UPDATE rewards SET xp = 50, gold = 30 WHERE reward_id = 'reward_pve_t1'"
             )
@@ -846,6 +857,7 @@ class PveRuntimeTests(unittest.TestCase):
 
         with connect(settings) as connection:
             ensure_runtime_schema(connection)
+            self._set_player_stats(connection, "p_witcher_1")
             connection.execute(
                 """
                 INSERT INTO player_runtime_state (
@@ -934,7 +946,7 @@ class PveRuntimeTests(unittest.TestCase):
             "player_id": "p_witcher_1",
             "scenario_id": "scn_a1_001",
             "qr_id": "qr_a1_001",
-            "manual_code": "QR-A1-K7Q2",
+            "manual_code": "QR-A1-TRV-001-K7Q2",
             "act_id": "act1",
             "unlock_source": "act1_default",
             "pve_flow": "mission_v2",
@@ -953,6 +965,7 @@ class PveRuntimeTests(unittest.TestCase):
         }
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             response, _ = self._sync_pve_payload(
                 connection,
                 actor_id="p_witcher_1",
@@ -976,6 +989,7 @@ class PveRuntimeTests(unittest.TestCase):
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             payload = resolve_pve_scene(
                 connection,
                 player_id="p_witcher_1",
@@ -1016,6 +1030,7 @@ class PveRuntimeTests(unittest.TestCase):
         self._import_valid_seed(settings)
 
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             payload = resolve_pve_scene(
                 connection,
                 player_id="p_witcher_1",
@@ -1116,6 +1131,30 @@ class PveRuntimeTests(unittest.TestCase):
             snapshot_dir=None,
         )
         self.assertEqual(report.status, "success")
+
+    def _set_player_stats(
+        self,
+        connection,
+        player_id: str,
+        stats: dict[str, int] | None = None,
+    ) -> None:
+        stats_json = json.dumps(
+            stats or DEFAULT_WITCHER_STATS,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        connection.execute(
+            "UPDATE players SET stats_json = ? WHERE player_id = ?",
+            (stats_json, player_id),
+        )
+        connection.execute(
+            """
+            UPDATE player_runtime_state
+            SET stats_json = ?
+            WHERE player_id = ?
+            """,
+            (stats_json, player_id),
+        )
 
     def _mission_v2_roll(
         self,

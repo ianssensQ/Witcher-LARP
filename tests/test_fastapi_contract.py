@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from backend.witcher_larp.app import LORD_FRONTEND_INDEX, create_app
@@ -26,6 +28,7 @@ SECRET_VALUES = (
 )
 MASTER_HEADERS = {"X-Role-Token": "MASTER-KING-4QZ8"}
 WITCHER_HEADERS = {"X-Player-Code": "WC-WOLF-6GF4"}
+DEFAULT_WITCHER_STATS = {"Сила": 3, "Ловкость": 2, "Разум": 2, "Харизма": 0, "Воля": 0}
 
 
 @unittest.skipIf(TestClient is None, "FastAPI/httpx dependencies are not installed")
@@ -49,6 +52,23 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["database"]["schema_version"], 1)
         self.assertEqual(payload["api"]["revision"], "ios-gwent-pvp-v1")
         self.assertIn("ios_gwent_pvp_actions", payload["api"]["features"])
+
+    def test_sqlite_storage_errors_are_explicit(self) -> None:
+        settings = self._settings("fastapi_storage_error")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings), raise_server_exceptions=False)
+
+        with patch(
+            "backend.witcher_larp.app.build_admin_overview",
+            side_effect=sqlite3.OperationalError("database or disk is full"),
+        ):
+            response = client.get("/api/master/admin/overview", headers=MASTER_HEADERS)
+
+        self.assertEqual(response.status_code, 507, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "sqlite_storage_unavailable")
+        self.assertEqual(detail["database_path"], str(settings.database_path))
+        self.assertIn("Free disk space", detail["message"])
 
     def test_static_entrypoints_auth_and_qr_errors_are_explicit(self) -> None:
         settings = self._settings("fastapi_entry_auth_errors")
@@ -111,6 +131,11 @@ class FastApiContractTests(unittest.TestCase):
     def test_lord_frontend_runtime_avoids_seed_auth_defaults_and_secret_query_tokens(self) -> None:
         frontend_root = PROJECT_ROOT / "prototypes" / "stage2b-v2" / "src"
         app_source = (frontend_root / "App.tsx").read_text(encoding="utf-8")
+        route_sources = [
+            path.read_text(encoding="utf-8")
+            for path in sorted((frontend_root / "routes").glob("*.tsx"))
+        ]
+        frontend_runtime_source = "\n".join([app_source, *route_sources])
         battle_source = (frontend_root / "LordBattleScreen.tsx").read_text(encoding="utf-8")
         mp_source = (frontend_root / "LordMpHud.tsx").read_text(encoding="utf-8")
         main_source = (frontend_root / "main.tsx").read_text(encoding="utf-8")
@@ -119,24 +144,24 @@ class FastApiContractTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        for source in (app_source, battle_source, mp_source, runtime_source):
+        for source in (frontend_runtime_source, battle_source, mp_source, runtime_source):
             self.assertNotIn("LORD-NORTH-R8K4", source)
             self.assertNotIn("lordHomeDefaultRoleToken", source)
             self.assertNotIn('searchParams.set("token"', source)
             self.assertNotIn('routeParams.get("token")', source)
             self.assertNotIn('localStorage.getItem("witcher_larp_role_token")', source)
 
-        self.assertIn("readLordRuntimeSession", app_source)
-        self.assertIn("clearLordRuntimeSession", app_source)
+        self.assertIn("readLordRuntimeSession", frontend_runtime_source)
+        self.assertIn("clearLordRuntimeSession", frontend_runtime_source)
         self.assertIn("stripLordRuntimeSensitiveQueryParams", runtime_source)
         self.assertIn('lazy(() => import("./App"))', main_source)
         self.assertNotIn("mobile/witcher", main_source)
-        self.assertNotIn("assets/generated/mobile", app_source)
+        self.assertNotIn("assets/generated/mobile", frontend_runtime_source)
         self.assertNotIn("assets/generated/mobile", battle_source)
-        self.assertIn("Маршрут недоступен", app_source)
-        self.assertIn("Проверяем маршрут.", app_source)
-        self.assertNotIn("РњР°СЂС€СЂСѓС‚", app_source)
-        self.assertNotIn("РџСЂРѕРІРµСЂСЏРµРј", app_source)
+        self.assertIn("Маршрут недоступен", frontend_runtime_source)
+        self.assertIn("Проверяем маршрут.", frontend_runtime_source)
+        self.assertNotIn("РњР°СЂС€СЂСѓС‚", frontend_runtime_source)
+        self.assertNotIn("РџСЂРѕРІРµСЂСЏРµРј", frontend_runtime_source)
         self.assertIn("MAX_RUNTIME_ASSET_BYTES", build_script)
         self.assertIn("FORBIDDEN_RUNTIME_ASSET_SUBPATHS", build_script)
         self.assertIn("vite", build_script)
@@ -152,7 +177,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A1-K7Q2",
+                "code": "QR-A1-TRV-001-K7Q2",
                 "device_id": "phone-wolf",
                 "physical_presence_confirmed": True,
             },
@@ -207,7 +232,7 @@ class FastApiContractTests(unittest.TestCase):
                     "order_north_public_1",
                     "p_lord_1",
                     "p_witcher_1",
-                    "qr_a1_006",
+                    "interest_card_infantry_favor_a1",
                     "public",
                     "accepted",
                     "reward_order_success",
@@ -256,7 +281,11 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual("p_witcher_1", orders[0]["target_player_id"])
         self.assertEqual("accepted", orders[0]["status"])
         self.assertEqual("p_witcher_1", orders[0]["accepted_by_player_id"])
-        self.assertEqual("Severnaya Zastava", orders[0]["object_label"])
+        self.assertEqual("Пехотная грамота", orders[0]["object_label"])
+        self.assertEqual("card", orders[0]["object_type"])
+        self.assertEqual("qr_a1_006", orders[0]["proof_qr_id"])
+        self.assertIn("У старого колодца", orders[0]["visible_hook"])
+        self.assertIn("15 золота", orders[0]["reward_label"])
         self.assertEqual("reward_order_success", orders[0]["escrow_reward_id"])
         self.assertTrue(
             any(row["reward_id"] == "reward_order_success" for row in payload["rewards"])
@@ -414,7 +443,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A1-K7Q2",
+                "code": "QR-A1-TRV-001-K7Q2",
                 "device_id": "device-test",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -436,11 +465,49 @@ class FastApiContractTests(unittest.TestCase):
         self._import_valid_seed(settings)
         client = TestClient(create_app(settings))
 
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                INSERT INTO domain_buildings (
+                    domain_id, territory_id, building_id, purchased_at, source
+                )
+                SELECT 'domain_forest', territory_id, 'b_notice_board', ?, 'test'
+                FROM territories
+                WHERE owner_domain_id = 'domain_forest'
+                  AND bonus_type = 'residence'
+                LIMIT 1
+                """,
+                ("2026-06-08T00:00:00Z",),
+            )
+        public_order = client.post(
+            "/api/lords/p_lord_3/orders",
+            headers={"X-Role-Token": "LORD-FOREST-P6W3"},
+            json={
+                "action": "create",
+                "object_id": "interest_treasure_well_market_box_a1",
+                "visibility": "public",
+                "escrow_reward_id": "reward_order_success",
+                "visible_hook": "Общий заказ у колодезного торга.",
+            },
+        )
+        self.assertEqual(public_order.status_code, 200, public_order.text)
+        public_order_id = public_order.json()["order"]["order_id"]
+        for player_code in ("WC-WOLF-6GF4", "WC-CAT-1HN8"):
+            snapshot = client.get(
+                "/api/content/snapshot",
+                params={"player_code": player_code},
+            )
+            self.assertEqual(snapshot.status_code, 200, snapshot.text)
+            self.assertIn(
+                public_order_id,
+                {order["order_id"] for order in snapshot.json()["orders"]},
+            )
+
         matched = client.post(
             "/api/mobile/qr-order-check",
             headers=WITCHER_HEADERS,
             json={
-                "code": "witcher-larp://qr?code=QR-A1-X3L5",
+                "code": "witcher-larp://qr?code=QR-A1-EAZ-006-X3L5",
                 "device_id": "phone-wolf",
                 "source": "qr_scan",
             },
@@ -454,14 +521,33 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(matched_payload["order"]["order_id"], "order_north_public_1")
         self.assertEqual(matched_payload["order"]["object_label"], "Пехотная грамота")
         self.assertEqual(matched_payload["order"]["object_type"], "card")
-        self.assertEqual(matched_payload["quest"]["scene_type"], "order_object")
+        self.assertEqual(matched_payload["quest"]["scene_type"], "monster_hunt")
         self.assertEqual(matched_payload["quest"]["primary_stat"], "Сила")
+
+        open_public = client.post(
+            "/api/mobile/qr-order-check",
+            headers=WITCHER_HEADERS,
+            json={
+                "code": "QR-A1-KTG-010-J8F7",
+                "device_id": "phone-wolf",
+                "source": "manual_id",
+            },
+        )
+
+        self.assertEqual(open_public.status_code, 200, open_public.text)
+        open_public_payload = open_public.json()
+        self.assertEqual(open_public_payload["status"], "matched_order")
+        self.assertTrue(open_public_payload["allowed"])
+        self.assertEqual(open_public_payload["order"]["order_id"], public_order_id)
+        self.assertEqual(open_public_payload["order"]["visibility"], "public")
+        self.assertEqual(open_public_payload["order"]["target_player_id"], "")
+        self.assertEqual(open_public_payload["qr"]["qr_id"], "qr_a1_010")
 
         not_taken = client.post(
             "/api/mobile/qr-order-check",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A1-L2G6",
+                "code": "QR-A1-WOS-011-L2G6",
                 "device_id": "phone-wolf",
                 "source": "manual_id",
             },
@@ -484,7 +570,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A2-B4K8",
+                "code": "QR-A2-TRV-013-B4K8",
                 "device_id": "device-future",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -517,7 +603,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A2-B4K8",
+                "code": "QR-A2-TRV-013-B4K8",
                 "device_id": "device-future",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -535,7 +621,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A2-B4K8",
+                "code": "QR-A2-TRV-013-B4K8",
                 "device_id": "device-future",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -585,9 +671,9 @@ class FastApiContractTests(unittest.TestCase):
         )
         client = TestClient(create_app(settings))
         cases = (
-            ("QR-A1-K7Q2", "manual_id", "repeatable_scene"),
-            ("witcher-larp://qr?code=QR-A1-V8N1", "qr_scan", "always_available_scene"),
-            ("QR-A1-X3L5", "manual_id", "unique_object"),
+            ("QR-A1-TRV-001-K7Q2", "manual_id", "repeatable_scene"),
+            ("witcher-larp://qr?code=QR-A1-MAG-005-V8N1", "qr_scan", "always_available_scene"),
+            ("QR-A1-EAZ-006-X3L5", "manual_id", "unique_object"),
         )
 
         for code, source, expected_mode in cases:
@@ -626,7 +712,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "witcher-larp://qr?code=QR-A1-X3L5",
+                "code": "witcher-larp://qr?code=QR-A1-EAZ-006-X3L5",
                 "device_id": "device-review",
                 "source": "qr_scan",
                 "physical_presence_confirmed": False,
@@ -640,7 +726,7 @@ class FastApiContractTests(unittest.TestCase):
         self.assertEqual(payload["event_context"]["qr_mode"], "unique_object")
         self.assertEqual(
             payload["event_context"]["offline_instruction"],
-            "success_take_physical_qr_failure_leave_it",
+            "story_slot_complete_once_leave_printed_qr_on_board",
         )
 
     def test_qr_lookup_rate_limits_unknown_manual_ids(self) -> None:
@@ -717,7 +803,7 @@ class FastApiContractTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_HEADERS,
             json={
-                "code": "QR-A1-K7Q2",
+                "code": "QR-A1-TRV-001-K7Q2",
                 "player_id": "p_witcher_2",
                 "device_id": "device-forged-player",
                 "source": "manual_id",
@@ -1015,6 +1101,7 @@ class FastApiContractTests(unittest.TestCase):
         client = TestClient(create_app(settings))
         event_id = f"evt_{uuid4().hex}"
         with connect(settings) as connection:
+            self._set_player_stats(connection, "p_witcher_1")
             pve_payload = resolve_pve_scene(
                 connection,
                 player_id="p_witcher_1",
@@ -1388,6 +1475,30 @@ class FastApiContractTests(unittest.TestCase):
         )
         self.assertEqual(report.status, "success")
         return report
+
+    def _set_player_stats(
+        self,
+        connection,
+        player_id: str,
+        stats: dict[str, int] | None = None,
+    ) -> None:
+        stats_json = json.dumps(
+            stats or DEFAULT_WITCHER_STATS,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        connection.execute(
+            "UPDATE players SET stats_json = ? WHERE player_id = ?",
+            (stats_json, player_id),
+        )
+        connection.execute(
+            """
+            UPDATE player_runtime_state
+            SET stats_json = ?
+            WHERE player_id = ?
+            """,
+            (stats_json, player_id),
+        )
 
 
 if __name__ == "__main__":

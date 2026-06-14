@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+import collections
 import csv
 import json
 from pathlib import Path
@@ -105,6 +106,16 @@ REQUIRED_HEADERS = {
         "art_prompt_id",
         "background_asset_id",
         "card_asset_id",
+    ],
+    "territory_bonuses.csv": [
+        "bonus_id",
+        "territory_id",
+        "effect_type",
+        "effect_value",
+        "public_label",
+        "strategic_role",
+        "stacking_rule",
+        "notes",
     ],
     "movement_rules.csv": [
         "rule_id",
@@ -278,6 +289,35 @@ REQUIRED_HEADERS = {
         "check_policy",
         "combat_profile_id",
         "reward_id",
+        "scenario_title",
+        "visible_hook",
+        "player_brief",
+        "story_summary",
+        "visual_asset_id",
+        "visual_prompt",
+        "icon_key",
+        "content_lane",
+        "estimated_minutes",
+        "trial_type",
+        "trial_prompt",
+        "stat_check_label",
+        "gear_tags",
+        "monster_tags",
+        "success_consequence",
+        "partial_consequence",
+        "failure_consequence",
+        "reward_summary",
+        "world_effect",
+        "quest_flow_version",
+        "board_description",
+        "scan_reveal",
+        "choice_prompt",
+        "choice_options_json",
+        "encounter_steps_json",
+        "victory_rule",
+        "branch_reward_policy",
+        "reputation_hint",
+        "choice_morality_json",
         "success_text",
         "failure_text",
         "timeout_outcome",
@@ -460,6 +500,9 @@ REQUIRED_HEADERS = {
         "mana_max_formula",
         "mana_regen_formula",
         "spell_costs",
+        "raid_loot_static_by_tier",
+        "raid_loot_percent_current_gold",
+        "raid_loot_floor_gold",
     ],
     "lord_battle_rules.csv": [
         "rule_id",
@@ -613,15 +656,15 @@ class SeedContractTests(unittest.TestCase):
 
     def test_production_profile_players_codes_and_tokens(self) -> None:
         profile = self.rows["profiles.csv"][0]
-        self.assertEqual(profile["profile_id"], "production_15")
-        self.assertEqual(int(profile["total_people"]), 15)
-        self.assertEqual(int(profile["player_count"]), 13)
+        self.assertEqual(profile["profile_id"], "production_17")
+        self.assertEqual(int(profile["total_people"]), 17)
+        self.assertEqual(int(profile["player_count"]), 15)
         self.assertEqual(int(profile["npc_master_count"]), 2)
 
         role_counts = Counter(row["role_type"] for row in self.rows["players.csv"])
         self.assertEqual(role_counts["lord"], 4)
         self.assertEqual(role_counts["sorceress"], 4)
-        self.assertEqual(role_counts["witcher"], 5)
+        self.assertEqual(role_counts["witcher"], 7)
 
         player_ids = self.ids("players.csv", "player_id")
         code_player_ids = self.ids("player_codes.csv", "player_id")
@@ -631,9 +674,15 @@ class SeedContractTests(unittest.TestCase):
         for player in self.rows["players.csv"]:
             self.assertIn(player["player_code_id"], player_code_ids)
             stats = json.loads(player["stats_json"])
-            self.assertEqual(set(stats), CANONICAL_STATS)
-            self.assertEqual(sum(stats.values()), 7)
-            self.assertLessEqual(max(stats.values()), 3)
+            self.assertFalse(set(stats) - CANONICAL_STATS)
+            self.assertLessEqual(sum(stats.values()), 7)
+            self.assertLessEqual(max(stats.values(), default=0), 3)
+
+        player_stats = {
+            player["player_id"]: json.loads(player["stats_json"])
+            for player in self.rows["players.csv"]
+        }
+        self.assertEqual(player_stats["p_witcher_1"], {})
 
         token_roles = Counter(row["role_type"] for row in self.rows["role_tokens.csv"])
         self.assertEqual(token_roles["lord"], 4)
@@ -643,13 +692,16 @@ class SeedContractTests(unittest.TestCase):
         qr_rows = self.rows["qr_objects.csv"]
         mode_counts = Counter(row["qr_mode"] for row in qr_rows)
         act_counts = Counter(row["act_id"] for row in qr_rows)
-        self.assertEqual(len(qr_rows), 40)
-        self.assertGreaterEqual(
-            mode_counts["repeatable_scene"] + mode_counts["always_available_scene"],
-            15,
+        self.assertEqual(len(qr_rows), 72)
+        self.assertEqual(
+            mode_counts,
+            {
+                "repeatable_scene": 15,
+                "always_available_scene": 9,
+                "unique_object": 48,
+            },
         )
-        self.assertGreaterEqual(mode_counts["unique_object"], 25)
-        self.assertEqual(act_counts, {"act1": 12, "act2": 14, "act3": 14})
+        self.assertEqual(act_counts, {"act1": 20, "act2": 22, "act3": 22, "final_act": 8})
         self.assertEqual(len({row["manual_code"] for row in qr_rows}), len(qr_rows))
 
         valid_modes = {"unique_object", "repeatable_scene", "always_available_scene"}
@@ -666,24 +718,114 @@ class SeedContractTests(unittest.TestCase):
             self.assertIn(row["location_node_id"], node_ids)
             self.assertNotIn(row["location_node_id"], excluded_nodes)
             self.assertEqual(row["physical_presence_required"], "true")
-            self.assertRegex(row["manual_code"], r"^QR-A[123]-[A-Z0-9]{4}$")
+            self.assertRegex(
+                row["manual_code"],
+                r"^QR-(A[123]|FA)-[A-Z]{3}-[0-9]{3}-[A-Z0-9]{4}$",
+            )
 
         reward_ids = self.ids("rewards.csv", "reward_id")
         mob_ids = self.ids("mobs.csv", "mob_id")
         check_policy_ids = self.ids("check_policies.csv", "policy_id")
+        pve_rows = self.rows["pve_scenarios.csv"]
+        self.assertEqual(
+            Counter(row["content_lane"] for row in pve_rows),
+            {"anti_idle": 24, "story_quest": 48},
+        )
+        self.assertEqual(
+            set(row["trial_type"] for row in pve_rows),
+            {"combat", "choice", "ritual_check"},
+        )
+        self.assertEqual(
+            set(row["scene_type"] for row in pve_rows),
+            {"monster_hunt", "moral_choice", "puzzle_check"},
+        )
+        self.assertEqual(len({row["visual_asset_id"] for row in pve_rows}), len(pve_rows))
+        required_card_fields = [
+            "scenario_title",
+            "visible_hook",
+            "player_brief",
+            "story_summary",
+            "visual_asset_id",
+            "visual_prompt",
+            "icon_key",
+            "trial_prompt",
+            "stat_check_label",
+            "gear_tags",
+            "monster_tags",
+            "success_consequence",
+            "partial_consequence",
+            "failure_consequence",
+            "reward_summary",
+            "world_effect",
+            "quest_flow_version",
+            "board_description",
+            "scan_reveal",
+            "choice_prompt",
+            "choice_options_json",
+            "encounter_steps_json",
+            "victory_rule",
+            "branch_reward_policy",
+            "reputation_hint",
+            "choice_morality_json",
+        ]
         for scenario in self.rows["pve_scenarios.csv"]:
             self.assertIn(scenario["primary_stat"], CANONICAL_STATS)
             self.assertIn(scenario["reward_id"], reward_ids)
             self.assertIn(scenario["combat_profile_id"], mob_ids)
             self.assertIn(scenario["check_policy"], check_policy_ids)
             self.assertEqual(scenario["timeout_outcome"], "fail_and_cooldown")
+            for field in required_card_fields:
+                self.assertTrue(scenario[field], f"{scenario['scenario_id']} missing {field}")
+                self.assertNotIn("????", scenario[field])
+            self.assertNotIn("QR", scenario["story_summary"])
+            self.assertNotIn("QR", scenario["scan_reveal"])
+            choice_options = json.loads(scenario["choice_options_json"])
+            choice_morality = json.loads(scenario["choice_morality_json"])
+            encounter_steps = json.loads(scenario["encounter_steps_json"])
+            self.assertGreaterEqual(len(choice_options), 2)
+            self.assertEqual(
+                sorted(choice["id"] for choice in choice_options),
+                sorted(entry["option_id"] for entry in choice_morality),
+            )
+            self.assertGreaterEqual(len(encounter_steps), 3)
+            for choice in choice_options:
+                self.assertTrue({"id", "label", "description", "modifier", "stakes"} <= set(choice))
+            for entry in choice_morality:
+                self.assertTrue(
+                    {
+                        "option_id",
+                        "alignment",
+                        "good_evil_delta",
+                        "moral_axis",
+                        "hidden_moral",
+                        "reputation_reason",
+                        "visibility",
+                        "apply_on",
+                    }
+                    <= set(entry)
+                )
+                self.assertGreaterEqual(int(entry["good_evil_delta"]), -2)
+                self.assertLessEqual(int(entry["good_evil_delta"]), 2)
+                self.assertEqual(entry["visibility"], "master_only")
+            for step in encounter_steps:
+                self.assertTrue(
+                    {"step", "title", "stat", "dc", "text", "success", "failure"} <= set(step)
+                )
+            self.assertIn("2", scenario["victory_rule"])
+            self.assertIn("3", scenario["victory_rule"])
+            minutes = int(scenario["estimated_minutes"])
+            self.assertLessEqual(minutes, 15)
+            if scenario["content_lane"] == "anti_idle":
+                self.assertLessEqual(minutes, 8)
+            else:
+                self.assertGreaterEqual(minutes, 10)
 
     def test_lord_map_strategy_and_no_play_exclusions(self) -> None:
         domains = self.rows["domains.csv"]
         self.assertEqual(len(domains), 4)
         for domain in domains:
             self.assertEqual(int(domain["starting_gold"]), 80)
-            self.assertEqual(int(domain["base_income"]), 25)
+            self.assertEqual(int(domain["base_income"]), 0)
 
         excluded_nodes = {
             row["node_id"]
@@ -732,6 +874,50 @@ class SeedContractTests(unittest.TestCase):
             self.assertGreaterEqual(capacity, 5)
             self.assertLessEqual(capacity, 8)
 
+        bonuses_by_territory = {
+            row["territory_id"]: row for row in self.rows["territory_bonuses.csv"]
+        }
+        self.assertEqual(set(bonuses_by_territory), playable_ids)
+        capturable_bonuses = [
+            bonuses_by_territory[row["territory_id"]]
+            for row in capturable
+        ]
+        effect_counts = Counter(row["effect_type"] for row in capturable_bonuses)
+        self.assertGreaterEqual(len(effect_counts), 6)
+        for effect_type in {
+            "income_flat",
+            "influence_flat",
+            "mp_refill_flat",
+            "raid_defense_flat",
+            "raid_token_cap",
+            "recruit_card_unlock",
+        }:
+            self.assertGreater(effect_counts[effect_type], 0)
+        self.assertTrue(all(row["public_label"] for row in capturable_bonuses))
+
+        mob_tiers = {row["mob_id"]: int(row["tier"]) for row in self.rows["mobs.csv"]}
+        territory_by_id = {row["territory_id"]: row for row in self.rows["territories.csv"]}
+        for bonus in capturable_bonuses:
+            territory = territory_by_id[bonus["territory_id"]]
+            guard_tier = mob_tiers[territory["neutral_defense_profile_id"]]
+            strong_bonus = (
+                bonus["effect_type"] in {"mp_refill_flat", "raid_token_cap"}
+                or (
+                    bonus["effect_type"] == "income_flat"
+                    and int(bonus["effect_value"]) >= 5
+                )
+                or (
+                    bonus["effect_type"] == "influence_flat"
+                    and int(bonus["effect_value"]) >= 2
+                )
+                or (
+                    bonus["effect_type"] == "raid_defense_flat"
+                    and int(bonus["effect_value"]) >= 2
+                )
+            )
+            if strong_bonus:
+                self.assertGreaterEqual(guard_tier, 2)
+
         self.assertEqual(len(self.rows["movement_pools.csv"]), 4)
         self.assertTrue(self.rows["pending_tick_rewards.csv"])
         self.assertTrue(self.rows["army_reserves.csv"])
@@ -743,7 +929,7 @@ class SeedContractTests(unittest.TestCase):
         self.assertTrue(self.rows["raid_rules.csv"])
         self.assertTrue(self.rows["diplomacy_signals.csv"])
 
-    def test_buildings_units_and_card_conversion(self) -> None:
+    def test_buildings_units_and_personal_cards(self) -> None:
         required_buildings = {
             "Учебный двор",
             "Казармы",
@@ -800,9 +986,10 @@ class SeedContractTests(unittest.TestCase):
         }
         self.assertEqual(recruit_sources, unit_source_by_card)
 
-        unit_ids = self.ids("army_unit_cards.csv", "card_id")
         for card in self.rows["cards.csv"]:
-            self.assertIn(card["army_unit_card_id"], unit_ids)
+            self.assertEqual(card["card_type"], "personal_gwent")
+            self.assertEqual(card["army_unit_card_id"], "")
+            self.assertEqual(card["conversion_rule"], "no_lord_conversion")
 
     def assert_no_cycles(self, graph: dict[str, list[str]]) -> None:
         visiting: set[str] = set()
@@ -854,17 +1041,6 @@ class SeedContractTests(unittest.TestCase):
         self.assertEqual(rare_cards["rare_gwent_06"]["effect"], "commanders_horn")
         for card in rare_cards.values():
             self.assertEqual(int(card["deck_limit"]), 1)
-        deck = self.rows["gwent_decks.csv"][0]
-        deck_cards = [cards[card_id] for card_id in split_ids(deck["card_ids"])]
-        self.assertGreaterEqual(
-            sum(1 for card in deck_cards if card["type"] == "unit"),
-            22,
-        )
-        self.assertLessEqual(
-            sum(1 for card in deck_cards if card["type"] == "special"),
-            10,
-        )
-        self.assertEqual(cards[deck["leader_card_id"]]["type"], "leader")
         pvp_player_ids = {
             row["player_id"]
             for row in self.rows["players.csv"]
@@ -872,18 +1048,25 @@ class SeedContractTests(unittest.TestCase):
         }
         deck_player_ids = {row["player_id"] for row in self.rows["gwent_decks.csv"]}
         self.assertEqual(pvp_player_ids, deck_player_ids)
+        self.assertEqual(len(self.rows["gwent_decks.csv"]), 11)
+        self.assertEqual(
+            set(collections.Counter(row["player_id"] for row in self.rows["gwent_decks.csv"]).values()),
+            {1},
+        )
+
+        deck_signatures: set[tuple[str, ...]] = set()
+        unit_powers: list[int] = []
         for deck in self.rows["gwent_decks.csv"]:
             with self.subTest(deck=deck["deck_id"]):
-                deck_cards = [cards[card_id] for card_id in split_ids(deck["card_ids"])]
-                self.assertGreaterEqual(
-                    sum(1 for card in deck_cards if card["type"] == "unit"),
-                    22,
-                )
-                self.assertLessEqual(
-                    sum(1 for card in deck_cards if card["type"] == "special"),
-                    10,
-                )
+                card_ids = split_ids(deck["card_ids"])
+                deck_cards = [cards[card_id] for card_id in card_ids]
+                self.assertEqual(len(card_ids), 22)
+                self.assertTrue(all(card["type"] == "unit" for card in deck_cards))
                 self.assertEqual(cards[deck["leader_card_id"]]["type"], "leader")
+                deck_signatures.add(tuple(card_ids))
+                unit_powers.append(sum(int(card["strength"]) for card in deck_cards))
+        self.assertEqual(len(deck_signatures), 11)
+        self.assertLessEqual(max(unit_powers) - min(unit_powers), 5)
 
         self.assertEqual(len(self.rows["pvp_tables.csv"]), 2)
         self.assertEqual(
@@ -920,10 +1103,18 @@ class SeedContractTests(unittest.TestCase):
             addressed_count = sum(1 for order in orders if order["visibility"] == "addressed")
             self.assertLessEqual(public_count, 2)
             self.assertLessEqual(addressed_count, 1)
+        player_roles = {row["player_id"]: row["role_type"] for row in self.rows["players.csv"]}
+        for order in self.rows["orders.csv"]:
+            if order["visibility"] == "addressed":
+                self.assertEqual(player_roles[order["target_player_id"]], "witcher")
 
     def test_progression_magic_reputation_final_and_paper_contracts(self) -> None:
-        thresholds = split_ids(self.rows["balance_defaults.csv"][0]["xp_thresholds"])
+        balance_defaults = self.rows["balance_defaults.csv"][0]
+        thresholds = split_ids(balance_defaults["xp_thresholds"])
         self.assertEqual(thresholds, ["0", "10", "25", "45", "70", "100", "135", "175", "220", "270"])
+        self.assertEqual(balance_defaults["raid_loot_static_by_tier"], "T1=4;T2=8;T3=12;T4=16")
+        self.assertEqual(int(balance_defaults["raid_loot_percent_current_gold"]), 10)
+        self.assertEqual(int(balance_defaults["raid_loot_floor_gold"]), 1)
 
         for row in self.rows["xp_rules.csv"]:
             self.assertEqual(row["stat_gain_rule"], "+1_stat_per_level")
@@ -967,7 +1158,7 @@ class SeedContractTests(unittest.TestCase):
             for rule in self.rows["reputation_rules.csv"]
             for value in range(int(rule["min_value"]), int(rule["max_value"]) + 1)
         }
-        self.assertEqual(covered_reputation_values, set(range(-5, 6)))
+        self.assertEqual(covered_reputation_values, set(range(-12, 13)))
 
         rarity_rules = {row["rule_id"]: row for row in self.rows["rarity_rules.csv"]}
         self.assertEqual(rarity_rules["rare_gwent_cap"]["total_cap"], "6")

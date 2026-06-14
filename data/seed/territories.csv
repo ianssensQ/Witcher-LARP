@@ -16,7 +16,7 @@ territory_magic_corner,Charodeysky Ugol,,magic,2,mob_neutral_mage_t2
 territory_science_barn,Dvukhyarusnaya Manufaktura,,research,2,mob_neutral_guard_t2
 territory_forest_dark,Travnichya Roshcha,,artifact,2,mob_neutral_guard_t2
 territory_forest_south_garden,Nizhny Sad,,artifact,2,mob_neutral_guard_t2
-territory_lake_mist,Zerkalny Prud,,special,1,mob_neutral_patrol_t1
+territory_lake_mist,Zerkalny Prud,,special,1,mob_neutral_guard_t2
 territory_lake_south_pond,Lunnaya Zavod,,magic,1,mob_neutral_patrol_t1
 territory_swamp_black,Chernaya Top,,raid_cover,2,mob_neutral_guard_t2
 territory_mountain_north_alpine,Severny Kryazh,,defense,3,mob_neutral_beast_t3

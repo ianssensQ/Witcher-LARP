@@ -48,14 +48,19 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("/api/master/game/start-setup", script.text)
         self.assertIn("Подтверждение", script.text)
         self.assertIn("Запустить акт?", script.text)
+        self.assertIn("Хард-резет в регистрацию", script.text)
+        self.assertIn("master_admin_registration_reset", script.text)
         self.assertIn("Будут изменены только перечисленные поля", script.text)
         self.assertIn("/api/master/content/import", script.text)
         self.assertIn("/api/master/content/import-report/latest", script.text)
         self.assertIn("/api/master/content/qr-checklist", script.text)
         self.assertIn("/api/master/content/handout-checklist", script.text)
         self.assertIn("/api/master/state", script.text)
+        self.assertIn("/api/master/review-queue", script.text)
         self.assertIn("/api/master/acts/elapsed", script.text)
         self.assertIn("/api/master/game-ops/corrections", script.text)
+        self.assertIn("/api/master/admin-setup/grants", script.text)
+        self.assertIn("/api/master/orders/", script.text)
         self.assertIn("/api/master/timers/lord-income-tick", script.text)
         self.assertIn("/api/master/player-codes", script.text)
         self.assertIn("/api/lord-battles", script.text)
@@ -79,6 +84,9 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("Игроки", script.text)
         self.assertIn("Ведьмаки", script.text)
         self.assertIn("Сохранить игрока", script.text)
+        self.assertIn("Выдать ресурс", script.text)
+        self.assertIn("Готовность ведьмаков и чародеек", script.text)
+        self.assertIn("Последние выдачи", script.text)
         self.assertIn("playerGoalEditForm", script.text)
         self.assertIn("Сохранить цель", script.text)
         self.assertIn("personal_goal", script.text)
@@ -90,6 +98,8 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("Скопировать сообщение", script.text)
         self.assertIn('execCommand("copy")', script.text)
         self.assertIn("Ревью и бои", script.text)
+        self.assertIn("Заказы на проверке", script.text)
+        self.assertIn("Завершить заказ", script.text)
         self.assertIn("Одобрить", script.text)
         self.assertIn("Отклонить", script.text)
         self.assertIn("Генерация и подготовка контента", script.text)
@@ -116,8 +126,8 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("<span>Игроки</span>", page.text)
         self.assertIn("<span>Лорды</span>", page.text)
         self.assertIn("<span>Ревью</span>", page.text)
-        self.assertIn("/static/admin/admin.css?v=20260611-performance-1", page.text)
-        self.assertIn("/static/admin/admin.js?v=20260611-performance-1", page.text)
+        self.assertIn("/static/admin/admin.css?v=20260613-registration-reset-1", page.text)
+        self.assertIn("/static/admin/admin.js?v=20260613-registration-reset-1", page.text)
         self.assertIn('id="dashboard-status"', page.text)
         self.assertFalse(
             (PROJECT_ROOT / "backend" / "witcher_larp" / "web" / "package.json").exists()
@@ -332,6 +342,14 @@ class AdminStudioContractTests(unittest.TestCase):
             "/api/master/game-ops/corrections",
         )
         self.assertEqual(
+            self._actions(sections["game-ops"])["admin_setup_grant"]["endpoint"],
+            "/api/master/admin-setup/grants",
+        )
+        self.assertEqual(
+            self._actions(sections["game-ops"])["registration_hard_reset"]["endpoint"],
+            "/api/master/game/start-setup",
+        )
+        self.assertEqual(
             self._actions(sections["game-ops"])["manual_lord_tick"]["endpoint"],
             "/api/master/timers/lord-income-tick",
         )
@@ -360,6 +378,7 @@ class AdminStudioContractTests(unittest.TestCase):
         settings = self._settings("admin_game_ops")
         self._import_valid_seed(settings)
         with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
             self._insert_review(connection, event_id="ops_review_1", severity="P1")
             create_pending_reward_approval(
                 connection,
@@ -367,6 +386,31 @@ class AdminStudioContractTests(unittest.TestCase):
                 reward_id="reward_pve_t3",
                 player_id="p_witcher_1",
                 source_event_id=None,
+            )
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO order_runtime_state (
+                    order_id, lord_id, target_player_id, object_id, visibility,
+                    status, escrow_reward_id, accepted_by_player_id,
+                    submitted_by_player_id, result_event_id, reason, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "order_ops_approval",
+                    "p_lord_1",
+                    "p_witcher_1",
+                    "territory_fort_east",
+                    "public",
+                    "pending_master_approval",
+                    None,
+                    "p_witcher_1",
+                    "p_witcher_1",
+                    "event_order_ops_approval",
+                    "order proof checked on paper",
+                    "2026-06-02T09:05:00+00:00",
+                    "2026-06-02T09:10:00+00:00",
+                ),
             )
 
         client = TestClient(create_app(settings))
@@ -435,6 +479,8 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertIn("recent", payload["events"])
         self.assertIn("sync_statuses", payload["events"])
         self.assertIn("economy", payload)
+        self.assertIn("admin_setup", payload)
+        self.assertGreaterEqual(payload["admin_setup"]["summary"]["field_players"], 9)
         self.assertEqual(payload["events"]["review"]["critical_open_count"], 1)
         self.assertEqual(payload["reward_approvals"]["pending"][0]["severity"], "P1")
         self.assertTrue(
@@ -502,6 +548,57 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertEqual(reward.status_code, 200, reward.text)
         self.assertEqual(reward.json()["status"], "approved")
 
+        grant_missing_reason = client.post(
+            "/api/master/admin-setup/grants",
+            headers=MASTER_HEADERS,
+            json={
+                "player_id": "p_witcher_1",
+                "grant_type": "gold",
+                "quantity": 3,
+                "operator": "gm_ops",
+                "reason": " ",
+            },
+        )
+        self.assertEqual(grant_missing_reason.status_code, 400)
+        self.assertEqual(grant_missing_reason.json()["detail"]["code"], "missing_reason")
+
+        grant = client.post(
+            "/api/master/admin-setup/grants",
+            headers=MASTER_HEADERS,
+            json={
+                "player_id": "p_witcher_1",
+                "grant_type": "gold",
+                "quantity": 3,
+                "operator": "gm_ops",
+                "reason": "registration purse counted",
+            },
+        )
+        self.assertEqual(grant.status_code, 200, grant.text)
+        self.assertEqual(grant.json()["status"], "granted")
+        self.assertEqual(grant.json()["grant"]["grant_type"], "gold")
+
+        queue = client.get("/api/master/review-queue", headers=MASTER_HEADERS)
+        self.assertEqual(queue.status_code, 200, queue.text)
+        order_queue_item = next(
+            item for item in queue.json()["items"] if item.get("order_id") == "order_ops_approval"
+        )
+        self.assertEqual(order_queue_item["queue_type"], "lord_order")
+        self.assertEqual(order_queue_item["severity"], "P1")
+        self.assertIn("complete", order_queue_item["action_hints"])
+
+        order_resolution = client.post(
+            "/api/master/orders/order_ops_approval/resolve",
+            headers=MASTER_HEADERS,
+            json={
+                "action": "complete",
+                "player_id": "p_witcher_1",
+                "operator": "gm_ops",
+                "reason": "paper proof checked",
+            },
+        )
+        self.assertEqual(order_resolution.status_code, 200, order_resolution.text)
+        self.assertEqual(order_resolution.json()["status"], "completed")
+
         throttle = client.post(
             "/api/master/pvp-throttle",
             headers=MASTER_HEADERS,
@@ -554,6 +651,95 @@ class AdminStudioContractTests(unittest.TestCase):
         self.assertEqual(final_state["reward_approvals"]["pending_count"], 0)
         self.assertTrue(final_state["corrections"])
         self.assertEqual(final_state["backups"]["last_run"]["status"], "success")
+
+    def test_admin_registration_start_hard_resets_witcher_sorceress_state(self) -> None:
+        settings = self._settings("admin_registration_reset")
+        self._import_valid_seed(settings)
+        client = TestClient(create_app(settings))
+
+        baseline = client.get("/api/master/state", headers=MASTER_HEADERS)
+        self.assertEqual(baseline.status_code, 200, baseline.text)
+        baseline_players = {
+            row["player_id"]: row
+            for row in baseline.json()["economy"]["player_economy"]
+        }
+
+        started = client.post(
+            "/api/master/game/start-setup",
+            headers=MASTER_HEADERS,
+            json={"act_id": "act1", "operator": "gm_ops"},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+
+        with connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE player_runtime_state
+                SET gold = 777, challenge_tokens = 9
+                WHERE player_id = 'p_witcher_1'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE player_runtime_state
+                SET gold = 888, mana = 0, challenge_tokens = 9
+                WHERE player_id = 'p_sorc_1'
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO sorceress_alignment_evidence (
+                    evidence_id, sorceress_id, alignment_state, evidence_type,
+                    payload_json, visibility, final_flag, source, created_at
+                )
+                VALUES (
+                    'admin_dirty_alignment', 'p_sorc_1', 'evil_tilt', 'manual_note',
+                    '{}', 'master_and_final_summary', 1, 'test', '2026-06-02T10:30:00+00:00'
+                )
+                """
+            )
+
+        reset = client.post(
+            "/api/master/game/start-setup",
+            headers=MASTER_HEADERS,
+            json={
+                "act_id": "registration",
+                "operator": "gm_reset",
+                "source": "master_admin_registration_reset",
+            },
+        )
+        self.assertEqual(reset.status_code, 200, reset.text)
+        reset_payload = reset.json()
+        self.assertEqual(
+            reset_payload["master_state"]["acts"]["state"]["current_act_id"],
+            "registration",
+        )
+        self.assertEqual(
+            reset_payload["start_result"]["start_effects"]["registration_reset"]["status"],
+            "applied",
+        )
+
+        reset_players = {
+            row["player_id"]: row
+            for row in reset_payload["master_state"]["economy"]["player_economy"]
+        }
+        for player_id in ("p_witcher_1", "p_sorc_1"):
+            self.assertEqual(
+                {
+                    key: reset_players[player_id][key]
+                    for key in ("gold", "mana", "challenge_tokens")
+                },
+                {
+                    key: baseline_players[player_id][key]
+                    for key in ("gold", "mana", "challenge_tokens")
+                },
+            )
+
+        with connect(settings) as connection:
+            evidence_count = connection.execute(
+                "SELECT COUNT(*) FROM sorceress_alignment_evidence"
+            ).fetchone()[0]
+        self.assertEqual(evidence_count, 0)
 
     def test_admin_paper_recovery_uses_master_sync_and_conflict_review(self) -> None:
         settings = self._settings("admin_paper_recovery")

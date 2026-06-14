@@ -8,18 +8,19 @@ from typing import Any
 from .act_service import ActNotFoundError, UnlockCodeHiddenError
 from .act_service import get_act_state, record_physical_announcement, reveal_unlock_code
 from .act_service import set_active_act_elapsed_minutes, start_act
-from .admin_content import build_handout_checklist, build_qr_checklist
+from .admin_content import build_handout_checklist, build_pve_authoring_summary, build_qr_checklist
 from .admin_content import export_latest_snapshot, latest_import_report
 from .admin_content import list_content_packs, resolve_manifest_path, resolve_snapshot_dir
 from .admin_studio import build_admin_overview
 from .asset_service import AssetContractError
 from .backup_service import run_backup
+from .card_market_service import CardMarketError, buy_card
 from .config import PROJECT_ROOT, Settings
 from .database import healthcheck_database, init_database
 from .database import connect
 from .final_summary_service import build_final_summary, record_final_master_note
 from .game_ops_service import GameOpsCorrectionError
-from .game_ops_service import apply_game_ops_correction, backup_status
+from .game_ops_service import apply_admin_setup_grant, apply_game_ops_correction, backup_status
 from .game_ops_service import build_master_state, build_visibility_audit
 from .game_ops_service import list_master_player_codes
 from .import_service import DEFAULT_SNAPSHOT_DIR, import_seed_pack
@@ -50,6 +51,7 @@ from .qr_runtime import QrLookupRequest, has_qr_content, lookup_qr_runtime
 from .qr_runtime import normalize_qr_code
 from .reputation_service import ReputationError
 from .reputation_service import apply_reputation_change, get_reputation_view
+from .reputation_service import list_master_reputation_views
 from .review_service import ReviewDecisionError, decide_event_review
 from .reward_service import decide_reward_approval
 from .sorceress_service import SorceressError
@@ -68,7 +70,7 @@ try:
     from fastapi import HTTPException
     from fastapi import Request
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse, RedirectResponse
+    from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
 except ModuleNotFoundError:  # pragma: no cover - exercised in dependency smoke tests.
@@ -77,6 +79,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in dependency smoke 
     CORSMiddleware = None  # type: ignore[assignment]
     Request = object  # type: ignore[assignment,misc]
     BaseModel = object  # type: ignore[assignment,misc]
+    JSONResponse = None  # type: ignore[assignment]
 
 
 WEB_ROOT = Path(__file__).parent / "web"
@@ -91,6 +94,7 @@ API_FEATURES = (
     "ios_gwent_pvp_actions",
     "ios_gwent_preflight",
     "ios_gwent_scoiatael_first_turn",
+    "ios_inventory_market_v1",
 )
 
 
@@ -227,6 +231,12 @@ class MaterialMarketSellPayload(BaseModel):
     source: str = "ios_player_app"
 
 
+class CardMarketBuyPayload(BaseModel):
+    card_id: str
+    purchase_id: str | None = None
+    source: str = "ios_player_app"
+
+
 class TradeCreatePayload(BaseModel):
     from_player_id: str
     to_player_id: str
@@ -277,6 +287,25 @@ class GameOpsCorrectionPayload(BaseModel):
     target_id: str
     patch: dict[str, Any]
     operator: str
+    reason: str
+    source: str = "master_api"
+
+
+class AdminSetupGrantPayload(BaseModel):
+    player_id: str
+    grant_type: str
+    quantity: int = 1
+    asset_id: str | None = None
+    operator: str
+    reason: str
+    source: str = "master_admin_setup"
+
+
+class MasterOrderResolvePayload(BaseModel):
+    action: str
+    player_id: str | None = None
+    result_event_id: str | None = None
+    operator: str = "master"
     reason: str
     source: str = "master_api"
 
@@ -507,6 +536,37 @@ def create_app(settings: Settings | None = None):
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @api.exception_handler(sqlite3.OperationalError)
+    async def sqlite_operational_error_handler(
+        request: Request, exc: sqlite3.OperationalError
+    ):
+        if _is_sqlite_storage_error(exc):
+            return JSONResponse(
+                status_code=507,
+                content={
+                    "detail": {
+                        "code": "sqlite_storage_unavailable",
+                        "message": (
+                            "Local SQLite storage is full or unavailable. "
+                            "Free disk space on the master laptop and retry."
+                        ),
+                        "database_path": str(runtime_settings.database_path),
+                    }
+                },
+                headers={"Cache-Control": "no-store"},
+            )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": {
+                    "code": "sqlite_operational_error",
+                    "message": "Local SQLite operation failed.",
+                }
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
     api.mount("/static", StaticFiles(directory=WEB_ROOT), name="static")
     api.mount(
         "/assets",
@@ -523,7 +583,13 @@ def create_app(settings: Settings | None = None):
     @api.get("/admin", include_in_schema=False)
     @api.get("/admin/", include_in_schema=False)
     def admin_studio():
-        return FileResponse(ADMIN_STUDIO_INDEX)
+        return FileResponse(
+            ADMIN_STUDIO_INDEX,
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+            },
+        )
 
     @api.get("/lords", include_in_schema=False)
     @api.get("/lords/{path:path}", include_in_schema=False)
@@ -536,7 +602,13 @@ def create_app(settings: Settings | None = None):
                     "`uv run python scripts/build_lord_frontend.py` before starting production."
                 ),
             )
-        return FileResponse(LORD_FRONTEND_INDEX)
+        return FileResponse(
+            LORD_FRONTEND_INDEX,
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+            },
+        )
 
     @api.get("/health")
     def health() -> dict[str, object]:
@@ -746,6 +818,15 @@ def create_app(settings: Settings | None = None):
             _require_master_token(connection, x_role_token or role_token)
             return build_qr_checklist(connection)
 
+    @api.get("/api/master/content/pve-authoring")
+    def master_pve_authoring(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+        return build_pve_authoring_summary()
+
     @api.get("/api/master/content/handout-checklist")
     def master_handout_checklist(
         x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
@@ -858,6 +939,28 @@ def create_app(settings: Settings | None = None):
                     target_type=payload.target_type,
                     target_id=payload.target_id,
                     patch=payload.patch,
+                    operator=payload.operator,
+                    reason=payload.reason,
+                    source=payload.source,
+                )
+            except GameOpsCorrectionError as exc:
+                raise _game_ops_http_error(exc) from exc
+
+    @api.post("/api/master/admin-setup/grants")
+    def master_admin_setup_grant(
+        payload: AdminSetupGrantPayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            try:
+                return apply_admin_setup_grant(
+                    connection,
+                    player_id=payload.player_id,
+                    grant_type=payload.grant_type,
+                    asset_id=payload.asset_id,
+                    quantity=payload.quantity,
                     operator=payload.operator,
                     reason=payload.reason,
                     source=payload.source,
@@ -1295,6 +1398,15 @@ def create_app(settings: Settings | None = None):
             except ReputationError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @api.get("/api/master/reputation")
+    def master_reputation_list(
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            return list_master_reputation_views(connection)
+
     @api.post("/api/master/reputation/{player_id}/change")
     def master_change_reputation(
         player_id: str,
@@ -1395,6 +1507,31 @@ def create_app(settings: Settings | None = None):
         with connect(runtime_settings) as connection:
             _require_master_token(connection, x_role_token or role_token)
             return review_queue(connection)
+
+    @api.post("/api/master/orders/{order_id}/resolve")
+    def master_resolve_order(
+        order_id: str,
+        payload: MasterOrderResolvePayload,
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_master_token(connection, x_role_token or role_token)
+            lord_id = _master_order_lord_id(connection, order_id)
+            try:
+                return order_action(
+                    connection,
+                    lord_id,
+                    action=payload.action,
+                    order_id=order_id,
+                    player_id=payload.player_id,
+                    result_event_id=payload.result_event_id,
+                    reason=payload.reason,
+                    source=payload.source,
+                    actor_role="master",
+                )
+            except LordRuntimeError as exc:
+                raise _lord_http_error(exc) from exc
 
     @api.post("/api/events/{event_id}/review")
     def master_review_event(
@@ -1677,6 +1814,34 @@ def create_app(settings: Settings | None = None):
             except MaterialMarketError as exc:
                 raise _material_market_http_error(exc) from exc
 
+    @api.post("/api/players/{player_id}/card-market/buy")
+    def player_buy_market_card(
+        player_id: str,
+        payload: CardMarketBuyPayload,
+        x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
+        x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
+        player_code: str | None = None,
+        role_token: str | None = None,
+    ):
+        with connect(runtime_settings) as connection:
+            _require_player_or_master(
+                connection,
+                player_id=player_id,
+                player_code=x_player_code or player_code,
+                role_token=x_role_token or role_token,
+            )
+            _reconcile_due_timers(connection, runtime_settings)
+            try:
+                return buy_card(
+                    connection,
+                    player_id=player_id,
+                    card_id=payload.card_id,
+                    purchase_id=payload.purchase_id,
+                    source=payload.source,
+                )
+            except CardMarketError as exc:
+                raise _card_market_http_error(exc) from exc
+
     @api.post("/api/trade-transfers")
     def trade_transfer_create(
         payload: TradeCreatePayload,
@@ -1899,6 +2064,7 @@ def create_app(settings: Settings | None = None):
     @api.get("/api/pvp/player-state")
     def pvp_player_state(
         player_id: str | None = None,
+        include_training: bool = False,
         x_player_code: str | None = Header(default=None, alias="X-Player-Code"),
         x_role_token: str | None = Header(default=None, alias="X-Role-Token"),
         player_code: str | None = None,
@@ -1915,7 +2081,11 @@ def create_app(settings: Settings | None = None):
                 raise HTTPException(status_code=400, detail="player_id is required.")
             _reconcile_due_timers(connection, runtime_settings)
             try:
-                return get_player_pvp_state(connection, str(effective_player_id))
+                return get_player_pvp_state(
+                    connection,
+                    str(effective_player_id),
+                    include_training=include_training,
+                )
             except PvpError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2524,6 +2694,20 @@ def _require_master_token(connection, token: str | None) -> None:
         raise HTTPException(status_code=403, detail="Token cannot access master API.")
 
 
+def _master_order_lord_id(connection, order_id: str) -> str:
+    row = connection.execute(
+        """
+        SELECT lord_id
+        FROM order_runtime_state
+        WHERE order_id = ?
+        """,
+        (order_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Order was not found.")
+    return str(row["lord_id"])
+
+
 def _require_lord_battle_actor_token(connection, token: str | None):
     if not token:
         raise HTTPException(status_code=401, detail="Role token is required.")
@@ -2706,7 +2890,7 @@ def _build_mobile_qr_order_check(
         "order": {
             "order_id": str(order.get("order_id", "")),
             "lord_id": str(order.get("lord_id", "")),
-            "target_player_id": str(order.get("target_player_id", "")),
+            "target_player_id": _mobile_order_text(order.get("target_player_id")),
             "object_id": str(order.get("object_id", "")),
             "object_label": object_label,
             "object_type": object_type,
@@ -2775,11 +2959,27 @@ def _mobile_order_is_active_for_player(order: dict[str, object], player_id: str)
         return False
     if not player_id:
         return False
+    if _mobile_order_is_open_public(order, status=status):
+        return True
     return player_id in {
-        str(order.get("target_player_id", "")),
-        str(order.get("accepted_by_player_id", "")),
-        str(order.get("submitted_by_player_id", "")),
+        _mobile_order_text(order.get("target_player_id")),
+        _mobile_order_text(order.get("accepted_by_player_id")),
+        _mobile_order_text(order.get("submitted_by_player_id")),
     }
+
+
+def _mobile_order_is_open_public(order: dict[str, object], *, status: str) -> bool:
+    return (
+        _mobile_order_text(order.get("visibility")).lower() == "public"
+        and status in {"published", "failed_retryable"}
+        and not _mobile_order_text(order.get("target_player_id"))
+        and not _mobile_order_text(order.get("accepted_by_player_id"))
+        and not _mobile_order_text(order.get("submitted_by_player_id"))
+    )
+
+
+def _mobile_order_text(value: object) -> str:
+    return "" if value is None else str(value).strip()
 
 
 def _mobile_order_matches_qr(
@@ -3051,6 +3251,13 @@ def _material_market_http_error(exc: MaterialMarketError):
     )
 
 
+def _card_market_http_error(exc: CardMarketError):
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+
+
 def _asset_http_error(exc: AssetContractError):
     return HTTPException(
         status_code=exc.status_code,
@@ -3062,6 +3269,20 @@ def _game_ops_http_error(exc: GameOpsCorrectionError):
     return HTTPException(
         status_code=exc.status_code,
         detail={"code": exc.code, "message": exc.message},
+    )
+
+
+def _is_sqlite_storage_error(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    return any(
+        fragment in message
+        for fragment in (
+            "database or disk is full",
+            "disk i/o error",
+            "unable to open database file",
+            "attempt to write a readonly database",
+            "readonly database",
+        )
     )
 
 

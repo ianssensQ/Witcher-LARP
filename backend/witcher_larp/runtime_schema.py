@@ -635,6 +635,15 @@ def ensure_runtime_schema(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS card_market_purchases (
+            purchase_id TEXT PRIMARY KEY,
+            player_id TEXT NOT NULL,
+            card_id TEXT NOT NULL,
+            unit_cost INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS trade_transfer_runtime (
             transfer_id TEXT PRIMARY KEY,
             from_player_id TEXT NOT NULL,

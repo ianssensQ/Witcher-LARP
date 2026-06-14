@@ -9,9 +9,11 @@ from pathlib import Path
 import sqlite3
 
 from .csv_loader import SeedPack
+from .card_market_service import card_market_rows
 from .material_market_service import material_inventory_rows, material_market_rows
 from .repository import fetch_table
 from .reputation_service import ReputationError, get_reputation_view
+from .sorceress_service import potion_market_rows
 
 
 SNAPSHOT_TABLES = (
@@ -22,6 +24,7 @@ SNAPSHOT_TABLES = (
     "player_codes",
     "role_tokens",
     "orders",
+    "order_interest_objects",
     "qr_objects",
     "pve_scenarios",
     "pve_combat_rules",
@@ -48,6 +51,7 @@ SNAPSHOT_TABLES = (
     "final_summary_fields",
     "map_nodes",
     "territories",
+    "territory_bonuses",
     "reputation_rules",
     "favorite_rules",
     "ops_checklists",
@@ -56,6 +60,7 @@ SNAPSHOT_TABLES = (
 
 SECRET_SNAPSHOT_KEYS = {"player_codes", "role_tokens"}
 PRIVATE_PLAYER_KEYS = {"player_code_id", "reputation"}
+HIDDEN_PVE_PLAYER_FIELDS = {"choice_morality_json"}
 PLAYER_SAFE_QR_MODES = {"repeatable_scene", "always_available_scene"}
 PLAYER_PUBLIC_ARTIFACT_VISIBILITIES = {"public", "player_visible", "always_visible"}
 PLAYER_VISIBLE_ORDER_STATUSES = {
@@ -74,11 +79,22 @@ PLAYER_PUBLIC_ORDER_STATUSES = {
     "published",
     "addressed_pending",
 }
+SNAPSHOT_ITEM_TYPE_LABELS = {
+    "material": "материал",
+    "trophy": "трофей",
+    "plot_key": "сюжетный предмет",
+    "order_token": "жетон заказа",
+    "pvp_stake": "метка ставки",
+    "final_evidence": "финальное свидетельство",
+    "quest_object": "предмет",
+}
 RUNTIME_PLAYER_SNAPSHOT_KEYS = (
     "asset_ownership",
     "potion_inventory",
+    "potion_market",
     "material_inventory",
     "material_market",
+    "card_market",
     "trade_transfers",
     "reward_approvals",
 )
@@ -130,7 +146,8 @@ def build_snapshot_from_database(
         act_unlocks=act_unlocks,
         current_act_id=current_act_id,
     )
-    snapshot.update(_fetch_runtime_snapshot_rows(connection))
+    scoped_player_id = str(player_scope["player_id"]) if player_scope is not None else None
+    snapshot.update(_fetch_runtime_snapshot_rows(connection, player_id=scoped_player_id))
     if player_scope is not None:
         reputation_view = _player_reputation_view(
             connection,
@@ -266,9 +283,15 @@ def _payload_from_tables(
         ),
         "orders": _order_snapshot_rows(
             tables["orders"],
+            order_interest_objects=tables.get("order_interest_objects", []),
             qr_objects=tables["qr_objects"],
+            pve_scenarios=tables["pve_scenarios"],
             map_nodes=tables["map_nodes"],
             territories=tables["territories"],
+            rewards=tables["rewards"],
+            items=tables["items"],
+            cards=tables["cards"],
+            artifacts=tables["artifacts"],
         ),
         "qr_objects": tables["qr_objects"],
         "pve_scenarios": tables["pve_scenarios"],
@@ -299,6 +322,7 @@ def _payload_from_tables(
         "map": {
             "nodes": tables["map_nodes"],
             "territories": tables["territories"],
+            "territory_bonuses": tables["territory_bonuses"],
         },
         "descriptors": {
             "reputation_rules": tables["reputation_rules"],
@@ -523,6 +547,7 @@ def _redact_player_content(payload: dict[str, object]) -> None:
         "scenario_id",
         scenario_ids,
     )
+    scenarios = [_player_safe_pve_scenario(row) for row in scenarios]
     reward_ids = {
         str(row.get("reward_id", ""))
         for row in scenarios
@@ -620,6 +645,10 @@ def _dict_rows(rows: object) -> list[dict[str, object]]:
     return [row for row in rows if isinstance(row, dict)]
 
 
+def _player_safe_pve_scenario(row: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in row.items() if key not in HIDDEN_PVE_PLAYER_FIELDS}
+
+
 def _row_payload(row: sqlite3.Row) -> dict[str, object]:
     return {key: row[key] for key in row.keys()}
 
@@ -637,6 +666,9 @@ def _mobile_export_payload(snapshot: dict[str, object]) -> dict[str, object]:
     scope = visibility.get("scope") if isinstance(visibility, dict) else None
     for key in SECRET_SNAPSHOT_KEYS:
         payload.pop(key, None)
+    payload["pve_scenarios"] = [
+        _player_safe_pve_scenario(row) for row in _dict_rows(payload.get("pve_scenarios"))
+    ]
     if scope == "player":
         return payload
 
@@ -744,11 +776,30 @@ def _fetch_order_snapshot_rows(
 ) -> list[dict[str, object]]:
     if not _table_exists(connection, "order_runtime_state"):
         return list(fallback_rows)
+    columns = _table_columns(connection, "order_runtime_state")
+    select_columns = [
+        column
+        for column in (
+            "order_id",
+            "lord_id",
+            "target_player_id",
+            "object_id",
+            "visibility",
+            "status",
+            "escrow_reward_id",
+            "accepted_by_player_id",
+            "submitted_by_player_id",
+            "result_event_id",
+            "reason",
+            "visible_hook",
+            "created_at",
+            "updated_at",
+        )
+        if column in columns
+    ]
     rows = connection.execute(
-        """
-        SELECT order_id, lord_id, target_player_id, object_id, visibility, status,
-               escrow_reward_id, accepted_by_player_id, submitted_by_player_id,
-               result_event_id, reason, created_at, updated_at
+        f"""
+        SELECT {", ".join(select_columns)}
         FROM order_runtime_state
         ORDER BY created_at, order_id
         """
@@ -758,12 +809,18 @@ def _fetch_order_snapshot_rows(
     return [{key: row[key] for key in row.keys()} for row in rows]
 
 
-def _fetch_runtime_snapshot_rows(connection: sqlite3.Connection) -> dict[str, list[dict[str, object]]]:
+def _fetch_runtime_snapshot_rows(
+    connection: sqlite3.Connection,
+    *,
+    player_id: str | None = None,
+) -> dict[str, list[dict[str, object]]]:
     return {
         "asset_ownership": _fetch_asset_ownership_rows(connection),
         "potion_inventory": _fetch_potion_inventory_rows(connection),
+        "potion_market": potion_market_rows(connection),
         "material_inventory": material_inventory_rows(connection),
         "material_market": material_market_rows(connection),
+        "card_market": card_market_rows(connection, player_id=player_id),
         "trade_transfers": _fetch_trade_transfer_rows(connection),
         "reward_approvals": _fetch_reward_approval_rows(connection),
     }
@@ -881,6 +938,11 @@ def _fetch_reward_approval_rows(connection: sqlite3.Connection) -> list[dict[str
 
 
 def _scope_runtime_player_content(payload: dict[str, object], player_id: str) -> None:
+    payload["gwent_decks"] = [
+        row
+        for row in _dict_rows(payload.get("gwent_decks"))
+        if str(row.get("player_id", "")) == player_id
+    ]
     payload["asset_ownership"] = [
         row
         for row in _dict_rows(payload.get("asset_ownership"))
@@ -942,29 +1004,137 @@ def _merge_runtime_player_rows(
 def _order_snapshot_rows(
     rows: object,
     *,
+    order_interest_objects: object,
     qr_objects: object,
+    pve_scenarios: object,
     map_nodes: object,
     territories: object,
+    rewards: object,
+    items: object,
+    cards: object,
+    artifacts: object,
 ) -> list[dict[str, object]]:
+    interest_by_id = {
+        str(row.get("interest_id", "")): row for row in _dict_rows(order_interest_objects)
+    }
     qr_by_id = {str(row.get("qr_id", "")): row for row in _dict_rows(qr_objects)}
+    scenario_by_id = {
+        str(row.get("scenario_id", "")): row for row in _dict_rows(pve_scenarios)
+    }
     map_node_by_id = {str(row.get("node_id", "")): row for row in _dict_rows(map_nodes)}
     territory_by_id = {
         str(row.get("territory_id", "")): row for row in _dict_rows(territories)
+    }
+    reward_by_id = {str(row.get("reward_id", "")): row for row in _dict_rows(rewards)}
+    items_by_id = {str(row.get("item_id", "")): row for row in _dict_rows(items)}
+    cards_by_id = {str(row.get("card_id", "")): row for row in _dict_rows(cards)}
+    artifacts_by_id = {
+        str(row.get("artifact_id", "")): row for row in _dict_rows(artifacts)
     }
     result: list[dict[str, object]] = []
     for row in _dict_rows(rows):
         order = dict(row)
         object_id = str(order.get("object_id") or "")
-        object_label, object_type = _order_object_metadata(
+        metadata = _order_player_metadata(
+            order,
             object_id,
+            interest_by_id=interest_by_id,
             qr_by_id=qr_by_id,
+            scenario_by_id=scenario_by_id,
             map_node_by_id=map_node_by_id,
             territory_by_id=territory_by_id,
+            reward_by_id=reward_by_id,
+            items_by_id=items_by_id,
+            cards_by_id=cards_by_id,
+            artifacts_by_id=artifacts_by_id,
         )
-        order["object_label"] = object_label
-        order["object_type"] = object_type
+        order.update(metadata)
         result.append(order)
     return result
+
+
+def _order_player_metadata(
+    order: dict[str, object],
+    object_id: str,
+    *,
+    interest_by_id: dict[str, dict[str, object]],
+    qr_by_id: dict[str, dict[str, object]],
+    scenario_by_id: dict[str, dict[str, object]],
+    map_node_by_id: dict[str, dict[str, object]],
+    territory_by_id: dict[str, dict[str, object]],
+    reward_by_id: dict[str, dict[str, object]],
+    items_by_id: dict[str, dict[str, object]],
+    cards_by_id: dict[str, dict[str, object]],
+    artifacts_by_id: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    interest = interest_by_id.get(object_id)
+    qr_object: dict[str, object] | None = None
+    scenario: dict[str, object] | None = None
+    object_label = object_id
+    object_type = "unknown"
+    location_label = ""
+    proof_qr_id = ""
+
+    if interest is not None:
+        object_label = _first_text(interest.get("display_name"), object_id)
+        object_type = _first_text(interest.get("interest_type"), "order_interest")
+        proof_qr_id = _first_text(interest.get("qr_id"))
+        qr_object = qr_by_id.get(proof_qr_id)
+        scenario = scenario_by_id.get(_first_text(interest.get("scenario_id")))
+        node = map_node_by_id.get(_first_text(interest.get("location_node_id")))
+        if node is not None:
+            location_label = _first_text(node.get("name"))
+    else:
+        territory = territory_by_id.get(object_id)
+        if territory is not None:
+            object_label = _first_text(territory.get("name"), object_id)
+            object_type = "territory"
+
+        qr_object = qr_by_id.get(object_id)
+        if qr_object is not None:
+            object_type = "qr_object"
+            proof_qr_id = _first_text(qr_object.get("qr_id"), object_id)
+            node_id = _first_text(qr_object.get("location_node_id"))
+            node = map_node_by_id.get(node_id)
+            if node is not None:
+                object_label = _first_text(node.get("name"), object_id)
+                location_label = object_label
+            scenario = scenario_by_id.get(_first_text(qr_object.get("scenario_id")))
+
+    if qr_object is None and proof_qr_id:
+        qr_object = qr_by_id.get(proof_qr_id)
+    if scenario is None and qr_object is not None:
+        scenario = scenario_by_id.get(_first_text(qr_object.get("scenario_id")))
+
+    reward = reward_by_id.get(_first_text(order.get("escrow_reward_id")))
+    reward_label = _reward_label_for_snapshot(
+        reward,
+        items_by_id=items_by_id,
+        cards_by_id=cards_by_id,
+        artifacts_by_id=artifacts_by_id,
+    )
+    if not reward_label and scenario is not None:
+        reward_label = _first_text(scenario.get("reward_summary"))
+
+    visible_hook = _first_text(
+        order.get("visible_hook"),
+        scenario.get("visible_hook") if scenario is not None else None,
+        scenario.get("mission_text") if scenario is not None else None,
+        scenario.get("board_description") if scenario is not None else None,
+        scenario.get("player_brief") if scenario is not None else None,
+    )
+
+    return {
+        "object_label": object_label,
+        "object_type": object_type,
+        "location_label": location_label,
+        "scenario_id": _first_text(scenario.get("scenario_id")) if scenario is not None else "",
+        "proof_qr_id": proof_qr_id,
+        "visible_hook": visible_hook,
+        "reward_label": reward_label,
+        "reward_gold": _to_int(reward.get("gold")) if reward is not None else 0,
+        "reward_xp": _to_int(reward.get("xp")) if reward is not None else 0,
+    }
 
 
 def _order_object_metadata(
@@ -987,6 +1157,88 @@ def _order_object_metadata(
         return object_id, "qr_object"
 
     return object_id, "unknown"
+
+
+def _reward_label_for_snapshot(
+    reward: dict[str, object] | None,
+    *,
+    items_by_id: dict[str, dict[str, object]],
+    cards_by_id: dict[str, dict[str, object]],
+    artifacts_by_id: dict[str, dict[str, object]],
+) -> str:
+    if reward is None:
+        return ""
+    parts: list[str] = []
+    gold = _to_int(reward.get("gold"))
+    xp = _to_int(reward.get("xp"))
+    if gold:
+        parts.append(f"{gold} золота")
+    if xp:
+        parts.append(f"{xp} опыта")
+    for item_id in _split_ids(reward.get("item_ids")):
+        parts.append(_item_label_for_snapshot(items_by_id.get(item_id), item_id))
+    for card_id in _split_ids(reward.get("card_ids")):
+        parts.append(_card_label_for_snapshot(cards_by_id.get(card_id), card_id))
+    for artifact_id in _split_ids(reward.get("artifact_ids")):
+        parts.append(_artifact_label_for_snapshot(artifacts_by_id.get(artifact_id), artifact_id))
+    return ", ".join(parts) if parts else "Награда без выплаты"
+
+
+def _item_label_for_snapshot(row: dict[str, object] | None, item_id: str) -> str:
+    if row is None:
+        return _humanize_identifier(item_id)
+    item_type = _first_text(row.get("item_type"))
+    label = SNAPSHOT_ITEM_TYPE_LABELS.get(item_type, _humanize_identifier(item_type))
+    tier = _first_text(row.get("tier"))
+    return f"{label}" + (f", тир {tier}" if tier else "")
+
+
+def _card_label_for_snapshot(row: dict[str, object] | None, card_id: str) -> str:
+    if row is None:
+        return "карта"
+    name = _first_text(row.get("name"), row.get("display_name"), card_id)
+    tier = _first_text(row.get("tier"))
+    return f"карта: {name}" + (f", тир {tier}" if tier else "")
+
+
+def _artifact_label_for_snapshot(row: dict[str, object] | None, artifact_id: str) -> str:
+    if row is None:
+        return _humanize_identifier(artifact_id)
+    rarity = _first_text(row.get("rarity"), "Rare")
+    return f"артефакт {rarity}"
+
+
+def _first_text(*values: object) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _split_ids(value: object) -> list[str]:
+    return [
+        part.strip()
+        for part in str(value or "").replace(",", ";").split(";")
+        if part.strip()
+    ]
+
+
+def _humanize_identifier(value: object) -> str:
+    text = str(value or "").strip()
+    for prefix in (
+        "interest_",
+        "reward_",
+        "item_",
+        "pc_",
+        "artifact_",
+        "qr_",
+        "order_",
+    ):
+        if text.startswith(prefix):
+            text = text[len(prefix) :]
+            break
+    return text.replace("_", " ").strip() or "объект"
 
 
 def _scope_orders(orders: object, player_id: str) -> list[dict[str, object]]:

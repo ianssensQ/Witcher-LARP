@@ -19,7 +19,9 @@ const els = {
 };
 
 const VIEWS = [
+  { id: "setup", label: "Setup игры", status: "setup" },
   { id: "lords", label: "Пульт лордов", status: "watch" },
+  { id: "orders", label: "Заказы", status: "attention" },
   { id: "game", label: "Пульт игры", status: "live" },
   { id: "players", label: "Игроки", status: "watch" },
   { id: "codes", label: "Коды", status: "setup" },
@@ -28,6 +30,7 @@ const VIEWS = [
 ];
 
 const ADMIN_AUTO_REFRESH_MS = 10_000;
+const REGISTRATION_ACT_ID = "registration";
 const LORD_PATCH_LABELS = {
   gold: "Золото",
   current_mp: "MP сейчас",
@@ -39,9 +42,10 @@ let session = null;
 let overview = null;
 let masterState = null;
 let lordBattles = { items: [] };
+let reviewQueue = null;
 let playerCodes = { items: [], total: 0, enabled_count: 0 };
 let contentState = null;
-let activeViewId = "lords";
+let activeViewId = "setup";
 let autoRefreshId = null;
 let refreshInFlight = false;
 let queuedManualRefresh = false;
@@ -66,9 +70,10 @@ els.logoutButton.addEventListener("click", () => {
   overview = null;
   masterState = null;
   lordBattles = { items: [] };
+  reviewQueue = null;
   playerCodes = { items: [], total: 0, enabled_count: 0 };
   contentState = null;
-  activeViewId = "lords";
+  activeViewId = "setup";
   queuedManualRefresh = false;
   pendingAutoRender = false;
   els.dashboard.hidden = true;
@@ -139,15 +144,17 @@ async function refreshAll(options = {}) {
       return masterState;
     }
 
-    const [overviewPayload, statePayload, battlesPayload, codesPayload] = await Promise.all([
+    const [overviewPayload, statePayload, battlesPayload, queuePayload, codesPayload] = await Promise.all([
       apiJson("/api/master/admin/overview"),
       apiJson("/api/master/state"),
       apiJson("/api/lord-battles").catch(() => ({ items: [] })),
+      apiJson("/api/master/review-queue").catch(() => null),
       apiJson("/api/master/player-codes").catch(() => ({ items: [], total: 0, enabled_count: 0 })),
     ]);
     overview = overviewPayload;
     masterState = statePayload;
     lordBattles = battlesPayload || { items: [] };
+    reviewQueue = queuePayload;
     playerCodes = codesPayload || { items: [], total: 0, enabled_count: 0 };
     renderFreshState({ deferActiveView: isAuto && isMasterEditing() });
     if (!isAuto) setDashboardStatus("Состояние игры обновлено");
@@ -252,8 +259,10 @@ function renderActiveView() {
   }
   const view = VIEWS.find((item) => item.id === activeViewId) || VIEWS[0];
   els.workspace.append(pageHeader(view.label, viewIntro(view.id)));
+  if (view.id === "setup") renderSetupView();
   if (view.id === "game") renderGameView();
   if (view.id === "lords") renderLordsView();
+  if (view.id === "orders") renderOrdersView();
   if (view.id === "players") renderPlayersView();
   if (view.id === "codes") renderPlayerCodesView();
   if (view.id === "review") renderReviewView();
@@ -305,6 +314,49 @@ function renderGameView() {
   els.workspace.append(overviewPanel);
 }
 
+function renderSetupView() {
+  const setupPlayers = setupPlayersList();
+  const panel = sectionPanel("Предыгровая настройка", "main-panel");
+  panel.append(summaryCards([
+    ["Ведьмаки/чародейки", setupPlayers.length],
+    ["Готовы", adminSetupSummary().ready_players || 0],
+    ["Нужно внимание", adminSetupSummary().needs_attention || 0],
+    ["Выдач", adminSetupGrants().length],
+  ]));
+  panel.append(actionBar([
+    actionButton("Обновить", () => refreshAll(), "secondary"),
+    actionButton("Коды игроков", () => switchView("codes"), "secondary"),
+    actionButton("Редактировать цели", () => switchView("players"), "secondary"),
+    actionButton("Заказы", () => switchView("orders"), "secondary"),
+    actionButton("Хард-резет в регистрацию", () => hardResetToRegistration(), "danger"),
+  ]));
+  panel.append(playerGrantForm(setupPlayers));
+  panel.append(blockTitle("Готовность ведьмаков и чародеек"));
+  panel.append(readinessTable(setupPlayers));
+  panel.append(blockTitle("Последние выдачи"));
+  panel.append(setupGrantTable(adminSetupGrants()));
+  els.workspace.append(panel);
+}
+
+function renderOrdersView() {
+  const rows = masterOrderItems();
+  const reviewRows = rows.filter((row) => ["P0", "P1"].includes(String(row.severity || "")));
+  const panel = sectionPanel("Заказы и спорные решения", "main-panel");
+  panel.append(summaryCards([
+    ["Открытые заказы", rows.length],
+    ["Требуют мастера", reviewRows.length],
+    ["Награды ждут", rows.filter((row) => row.status === "pending_master_approval").length],
+    ["Споры", rows.filter((row) => row.status === "contested_review").length],
+  ]));
+  panel.append(actionBar([
+    actionButton("Обновить", () => refreshAll(), "secondary"),
+    actionButton("Ревью", () => switchView("review"), "secondary"),
+    actionButton("Лорды", () => switchView("lords"), "secondary"),
+  ]));
+  panel.append(orderReviewTable(rows));
+  els.workspace.append(panel);
+}
+
 function startGameForm() {
   const form = document.createElement("form");
   form.className = "form-grid quick-form";
@@ -323,28 +375,34 @@ function startGameForm() {
     event.preventDefault();
     const actId = form.querySelector("#start-act").value || "act1";
     const operator = form.querySelector("#start-operator").value.trim() || "master";
+    const isRegistrationReset = actId === REGISTRATION_ACT_ID;
     const confirmed = await confirmAction({
-      title: "Запустить акт?",
-      body: `Будет запущен ${actLabel(actId)}. Если это текущий акт, отсчет начнется заново с 0 минут.`,
+      title: isRegistrationReset ? "Хард-резет в регистрацию?" : "Запустить акт?",
+      body: isRegistrationReset
+        ? "Состояние ведьмаков, чародеек, лордов, событий и таймеров будет очищено до предыгрового старта."
+        : `Будет запущен ${actLabel(actId)}. Если это текущий акт, отсчет начнется заново с 0 минут.`,
       details: [
         ["Акт", actLabel(actId)],
         ["Оператор", operator],
+        ...(isRegistrationReset ? [["Итог", "текущий этап станет Регистрация"]] : []),
       ],
-      confirmLabel: "Запустить акт",
+      confirmLabel: isRegistrationReset ? "Сбросить в регистрацию" : "Запустить акт",
       danger: true,
     });
     if (!confirmed) return;
     await runAction(
-      "Запускаю акт",
+      isRegistrationReset ? "Сбрасываю состояние в регистрацию" : "Запускаю акт",
       () => apiJson("/api/master/game/start-setup", {
         method: "POST",
         body: {
           act_id: actId,
           operator,
+          source: isRegistrationReset ? "master_admin_registration_reset" : "master_start_setup",
           physical_announcement_state: "announced",
         },
       }),
       (result) => {
+        if (isRegistrationReset) return "Хард-резет выполнен: этап Регистрация";
         if (result.status === "restarted") return `${actLabel(actId)} перезапущен, отсчет идет с 0 минут`;
         if (result.status === "switched") return `Игра переведена на ${actLabel(actId)}`;
         return `Игра запущена: ${actLabel(actId)}`;
@@ -352,6 +410,34 @@ function startGameForm() {
     );
   });
   return form;
+}
+
+async function hardResetToRegistration(operator = "master") {
+  const confirmed = await confirmAction({
+    title: "Хард-резет в регистрацию?",
+    body: "Админка очистит игровое состояние и вернет ведьмаков и чародеек в предыгровую готовность.",
+    details: [
+      ["Акт", actLabel(REGISTRATION_ACT_ID)],
+      ["Игроков в setup", adminSetupSummary().field_players || 0],
+      ["Оператор", operator],
+    ],
+    confirmLabel: "Сбросить",
+    danger: true,
+  });
+  if (!confirmed) return;
+  await runAction(
+    "Сбрасываю состояние в регистрацию",
+    () => apiJson("/api/master/game/start-setup", {
+      method: "POST",
+      body: {
+        act_id: REGISTRATION_ACT_ID,
+        operator,
+        source: "master_admin_registration_reset",
+        physical_announcement_state: "announced",
+      },
+    }),
+    () => "Хард-резет выполнен: этап Регистрация"
+  );
 }
 
 function timeControlForm(elapsed) {
@@ -602,7 +688,14 @@ function lordEditForm(domains) {
 
 function renderPlayersView() {
   const players = playersList();
+  const setupPlayers = setupPlayersList();
   const panel = sectionPanel("Игроки", "main-panel");
+  panel.append(summaryCards([
+    ["Ведьмаки/чародейки", setupPlayers.length],
+    ["Готовы", adminSetupSummary().ready_players || 0],
+    ["Нужно внимание", adminSetupSummary().needs_attention || 0],
+    ["Выдач", adminSetupGrants().length],
+  ]));
   panel.append(filterTabs("player-role-filter", [
     ["all", "Все"],
     ["witcher", "Ведьмаки"],
@@ -613,22 +706,226 @@ function renderPlayersView() {
   grid.id = "players-grid";
   panel.append(grid);
   panel.append(playerEditForm(players));
+  panel.append(playerChallengeTokenForm(players));
+  panel.append(playerGrantForm(setupPlayers));
   panel.append(playerGoalEditForm(players));
+  panel.append(blockTitle("Готовность ведьмаков и чародеек"));
+  panel.append(readinessTable(setupPlayers));
+  panel.append(blockTitle("Последние выдачи"));
+  panel.append(setupGrantTable(adminSetupGrants()));
   els.workspace.append(panel);
   setupPlayerFilter(panel, players);
 }
 
 function playerCard(player) {
   const goal = playerGoalsFor(player.player_id)[0];
+  const setup = setupPlayerById(player.player_id);
   return entityCard(playerTitle(player), [
     ["Роль", roleLabel(player.role_type)],
+    ["Готовность", setup ? readinessLabel(setup) : "не требуется"],
     ["Уровень", player.level ?? 1],
     ["Золото", player.gold ?? 0],
     ["XP", player.xp ?? 0],
     ["Мана", `${player.mana ?? 0}/${player.max_mana ?? 0}`],
-    ["Вызовы", player.challenge_tokens ?? 0],
+    ["Жетоны сражений", player.challenge_tokens ?? 0],
     ["Цель", goal?.public_text || "не задана"],
   ], { role: player.role_type });
+}
+
+function playerChallengeTokenForm(players) {
+  const form = document.createElement("form");
+  form.className = "form-grid quick-form";
+  if (!players.length) {
+    form.innerHTML = `
+      <div class="field wide">
+        <span>Жетоны сражений</span>
+        <p class="status-line">Нет игроков для пополнения жетонов.</p>
+      </div>
+    `;
+    return form;
+  }
+  form.innerHTML = `
+    <label class="field wide">
+      <span>Кому пополнить</span>
+      <select id="challenge-token-player-id">${options(players.map((player) => [
+        player.player_id,
+        `${playerTitle(player)} · ${roleLabel(player.role_type)} · жетоны ${player.challenge_tokens ?? 0}`,
+      ]))}</select>
+    </label>
+    <label class="field">
+      <span>Добавить жетонов</span>
+      <input id="challenge-token-quantity" type="number" min="1" step="1" value="3">
+    </label>
+    <label class="field wide">
+      <span>Причина</span>
+      <input id="challenge-token-reason" autocomplete="off" required value="ручное пополнение жетонов сражений">
+    </label>
+    <button type="submit">Пополнить жетоны</button>
+  `;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const playerId = form.querySelector("#challenge-token-player-id").value;
+    const player = players.find((item) => item.player_id === playerId);
+    if (!player) {
+      setDashboardStatus("Выберите игрока для пополнения");
+      return;
+    }
+    const quantity = Number.parseInt(form.querySelector("#challenge-token-quantity").value || "0", 10);
+    const reason = form.querySelector("#challenge-token-reason").value.trim();
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setDashboardStatus("Количество жетонов должно быть положительным");
+      return;
+    }
+    if (!reason) {
+      setDashboardStatus("Укажите причину пополнения");
+      return;
+    }
+    const currentTokens = Number(player.challenge_tokens ?? 0);
+    const nextTokens = currentTokens + quantity;
+    const confirmed = await confirmAction({
+      title: `Пополнить жетоны: ${playerTitle(player)}?`,
+      body: "Жетоны сражений будут прибавлены к текущему балансу игрока.",
+      details: [
+        ["Игрок", playerTitle(player)],
+        ["Сейчас", currentTokens],
+        ["Добавить", quantity],
+        ["Станет", nextTokens],
+        ["Причина", reason],
+      ],
+      confirmLabel: "Пополнить",
+      danger: true,
+    });
+    if (!confirmed) return;
+    await runAction(
+      "Пополняю жетоны",
+      () => apiJson("/api/master/game-ops/corrections", {
+        method: "POST",
+        body: {
+          target_type: "player",
+          target_id: player.player_id,
+          patch: { challenge_tokens: nextTokens },
+          operator: "master",
+          reason,
+        },
+      }),
+      "Жетоны пополнены"
+    );
+  });
+  return form;
+}
+
+function playerGrantForm(players) {
+  const form = document.createElement("form");
+  form.className = "form-grid quick-form";
+  if (!players.length) {
+    form.innerHTML = `
+      <div class="field wide">
+        <span>Выдача ресурсов</span>
+        <p class="status-line">Нет ведьмаков или чародеек для предыгровой выдачи.</p>
+      </div>
+    `;
+    return form;
+  }
+  form.innerHTML = `
+    <label class="field wide">
+      <span>Кому выдать</span>
+      <select id="grant-player-id">${options(players.map((player) => [
+        player.player_id,
+        `${playerTitleById(player.player_id, player.display_name)} · ${roleLabel(player.role_type)}`,
+      ]))}</select>
+    </label>
+    <label class="field">
+      <span>Тип</span>
+      <select id="grant-type">
+        <option value="gold">Золото</option>
+        <option value="card">Карта</option>
+        <option value="item">Предмет</option>
+        <option value="artifact">Артефакт</option>
+      </select>
+    </label>
+    <label class="field wide">
+      <span>Что выдать</span>
+      <select id="grant-asset-id"></select>
+    </label>
+    <label class="field">
+      <span>Количество</span>
+      <input id="grant-quantity" type="number" min="1" step="1" value="1">
+    </label>
+    <label class="field">
+      <span>Оператор</span>
+      <input id="grant-operator" autocomplete="off" value="master">
+    </label>
+    <label class="field wide">
+      <span>Причина</span>
+      <input id="grant-reason" autocomplete="off" required value="предыгровая выдача">
+    </label>
+    <button type="submit">Выдать ресурс</button>
+  `;
+  const typeSelect = form.querySelector("#grant-type");
+  const assetSelect = form.querySelector("#grant-asset-id");
+  const fillAssetOptions = () => {
+    const grantType = typeSelect.value;
+    const catalog = setupAssetCatalog(grantType);
+    assetSelect.disabled = grantType === "gold";
+    assetSelect.replaceChildren(...catalog.map((asset) => {
+      const option = document.createElement("option");
+      option.value = asset.asset_id;
+      option.textContent = assetLabel(asset);
+      return option;
+    }));
+    if (grantType === "gold") {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "Золото";
+      assetSelect.replaceChildren(option);
+    }
+  };
+  typeSelect.addEventListener("change", fillAssetOptions);
+  fillAssetOptions();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const playerId = form.querySelector("#grant-player-id").value;
+    const grantType = typeSelect.value;
+    const quantity = Number(form.querySelector("#grant-quantity").value || 1);
+    const assetId = grantType === "gold" ? null : assetSelect.value;
+    const operator = form.querySelector("#grant-operator").value.trim() || "master";
+    const reason = form.querySelector("#grant-reason").value.trim();
+    if (!reason) {
+      setDashboardStatus("Укажите причину выдачи");
+      return;
+    }
+    const confirmed = await confirmAction({
+      title: `Выдать ресурс: ${playerTitleById(playerId)}?`,
+      body: "Выдача попадёт в журнал и обновит состояние игрока.",
+      details: [
+        ["Игрок", playerTitleById(playerId)],
+        ["Тип", grantTypeLabel(grantType)],
+        ["Ресурс", grantType === "gold" ? "золото" : assetId],
+        ["Количество", quantity],
+        ["Оператор", operator],
+        ["Причина", reason],
+      ],
+      confirmLabel: "Выдать",
+      danger: true,
+    });
+    if (!confirmed) return;
+    await runAction(
+      "Выдаю ресурс",
+      () => apiJson("/api/master/admin-setup/grants", {
+        method: "POST",
+        body: {
+          player_id: playerId,
+          grant_type: grantType,
+          asset_id: assetId,
+          quantity,
+          operator,
+          reason,
+        },
+      }),
+      "Ресурс выдан"
+    );
+  });
+  return form;
 }
 
 function playerEditForm(players) {
@@ -795,6 +1092,38 @@ function setupPlayerFilter(panel, players) {
   }
 }
 
+function readinessTable(players) {
+  return simpleTable(
+    ["Игрок", "Роль", "Код", "Цели", "Карты", "Предметы", "Статус"],
+    players.map((player) => [
+      playerTitleById(player.player_id, player.display_name),
+      roleLabel(player.role_type),
+      player.player_code_enabled ? "активен" : "нет кода",
+      player.goal_count || 0,
+      player.asset_counts?.card?.quantity || 0,
+      player.asset_counts?.item?.quantity || 0,
+      readinessLabel(player),
+    ]),
+    "Готовность ещё не рассчитана"
+  );
+}
+
+function setupGrantTable(rows) {
+  return simpleTable(
+    ["Время", "Игрок", "Тип", "Ресурс", "Количество", "Оператор", "Причина"],
+    rows.map((row) => [
+      shortDate(row.created_at),
+      playerTitleById(row.player_id),
+      grantTypeLabel(row.grant_type),
+      row.asset_id || "золото",
+      row.quantity,
+      row.operator,
+      row.reason,
+    ]),
+    "Выдач пока нет"
+  );
+}
+
 function renderPlayerCodesView() {
   const panel = sectionPanel("Коды игроков", "main-panel");
   panel.append(heroBlock([
@@ -864,9 +1193,10 @@ function renderReviewView() {
   const panel = sectionPanel("Ревью и бои", "main-panel");
   panel.append(summaryCards([
     ["Активные бои", activeBattles().length],
-    ["События", reviewItems().length],
+    ["События", eventReviewItems().length],
+    ["Заказы", orderReviewItems().length],
     ["Награды", rewardItems().length],
-    ["Критичные", masterState.events?.review?.critical_open_count || 0],
+    ["Критичные", criticalReviewCount()],
   ]));
   panel.append(blockTitle("Бои лордов"));
   panel.append(simpleTable(
@@ -880,8 +1210,12 @@ function renderReviewView() {
     ]),
     "Активных боёв нет"
   ));
+  panel.append(blockTitle("Заказы на проверке"));
+  panel.append(orderReviewTable(orderReviewItems()));
   panel.append(blockTitle("События на проверке"));
-  panel.append(reviewTable(reviewItems()));
+  panel.append(reviewTable(eventReviewItems()));
+  panel.append(blockTitle("Сценарные решения"));
+  panel.append(npcReviewTable(npcReviewItems()));
   panel.append(blockTitle("Награды на подтверждении"));
   panel.append(rewardTable(rewardItems()));
   els.workspace.append(panel);
@@ -903,6 +1237,54 @@ function reviewTable(rows) {
     "Событий на проверке нет"
   );
   return table;
+}
+
+function orderReviewTable(rows) {
+  return actionTable(
+    ["Заказ", "Лорд", "Игрок", "Статус", "Причина", "Действие"],
+    rows,
+    (row) => [
+      row.order_id,
+      domainTitleById(row.domain_id) || playerTitleById(row.lord_id),
+      playerTitleById(row.submitted_by_player_id || row.accepted_by_player_id || row.target_player_id),
+      humanStatus(row.status),
+      row.reason || "-",
+      orderActions(row),
+    ],
+    "Заказов на проверке нет"
+  );
+}
+
+function npcReviewTable(rows) {
+  return simpleTable(
+    ["NPC", "Событие", "Важность", "Статус", "Причина"],
+    rows.map((row) => [
+      row.npc_role,
+      row.event_type,
+      row.severity,
+      humanStatus(row.status),
+      row.reason || row.meaning || "-",
+    ]),
+    "NPC-решений на проверке нет"
+  );
+}
+
+function orderActions(row) {
+  const hints = row.action_hints || [];
+  const buttons = [];
+  if (hints.includes("complete")) {
+    buttons.push(actionButton("Завершить", () => decideOrder(row, "complete"), "secondary"));
+  }
+  if (hints.includes("fail_retryable")) {
+    buttons.push(actionButton("Повторить", () => decideOrder(row, "fail_retryable"), "secondary"));
+  }
+  if (hints.includes("contested_review")) {
+    buttons.push(actionButton("Оспорить", () => decideOrder(row, "contested_review"), "secondary"));
+  }
+  if (hints.includes("fail_closed")) {
+    buttons.push(actionButton("Закрыть", () => decideOrder(row, "fail_closed"), "danger"));
+  }
+  return buttons.length ? actionBar(buttons) : document.createTextNode("нет действий");
 }
 
 function rewardTable(rows) {
@@ -1133,6 +1515,43 @@ async function decideReward(row, action) {
       },
     }),
     "Решение по награде сохранено"
+  );
+}
+
+async function decideOrder(row, action) {
+  const labels = {
+    complete: "Завершить заказ",
+    fail_retryable: "Вернуть в повтор",
+    contested_review: "Отправить в спор",
+    fail_closed: "Закрыть провалом",
+  };
+  const reason = labels[action] || "решение мастера";
+  const confirmed = await confirmAction({
+    title: `${reason}?`,
+    body: "Решение изменит состояние заказа на общей доске.",
+    details: [
+      ["Заказ", row.order_id],
+      ["Лорд", domainTitleById(row.domain_id) || playerTitleById(row.lord_id)],
+      ["Игрок", playerTitleById(row.submitted_by_player_id || row.accepted_by_player_id || row.target_player_id)],
+      ["Текущий статус", humanStatus(row.status)],
+    ],
+    confirmLabel: reason,
+    danger: action === "fail_closed",
+  });
+  if (!confirmed) return;
+  await runAction(
+    "Сохраняю решение по заказу",
+    () => apiJson(`/api/master/orders/${encodeURIComponent(row.order_id)}/resolve`, {
+      method: "POST",
+      body: {
+        action,
+        player_id: row.submitted_by_player_id || row.accepted_by_player_id || row.target_player_id || null,
+        result_event_id: row.result_event_id || null,
+        operator: "master",
+        reason: reason.toLowerCase(),
+      },
+    }),
+    "Решение по заказу сохранено"
   );
 }
 
@@ -1383,6 +1802,30 @@ function playersList() {
   return masterState?.economy?.player_economy || [];
 }
 
+function adminSetupState() {
+  return masterState?.admin_setup || {};
+}
+
+function adminSetupSummary() {
+  return adminSetupState().summary || {};
+}
+
+function setupPlayersList() {
+  return adminSetupState().players || [];
+}
+
+function setupPlayerById(playerId) {
+  return setupPlayersList().find((player) => player.player_id === playerId);
+}
+
+function setupAssetCatalog(type) {
+  return adminSetupState().asset_catalog?.[type] || [];
+}
+
+function adminSetupGrants() {
+  return adminSetupState().recent_grants || [];
+}
+
 function playerGoalsList() {
   return masterState?.economy?.personal_goals || [];
 }
@@ -1539,7 +1982,52 @@ function previewText(rows, emptyText) {
 }
 
 function reviewItems() {
+  if (Array.isArray(reviewQueue?.items)) return reviewQueue.items;
   return masterState?.events?.review?.open_items || [];
+}
+
+function eventReviewItems() {
+  return reviewItems().filter((item) => !item.queue_type || item.queue_type === "event_review");
+}
+
+function orderReviewItems() {
+  return reviewItems().filter((item) => item.queue_type === "lord_order");
+}
+
+function masterOrderItems() {
+  const queued = orderReviewItems();
+  if (queued.length) return queued;
+  return lordDomains().flatMap((domain) => {
+    return activeOrders(domain).map((order) => ({
+      queue_type: "lord_order",
+      order_id: order.order_id,
+      lord_id: order.lord_id,
+      domain_id: domain.domain_id,
+      target_player_id: order.target_player_id,
+      accepted_by_player_id: order.accepted_by_player_id,
+      submitted_by_player_id: order.submitted_by_player_id,
+      object_id: order.object_id,
+      visibility: order.visibility,
+      status: order.status,
+      escrow_reward_id: order.escrow_reward_id,
+      result_event_id: order.result_event_id,
+      reason: order.reason,
+      severity: ["pending_master_approval", "contested_review", "submitted_pending_sync"].includes(String(order.status))
+        ? "P1"
+        : "P2",
+      action_hints: orderActionHints(String(order.status)),
+      created_at: order.created_at,
+      updated_at: order.updated_at,
+    }));
+  });
+}
+
+function npcReviewItems() {
+  return reviewItems().filter((item) => item.queue_type === "npc_event");
+}
+
+function criticalReviewCount() {
+  return reviewItems().filter((item) => ["P0", "P1"].includes(String(item.severity || ""))).length;
 }
 
 function rewardItems() {
@@ -1548,7 +2036,11 @@ function rewardItems() {
 
 function actOptions() {
   const current = masterState?.acts?.state?.current_act_id || "act1";
-  return (masterState?.acts?.acts || [])
+  const acts = [...(masterState?.acts?.acts || [])];
+  if (!acts.some((act) => act.act_id === REGISTRATION_ACT_ID)) {
+    acts.unshift({ act_id: REGISTRATION_ACT_ID });
+  }
+  return acts
     .map((act) => `<option value="${escapeHtml(act.act_id)}"${act.act_id === current ? " selected" : ""}>${escapeHtml(actLabel(act.act_id))}</option>`)
     .join("");
 }
@@ -1622,6 +2114,47 @@ function sumRows(rows) {
   return (rows || []).reduce((sum, row) => sum + Number(row.count || 0), 0);
 }
 
+function readinessLabel(player) {
+  if (!player) return "-";
+  if (player.readiness_status === "ready") return "готов";
+  const missing = player.readiness_missing || [];
+  if (!missing.length) return "нужно внимание";
+  const labels = {
+    player_code_enabled: "код",
+    runtime_ready: "runtime",
+    snapshot_ready: "снапшот",
+    goals_ready: "цель",
+  };
+  return `нет: ${missing.map((item) => labels[item] || item).join(", ")}`;
+}
+
+function grantTypeLabel(type) {
+  const labels = {
+    gold: "золото",
+    card: "карта",
+    item: "предмет",
+    artifact: "артефакт",
+  };
+  return labels[type] || type || "-";
+}
+
+function orderActionHints(status) {
+  if (["pending_master_approval", "submitted_pending_sync"].includes(status)) {
+    return ["complete", "fail_retryable", "contested_review"];
+  }
+  if (status === "contested_review") return ["fail_closed", "fail_retryable"];
+  if (status === "failed_retryable") return ["contested_review", "fail_closed"];
+  return ["contested_review", "fail_closed"];
+}
+
+function assetLabel(asset) {
+  if (!asset) return "-";
+  const bits = [asset.label || asset.asset_id];
+  if (asset.tier) bits.push(`T${asset.tier}`);
+  if (asset.item_type) bits.push(asset.item_type);
+  return bits.filter(Boolean).join(" · ");
+}
+
 function roleLabel(role) {
   const labels = {
     lord: "лорд",
@@ -1644,6 +2177,16 @@ function humanStatus(status) {
     needs_attention: "нужно внимание",
     needs_master_review: "нужен мастер",
     not_started: "игра не начата",
+    published: "на доске",
+    addressed_pending: "адресный",
+    accepted: "принят",
+    in_progress: "в работе",
+    claimed_at_prop: "у объекта",
+    submitted_pending_sync: "сдан, ждёт",
+    failed_retryable: "можно повторить",
+    contested_review: "спор",
+    completed: "выполнен",
+    failed_closed: "закрыт провалом",
   };
   return labels[status] || status || "-";
 }
@@ -1683,6 +2226,8 @@ function contentSourceName(value) {
 
 function viewIntro(viewId) {
   const intros = {
+    setup: "выдача карт, предметов, золота и готовность игроков",
+    orders: "заказы лордов, награды и спорные решения",
     game: "запуск, время и общий ход игры",
     lords: "наблюдение и быстрые правки лордов",
     players: "наблюдение и быстрые правки игроков",
@@ -1694,6 +2239,11 @@ function viewIntro(viewId) {
 }
 
 function viewBadgeText(viewId) {
+  if (viewId === "setup") {
+    const summary = adminSetupSummary();
+    return summary.needs_attention ? `${summary.needs_attention}!` : "готово";
+  }
+  if (viewId === "orders") return String(masterOrderItems().length || 0);
   if (viewId === "review") {
     const total = reviewItems().length + rewardItems().length + activeBattles().length;
     return total ? String(total) : "чисто";
@@ -1709,6 +2259,8 @@ function viewBadgeText(viewId) {
 }
 
 function viewBadgeClass(viewId) {
+  if (viewId === "setup") return adminSetupSummary().needs_attention ? "warn" : "ready";
+  if (viewId === "orders") return masterOrderItems().length ? "warn" : "ready";
   if (viewId === "review") {
     return reviewItems().length + rewardItems().length + activeBattles().length ? "warn" : "ready";
   }

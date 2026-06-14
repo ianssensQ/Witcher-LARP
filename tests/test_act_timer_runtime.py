@@ -158,7 +158,7 @@ class ActTimerRuntimeTests(unittest.TestCase):
         self.assertEqual(north_reserve["count"], north_growth["after"])
         self.assertEqual(dict(sorceress), {"mana": 2, "max_mana": 7})
         self.assertEqual(witcher["challenge_tokens"], 3)
-        self.assertEqual(lord["challenge_tokens"], 0)
+        self.assertEqual(lord["challenge_tokens"], 3)
         self.assertEqual(window_count, 4)
 
         with connect(settings) as restarted_connection:

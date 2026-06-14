@@ -12,7 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from .asset_service import AssetContractError
-from .asset_service import assert_asset_unlocked, debit_asset_ownership, lock_owned_asset
+from .asset_service import assert_asset_unlocked, lock_owned_asset
 from .asset_service import ownership_for_asset, settle_owned_asset_lock
 from .gwent_effects import GWENT_ROWS, GWENT_WEATHER_BY_EFFECT
 from .gwent_effects import is_gwent_effect_supported
@@ -26,6 +26,16 @@ FINAL_CHALLENGE_STATES = {"resolved", "cancelled", "rejected"}
 REFUNDABLE_PRE_START_REFUSALS = {"safety_stop", "unsafe_path", "force_majeure"}
 GOLD_STAKE_ASSET_TYPE = "gold"
 GOLD_STAKE_ASSET_ID = "gold"
+POTION_STAKE_ASSET_TYPE = "potion"
+STAKE_ASSET_TYPES = {
+    "gold",
+    "card",
+    "item",
+    "artifact",
+    "potion",
+    "order_object",
+    "quest_object",
+}
 GWENT_BOT_PLAYER_ID = "p_gwent_bot_training"
 GWENT_BOT_DISPLAY_NAME = "Тренировочный соперник"
 GWENT_PENDING_ROUND_STATUS = "pending_player_submissions"
@@ -332,21 +342,76 @@ def get_pvp_tables(connection: sqlite3.Connection) -> dict[str, Any]:
     return {"throttle": throttle, "tables": tables, "queued_challenges": queued}
 
 
-def get_player_pvp_state(connection: sqlite3.Connection, player_id: str) -> dict[str, Any]:
+def _pvp_opponent_options(connection: sqlite3.Connection, player_id: str) -> list[dict[str, Any]]:
+    role_expr = "LOWER(COALESCE(NULLIF(prs.role_type, ''), p.role_type))"
+    rows = connection.execute(
+        f"""
+        SELECT
+            p.player_id,
+            COALESCE(NULLIF(prs.role_type, ''), p.role_type) AS role_type,
+            COALESCE(NULLIF(p.display_name, ''), p.player_id) AS display_name,
+            COALESCE(NULLIF(rs.label, ''), 'Нейтральный') AS reputation_label,
+            COALESCE(NULLIF(rs.player_descriptor, ''), '') AS reputation_descriptor
+        FROM players p
+        LEFT JOIN player_runtime_state prs ON prs.player_id = p.player_id
+        LEFT JOIN reputation_state rs ON rs.player_id = p.player_id
+        WHERE {role_expr} IN ('witcher', 'sorceress')
+          AND p.player_id != ?
+        ORDER BY
+            CASE {role_expr}
+                WHEN 'witcher' THEN 1
+                WHEN 'sorceress' THEN 2
+                ELSE 9
+            END,
+            display_name COLLATE NOCASE,
+            p.player_id
+        """,
+        (player_id,),
+    ).fetchall()
+    return [
+        {
+            "player_id": str(row["player_id"]),
+            "role_type": str(row["role_type"]),
+            "display_name": str(row["display_name"]),
+            "reputation_label": str(row["reputation_label"]),
+            "reputation_descriptor": str(row["reputation_descriptor"]),
+        }
+        for row in rows
+    ]
+
+
+def get_player_pvp_state(
+    connection: sqlite3.Connection,
+    player_id: str,
+    *,
+    include_training: bool = False,
+) -> dict[str, Any]:
     """Return the participant-scoped active Gwent state for a mobile client."""
     ensure_pvp_runtime_state(connection)
     normalized_player_id = str(player_id).strip()
     if not normalized_player_id:
         raise PvpError("player_id is required for PvP state.")
 
-    active_challenge = _active_challenge_for_player(connection, normalized_player_id)
-    active_match = _active_match_for_player(connection, normalized_player_id)
+    active_challenge = _active_challenge_for_player(
+        connection,
+        normalized_player_id,
+        include_training=include_training,
+    )
+    active_match = _active_match_for_player(
+        connection,
+        normalized_player_id,
+        include_training=include_training,
+    )
     if active_match is None and active_challenge is not None:
         active_match = _match_by_challenge(connection, str(active_challenge["challenge_id"]))
     recent_match = (
         None
         if active_match is not None
-        else _recent_finished_match_for_player(connection, normalized_player_id)
+        else _recent_finished_match_for_player(
+            connection,
+            normalized_player_id,
+            include_training=include_training,
+        )
     )
     runtime_row = connection.execute(
         """
@@ -398,6 +463,7 @@ def get_player_pvp_state(connection: sqlite3.Connection, player_id: str) -> dict
     return {
         "player_id": normalized_player_id,
         "opponent_id": opponent_id,
+        "opponents": _pvp_opponent_options(connection, normalized_player_id),
         "role_type": str(runtime_row["role_type"]) if runtime_row is not None else None,
         "challenge_tokens": challenge_tokens,
         "can_create_challenge": bool(challenge_tokens > 0 and active_challenge is None and active_match is None),
@@ -420,7 +486,12 @@ def get_player_pvp_state(connection: sqlite3.Connection, player_id: str) -> dict
     }
 
 
-def _active_challenge_for_player(connection: sqlite3.Connection, player_id: str) -> sqlite3.Row | None:
+def _active_challenge_for_player(
+    connection: sqlite3.Connection,
+    player_id: str,
+    *,
+    include_training: bool = False,
+) -> sqlite3.Row | None:
     placeholders = ", ".join("?" for _ in ACTIVE_CHALLENGE_STATES)
     return connection.execute(
         f"""
@@ -428,38 +499,58 @@ def _active_challenge_for_player(connection: sqlite3.Connection, player_id: str)
         FROM pvp_challenges
         WHERE (challenger_id = ? OR target_id = ?)
           AND status IN ({placeholders})
+          AND (? OR (challenger_id != ? AND target_id != ?))
         ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC
         LIMIT 1
         """,
-        (player_id, player_id, *sorted(ACTIVE_CHALLENGE_STATES)),
+        (
+            player_id,
+            player_id,
+            *sorted(ACTIVE_CHALLENGE_STATES),
+            include_training,
+            GWENT_BOT_PLAYER_ID,
+            GWENT_BOT_PLAYER_ID,
+        ),
     ).fetchone()
 
 
-def _active_match_for_player(connection: sqlite3.Connection, player_id: str) -> sqlite3.Row | None:
+def _active_match_for_player(
+    connection: sqlite3.Connection,
+    player_id: str,
+    *,
+    include_training: bool = False,
+) -> sqlite3.Row | None:
     return connection.execute(
         """
         SELECT *
         FROM gwent_runtime_matches
         WHERE (challenger_id = ? OR target_id = ?)
           AND status != 'finished'
+          AND (? OR (challenger_id != ? AND target_id != ?))
         ORDER BY COALESCE(started_at, created_at) DESC, created_at DESC
         LIMIT 1
         """,
-        (player_id, player_id),
+        (player_id, player_id, include_training, GWENT_BOT_PLAYER_ID, GWENT_BOT_PLAYER_ID),
     ).fetchone()
 
 
-def _recent_finished_match_for_player(connection: sqlite3.Connection, player_id: str) -> sqlite3.Row | None:
+def _recent_finished_match_for_player(
+    connection: sqlite3.Connection,
+    player_id: str,
+    *,
+    include_training: bool = False,
+) -> sqlite3.Row | None:
     return connection.execute(
         """
         SELECT *
         FROM gwent_runtime_matches
         WHERE (challenger_id = ? OR target_id = ?)
           AND status = 'finished'
+          AND (? OR (challenger_id != ? AND target_id != ?))
         ORDER BY COALESCE(finished_at, started_at, created_at) DESC, created_at DESC
         LIMIT 1
         """,
-        (player_id, player_id),
+        (player_id, player_id, include_training, GWENT_BOT_PLAYER_ID, GWENT_BOT_PLAYER_ID),
     ).fetchone()
 
 
@@ -1243,7 +1334,7 @@ def start_gwent_bot_match(
     if not player_id:
         raise PvpError("player_id is required for bot Gwent match.")
     _require_personal_pvp_player(connection, player_id)
-    if _active_challenge_exists(connection, player_id):
+    if _active_challenge_exists(connection, player_id, include_training=True):
         raise PvpError(f"Player already has an active PvP challenge: {player_id}")
 
     challenge_id = f"gwent_bot_challenge_{uuid4().hex}"
@@ -2477,7 +2568,7 @@ def record_pvp_refusal(
             release_table=True,
         )
     if not in_started_match and reason in REFUNDABLE_PRE_START_REFUSALS:
-        stake_refund = _refund_gold_stake_once(
+        stake_refund = _refund_stake_once(
             connection,
             challenge_id=challenge_id,
             now=current_time,
@@ -2511,117 +2602,11 @@ def convert_personal_card_to_lord(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     ensure_pvp_runtime_state(connection)
-    current_time = now or datetime.now(UTC)
-    existing = connection.execute(
-        """
-        SELECT *
-        FROM personal_card_conversions
-        WHERE player_id = ? AND personal_card_id = ?
-        """,
-        (player_id, personal_card_id),
-    ).fetchone()
-    if existing is not None:
-        return {**_conversion_row_to_dict(existing), "duplicate": True}
-
-    _require_personal_pvp_player(connection, player_id)
-    card = _fetch_required(connection, "cards", "card_id", personal_card_id)
-    if str(card["card_type"]) != "personal_to_army" or not card["army_unit_card_id"]:
-        raise PvpError(f"Card cannot be converted to a lord unit: {personal_card_id}")
-    domain = _fetch_optional(
-        connection,
-        "domains",
-        "lord_player_id",
-        lord_id,
+    raise PvpError(
+        "Personal Gwent cards cannot be converted into lord army unit cards. "
+        "Use trade_transfers for personal assets; lord army cards come from "
+        "recruit, building, or lord runtime sources."
     )
-    if domain is None:
-        raise PvpError(f"Unknown lord player for card conversion: {lord_id}")
-    army_card_id = str(card["army_unit_card_id"])
-    tier = _to_int(card["tier"])
-    try:
-        assert_asset_unlocked(
-            connection,
-            asset_type="card",
-            asset_id=personal_card_id,
-            owner_player_id=player_id,
-            purpose="lord card transfer",
-        )
-        ownership_before = ownership_for_asset(
-            connection,
-            owner_player_id=player_id,
-            asset_type="card",
-            asset_id=personal_card_id,
-        )
-        if _to_int(ownership_before["quantity"]) < 1:
-            raise AssetContractError(
-                "asset_owner_mismatch",
-                f"{player_id} does not own personal card {personal_card_id}.",
-                409,
-            )
-        ownership_after = debit_asset_ownership(
-            connection,
-            owner_player_id=player_id,
-            asset_type="card",
-            asset_id=personal_card_id,
-            quantity=1,
-            now=current_time,
-        )
-    except AssetContractError as exc:
-        raise PvpError(exc.message) from exc
-    conversion_id = f"card_conversion_{uuid4().hex}"
-    connection.execute(
-        """
-        INSERT INTO personal_card_conversions (
-            conversion_id, player_id, lord_id, domain_id, personal_card_id,
-            army_unit_card_id, tier, status, source, created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'converted', ?, ?)
-        """,
-        (
-            conversion_id,
-            player_id,
-            lord_id,
-            domain["domain_id"],
-            personal_card_id,
-            army_card_id,
-            tier,
-            source,
-            _iso(current_time),
-        ),
-    )
-    reserve_id = f"reserve_{domain['domain_id']}_{army_card_id}_conversion"
-    connection.execute(
-        """
-        INSERT INTO army_reserve_runtime (
-            reserve_id, domain_id, card_id, count, status, updated_at
-        )
-        VALUES (?, ?, ?, 1, 'available', ?)
-        ON CONFLICT(reserve_id) DO UPDATE SET
-            count = count + 1,
-            updated_at = excluded.updated_at
-        """,
-        (reserve_id, domain["domain_id"], army_card_id, _iso(current_time)),
-    )
-    payload = {
-        "conversion_id": conversion_id,
-        "player_id": player_id,
-        "lord_id": lord_id,
-        "domain_id": domain["domain_id"],
-        "personal_card_id": personal_card_id,
-        "army_unit_card_id": army_card_id,
-        "tier": tier,
-        "reserve_id": reserve_id,
-        "ownership_debit": {
-            "asset_type": "card",
-            "asset_id": personal_card_id,
-            "owner_player_id": player_id,
-            "quantity_before": _to_int(ownership_before["quantity"]),
-            "quantity_debited": 1,
-            "quantity_after": _to_int(ownership_after["quantity"]),
-        },
-        "duplicate": False,
-    }
-    log_event(connection, "personal_card_converted_to_lord", payload, source=source, created_at=current_time)
-    return payload
 
 
 def _build_player_deck_state(
@@ -4373,6 +4358,14 @@ def _lock_stake(
             amount=quantity,
             now=now,
         )
+    elif _is_potion_stake(stake):
+        _take_potion_inventory(
+            connection,
+            player_id=owner_player_id,
+            potion_id=stake["asset_id"],
+            quantity=quantity,
+            now=_iso(now),
+        )
     connection.execute(
         """
         INSERT INTO pvp_stake_ledger (
@@ -4405,10 +4398,18 @@ def _lock_stake(
             lock_type="pvp_stake",
             source_ref_id=challenge_id,
             reason="pending PvP stake",
-            require_existing_owner=True,
+            require_existing_owner=not _is_potion_stake(stake),
             now=now,
         )
     except AssetContractError as exc:
+        if _is_potion_stake(stake):
+            _add_potion_inventory(
+                connection,
+                player_id=owner_player_id,
+                potion_id=stake["asset_id"],
+                quantity=quantity,
+                now=_iso(now),
+            )
         raise PvpError(exc.message) from exc
 
 
@@ -4457,6 +4458,26 @@ def _apply_stake_once(
             """,
             (quantity, _iso(now), winner_id),
         )
+    elif _is_potion_stake(dict(row)):
+        _add_potion_inventory(
+            connection,
+            player_id=winner_id,
+            potion_id=str(row["asset_id"]),
+            quantity=quantity,
+            now=_iso(now),
+        )
+        try:
+            settle_owned_asset_lock(
+                connection,
+                lock_type="pvp_stake",
+                source_ref_id=challenge_id,
+                target_player_id=winner_id,
+                final_status="consumed",
+                reason="PvP potion stake resolved",
+                now=now,
+            )
+        except AssetContractError as exc:
+            raise PvpError(exc.message) from exc
     else:
         try:
             settle_owned_asset_lock(
@@ -4470,6 +4491,86 @@ def _apply_stake_once(
             )
         except AssetContractError as exc:
             raise PvpError(exc.message) from exc
+    return _stake_row_to_dict(
+        connection.execute(
+            "SELECT * FROM pvp_stake_ledger WHERE stake_ledger_id = ?",
+            (row["stake_ledger_id"],),
+        ).fetchone()
+    )
+
+
+def _refund_stake_once(
+    connection: sqlite3.Connection,
+    *,
+    challenge_id: str,
+    now: datetime,
+) -> dict[str, Any] | None:
+    row = connection.execute(
+        """
+        SELECT *
+        FROM pvp_stake_ledger
+        WHERE challenge_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (challenge_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    if str(row["status"]) != "locked":
+        return _stake_row_to_dict(row)
+    quantity = _stake_quantity(dict(row))
+    if _is_gold_stake(dict(row)):
+        connection.execute(
+            """
+            UPDATE player_runtime_state
+            SET gold = gold + ?, updated_at = ?
+            WHERE player_id = ?
+            """,
+            (quantity, _iso(now), row["owner_player_id"]),
+        )
+    elif _is_potion_stake(dict(row)):
+        _add_potion_inventory(
+            connection,
+            player_id=str(row["owner_player_id"]),
+            potion_id=str(row["asset_id"]),
+            quantity=quantity,
+            now=_iso(now),
+        )
+        try:
+            settle_owned_asset_lock(
+                connection,
+                lock_type="pvp_stake",
+                source_ref_id=challenge_id,
+                target_player_id=None,
+                final_status="released",
+                reason="PvP stake refunded",
+                now=now,
+            )
+        except AssetContractError as exc:
+            raise PvpError(exc.message) from exc
+    else:
+        try:
+            settle_owned_asset_lock(
+                connection,
+                lock_type="pvp_stake",
+                source_ref_id=challenge_id,
+                target_player_id=None,
+                final_status="released",
+                reason="PvP stake refunded",
+                now=now,
+            )
+        except AssetContractError as exc:
+            raise PvpError(exc.message) from exc
+    connection.execute(
+        """
+        UPDATE pvp_stake_ledger
+        SET status = 'refunded',
+            applied_at = ?
+        WHERE stake_ledger_id = ? AND status = 'locked'
+        """,
+        (_iso(now), row["stake_ledger_id"]),
+    )
     return _stake_row_to_dict(
         connection.execute(
             "SELECT * FROM pvp_stake_ledger WHERE stake_ledger_id = ?",
@@ -5322,7 +5423,12 @@ def _final_lock_active(connection: sqlite3.Connection) -> bool:
     return bool(row and row["locked_at"])
 
 
-def _active_challenge_exists(connection: sqlite3.Connection, player_id: str) -> bool:
+def _active_challenge_exists(
+    connection: sqlite3.Connection,
+    player_id: str,
+    *,
+    include_training: bool = False,
+) -> bool:
     placeholders = ", ".join("?" for _ in ACTIVE_CHALLENGE_STATES)
     row = connection.execute(
         f"""
@@ -5330,9 +5436,17 @@ def _active_challenge_exists(connection: sqlite3.Connection, player_id: str) -> 
         FROM pvp_challenges
         WHERE status IN ({placeholders})
           AND (challenger_id = ? OR target_id = ?)
+          AND (? OR (challenger_id != ? AND target_id != ?))
         LIMIT 1
         """,
-        (*sorted(ACTIVE_CHALLENGE_STATES), player_id, player_id),
+        (
+            *sorted(ACTIVE_CHALLENGE_STATES),
+            player_id,
+            player_id,
+            include_training,
+            GWENT_BOT_PLAYER_ID,
+            GWENT_BOT_PLAYER_ID,
+        ),
     ).fetchone()
     return row is not None
 
@@ -5355,13 +5469,16 @@ def _validate_stake(stake: dict[str, Any]) -> dict[str, Any]:
             "quantity": amount,
             "transfer_on_finish": bool(stake.get("transfer_on_finish", True)),
         }
+    if asset_type not in STAKE_ASSET_TYPES:
+        raise PvpError(f"Unsupported PvP stake asset_type: {asset_type or '<empty>'}.")
     asset_id = str(stake.get("asset_id") or "").strip()
     if not asset_type or not asset_id:
         raise PvpError("PvP stake requires asset_type and asset_id.")
+    quantity = _stake_quantity(stake)
     return {
         "asset_type": asset_type,
         "asset_id": asset_id,
-        "quantity": 1,
+        "quantity": quantity,
         "transfer_on_finish": bool(stake.get("transfer_on_finish", True)),
     }
 
@@ -5380,13 +5497,26 @@ def _assert_stake_asset_owned(
             f"Unknown PvP stake asset: {asset_type}:{asset_id}.",
             404,
         )
+    quantity = _stake_quantity(stake)
+    if _is_potion_stake(stake):
+        available = _potion_quantity(connection, owner_player_id, asset_id)
+        if available < quantity:
+            raise AssetContractError(
+                "asset_owner_mismatch",
+                (
+                    f"{owner_player_id} does not own enough PvP stake "
+                    f"asset {asset_type}:{asset_id}."
+                ),
+                409,
+            )
+        return
     ownership = ownership_for_asset(
         connection,
         owner_player_id=owner_player_id,
         asset_type=asset_type,
         asset_id=asset_id,
     )
-    if _to_int(ownership["quantity"]) < 1:
+    if _to_int(ownership["quantity"]) < quantity:
         raise AssetContractError(
             "asset_owner_mismatch",
             f"{owner_player_id} does not own PvP stake asset {asset_type}:{asset_id}.",
@@ -5399,6 +5529,10 @@ def _is_gold_stake(stake: dict[str, Any]) -> bool:
         str(stake.get("asset_type") or "").strip().lower() == GOLD_STAKE_ASSET_TYPE
         and str(stake.get("asset_id") or "").strip().lower() == GOLD_STAKE_ASSET_ID
     )
+
+
+def _is_potion_stake(stake: dict[str, Any]) -> bool:
+    return str(stake.get("asset_type") or "").strip().lower() == POTION_STAKE_ASSET_TYPE
 
 
 def _stake_quantity(stake: dict[str, Any]) -> int:
@@ -5451,50 +5585,59 @@ def _reserve_gold_stake(
         _assert_gold_stake_available(connection, player_id=player_id, amount=amount)
 
 
-def _refund_gold_stake_once(
-    connection: sqlite3.Connection,
-    *,
-    challenge_id: str,
-    now: datetime,
-) -> dict[str, Any] | None:
+def _potion_quantity(connection: sqlite3.Connection, player_id: str, potion_id: str) -> int:
     row = connection.execute(
         """
-        SELECT *
-        FROM pvp_stake_ledger
-        WHERE challenge_id = ?
-        ORDER BY created_at DESC
-        LIMIT 1
+        SELECT quantity
+        FROM potion_inventory
+        WHERE player_id = ? AND potion_id = ?
         """,
-        (challenge_id,),
+        (player_id, potion_id),
     ).fetchone()
-    if row is None or not _is_gold_stake(dict(row)):
-        return None
-    if str(row["status"]) != "locked":
-        return _stake_row_to_dict(row)
-    amount = _stake_quantity(dict(row))
+    return 0 if row is None else _to_int(row["quantity"])
+
+
+def _add_potion_inventory(
+    connection: sqlite3.Connection,
+    *,
+    player_id: str,
+    potion_id: str,
+    quantity: int,
+    now: str,
+) -> None:
+    inventory_id = f"inventory_{player_id}_{potion_id}"
     connection.execute(
         """
-        UPDATE player_runtime_state
-        SET gold = gold + ?, updated_at = ?
-        WHERE player_id = ?
+        INSERT INTO potion_inventory (inventory_id, player_id, potion_id, quantity, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(player_id, potion_id) DO UPDATE SET
+            quantity = potion_inventory.quantity + excluded.quantity,
+            updated_at = excluded.updated_at
         """,
-        (amount, _iso(now), row["owner_player_id"]),
+        (inventory_id, player_id, potion_id, quantity, now),
     )
-    connection.execute(
+
+
+def _take_potion_inventory(
+    connection: sqlite3.Connection,
+    *,
+    player_id: str,
+    potion_id: str,
+    quantity: int,
+    now: str,
+) -> None:
+    cursor = connection.execute(
         """
-        UPDATE pvp_stake_ledger
-        SET status = 'refunded',
-            applied_at = ?
-        WHERE stake_ledger_id = ? AND status = 'locked'
+        UPDATE potion_inventory
+        SET quantity = quantity - ?, updated_at = ?
+        WHERE player_id = ? AND potion_id = ? AND quantity >= ?
         """,
-        (_iso(now), row["stake_ledger_id"]),
+        (quantity, now, player_id, potion_id, quantity),
     )
-    return _stake_row_to_dict(
-        connection.execute(
-            "SELECT * FROM pvp_stake_ledger WHERE stake_ledger_id = ?",
-            (row["stake_ledger_id"],),
-        ).fetchone()
-    )
+    if cursor.rowcount == 0:
+        raise PvpError(
+            f"{player_id} does not have enough potion inventory for PvP stake: {potion_id}."
+        )
 
 
 def _stake_asset_exists(connection: sqlite3.Connection, asset_type: str, asset_id: str) -> bool:
@@ -5502,7 +5645,9 @@ def _stake_asset_exists(connection: sqlite3.Connection, asset_type: str, asset_i
         "item": (("items", "item_id"),),
         "card": (("cards", "card_id"), ("gwent_cards", "card_id")),
         "artifact": (("artifacts", "artifact_id"),),
-        "order_object": (("items", "item_id"),),
+        "potion": (("potions", "potion_id"),),
+        "order_object": (("items", "item_id"), ("order_interest_objects", "interest_id"), ("qr_objects", "qr_id")),
+        "quest_object": (("items", "item_id"), ("order_interest_objects", "interest_id"), ("qr_objects", "qr_id")),
         "final_object": (("items", "item_id"), ("artifacts", "artifact_id")),
     }
     refs = content_refs.get(str(asset_type).strip().lower())
@@ -5528,6 +5673,8 @@ def _stake_asset_exists(connection: sqlite3.Connection, asset_type: str, asset_i
 
 def _stake_locked(connection: sqlite3.Connection, asset_type: str, asset_id: str) -> bool:
     if str(asset_type).strip().lower() == GOLD_STAKE_ASSET_TYPE:
+        return False
+    if str(asset_type).strip().lower() == POTION_STAKE_ASSET_TYPE:
         return False
     row = connection.execute(
         """

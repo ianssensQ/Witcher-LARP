@@ -33,6 +33,8 @@ SECRET_VALUES = (
     "WC-GRIFFIN-7LX2",
     "WC-BEAR-3SC5",
     "WC-VIPER-9BZ1",
+    "WC-MANTI-4PD6",
+    "WC-CRANE-8KY3",
     "LORD-NORTH-R8K4",
     "LORD-RIVER-M2J9",
     "LORD-FOREST-P6W3",
@@ -84,7 +86,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
             apply_reputation_change(
                 connection,
                 "p_witcher_1",
-                3,
+                4,
                 reason="public contract accepted",
             )
             snapshot = build_snapshot_from_database(
@@ -103,7 +105,7 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
         reputation = player["reputation_state"]
         assert isinstance(reputation, dict)
 
-        self.assertEqual(master_view["value"], 3)
+        self.assertEqual(master_view["value"], 4)
         self.assertNotIn("reputation", player)
         self.assertNotIn("value", reputation)
         self.assertNotIn("change_log", reputation)
@@ -150,8 +152,8 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
         self.assertEqual(artifact_rows, [])
 
         dumped = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
-        self.assertNotIn("QR-A1-X3L5", dumped)
-        self.assertNotIn("QR-A2-B4K8", dumped)
+        self.assertNotIn("QR-A1-EAZ-006-X3L5", dumped)
+        self.assertNotIn("QR-A2-TRV-013-B4K8", dumped)
         self.assertNotIn("Fang secured", dumped)
         self.assertNotIn("artifact_black_seal", dumped)
         self.assertNotIn("artifact_crow_feather", dumped)
@@ -365,6 +367,11 @@ class SnapshotExporterSecurityTests(unittest.TestCase):
             ["approval_w1"],
         )
         self.assertEqual(snapshot["reward_approvals"][0]["locked_assets"][0]["asset_id"], "item_order_seal")
+        self.assertEqual(len(snapshot["gwent_decks"]), 1)
+        self.assertEqual(
+            {row["player_id"] for row in snapshot["gwent_decks"]},
+            {"p_witcher_1"},
+        )
 
         self.assertNotIn(
             "item_beast_fang",

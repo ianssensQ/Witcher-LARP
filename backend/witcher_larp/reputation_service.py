@@ -10,8 +10,8 @@ from typing import Any
 from .runtime_schema import log_event
 
 
-REPUTATION_MIN = -5
-REPUTATION_MAX = 5
+REPUTATION_MIN = -12
+REPUTATION_MAX = 12
 REPUTATION_ROLES = {"witcher", "sorceress"}
 
 CANONICAL_LABELS: dict[str, str] = {
@@ -28,11 +28,11 @@ CANONICAL_LABELS: dict[str, str] = {
 }
 
 FALLBACK_RULES = (
-    ("rep_darkness", -5, -4, "Darkness", "feared"),
-    ("rep_tainted", -3, -2, "Tainted", "untrusted"),
-    ("rep_neutral", -1, 1, "Neutral", "uncertain"),
-    ("rep_good", 2, 3, "Good", "trusted"),
-    ("rep_light", 4, 5, "Light", "celebrated"),
+    ("rep_darkness", -12, -9, "Darkness", "feared"),
+    ("rep_tainted", -8, -4, "Tainted", "untrusted"),
+    ("rep_neutral", -3, 3, "Neutral", "uncertain"),
+    ("rep_good", 4, 8, "Good", "trusted"),
+    ("rep_light", 9, 12, "Light", "celebrated"),
 )
 
 THRESHOLD_ACCESS: dict[str, dict[str, object]] = {
@@ -111,6 +111,50 @@ def get_reputation_view(
     else:
         base["value_visibility"] = "hidden_from_player"
     return base
+
+
+def list_master_reputation_views(connection: sqlite3.Connection) -> dict[str, object]:
+    rows = connection.execute(
+        """
+        SELECT player_id, display_name, role_type
+        FROM players
+        WHERE role_type IN ('witcher', 'sorceress')
+        ORDER BY role_type, display_name, player_id
+        """
+    ).fetchall()
+    items: list[dict[str, object]] = []
+    for row in rows:
+        view = get_reputation_view(connection, str(row["player_id"]), visibility="master")
+        items.append(
+            {
+                **view,
+                "display_name": row["display_name"],
+            }
+        )
+
+    return {
+        "scope": "master",
+        "roles": sorted(REPUTATION_ROLES),
+        "range": {
+            "min": REPUTATION_MIN,
+            "max": REPUTATION_MAX,
+            "start": 0,
+        },
+        "thresholds": [
+            {
+                "rule_id": rule.rule_id,
+                "min": rule.min_value,
+                "max": rule.max_value,
+                "state_label": rule.label,
+                "canonical_label": rule.canonical_label,
+                "player_descriptor": rule.player_descriptor,
+                "threshold_access": threshold_access(rule),
+            }
+            for rule in _reputation_rules(connection)
+        ],
+        "items": items,
+        "total": len(items),
+    }
 
 
 def apply_reputation_change(
@@ -248,42 +292,47 @@ def _ensure_player_state(connection: sqlite3.Connection, player_id: str) -> sqli
 
 def _rule_for_value(connection: sqlite3.Connection, value: int) -> ReputationRule:
     value = _clamp(value)
-    row = None
+    for rule in _reputation_rules(connection):
+        if rule.min_value <= value <= rule.max_value:
+            return rule
+    raise ReputationError(f"No reputation rule covers value {value}.")
+
+
+def _reputation_rules(connection: sqlite3.Connection) -> list[ReputationRule]:
+    rows = []
     if _table_exists(connection, "reputation_rules"):
-        row = connection.execute(
+        rows = connection.execute(
             """
             SELECT rule_id, min_value, max_value, label, player_descriptor
             FROM reputation_rules
-            WHERE CAST(min_value AS INTEGER) <= ?
-              AND CAST(max_value AS INTEGER) >= ?
             ORDER BY CAST(min_value AS INTEGER)
-            LIMIT 1
-            """,
-            (value, value),
-        ).fetchone()
+            """
+        ).fetchall()
 
-    if row is not None:
-        label = str(row["label"])
-        return ReputationRule(
-            rule_id=str(row["rule_id"]),
-            min_value=_to_int(row["min_value"]),
-            max_value=_to_int(row["max_value"]),
+    if rows:
+        return [
+            ReputationRule(
+                rule_id=str(row["rule_id"]),
+                min_value=_to_int(row["min_value"]),
+                max_value=_to_int(row["max_value"]),
+                label=str(row["label"]),
+                canonical_label=_canonical_label(str(row["label"])),
+                player_descriptor=str(row["player_descriptor"]),
+            )
+            for row in rows
+        ]
+
+    return [
+        ReputationRule(
+            rule_id=rule_id,
+            min_value=min_value,
+            max_value=max_value,
             label=label,
             canonical_label=_canonical_label(label),
-            player_descriptor=str(row["player_descriptor"]),
+            player_descriptor=descriptor,
         )
-
-    for rule_id, min_value, max_value, label, descriptor in FALLBACK_RULES:
-        if min_value <= value <= max_value:
-            return ReputationRule(
-                rule_id=rule_id,
-                min_value=min_value,
-                max_value=max_value,
-                label=label,
-                canonical_label=_canonical_label(label),
-                player_descriptor=descriptor,
-            )
-    raise ReputationError(f"No reputation rule covers value {value}.")
+        for rule_id, min_value, max_value, label, descriptor in FALLBACK_RULES
+    ]
 
 
 def _change_log(connection: sqlite3.Connection, player_id: str) -> list[dict[str, object]]:

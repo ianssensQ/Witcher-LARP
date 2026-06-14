@@ -588,7 +588,7 @@ def _grant_challenge_tokens(
         UPDATE player_runtime_state
         SET challenge_tokens = challenge_tokens + ?,
             updated_at = ?
-        WHERE role_type IN ('witcher', 'sorceress')
+        WHERE role_type IN ('lord', 'sorceress', 'witcher')
         """,
         (tokens, _iso(now)),
     )
@@ -851,7 +851,7 @@ def _challenge_token_player_count(connection: sqlite3.Connection) -> int:
         """
         SELECT COUNT(*)
         FROM player_runtime_state
-        WHERE role_type IN ('witcher', 'sorceress')
+        WHERE role_type IN ('lord', 'sorceress', 'witcher')
         """
     ).fetchone()
     return int(row[0])

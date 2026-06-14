@@ -11,6 +11,7 @@ from backend.witcher_larp.asset_service import grant_asset_ownership
 from backend.witcher_larp.config import PROJECT_ROOT, Settings
 from backend.witcher_larp.database import connect
 from backend.witcher_larp.import_service import import_seed_pack
+from backend.witcher_larp.lord_runtime import ensure_lord_runtime_state
 from backend.witcher_larp.pve_runtime import resolve_pve_scene
 
 try:
@@ -64,7 +65,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
             actor_id="p_witcher_1",
             event_type="pve_completed",
             payload=duplicate_payload,
-            sequence=2,
+            sequence=1,
         )
 
         with connect(settings) as connection:
@@ -90,7 +91,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
             actor_id="p_witcher_1",
             event_type="pve_completed",
             payload=changed_roll_payload,
-            sequence=3,
+            sequence=1,
         )
         forged_modifier = {"source": "client", "label": "free +999", "value": 999}
         forged_modifier_payload["modifiers"] = [forged_modifier]
@@ -148,7 +149,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
             "/api/qr/lookup",
             headers=WITCHER_1_HEADERS,
             json={
-                "code": "QR-A2-B4K8",
+                "code": "QR-A2-TRV-013-B4K8",
                 "device_id": "phone-wolf",
                 "source": "manual_id",
                 "physical_presence_confirmed": True,
@@ -206,7 +207,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
         self.assertNotIn("player_codes", snapshot_payload)
         self.assertNotIn("role_tokens", snapshot_payload)
         self.assertNotIn("UNLOCK-A2-7GQ4", snapshot.text)
-        self.assertNotIn("QR-A2-B4K8", snapshot.text)
+        self.assertNotIn("QR-A2-TRV-013-B4K8", snapshot.text)
         self.assertNotIn("scn_a2_013", snapshot.text)
 
         self.assertEqual(sync["results"][0]["status"], "accepted")
@@ -233,7 +234,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
             "status": "accepted",
         })
         self.assertEqual(sync_state["player_id"], "p_witcher_1")
-        self.assertEqual(sync_state["last_event_sequence"], 2)
+        self.assertEqual(sync_state["last_event_sequence"], 1)
 
     def test_task063_064_pvp_stakes_winner_lord_route_and_escrow_are_authoritative(self) -> None:
         settings = self._settings("fresh_pvp_lord")
@@ -251,6 +252,7 @@ class Stage1FreshRegressionTests(unittest.TestCase):
             self._grant_item(connection, "fresh_foreign_stake", "p_witcher_2")
             self._grant_item(connection, "fresh_private_stake", "p_witcher_1")
             tokens_before = self._challenge_tokens(connection, "p_witcher_1")
+        self._grant_residence_buildings(settings, "domain_forest", ("b_notice_board",))
         client = TestClient(create_app(settings))
 
         foreign_stake = client.post(
@@ -292,30 +294,21 @@ class Stage1FreshRegressionTests(unittest.TestCase):
             json={},
         )
         match_id = started["match"]["match_id"]
-        for round_number, plays in (
-            (
-                1,
-                [
-                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_02"},
-                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_03"},
-                    {"player_id": "p_witcher_2", "card_id": "gwent_unit_01"},
-                ],
-            ),
-            (
-                2,
-                [
-                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_04"},
-                    {"player_id": "p_witcher_1", "card_id": "gwent_unit_05"},
-                    {"player_id": "p_witcher_2", "card_id": "gwent_unit_02"},
-                ],
-            ),
-        ):
+        with connect(settings) as connection:
+            card_strength = {
+                row["card_id"]: int(row["strength"])
+                for row in connection.execute("SELECT card_id, strength FROM gwent_cards")
+            }
+        deck_state = started["match"]["deck_state"]
+        for round_number in (1, 2):
+            plays = self._winning_gwent_plays(deck_state, card_strength)
             round_payload = self._post_ok(
                 client,
                 f"/api/pvp/matches/{match_id}/rounds",
                 headers=MASTER_HEADERS,
                 json={"round_number": round_number, "plays": plays},
             )
+            deck_state = round_payload["match"]["deck_state"]
         self.assertEqual(round_payload["match"]["winner_id"], "p_witcher_1")
         loser_finish = self._post_ok(
             client,
@@ -533,6 +526,58 @@ class Stage1FreshRegressionTests(unittest.TestCase):
         response = client.post(url, **kwargs)
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    def _winning_gwent_plays(
+        self,
+        deck_state: dict[str, object],
+        card_strength: dict[str, int],
+    ) -> list[dict[str, str]]:
+        p1_hand = list(deck_state["p_witcher_1"]["hand"])
+        p2_hand = list(deck_state["p_witcher_2"]["hand"])
+        p1_cards = sorted(p1_hand, key=lambda card: card_strength.get(str(card), 0), reverse=True)[:2]
+        p2_cards = sorted(p2_hand, key=lambda card: card_strength.get(str(card), 0))[:1]
+        return [
+            *[
+                {"player_id": "p_witcher_1", "card_id": str(card_id)}
+                for card_id in p1_cards
+            ],
+            *[
+                {"player_id": "p_witcher_2", "card_id": str(card_id)}
+                for card_id in p2_cards
+            ],
+        ]
+
+    def _grant_residence_buildings(
+        self,
+        settings: Settings,
+        domain_id: str,
+        building_ids: tuple[str, ...],
+    ) -> None:
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        with connect(settings) as connection:
+            ensure_lord_runtime_state(connection)
+            row = connection.execute(
+                """
+                SELECT territory_id
+                FROM territories
+                WHERE owner_domain_id = ? AND bonus_type = 'residence'
+                ORDER BY _row_number
+                LIMIT 1
+                """,
+                (domain_id,),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            for building_id in building_ids:
+                connection.execute(
+                    """
+                    INSERT INTO domain_buildings (
+                        domain_id, territory_id, building_id, purchased_at, source
+                    )
+                    VALUES (?, ?, ?, ?, 'test')
+                    ON CONFLICT(domain_id, territory_id, building_id) DO NOTHING
+                    """,
+                    (domain_id, row["territory_id"], building_id, now),
+                )
 
     def _review_reasons(
         self,

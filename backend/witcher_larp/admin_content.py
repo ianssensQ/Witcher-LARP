@@ -178,6 +178,67 @@ def build_qr_checklist(connection: sqlite3.Connection) -> dict[str, object]:
     }
 
 
+def build_pve_authoring_summary() -> dict[str, object]:
+    authoring_dir = PROJECT_ROOT / "data" / "authoring"
+    registry_path = authoring_dir / "pve_qr_registry.csv"
+    matrix_path = authoring_dir / "pve_authoring_matrix.csv"
+    freeze_path = authoring_dir / "freezes" / "pve72_v1.json"
+    print_path = PROJECT_ROOT / "reports" / "pve-qr-print" / "pve72_v1.html"
+    if not registry_path.exists() or not matrix_path.exists():
+        return {
+            "status": "missing",
+            "total": 0,
+            "scenarios": 0,
+            "by_act": {},
+            "by_mode": {},
+            "statuses": {},
+            "print_sheet": None,
+            "freeze": None,
+            "items": [],
+        }
+
+    registry = _read_csv_rows(registry_path)
+    matrix = _read_csv_rows(matrix_path)
+    matrix_by_quest = {row.get("quest_id", ""): row for row in matrix}
+    by_act = Counter(str(row.get("act_id", "")) for row in registry)
+    by_mode = Counter(str(row.get("qr_mode", "")) for row in registry)
+    statuses = Counter(str(row.get("status", "")) for row in registry)
+    items = []
+    for row in registry[:12]:
+        scene = matrix_by_quest.get(row.get("quest_id", ""), {})
+        items.append(
+            {
+                "qr_id": row.get("qr_id", ""),
+                "manual_code": row.get("manual_code", ""),
+                "quest_id": row.get("quest_id", ""),
+                "scenario_id": scene.get("scenario_id", ""),
+                "act_id": row.get("act_id", ""),
+                "loc_code": row.get("loc_code", ""),
+                "location_node_id": row.get("location_node_id", ""),
+                "qr_mode": row.get("qr_mode", ""),
+                "status": row.get("status", ""),
+            }
+        )
+
+    ready = (
+        len(registry) == 72
+        and len(matrix) == 72
+        and print_path.exists()
+        and freeze_path.exists()
+    )
+    return {
+        "status": "ready" if ready else "draft",
+        "total": len(registry),
+        "scenarios": len(matrix),
+        "by_act": dict(by_act),
+        "by_mode": dict(by_mode),
+        "statuses": dict(statuses),
+        "print_sheet": _relative_path(print_path) if print_path.exists() else None,
+        "freeze": _relative_path(freeze_path) if freeze_path.exists() else None,
+        "items": items,
+    }
+
+
 def build_handout_checklist(connection: sqlite3.Connection) -> dict[str, object]:
     snapshot_version = latest_snapshot_version(connection)
     handout_rows = _safe_fetch_table(connection, "player_handouts")
@@ -247,6 +308,11 @@ def _manifest_pack_option(manifest_path: Path) -> dict[str, object]:
         "manifest_path": _relative_path(manifest_path),
         "expected_result": row.get("expected_result") or "",
     }
+
+
+def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
 
 
 def _read_manifest_row(manifest_path: Path) -> dict[str, str]:
