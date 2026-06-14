@@ -108,7 +108,7 @@ acceptance note.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `personal_gwent_mobile_table` | `W10 Personal Gwent` | PvP/Gwent match read model | Codex/UI | `in_house_ui` | Witcher 3 Gwent-like table grammar adapted to portrait, original chrome | future Godot screen | Gwent table | Turn focus, score, rows, weather, hand and pass visible |
 | `personal_gwent_card_faces` | `W10`, rewards | `gwent_cards.csv`, `gwent_decks.csv` | Art generation/Codex | `original_generated` | Original card portraits or symbolic card faces by faction/row/rarity | future `assets/gwent/cards/` | card id | Rarity, row, type, strength and effect visible |
-| `personal_to_army_card_faces` | inventory/Gwent/lord conversion | `cards.csv`, `army_unit_cards.csv` | Art generation/Codex | `original_generated` | Original conversion card faces for army unit rewards | future `assets/gwent/conversion/` | conversion card id | Conversion rule and target unit visible |
+| `personal_card_asset_faces` | inventory/Gwent/trade | `cards.csv`, `gwent_cards.csv` | Art generation/Codex | `original_generated` | Original personal card asset faces with no lord conversion path | future `assets/gwent/personal/` | personal card id | Personal ownership, lock and no-conversion state visible |
 
 ## Admin assets
 

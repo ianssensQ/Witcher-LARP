@@ -1,14 +1,44 @@
 {
   "screen": "lords-login",
-  "generatedAt": "2026-06-05T11:49:16.064Z",
-  "sourceEnv": "C:\\ianssens\\projects\\AI_OS-1\\.env",
-  "assets": [
+  "status": "runtime",
+  "updatedAt": "2026-06-12",
+  "runtimeAssets": [
     {
-      "id": "input-frame",
-      "provider": "recraft",
-      "file": "input-frame.png",
-      "skipped": false
+      "id": "login-background",
+      "file": "login-background-warcraft.png",
+      "usedBy": "src/routes/LordLoginRoute.tsx"
+    },
+    {
+      "id": "logo",
+      "file": "witcher-larp-logo.png",
+      "usedBy": "src/routes/LordLoginRoute.tsx"
+    },
+    {
+      "id": "menu-frame",
+      "file": "menu-frame-warcraft.png",
+      "usedBy": "src/routes/LordLoginRoute.tsx"
+    },
+    {
+      "id": "menu-frame-login",
+      "file": "menu-frame-warcraft-login.png",
+      "usedBy": "src/routes/LordLoginRoute.tsx"
+    },
+    {
+      "id": "menu-chain-extension",
+      "file": "menu-chain-extension.png",
+      "usedBy": "src/index.css"
     }
   ],
-  "notes": "Runtime React should position these as image layers; CSS should not paint the metal, chains, logo, or button surfaces."
+  "removedArtifacts": [
+    "button-enter.png",
+    "button-onboarding.png",
+    "button-training.png",
+    "input-frame.png",
+    "menu-frame.png",
+    "*.raw.png",
+    "*.openrouter-response.json",
+    "*.ideogram-response.json",
+    "*.ideogram-edit-response.json"
+  ],
+  "notes": "Runtime React positions the accepted background, logo and chained plaque assets. Old button/input exploration outputs and provider response JSON are intentionally excluded from git and production runtime."
 }

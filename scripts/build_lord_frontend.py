@@ -13,13 +13,23 @@ FRONTEND_ROOT = PROJECT_ROOT / "prototypes" / "stage2b-v2"
 SRC_ROOT = FRONTEND_ROOT / "src"
 DIST_ROOT = FRONTEND_ROOT / "dist"
 MAX_RUNTIME_ASSET_BYTES = 20 * 1024 * 1024
+MAX_RUNTIME_TOTAL_ASSET_BYTES = 75 * 1024 * 1024
 RUNTIME_SOURCE_ENTRYPOINT = SRC_ROOT / "main.tsx"
 FORBIDDEN_RUNTIME_ASSET_SUBPATHS = ("assets/generated/mobile/",)
+FORBIDDEN_RUNTIME_ASSET_SUFFIXES = (
+    ".ideogram-response.json",
+    ".ideogram-edit-response.json",
+    ".openrouter-response.json",
+    ".raw.png",
+)
 SOURCE_IMPORT_RE = re.compile(
     r"(?:import\s+(?:[\w{}\s,*]+?\s+from\s+)?|import\()\s*[\"'](?P<path>\.[^\"']+)[\"']"
 )
 ASSET_IMPORT_RE = re.compile(
-    r"import\s+[\w{}\s,*]+?\s+from\s+[\"'](?P<path>\./assets/[^\"']+)[\"']"
+    r"import\s+[\w{}\s,*]+?\s+from\s+[\"'](?P<path>(?:\.\.?/)+assets/[^\"']+)[\"']"
+)
+CSS_ASSET_RE = re.compile(
+    r"url\(\s*[\"']?(?P<path>(?:\.\.?/)+assets/[^\"')\s]+)[\"']?\s*\)"
 )
 
 
@@ -42,7 +52,7 @@ def _resolve_runtime_source_import(source_path: Path, import_path: str) -> Path 
     except ValueError:
         return None
 
-    if resolved.suffix in {".ts", ".tsx"} and resolved.exists():
+    if resolved.suffix in {".ts", ".tsx", ".css"} and resolved.exists():
         return resolved
     if resolved.suffix:
         return None
@@ -77,7 +87,8 @@ def _runtime_asset_imports() -> list[Path]:
     imports: list[Path] = []
     for source_path in _runtime_source_files():
         text = source_path.read_text(encoding="utf-8")
-        for match in ASSET_IMPORT_RE.finditer(text):
+        asset_pattern = CSS_ASSET_RE if source_path.suffix == ".css" else ASSET_IMPORT_RE
+        for match in asset_pattern.finditer(text):
             asset_path = (source_path.parent / match.group("path")).resolve()
             try:
                 asset_path.relative_to(SRC_ROOT)
@@ -95,13 +106,24 @@ def _audit_runtime_assets() -> None:
             relative_asset = asset.relative_to(SRC_ROOT).as_posix()
         except ValueError:
             continue
-        if any(relative_asset.startswith(forbidden_path) for forbidden_path in FORBIDDEN_RUNTIME_ASSET_SUBPATHS):
+        if (
+            any(relative_asset.startswith(forbidden_path) for forbidden_path in FORBIDDEN_RUNTIME_ASSET_SUBPATHS)
+            or any(relative_asset.endswith(suffix) for suffix in FORBIDDEN_RUNTIME_ASSET_SUFFIXES)
+        ):
             forbidden.append(asset)
     if forbidden:
         formatted = "\n".join(f"- {asset.relative_to(PROJECT_ROOT)}" for asset in forbidden)
         raise SystemExit(
-            "Production lord runtime imports assets from obsolete mobile prototype folders. "
+            "Production lord runtime imports forbidden generated/prototype assets. "
             f"Move the asset into a lord-owned folder or remove the dependency:\n{formatted}"
+        )
+
+    imported_asset_bytes = sum(asset.stat().st_size for asset in imported_assets if asset.exists())
+    if imported_asset_bytes > MAX_RUNTIME_TOTAL_ASSET_BYTES:
+        raise SystemExit(
+            "Runtime frontend imports too many assets. Prune old route assets or split heavier screens "
+            f"before serving production: {imported_asset_bytes / 1024 / 1024:.1f} MB "
+            f"> {MAX_RUNTIME_TOTAL_ASSET_BYTES / 1024 / 1024:.1f} MB"
         )
 
     oversized = [

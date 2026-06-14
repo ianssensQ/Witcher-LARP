@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
@@ -18,14 +18,14 @@ import {
   Waves,
   XCircle
 } from "lucide-react";
-import lordBattleBoardCloseup from "./assets/generated/lords-battle/lord-battle-board-closeup-v1.png";
-import lordBattleWarTable from "./assets/generated/lords-battle/lord-battle-war-table-v1.png";
-import unitCavalryIcon from "./assets/generated/lords-home/units/unit-cavalry-v1.png";
-import unitGuardIcon from "./assets/generated/lords-home/units/unit-guard-v1.png";
-import unitHeavySiegeIcon from "./assets/generated/lords-home/units/unit-heavy-siege-v1.png";
-import unitInfantryIcon from "./assets/generated/lords-home/units/unit-infantry-v1.png";
-import unitRangedIcon from "./assets/generated/lords-home/units/unit-ranged-v1.png";
-import unitSpecialistIcon from "./assets/generated/lords-home/units/unit-specialist-v1.png";
+import lordBattleBoardCloseup from "./assets/generated/lords-battle/lord-battle-board-closeup-v1.jpg";
+import lordBattleWarTable from "./assets/generated/lords-battle/lord-battle-war-table-v1.jpg";
+import unitCavalryIcon from "./assets/generated/lords-home/units/unit-cavalry-v1.jpg";
+import unitGuardIcon from "./assets/generated/lords-home/units/unit-guard-v1.jpg";
+import unitHeavySiegeIcon from "./assets/generated/lords-home/units/unit-heavy-siege-v1.jpg";
+import unitInfantryIcon from "./assets/generated/lords-home/units/unit-infantry-v1.jpg";
+import unitRangedIcon from "./assets/generated/lords-home/units/unit-ranged-v1.jpg";
+import unitSpecialistIcon from "./assets/generated/lords-home/units/unit-specialist-v1.jpg";
 import { LordMpHud, useLordMpRuntimeState } from "./LordMpHud";
 import {
   adaptLordState,
@@ -83,6 +83,7 @@ type BattleUnit = {
   ability?: string;
   sourceId?: string;
   cardId?: string;
+  actedRound?: number;
 };
 
 type BattleHeroTarget = {
@@ -99,6 +100,13 @@ type BattleEffect =
   | { type: "ranged"; from: BattleCell; to: BattleCell }
   | { type: "melee"; from: BattleCell; to: BattleCell }
   | null;
+
+type BattleDamageMarker = {
+  id: string;
+  cell: BattleCell;
+  label: string;
+  tone: "own" | "enemy";
+};
 
 type LordBattleServerSide = "attacker" | "defender";
 
@@ -119,6 +127,7 @@ type LordBattleStackPayload = Record<string, unknown> & {
   initial_count?: unknown;
   count_alive?: unknown;
   wounds_on_front_unit?: unknown;
+  acted_round?: unknown;
   x?: unknown;
   y?: unknown;
   defended?: unknown;
@@ -141,6 +150,8 @@ type LordBattlePayload = Record<string, unknown> & {
   defender_domain_id?: unknown;
   defender_control?: unknown;
   status?: unknown;
+  queue_state?: unknown;
+  blocking_battle_ids?: unknown;
   round_number?: unknown;
   active_side?: unknown;
   active_stack_id?: unknown;
@@ -401,7 +412,8 @@ const stackToBattleUnit = (stack: LordBattleStackPayload): BattleUnit | null => 
     woundsOnFrontUnit: Math.max(0, Math.floor(toSafeNumber(stack.wounds_on_front_unit))),
     status: countAlive <= 0 ? "destroyed" : stack.defended ? "defending" : toSafeNumber(stack.wounds_on_front_unit) > 0 ? "wounded" : undefined,
     sourceId: toSafeString(stack.source_id),
-    cardId
+    cardId,
+    actedRound: Math.max(0, Math.floor(toSafeNumber(stack.acted_round)))
   };
 };
 
@@ -476,6 +488,9 @@ const getPlayerSideForBattle = (payload: LordBattlePayload | null, playerDomainI
 };
 
 const getBattleStatus = (payload: LordBattlePayload | null) => toSafeString(payload?.status);
+
+const getBattleQueueState = (payload: LordBattlePayload | null) =>
+  toSafeString(payload?.queue_state).toLowerCase();
 
 const getBattleTimerSeconds = (payload: LordBattlePayload | null) => {
   const timeoutAt = toSafeString(payload?.timeout_at);
@@ -574,11 +589,21 @@ const getBattleActionSummary = (actionType: string, result: unknown) => {
   if (actionType === "auto_resolve") return "Авторасчет записан сервером.";
   if (actionType === "surrender") return "Сдача боя записана сервером.";
   if (actionType === "attack") {
-    const casualties = isRecordValue(payload.casualties) ? Math.floor(toSafeNumber(payload.casualties.killed)) : 0;
-    return casualties > 0 ? `Удар записан сервером. Потери цели: ${casualties}.` : "Удар записан сервером.";
+    const casualties = getKilledCasualties(payload.casualties);
+    const retaliation = isRecordValue(payload.retaliation) ? payload.retaliation : null;
+    const retaliationCasualties = getKilledCasualties(retaliation?.casualties);
+    if (casualties > 0 && retaliationCasualties > 0) {
+      return `Удар записан сервером. Потери цели: ${casualties}, контратака: ${retaliationCasualties}.`;
+    }
+    if (casualties > 0) return `Удар записан сервером. Потери цели: ${casualties}.`;
+    if (retaliationCasualties > 0) return `Удар записан сервером. Контратака: ${retaliationCasualties}.`;
+    return "Удар записан сервером.";
   }
   return "Ход записан сервером.";
 };
+
+const getKilledCasualties = (value: unknown) =>
+  isRecordValue(value) ? Math.max(0, Math.floor(toSafeNumber(value.killed))) : 0;
 
 const getAutoResolveLabel = (payload: LordBattlePayload | null) => {
   const autoResolve = isRecordValue(payload?.auto_resolve) ? payload?.auto_resolve : {};
@@ -673,6 +698,35 @@ const getBattleTerritoryId = (payload: LordBattlePayload | null, routeParams?: U
 const getBattleTerritoryHomePath = (payload: LordBattlePayload | null, routeParams?: URLSearchParams) => {
   const territoryId = getBattleTerritoryId(payload, routeParams);
   return territoryId ? `/lords/home?territory_id=${encodeURIComponent(territoryId)}` : "/lords/home";
+};
+
+const getBattleRetreatTerritoryId = (payload: LordBattlePayload | null) => {
+  const result = getBattleResultRecord(payload);
+  const retreat = isRecordValue(result.retreat) ? result.retreat : {};
+  return getTerritoryIdFromRecord(retreat);
+};
+
+const getBattleResultHomePath = (
+  payload: LordBattlePayload | null,
+  routeParams: URLSearchParams,
+  playerSide: LordBattleServerSide | null
+) => {
+  const result = getBattleResultRecord(payload);
+  const winnerSide = normalizeServerSide(result.winner_side);
+  if (playerSide && winnerSide && winnerSide !== playerSide) {
+    const retreatTerritoryId = getBattleRetreatTerritoryId(payload);
+    return retreatTerritoryId ? `/lords/home?territory_id=${encodeURIComponent(retreatTerritoryId)}` : "/lords/home";
+  }
+  return getBattleTerritoryHomePath(payload, routeParams);
+};
+
+const getBattleResultActionLabel = (
+  payload: LordBattlePayload | null,
+  playerSide: LordBattleServerSide | null
+) => {
+  const result = getBattleResultRecord(payload);
+  const winnerSide = normalizeServerSide(result.winner_side);
+  return playerSide && winnerSide && winnerSide !== playerSide ? "Вернуться в свои земли" : "Перейти в территорию";
 };
 
 const initialUnits: BattleUnit[] = [
@@ -968,11 +1022,18 @@ const getLegalAttacks = (unit: BattleUnit | undefined, units: BattleUnit[]) => {
           return distance === 1;
         }
 
+        if (usesArcingAttack(unit)) {
+          return distance <= unit.attackRange;
+        }
+
         return distance <= unit.attackRange && hasStraightLineOfSight(units, unit.position, target.position, unit.id);
       })
       .map((target) => cellKey(target.position as BattleCell))
   );
 };
+
+const usesArcingAttack = (unit: BattleUnit) =>
+  unit.attackRange > 1 && (unit.classId === "ranged" || unit.classId === "heavy_siege");
 
 const getHeroTargetsFromPayload = (
   payload: LordBattlePayload | null,
@@ -1017,6 +1078,9 @@ const getLegalHeroAttacks = (
           return false;
         }
         const distance = getCellDistance(unit.position, target.cell);
+        if (usesArcingAttack(unit)) {
+          return distance <= unit.attackRange;
+        }
         return distance <= unit.attackRange && hasStraightLineOfSight(units, unit.position, target.cell, unit.id);
       })
       .map((target) => cellKey(target.cell))
@@ -1024,7 +1088,7 @@ const getLegalHeroAttacks = (
 };
 
 const getLineOfSightTarget = (unit: BattleUnit | undefined, units: BattleUnit[]) => {
-  if (!unit?.position || unit.attackRange <= 1) {
+  if (!unit?.position || unit.attackRange <= 1 || usesArcingAttack(unit)) {
     return null;
   }
 
@@ -1085,11 +1149,13 @@ function LordBattleScreen() {
   const [timeoutCount, setTimeoutCount] = useState(0);
   const [lastLosses, setLastLosses] = useState("потерь после последнего удара нет");
   const [battleEffect, setBattleEffect] = useState<BattleEffect>(null);
-  const [damageMarker, setDamageMarker] = useState<{ cell: BattleCell; label: string } | null>(null);
+  const [damageMarkers, setDamageMarkers] = useState<BattleDamageMarker[]>([]);
   const [selectedGarrisonIds, setSelectedGarrisonIds] = useState<string[]>(["north-guard"]);
+  const damageMarkerTimeoutRef = useRef<number | null>(null);
 
   const isProductionBattle = !useDemoState && Boolean(serverBattle);
   const currentBattleId = toSafeString(serverBattle?.battle_id) || lordUiState.activeBattle.battleId || requestedBattleId;
+  const isWaitingForBattleQueue = !useDemoState && getBattleQueueState(serverBattle) === "waiting";
   const playerServerSide = getPlayerSideForBattle(serverBattle, playerDomainId);
   const playerUiSide = playerServerSide ? serverSideToUiSide[playerServerSide] : "north";
   const activeServerSide = normalizeServerSide(serverBattle?.active_side);
@@ -1112,6 +1178,29 @@ function LordBattleScreen() {
       return aliveUnits.sort((left, right) => right.initiative - left.initiative || right.attack - left.attack);
     },
     [initiativeOrder, units]
+  );
+  const initiativeRoundSections = useMemo(
+    () => [
+      {
+        id: "current",
+        title: `Раунд ${round}`,
+        subtitle: "текущий круг",
+        rows: initiativeQueue.map((unit) => ({
+          unit,
+          state: unit.id === activeStackId ? "active" : unit.actedRound === round ? "acted" : "waiting"
+        }))
+      },
+      {
+        id: "next",
+        title: `Раунд ${round + 1}`,
+        subtitle: "следующий круг",
+        rows: initiativeQueue.map((unit) => ({
+          unit,
+          state: "next"
+        }))
+      }
+    ],
+    [activeStackId, initiativeQueue, round]
   );
   const reserveUnits = units.filter((unit) => unit.side === playerUiSide && !unit.position && unit.status !== "destroyed");
   const deploymentRowSet = useMemo(
@@ -1164,10 +1253,59 @@ function LordBattleScreen() {
   const battleResultOutcomeLabel = useDemoState ? "Победа" : getBattleResultOutcomeLabel(serverBattle, playerServerSide);
   const battleTerritoryHomePath = useDemoState
     ? "/lords/home?demo=1&territory=river-gate"
-    : getBattleTerritoryHomePath(serverBattle, battleConnection.routeParams);
+    : getBattleResultHomePath(serverBattle, battleConnection.routeParams, playerServerSide);
+  const battleResultActionLabel = useDemoState
+    ? "Перейти в территорию"
+    : getBattleResultActionLabel(serverBattle, playerServerSide);
 
   const addLog = (message: string) => {
     setBattleLog((current) => [message, ...current].slice(0, 8));
+  };
+
+  const showBattleDamageMarkers = (markers: BattleDamageMarker[]) => {
+    if (damageMarkerTimeoutRef.current !== null) {
+      window.clearTimeout(damageMarkerTimeoutRef.current);
+      damageMarkerTimeoutRef.current = null;
+    }
+    setDamageMarkers(markers);
+    if (markers.length === 0) {
+      return;
+    }
+    damageMarkerTimeoutRef.current = window.setTimeout(() => {
+      setDamageMarkers([]);
+      damageMarkerTimeoutRef.current = null;
+    }, prefersReducedMotion ? 650 : 1500);
+  };
+
+  const showBattleAttackDamageMarkers = (result: unknown) => {
+    const payload = isRecordValue(result) ? result : {};
+    const nextMarkers: BattleDamageMarker[] = [];
+    const addMarker = (stackId: string, killed: number, markerId: string) => {
+      if (killed <= 0) {
+        return;
+      }
+      const unit = units.find((item) => item.id === stackId);
+      if (!unit?.position) {
+        return;
+      }
+      nextMarkers.push({
+        id: markerId,
+        cell: unit.position,
+        label: `-${killed}`,
+        tone: unit.side === playerUiSide ? "own" : "enemy"
+      });
+    };
+
+    addMarker(toSafeString(payload.target_stack_id), getKilledCasualties(payload.casualties), "target");
+    const retaliation = isRecordValue(payload.retaliation) ? payload.retaliation : null;
+    if (retaliation) {
+      addMarker(
+        toSafeString(retaliation.target_stack_id),
+        getKilledCasualties(retaliation.casualties),
+        "retaliation"
+      );
+    }
+    showBattleDamageMarkers(nextMarkers.map((marker, index) => ({ ...marker, id: `${Date.now()}-${marker.id}-${index}` })));
   };
 
   const applyServerBattlePayload = (payload: LordBattlePayload, effectivePlayerDomainId = playerDomainId) => {
@@ -1255,6 +1393,9 @@ function LordBattleScreen() {
         throw new Error(getLordApiErrorMessage(actionPayload, "Боевой приказ не принят сервером."));
       }
 
+      if (actionType === "attack") {
+        showBattleAttackDamageMarkers(actionPayload);
+      }
       const nextBattle = isRecordValue(actionPayload) && isRecordValue(actionPayload.battle) ? actionPayload.battle : null;
       if (nextBattle) {
         applyServerBattlePayload(nextBattle as LordBattlePayload);
@@ -1306,6 +1447,12 @@ function LordBattleScreen() {
       setTimerSeconds(9);
     }
   }, [phase]);
+
+  useEffect(() => () => {
+    if (damageMarkerTimeoutRef.current !== null) {
+      window.clearTimeout(damageMarkerTimeoutRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (useDemoState && phase === "turn" && timerSeconds === 0) {
@@ -1565,7 +1712,14 @@ function LordBattleScreen() {
     const effectType = isRanged ? "ranged" : "melee";
 
     setBattleEffect({ type: effectType, from: selectedUnit.position, to: target.position });
-    setDamageMarker({ cell: target.position, label: `-${killed}` });
+    showBattleDamageMarkers([
+      {
+        id: `demo-${Date.now()}`,
+        cell: target.position,
+        label: `-${killed}`,
+        tone: target.side === playerUiSide ? "own" : "enemy"
+      }
+    ]);
     setUnits((current) =>
       current.map((unit) =>
         unit.id === target.id
@@ -1582,7 +1736,6 @@ function LordBattleScreen() {
     addLog(`${selectedUnit.name} наносят удар по цели: ${target.name}. Потери ${killed}, ранение ${nextWounds}.`);
     window.setTimeout(() => {
       setBattleEffect(null);
-      setDamageMarker(null);
     }, prefersReducedMotion ? 0 : 720);
   };
 
@@ -1790,12 +1943,22 @@ function LordBattleScreen() {
     setTimeoutCount(0);
     setLastLosses("потерь после последнего удара нет");
     setBattleEffect(null);
-    setDamageMarker(null);
+    showBattleDamageMarkers([]);
     setSelectedGarrisonIds(["north-guard"]);
   };
 
   if (!useDemoState && !serverBattle && isBattleLoading) {
     return <LordBattleOpeningScreen />;
+  }
+
+  if (!useDemoState && serverBattle && isWaitingForBattleQueue) {
+    return (
+      <LordBattleReadOnlyScreen
+        battleId={currentBattleId || null}
+        message="Этот бой ждет очереди. Сначала должен закончиться другой бой одного из лордов."
+        mpState={battleMpState}
+      />
+    );
   }
 
   if (!useDemoState && !serverBattle) {
@@ -1915,16 +2078,19 @@ function LordBattleScreen() {
                         currentTone={occupant.id === activeStackId && phase === "turn" ? (occupant.side === playerUiSide ? "own" : "enemy") : null}
                       />
                     ) : null}
-                    {damageMarker && isSameCell(damageMarker.cell, cell) ? (
-                      <motion.span
-                        className="lord-battle-damage-mark"
-                        initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.8 }}
-                        animate={{ opacity: 1, y: -10, scale: 1 }}
-                        exit={{ opacity: 0 }}
-                      >
-                        {damageMarker.label}
-                      </motion.span>
-                    ) : null}
+                    {damageMarkers
+                      .filter((marker) => isSameCell(marker.cell, cell))
+                      .map((marker) => (
+                        <motion.span
+                          key={marker.id}
+                          className={`lord-battle-damage-mark ${marker.tone}`}
+                          initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.8 }}
+                          animate={{ opacity: 1, y: -14, scale: 1 }}
+                          exit={{ opacity: 0 }}
+                        >
+                          {marker.label}
+                        </motion.span>
+                      ))}
                   </button>
                 );
               })}
@@ -1952,21 +2118,32 @@ function LordBattleScreen() {
             <b>{initiativeQueue[0]?.name ?? "нет отрядов"}</b>
           </div>
           <div className="lord-battle-initiative">
-            {initiativeQueue.slice(0, 6).map((unit) => {
-              const currentTone = unit.id === activeStackId ? (unit.side === playerUiSide ? "own" : "enemy") : null;
-              return (
-                <button
-                  key={unit.id}
-                  type="button"
-                  className={`lord-battle-queue-row ${unit.side}${unit.id === selectedUnitId ? " is-selected" : ""}${currentTone ? ` is-current is-current-${currentTone}` : ""}`}
-                  onClick={() => setSelectedUnitId(unit.id)}
-                >
-                  <img src={unitClassIcon[unit.classId]} alt="" draggable={false} />
-                  <span>{unit.name}</span>
-                  <b>{unit.initiative}</b>
-                </button>
-              );
-            })}
+            {initiativeRoundSections.map((section) => (
+              <div className="lord-battle-initiative-round" key={section.id}>
+                <div className="lord-battle-initiative-round-title">
+                  <span>{section.title}</span>
+                  <small>{section.subtitle}</small>
+                </div>
+                {section.rows.map(({ unit, state }) => {
+                  const currentTone = unit.id === activeStackId ? (unit.side === playerUiSide ? "own" : "enemy") : null;
+                  const stateLabel =
+                    state === "active" ? "сейчас" : state === "acted" ? "ход сделан" : unit.side === playerUiSide ? "свой" : "чужой";
+                  return (
+                    <button
+                      key={`${section.id}-${unit.id}`}
+                      type="button"
+                      className={`lord-battle-queue-row ${unit.side}${unit.id === selectedUnitId ? " is-selected" : ""}${currentTone ? ` is-current is-current-${currentTone}` : ""}${state === "acted" ? " is-acted" : ""}${state === "next" ? " is-next-round" : ""}`}
+                      onClick={() => setSelectedUnitId(unit.id)}
+                    >
+                      <img src={unitClassIcon[unit.classId]} alt="" draggable={false} />
+                      <span>{unit.name}</span>
+                      <b>{unit.initiative}</b>
+                      <small>{stateLabel}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </aside>
       </section>
@@ -1983,34 +2160,25 @@ function LordBattleScreen() {
             <h2>{battleResultOutcomeLabel}</h2>
           </div>
           <div className="lord-battle-result-actions">
-            <button
-              type="button"
-              onClick={() =>
-                window.location.assign(
-                  useDemoState
-                    ? withLordBattleRuntimeQuery("/lords/home")
-                    : withLordBattleRuntimeQuery(battleTerritoryHomePath)
-                )
-              }
-            >
+            <button type="button" onClick={() => window.location.assign(withLordBattleRuntimeQuery(battleTerritoryHomePath))}>
               <Trophy size={15} />
-              Перейти в территорию
+              {battleResultActionLabel}
             </button>
           </div>
         </motion.section>
       ) : null}
 
       {phase !== "result" ? (
-        <footer className="lord-battle-command-bar">
+        <footer className={`lord-battle-command-bar${phase === "deployment" ? " is-deployment-locked" : ""}`}>
           <div>
             <span>Команда</span>
             <b>{selectedUnit?.name ?? selectedReserve?.name ?? "выберите отряд"}</b>
           </div>
           <div className="lord-battle-command-actions">
-            <CommandActionButton active={actionMode === "move"} disabled={phase !== "turn" || !canActWithSelectedUnit} onClick={() => setActionMode("move")} icon={<Sparkles size={15} />} label="Переместить" />
-            <CommandActionButton active={actionMode === "attack"} disabled={phase !== "turn" || !canActWithSelectedUnit} onClick={() => setActionMode("attack")} icon={<Crosshair size={15} />} label="Атаковать" />
-            <CommandActionButton active={actionMode === "defend"} disabled={phase !== "turn" || !canActWithSelectedUnit} onClick={defendSelectedUnit} icon={<Shield size={15} />} label="Защищаться" />
-            <CommandActionButton active={false} disabled={phase !== "turn"} onClick={() => setActionMode("attack")} icon={<XCircle size={15} />} label="Отмена" />
+            <CommandActionButton active={phase === "turn" && actionMode === "move"} disabled={phase !== "turn" || !canActWithSelectedUnit} onClick={() => setActionMode("move")} icon={<Sparkles size={15} />} label="Переместить" />
+            <CommandActionButton active={phase === "turn" && actionMode === "attack"} disabled={phase !== "turn" || !canActWithSelectedUnit} onClick={() => setActionMode("attack")} icon={<Crosshair size={15} />} label="Атаковать" />
+            <CommandActionButton active={phase === "turn" && actionMode === "defend"} disabled={phase !== "turn" || !canActWithSelectedUnit} onClick={defendSelectedUnit} icon={<Shield size={15} />} label="Защищаться" />
+            <CommandActionButton active={false} disabled={phase !== "turn" || !canActWithSelectedUnit} onClick={() => setActionMode("attack")} icon={<XCircle size={15} />} label="Отмена" />
           </div>
           <div className="lord-battle-flow-actions">
             {phase === "deployment" ? (
@@ -2174,7 +2342,6 @@ function SelectedUnitPanel({ unit }: { unit: BattleUnit | undefined }) {
         <Metric label="иниц." value={unit.initiative} />
         <Metric label="дальн." value={unit.attackRange} />
       </div>
-      {unit.woundsOnFrontUnit > 0 ? <strong>Ранение передней единицы: {unit.woundsOnFrontUnit}</strong> : null}
       {unit.ability ? <em>{unit.ability}</em> : null}
     </article>
   );

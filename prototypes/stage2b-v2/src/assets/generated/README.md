@@ -8,14 +8,30 @@ logos, emblems or card art.
 Generated with the built-in `image_gen` path and copied from Codex generated
 image storage into this workspace.
 
-## Files
+## Current runtime asset groups
 
 | File | Purpose | Notes |
 | --- | --- | --- |
-| `lord-map-v2.png` | Lord illustrated command map | Use as art layer under live territory markers, routes and inspector UI. |
-| `castle-city-v2.png` | Castle/city management background | Use for castle overview and building-tree detail mood. |
-| `gwent-table-v2.png` | Personal Gwent-like board background | Use under live cards, score, leader, deck, graveyard and weather UI. |
-| `building-tree-bg-v2.png` | Castle upgrade tree background | Use as mood/backdrop; draw actual nodes and states live in React/Figma. |
+| `lords-login/` | Lord login screen | Runtime set is declared in `lords-login/manifest.json`. |
+| `lords-home/` | Lord home, orders, raids, buildings and shared MP HUD | Runtime/reference split is declared in `lords-home/README.md`. |
+| `lords-map/lord-map-ai-strict-v6-roadless-base.webp` | Lord strategic map base | Runtime map art for `/lords/map`. |
+| `lords-map/lord-map-ai-strict-v6-baked-roads.webp` | Lord strategic map roads | Runtime road layer for `/lords/map`. |
+| `lords-battle/` | Lord battle screen | Runtime table/board art for `/lords/battle`. |
+| `lord-map-v2.png` | Lord home map panel | Runtime art used inside `/lords/home` map panel. |
+| `castle-city-v2.png` | Castle/city management background | Runtime castle home background. |
+| `building-tree-bg-v6-holes.png` | Castle upgrade tree background | Runtime building tree backdrop. |
+
+## Reference assets kept intentionally
+
+| File | Purpose | Notes |
+| --- | --- | --- |
+| `gwent-table-v2.png` | Personal Gwent-like board background | Kept for pending personal PvP/Gwent UI work; not imported by current lord runtime. |
+| `building-tree-bg-v2.png` | Source background for building tree hole variants | Kept as regeneration source for `scripts/build-building-tree-bg-holes.mjs`; runtime imports `building-tree-bg-v6-holes.png`. |
+
+Old map owner previews, map cutouts, login button/input explorations, raw image
+outputs and provider response JSON were removed from git. Future raw/generated
+responses are ignored; accepted runtime assets should be copied into the
+runtime groups above and documented here.
 
 ## Prompts
 
