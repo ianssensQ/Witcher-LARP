@@ -9,8 +9,9 @@
 - Это starter templates/copies, а не расход 242 уникальных физических карт из
   `gwent_cards.csv`. Одна и та же карта-шаблон может быть напечатана или
   создана как отдельный стартовый instance для разных игроков.
-- Каждая колода содержит 1 leader, 22 unit cards и 2 простые special/weather
-  cards.
+- Каждая seed-колода содержит 1 leader и 22 unit cards. Простые
+  special/weather карты ниже оставлены как optional later suggestions и не
+  входят в стартовый `gwent_decks.csv`.
 - На старте не выдаются герои, шпионы, `scorch`, `commanders_horn`, нейтральные
   герои 15 силы и полные сильные payoff-пакеты.
 - `unit_power` ниже - простая сумма printed strength unit-карт без учета
@@ -20,26 +21,26 @@
 
 ## Сводка
 
-| Deck ID | Вкус | Leader | Unit cards | Specials | Unit power |
+| Deck ID | Вкус | Leader | Unit cards | Seed specials | Unit power |
 | --- | --- | --- | ---: | ---: | ---: |
-| `starter_01_northern_fog` | Север, осадный туман | `gwent_leader_foltest_king` | 22 | 2 | 84 |
-| `starter_02_northern_clear` | Север, дисциплина рядов | `gwent_leader_wolf` | 22 | 2 | 82 |
-| `starter_03_nilfgaard_rain` | Нильфгаард, дождь и гарнизон | `gwent_leader_emhyr_imperial` | 22 | 2 | 83 |
-| `starter_04_nilfgaard_scout` | Нильфгаард, разведка руки | `gwent_leader_emhyr_emperor` | 22 | 2 | 83 |
-| `starter_05_nilfgaard_white_flame` | Нильфгаард, подавление лидера | `gwent_leader_emhyr_white_flame` | 22 | 2 | 82 |
-| `starter_06_scoiatael_frost_a` | Скоя'таэли, морозная засада A | `gwent_leader_francesca_pureblood` | 22 | 2 | 84 |
-| `starter_07_scoiatael_frost_b` | Скоя'таэли, морозная засада B | `gwent_leader_francesca_pureblood` | 22 | 2 | 84 |
-| `starter_08_scoiatael_frost_c` | Скоя'таэли, лесная смена | `gwent_leader_francesca_pureblood` | 22 | 2 | 84 |
-| `starter_09_monsters_destroyer` | Чудовища, болотная стая | `gwent_leader_eredin_destroyer` | 22 | 2 | 81 |
-| `starter_10_monsters_weather` | Чудовища, туманная охота | `gwent_leader_eredin_king` | 22 | 2 | 83 |
-| `starter_11_monsters_return` | Чудовища, кладбищенский круг | `gwent_leader_eredin_bringer` | 22 | 2 | 86 |
+| `starter_01_northern_fog` | Север, осадный туман | `gwent_leader_foltest_king` | 22 | 0 | 84 |
+| `starter_02_northern_clear` | Север, дисциплина рядов | `gwent_leader_wolf` | 22 | 0 | 82 |
+| `starter_03_nilfgaard_rain` | Нильфгаард, дождь и гарнизон | `gwent_leader_emhyr_imperial` | 22 | 0 | 83 |
+| `starter_04_nilfgaard_scout` | Нильфгаард, разведка руки | `gwent_leader_emhyr_emperor` | 22 | 0 | 83 |
+| `starter_05_nilfgaard_white_flame` | Нильфгаард, подавление лидера | `gwent_leader_emhyr_white_flame` | 22 | 0 | 82 |
+| `starter_06_scoiatael_frost_a` | Скоя'таэли, морозная засада A | `gwent_leader_francesca_pureblood` | 22 | 0 | 84 |
+| `starter_07_scoiatael_frost_b` | Скоя'таэли, морозная засада B | `gwent_leader_francesca_pureblood` | 22 | 0 | 84 |
+| `starter_08_scoiatael_frost_c` | Скоя'таэли, лесная смена | `gwent_leader_francesca_pureblood` | 22 | 0 | 84 |
+| `starter_09_monsters_destroyer` | Чудовища, болотная стая | `gwent_leader_eredin_destroyer` | 22 | 0 | 81 |
+| `starter_10_monsters_weather` | Чудовища, туманная охота | `gwent_leader_eredin_king` | 22 | 0 | 83 |
+| `starter_11_monsters_return` | Чудовища, кладбищенский круг | `gwent_leader_eredin_bringer` | 22 | 0 | 86 |
 
 ## Deck Blueprints
 
 ### `starter_01_northern_fog`
 
 - Leader: `gwent_leader_foltest_king`
-- Specials: `gwent_weather_fog`; `gwent_clear_weather`
+- Optional later specials: `gwent_weather_fog`; `gwent_clear_weather`
 - Units:
 
 ```text
@@ -70,7 +71,7 @@ gwent_unit_09
 ### `starter_02_northern_clear`
 
 - Leader: `gwent_leader_wolf`
-- Specials: `gwent_weather_rain`; `gwent_clear_weather`
+- Optional later specials: `gwent_weather_rain`; `gwent_clear_weather`
 - Units:
 
 ```text
@@ -101,7 +102,7 @@ nr_kaedweni_siege_expert_3
 ### `starter_03_nilfgaard_rain`
 
 - Leader: `gwent_leader_emhyr_imperial`
-- Specials: `gwent_weather_rain`; `gwent_clear_weather`
+- Optional later specials: `gwent_weather_rain`; `gwent_clear_weather`
 - Units:
 
 ```text
@@ -132,7 +133,7 @@ ng_zerrikanian_fire_scorpion
 ### `starter_04_nilfgaard_scout`
 
 - Leader: `gwent_leader_emhyr_emperor`
-- Specials: `gwent_weather_frost`; `neutral_clear_weather_2`
+- Optional later specials: `gwent_weather_frost`; `neutral_clear_weather_2`
 - Units:
 
 ```text
@@ -163,7 +164,7 @@ ng_zerrikanian_fire_scorpion
 ### `starter_05_nilfgaard_white_flame`
 
 - Leader: `gwent_leader_emhyr_white_flame`
-- Specials: `gwent_weather_fog`; `gwent_clear_weather`
+- Optional later specials: `gwent_weather_fog`; `gwent_clear_weather`
 - Units:
 
 ```text
@@ -194,7 +195,7 @@ ng_zerrikanian_fire_scorpion
 ### `starter_06_scoiatael_frost_a`
 
 - Leader: `gwent_leader_francesca_pureblood`
-- Specials: `gwent_weather_frost`; `gwent_clear_weather`
+- Optional later specials: `gwent_weather_frost`; `gwent_clear_weather`
 - Units:
 
 ```text
@@ -225,7 +226,7 @@ sc_vrihedd_brigade_veteran_1
 ### `starter_07_scoiatael_frost_b`
 
 - Leader: `gwent_leader_francesca_pureblood`
-- Specials: `gwent_weather_fog`; `neutral_clear_weather_2`
+- Optional later specials: `gwent_weather_fog`; `neutral_clear_weather_2`
 - Units:
 
 ```text
@@ -256,7 +257,7 @@ sc_vrihedd_brigade_veteran_2
 ### `starter_08_scoiatael_frost_c`
 
 - Leader: `gwent_leader_francesca_pureblood`
-- Specials: `gwent_weather_rain`; `gwent_clear_weather`
+- Optional later specials: `gwent_weather_rain`; `gwent_clear_weather`
 - Units:
 
 ```text
@@ -287,7 +288,7 @@ sc_riordain
 ### `starter_09_monsters_destroyer`
 
 - Leader: `gwent_leader_eredin_destroyer`
-- Specials: `gwent_weather_frost`; `gwent_clear_weather`
+- Optional later specials: `gwent_weather_frost`; `gwent_clear_weather`
 - Units:
 
 ```text
@@ -318,7 +319,7 @@ mo_ghoul_2
 ### `starter_10_monsters_weather`
 
 - Leader: `gwent_leader_eredin_king`
-- Specials: `gwent_weather_fog`; `neutral_clear_weather_2`
+- Optional later specials: `gwent_weather_fog`; `neutral_clear_weather_2`
 - Units:
 
 ```text
@@ -349,7 +350,7 @@ gwent_unit_20
 ### `starter_11_monsters_return`
 
 - Leader: `gwent_leader_eredin_bringer`
-- Specials: `gwent_weather_rain`; `gwent_clear_weather`
+- Optional later specials: `gwent_weather_rain`; `gwent_clear_weather`
 - Units:
 
 ```text

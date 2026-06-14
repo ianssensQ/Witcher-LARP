@@ -2474,3 +2474,38 @@ Generated files refreshed:
 - docs\kanban.md
 - docs\helpers\task-board.html
 - docs\active-tasks.md
+
+2026-06-13 11:56 +03:00 TASK-049 Claim
+-------------------------------------
+Task: TASK-049 - Реализовать Admin paper recovery и correction forms.
+
+Claim:
+- assignee: codex
+- intent: Implement the selected task only.
+
+Coordination Context:
+- already in progress: TASK-046 - Реализовать полноценный lord action UI; TASK-047 - Implement native iOS mobile gameplay UI for witchers and sorceresses. Parallel claims are allowed; avoid overlapping files.
+- worktree: 182 local change(s) existed before this claim. This is informational in shared worktrees; do not revert unrelated changes.
+
+Generated files refreshed:
+- docs/kanban.md
+- docs/helpers/task-board.html
+- docs/active-tasks.md
+
+2026-06-13 12:19 +03:00 TASK-049 Done
+------------------------------------
+Task: TASK-049 - Реализовать Admin paper recovery и correction forms.
+
+Done:
+- Admin setup now shows field-player readiness, supports audited gold/card/item/artifact grants, and routes lord orders through the master review queue without SQLite edits.
+
+Verification:
+- Targeted admin/game-ops tests passed; TASK-049 final_summary/fastapi checks passed; task graph validated.
+
+Generated files refreshed:
+- docs/kanban.md
+- docs/helpers/task-board.html
+- docs/active-tasks.md
+
+Next Dependency-Ready Pending Task:
+- None

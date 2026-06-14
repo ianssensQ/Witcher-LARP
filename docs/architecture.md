@@ -39,7 +39,7 @@ backend/domain/import/sync/snapshot authority checks.
 ## Ключевые решения
 
 - Домашний Wi-Fi является online-зоной игры; интернет не нужен.
-- Production profile фиксирован как 15 человек всего: 13 игроков (4 лорда, 4 чародейки, 5 ведьмаков) и 2 NPC-мастера.
+- Production profile фиксирован как 17 человек всего: 15 игроков (4 лорда, 4 чародейки, 7 ведьмаков) и 2 NPC-мастера.
 - Авторитетное состояние живет на локальном сервере FastAPI + SQLite на мастерском ноутбуке.
 - Python/backend/tooling окружение управляется через `uv`: зависимости описаны в `pyproject.toml`, `.venv` создается через `uv sync`, команды запускаются через `uv run`.
 - Мобильный клиент Godot 4 работает offline-first и хранит данные в `user://`.
@@ -286,7 +286,7 @@ python`, а не raw `pip`.
 
 Минимальный CSV-набор:
 
-- `players.csv` - игроки, роли, production profile 4/4/5 + 2 NPC, статы, стартовые связи, `player_code`, XP/level curve profile, правило +1 stat per level и max stat 7.
+- `players.csv` - игроки, роли, production profile 4/4/7 + 2 NPC, статы, стартовые связи, `player_code`, XP/level curve profile, правило +1 stat per level и max stat 7.
 - `role_tokens.csv` - игровые коды для мастеров и лордов.
 - `personal_goals.csv` - видимые цели игроков, прогресс, role hooks, XP/reputation/final linkage.
 - `goal_tracks.csv` - счетчики, чеклисты, состояния, пороги и видимость прогресса.
@@ -307,7 +307,7 @@ python`, а не raw `pip`.
 - `pve_scenarios.csv` - шаги PvE, проверки, тексты, переходы.
 - `qr_objects.csv` - opaque QR/manual ID, тип, `qr_mode` (`unique_object`, `repeatable_scene`, `always_available_scene`), act availability, linked scenario/object, failure cooldown, manual-entry rate-limit policy и role load tags.
 - `items.csv` - предметы, требования, бонусы.
-- `cards.csv` - общий реестр card assets и conversion tiers; личные карты при передаче лорду конвертируются в army unit card по тиру.
+- `cards.csv` - общий реестр личных card assets; `army_unit_card_id` остается пустым, `conversion_rule=no_lord_conversion`, личные карты не конвертируются в army unit cards лордов.
 - `gwent_cards.csv` - базовый набор Witcher 3 Gwent для первой итерации: 4 стороны без дополнений, нейтральные карты, faction, row, strength, unit/special/leader type, weather/decoy/scorch/horn/core ability, deck limits, rarity, display name и русское описание эффекта. Visual assets для карточек задаются отдельно и должны быть original/local/generated.
 - `gwent_decks.csv` - стартовые и валидируемые колоды: минимум 22 unit cards, до 10 special cards, 1 leader.
 - `army_unit_cards.csv` - army unit cards; обязательны `unit_class`, `tier`, `count`, `attack`, `hp`, `defense`, `initiative`, `move_range`, `attack_range`, `tags`, `source`, `visual_tag`, `art_prompt`.
@@ -320,7 +320,7 @@ python`, а не raw `pip`.
 - `acts.csv` - акты, стартовые параметры, доступность контента.
 - `act_unlock_codes.csv` - offline unlock tokens/QR для Act 2, Act 3 и Final Act, раскрываемые мастером после старта акта.
 - `physical_announcements.csv` или runbook-only manifest - кто и как громко объявляет старт Act 1/2/3/Final Act на участке.
-- `auto_timers.csv` - 10-часовой fixed schedule, 3 сюжетных акта + финальный акт, буферы, final lock, тики дохода, hourly mana regen, 3 challenge tokens per act, movement pool refill и accumulated recruit stock tick.
+- `auto_timers.csv` - 10-часовой fixed schedule, 3 сюжетных акта + финальный акт, буферы, final lock, тики дохода лордов, 3 challenge tokens per act, movement pool refill и accumulated recruit stock tick; production timer не начисляет ману.
 - `pvp_tables.csv` / `pvp_throttle_rules.csv` - количество столов/слотов, queued behavior, режимы `normal/limited/paused`, max started mandatory matches per player per act.
 - `npc_events.csv` - события Короля/Странника, адресность, полномочия Короля, сделки Странника, последствия.
 - `anti_snowball_rules.csv` - пороги силы армии относительно средней и income multiplier, включая default штрафы 30% и 50%.
@@ -331,12 +331,12 @@ python`, а не raw `pip`.
 - `ops_checklists.csv` или runbook-only manifest - game-day setup, morning smoke, act unlock, QR/prop, PvP table and final station checks.
 - `player_handouts.csv` или runbook-only manifest - общие правила, single-d20 checks, QR honesty policy, памятки ролей, PvP refusal/safety и NPC scene book.
 - `xp_rules.csv` - XP за монстров, автоквесты, заказы, личные цели, значимые события, замедление левелинга и +1 stat per level.
-- `reputation_rules.csv` - изменения Добро/Зло, диапазон -5..+5, старт 0, описательные состояния, видимость и threshold access.
+- `reputation_rules.csv` - изменения Добро/Зло, диапазон -12..+12, старт 0, описательные состояния, видимость и threshold access.
 - `backup_jobs.csv` - расписание и триггеры резервных копий, если нужно задавать их контентом.
 - `paper_forms.csv` или runbook-only manifest - разрешенные бумажные формы: `paper_pve_result`, `paper_pvp_stake`, `paper_lord_action`, `paper_lord_battle`, `paper_order_resolution`, `paper_npc_deal`, `paper_final_evidence`.
 - `visual_assets.csv` или asset manifest - original/local/generated UI assets for lord castle/building tree, territory forts, lord battle board, lord venue map, personal Gwent table/cards, buildings, units, artifacts, spells and potions; stores owner/source, license_status, file path, target surfaces and screenshot acceptance notes.
 
-Импорт проверяет обязательные поля, уникальность ID, ссылки между CSV, валидность `qr_mode`, opaque/non-guessable manual IDs, валидность production profile, venue map exclusions, stat caps/level rules, `single_d20` check policy, отсутствие reroll-эффектов в PvE check rules, PvE scene HP/combat defaults, physical-presence honesty policy для QR/manual ID, act unlock coverage, physical announcement coverage, reward approval policy, reputation range/start/thresholds, mana regen source, spell/potion catalog минимумов и resale bands, full Gwent deck/card constraints, card conversion tier, PvP throttle/refusal rules, rarity caps, power budget, trade transfer lock rules, favorites caps/lifecycle, sorceress alignment values, order caps/status machine, 10-hour schedule, final summary inputs, player-facing handout coverage, валидность токенов и выдает читаемый отчет. Для лордского каталога importer дополнительно ловит циклы building tree, missing prerequisites, unknown `branch`, invalid `gold_cost`, bad `recruit_unlock`, invalid `unit_class`, invalid tier/capacity/range, territory without `territory_fort`, bad `garrison_capacity` и recruit offers, которые ссылаются на несуществующие здания, территории или карты.
+Импорт проверяет обязательные поля, уникальность ID, ссылки между CSV, валидность `qr_mode`, opaque/non-guessable manual IDs, валидность production profile, venue map exclusions, stat caps/level rules, `single_d20` check policy, отсутствие reroll-эффектов в PvE check rules, PvE scene HP/combat defaults, physical-presence honesty policy для QR/manual ID, act unlock coverage, physical announcement coverage, reward approval policy, reputation range/start/thresholds, legacy spell/potion catalog минимумов и resale bands, full Gwent deck/card constraints, запрет конвертации личных карт в лордские army unit cards, PvP throttle/refusal rules, rarity caps, power budget, trade transfer lock rules, favorites caps/lifecycle, sorceress alignment values, order caps/status machine, 10-hour schedule, final summary inputs, player-facing handout coverage, валидность токенов и выдает читаемый отчет. Для лордского каталога importer дополнительно ловит циклы building tree, missing prerequisites, unknown `branch`, invalid `gold_cost`, bad `recruit_unlock`, invalid `unit_class`, invalid tier/capacity/range, territory without `territory_fort`, bad `garrison_capacity` и recruit offers, которые ссылаются на несуществующие здания, территории или карты.
 
 ## SQLite model
 
@@ -416,7 +416,7 @@ Paper recovery никогда не перетирает уже применен�
 
 ### Personal PvP
 
-PvP валиден в доме/у лордов и считается как full Gwent по core rules Witcher 3 Gwent на базовых 4 сторонах без дополнений. Сервер проверяет act, challenge token, ставку, участников, максимум 1 active challenge на игрока, deck minimum 22 unit cards, up to 10 special cards, leader, 10-card hand, up to 2 mulligan, 3 rows, pass, weather/decoy/scorch/horn/core abilities, round scoring and tie handling. Каждый ведьмак и чародейка получает 3 challenge tokens на сюжетный акт, токены копятся. Если challenge создан вне места боя, `pvp_challenges` хранит assigned battle zone и `30-minute PvP` окно на явку/старт; просрочка или отказ уходят в master review. PvP throttling проверяет доступный `pvp_table`, queued state, per-act started mandatory match cap и режим `normal/limited/paused`; после final lock новые вызовы запрещены без master override. После `gwent_match_started` отдельного лимита времени на матч нет. Личные карты не сгорают после раунда; при передаче лорду карта навсегда конвертируется по тиру в army unit card.
+PvP валиден в доме/у лордов и считается как full Gwent по core rules Witcher 3 Gwent на базовых 4 сторонах без дополнений. Сервер проверяет act, challenge token, ставку, участников, максимум 1 active challenge на игрока, deck minimum 22 unit cards, up to 10 special cards, leader, 10-card hand, up to 2 mulligan, 3 rows, pass, weather/decoy/scorch/horn/core abilities, round scoring and tie handling. Каждый ведьмак и чародейка получает 3 challenge tokens на сюжетный акт, токены копятся. Если challenge создан вне места боя, `pvp_challenges` хранит assigned battle zone и `30-minute PvP` окно на явку/старт; просрочка или отказ уходят в master review. PvP throttling проверяет доступный `pvp_table`, queued state, per-act started mandatory match cap и режим `normal/limited/paused`; после final lock новые вызовы запрещены без master override. После `gwent_match_started` отдельного лимита времени на матч нет. Личные карты не сгорают после раунда и не конвертируются в лордские army unit cards.
 
 Проверяется после event intake и PvP engine: act token grant -> challenge -> active challenge cap -> pvp_table/queue/throttle -> stake lock -> assigned zone/window -> gwent_match_started -> mulligan -> best-of-3 rounds with tie/weather/decoy/scorch/horn -> result/stake transfer -> duplicate result ignored -> timeout/refusal review.
 
@@ -446,13 +446,13 @@ PvP валиден в доме/у лордов и считается как full
 
 Potion market принадлежит чародейскому контуру: чародейки покупают зелья у NPC/магического рынка по wholesale price (`8g/18g/40g` для Common/Uncommon/Rare), после чего могут продать, обменять или подарить их через `trade_transfers`; resale bands `12-15g/25-30g/55-70g` логируются для баланса. По умолчанию 1 potion на сцену. Текущий potion catalog не использует HP/scene-damage/reroll/favorite effects: эффекты дают modifier, подсказку, снятие помехи, игнор токсичной помехи или раскрытие лучшего стата.
 
-Spell, mana and favorites tables/endpoints остаются legacy/future контуром для старых тестов и возможного следующего слоя. Они не являются обязательной player-facing механикой текущего предметного MVP, не требуются для рынка материалов и не используются новыми предметами/эликсирами. Если магическое действие нужно в текущей игре, оно оформляется как NPC/master event, артефакт, зелье или явный логируемый modifier без отдельной mana economy. Sorceress alignment хранит поддержку стартового лорда, самостоятельную интригу, двойную игру, нового патрона или открытое предательство с evidence для финала.
+Spell, mana and favorites tables/endpoints остаются legacy/future контуром для старых тестов и возможного следующего слоя. Они не являются обязательной player-facing механикой текущего предметного MVP, не начисляются auto-timer'ами, не требуются для рынка материалов и не используются новыми предметами/эликсирами. Если магическое действие нужно в текущей игре, оно оформляется как NPC/master event, артефакт, зелье или явный логируемый modifier без отдельной mana economy. Sorceress alignment хранит поддержку стартового лорда, самостоятельную интригу, двойную игру, нового патрона или открытое предательство с evidence для финала.
 
 Проверяется после potion/material engine: wholesale potion buy -> transfer/sell/gift -> potion use -> material drop -> material market sale -> effect visible to allowed roles.
 
 ### NPC and final procedures
 
-Король/Свет и Странник/Тьма являются event engines с живой мастерской сценой и цифровым следом. Король может утверждать политические решения, судить споры, выдавать поручения и influence. Странник/Дьявол хранит сделки, скрытые цены, темные артефакты и альтернативные пути к победе. Репутация хранит numeric range -5..+5, start 0 and thresholds: Тьма, Запятнанный, Нейтральный, Добро, Свет. Runbook делит 2 NPC-мастеров: Король/порядок/admin-review и Странник/сделки/полевые вмешательства с fallback-перекрытием; оба играют roleplay first, а admin-review закрывается в буферах, кроме severity P0/P1 событий. P0 означает "остановить и решить сейчас", P1 - "решить до следующего акта или финала". Final procedure содержит NPC-led финальный турнир, но не автообъявляет победителя: система готовит `final_summary` для мастеров, включая evidence по ролям, missing locks, pending disputes, NPC prices, locked magical intent, personal hooks, artifacts, orders, reputation and paper recovery. Final Act использует 7:30-9:30 runbook: final lock, 1-3 выбранные турнирные сцены/станции, P0/P1 review, master ruling, personal epilogues and export snapshot.
+Король/Свет и Странник/Тьма являются event engines с живой мастерской сценой и цифровым следом. Король может утверждать политические решения, судить споры, выдавать поручения и influence. Странник/Дьявол хранит сделки, скрытые цены, темные артефакты и альтернативные пути к победе. Репутация хранит numeric range -12..+12, start 0 and thresholds: Тьма, Запятнанный, Нейтральный, Добро, Свет. Runbook делит 2 NPC-мастеров: Король/порядок/admin-review и Странник/сделки/полевые вмешательства с fallback-перекрытием; оба играют roleplay first, а admin-review закрывается в буферах, кроме severity P0/P1 событий. P0 означает "остановить и решить сейчас", P1 - "решить до следующего акта или финала". Final procedure содержит NPC-led финальный турнир, но не автообъявляет победителя: система готовит `final_summary` для мастеров, включая evidence по ролям, missing locks, pending disputes, NPC prices, locked magical intent, personal hooks, artifacts, orders, reputation and paper recovery. Final Act использует 7:30-9:30 runbook: final lock, 1-3 выбранные турнирные сцены/станции, P0/P1 review, master ruling, personal epilogues and export snapshot.
 
 Проверяется после NPC/final runtime: King ruling -> influence/log -> Stranger deal -> hidden price/final flag -> severity review -> weighted lord/witcher/sorceress inputs -> final act timeboxes -> export.
 
@@ -520,7 +520,7 @@ Immediate paper fallback включается для конкретного кр
 
 ## Проверки
 
-- Unit tests: PvE, offline act unlock, reward approval locks, +1 stat level-up, personal_goals/goal_flags visibility, full Gwent deck/round/tie/effects, PvP challenge tokens/window/refusal/tie/throttle, trade_transfers lock/accept/decline, deterministic lord battle 60s timeout/auto-resolve, fort garrison transfer/capacity/minimum rules, escrow, order object conflict and order cap, cooldown 30 min, QR consumption, auto timers, anti-snowball, reputation -5..+5 thresholds, hourly mana, favorites lifecycle and potion economy.
+- Unit tests: PvE, offline act unlock, reward approval locks, +1 stat level-up, personal_goals/goal_flags visibility, full Gwent deck/round/tie/effects, PvP challenge tokens/window/refusal/tie/throttle, trade_transfers lock/accept/decline, deterministic lord battle 60s timeout/auto-resolve, fort garrison transfer/capacity/minimum rules, escrow, order object conflict and order cap, cooldown 30 min, QR consumption, auto timers, anti-snowball, reputation -12..+12 thresholds, disabled production mana tick, favorites lifecycle and potion economy.
 - Content tests: authoring matrix coverage, 40 QR slots with Act 1/2/3 = 12/14/14, 15+ always-available/repeatable and 25+ unique objects, `repeatable_scene`/`always_available_scene`/`unique_object` mix, opaque manual IDs, PvE tiers 1-4, PvE scene HP defaults, reward budgets, act unlock policy, reward approval policy, rarity caps, personal goal hooks, базовый Gwent-каталог и описания эффектов, unique objects, artifact visibility, spell/potion minimum catalog, NPC deal flags and final_summary inputs.
 - Import tests: валидные seed CSV и ошибочные CSV.
 - API integration tests: idempotent events, codes, snapshot, act unlock, reward approvals, review, timers, PvP throttle, backups.
@@ -538,4 +538,4 @@ Immediate paper fallback включается для конкретного кр
   recovery and no unresolved P0/P1/blocking P2 defects. Sorceress
   potions/spells/favorites/alignment are future-layer UI after the shared mobile
   flow is accepted.
-- Full rehearsal: мастерский ноутбук, 4 лордских ноутбука, реальные телефоны, домашний Wi-Fi, 15-person profile, 10-hour fixed schedule, 9 mobile-role load/idle risk, NPC-master load, order pressure, offline act unlock, pending reward approval, full Gwent volume/throttle, trade conflicts, favorites impact, visual/readability proof, master-led final summary, final lock and game-day ops checklist.
+- Full rehearsal: мастерский ноутбук, 4 лордских ноутбука, реальные телефоны, домашний Wi-Fi, 17-person profile, 10-hour fixed schedule, 11 mobile-role load/idle risk, NPC-master load, order pressure, offline act unlock, pending reward approval, full Gwent volume/throttle, trade conflicts, favorites impact, visual/readability proof, master-led final summary, final lock and game-day ops checklist.

@@ -29,7 +29,7 @@ workspace готовит исходники, docs, tests и asset contracts, н�
 
 Цель плана - зафиксировать оптимальный путь реализации с учетом ограничений: Wi-Fi только в доме, игроки ходят по участку с телефонами, нужно поддержать iOS и Android, лорды играют с ноутбуков, а мастерский ноутбук держит локальный сервер.
 
-Production profile текущей игры: 15 человек всего = 13 игроков + 2 NPC-мастера. Игроки: 4 лорда, 4 гибридные мобильные чародейки и 5 свободных ведьмаков.
+Production profile текущей игры: 17 человек всего = 15 игроков + 2 NPC-мастера. Игроки: 4 лорда, 4 гибридные мобильные чародейки и 7 свободных ведьмаков.
 
 ## Текущая игровая каноника для реализации
 
@@ -59,13 +59,13 @@ Production profile текущей игры: 15 человек всего = 13 и
 - lord map implementation order: текущая реализация ведется через React/Vite lord frontend; backend layout contract хранится в `data/seed/lord_map_layout.json`, а удаленный FastAPI-static lord UI больше не является рабочим направлением;
 - deterministic lord battle 5x6: `attack`, `defense`, `hp`, `initiative`, `move_range`, `attack_range`, `tier`, `unit_class`, damage `count_alive * max(1, attack - defense + modifiers)`, 60s turn timer, auto-resolve;
 - lord battle appendix: V1 фиксирует `unit_power`, `deployed_army_power`, `domain_army_power`, partial stack wounds, deployment caps, line of sight, hero targeting, neutral AI priority and auto-resolve score;
-- lord defaults: старт `80g`, base income `25g/hour`, territory income T1/T2/T3 = `8/14/22g`, building cost T1/T2/T3/T4 = `40/75/120/180g`, lord HP `clamp(30 + floor(deployed_army_power / 10), 35, 70)`, anti-snowball `>=130%/-30%` и `>=170%/-50%`;
+- lord defaults: старт `80g`, base income домена `0g/hour`, territory income T1/T2/T3 = `8/15/24g`, дополнительные доходы/MP/влияние идут через `territory_bonuses.csv` и здания, building cost T1/T2/T3/T4 = `40/75/120/180g`, lord HP `clamp(30 + floor(deployed_army_power / 10), 35, 70)`, anti-snowball `>=130%/-30%` и `>=170%/-50%`;
 - favorites lifecycle: legacy/future контур; в текущем player-facing MVP фавориты не реализуются и предметы/эликсиры на них не ссылаются;
 - sorceress alignment: стартовая связь с лордом не запрещает интригу, двойную игру, нового патрона или открытое предательство; финал считает evidence фактической лояльности;
-- mana defaults: legacy/future контур; текущий предметный MVP не требует маны и не списывает ее в player-facing UX;
+- mana defaults: legacy/future контур; текущий gameplay не начисляет и не списывает ману, магические эффекты оформляются как NPC/master events, предметы, зелья или логируемые modifiers;
 - potion V0 catalog: без HP/scene-damage/reroll/favorite effects; potion wholesale `8g/18g/40g`, resale bands `12-15g/25-30g/55-70g`, стартовое золото ведьмаков `20g`, чародеек `30g`, max 1 potion per scene by default;
 - rarity model: `Common/Uncommon/Rare/Legendary`, rare Gwent cards 6 всего и максимум 2 на акт, artifacts 8 всего, legendary artifacts 2 всего не раньше Act 2, plot/strategic keys 6 всего;
-- reputation thresholds: `-5..-4` Тьма, `-3..-2` Запятнанный, `-1..+1` Нейтральный, `+2..+3` Добро, `+4..+5` Свет;
+- reputation thresholds: `-12..-9` Тьма, `-8..-4` Запятнанный, `-3..+3` Нейтральный, `+4..+8` Добро, `+9..+12` Свет;
 - финал содержит NPC-led турнир: система готовит `final_summary`, missing evidence, locks, NPC prices, locked magical intent, personal hooks и export, но сетку, веса evidence, спорные трактовки, победителей и объявления решают NPC-мастера;
 - Final Act идет как master-led процедура 7:30-9:30: final lock, NPC-led турнир с 1-3 выбранными сценами/станциями, P0/P1 review, master ruling, личные эпилоги и export snapshot;
 - immediate paper fallback: если конкретное критичное действие нельзя провести в приложении/сети, мастер сразу фиксирует его на бумаге и после восстановления вносит как `source=paper_recovered`; если падает Wi-Fi или сервер, лорды продолжают играть на бумаге с ведьмаками через листы владения, армии, заказов, рейдов и боев.
@@ -387,7 +387,7 @@ PvE combat fields (`player_scene_hp`, `scene_hp`, `scene_damage`, `base_damage`)
 
 Минимальные CSV для первой версии:
 
-- `players.csv` - игроки, роли, production profile 4/4/5 + 2 NPC, стартовые параметры, level rules.
+- `players.csv` - игроки, роли, production profile 4/4/7 + 2 NPC, стартовые параметры, level rules.
 - `personal_goals.csv`, `goal_tracks.csv`, `goal_flags.csv`, `final_hooks.csv` - сюжетные цели, прогресс, hidden flags и финальные связи.
 - `mobs.csv` - монстры, HP, урон, награды, QR-ID, сценарий.
 - `pve_scenarios.csv` - шаги PvE-сцен, проверки, тексты, переходы.
@@ -396,7 +396,7 @@ PvE combat fields (`player_scene_hp`, `scene_hp`, `scene_damage`, `base_damage`)
 - `physical_announcements.csv` или runbook manifest - кто и как объявляет старт каждого акта в физическом мире.
 - `reward_approval_rules.csv` - `auto_approve_safe` и `master_approval_required` для offline rewards.
 - `items.csv` - предметы и бонусы.
-- `cards.csv` - общий реестр карт и conversion tiers.
+- `cards.csv` - общий реестр личных card assets; личные карты не конвертируются в лордские army unit cards.
 - `gwent_cards.csv`, `gwent_decks.csv`, `gwent_matches.csv` - full Gwent карты, колоды, матчевые fixtures.
 - `pvp_tables.csv`, `pvp_throttle_rules.csv` - столы, очереди, throttle modes and final lock behavior.
 - `army_unit_cards.csv` - карты-отряды лордов с параметрами 5x6.
@@ -404,7 +404,7 @@ PvE combat fields (`player_scene_hp`, `scene_hp`, `scene_damage`, `base_damage`)
 - `orders.csv` - шаблоны заказов, escrow, order caps и object conflict.
 - `trade_transfers.csv` - online-only transfer rules, pending locks and audit.
 - `favorite_rules.csv` - consent, caps, change limits and final trace.
-- `reputation_rules.csv` - range -5..+5, start 0, thresholds and visibility.
+- `reputation_rules.csv` - range -12..+12, start 0, thresholds and visibility.
 - `final_summary.csv` или runtime view, `final_master_notes.csv`, `final_procedures.csv` - финальные evidence inputs, missing locks, master notes and export fields.
 - `ops_checklists.csv` или runbook manifest - game-day ops checklist.
 - `player_handouts.csv` или runbook manifest - общие правила, single-d20, QR honesty policy, памятки ролей, PvP/refusal и NPC scene book.
@@ -447,7 +447,7 @@ Android - самый простой путь:
 4. Протестировать free provisioning на 1-2 iPhone.
 5. Использовать Apple ID владельцев телефонов, а не один общий Apple ID.
 6. Проверить Developer Mode, доверие профилю, запуск приложения и доступ к камере.
-7. Если установка стабильна, масштабировать на 9 мобильных ролей и один запасной/тестовый iPhone, если он нужен мастерам.
+7. Если установка стабильна, масштабировать на 11 мобильных ролей и один запасной/тестовый iPhone, если он нужен мастерам.
 8. Установить финальную сборку за 1-2 дня до игры.
 
 ### Обновления iOS-сборки
@@ -498,7 +498,7 @@ Sideloadly или аналогичные инструменты можно де�
 
 ### Когда стоит купить Apple Developer Program
 
-Если бесплатная iOS-установка не масштабируется на 9 мобильных ролей плюс запасное устройство или начинает срывать сроки, нужно вернуться к Apple Developer Program.
+Если бесплатная iOS-установка не масштабируется на 11 мобильных ролей плюс запасное устройство или начинает срывать сроки, нужно вернуться к Apple Developer Program.
 
 Платный путь снимает часть установочных рисков:
 
@@ -627,7 +627,7 @@ rewrite of tests that missed these fresh bugs. Stage 2 remains blocked by
 2026-06-03: после Stage 2 code review перед Stage 2B/`TASK-050`
 добавлен pre-Stage-2B remediation/test block: `TASK-068` PvE reward authority and cascade
 reward gates, `TASK-069` personal Gwent round authority, `TASK-070` personal
-card conversion ownership, `TASK-071` lord active-army movement/capture/
+card no-conversion guard, `TASK-071` lord active-army movement/capture/
 garrison rules, `TASK-072` lord order lifecycle authority and validation
 flags, `TASK-073` seed business validation hardening, затем `TASK-074` review
 and rewrite of tests that missed these bugs. This block belongs to `STAGE-2A`,
@@ -754,7 +754,7 @@ Stage 2-5 remain important, but they build on this core: Admin Studio, pre-2B au
 
 ### iOS-установка
 
-Самый высокий риск. Бесплатная установка на 9 мобильных ролей плюс запасное устройство может упереться в лимиты Apple, настройки телефонов, Developer Mode, Apple ID, кабели и время.
+Самый высокий риск. Бесплатная установка на 11 мобильных ролей плюс запасное устройство может упереться в лимиты Apple, настройки телефонов, Developer Mode, Apple ID, кабели и время.
 
 Снижение риска:
 

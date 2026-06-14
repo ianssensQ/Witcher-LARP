@@ -6,16 +6,16 @@ Use `uv run python scripts/taskctl.py claim`, `done`, `block`, `release`, or `sy
 ## Summary
 
 - Total tasks: 88
-- Done: 68
+- Done: 69
 - In progress: 2
 - Blocked: 0
-- Can start now / dependency-ready pending: 1
+- Can start now / dependency-ready pending: 0
 - Pending but waiting on dependencies: 17
-- Pending total: 18
+- Pending total: 17
 - Stage gates: 7
 
 Ready to start now:
-- `TASK-049` - Реализовать Admin paper recovery и correction forms
+- _None._
 
 In progress now:
 - `TASK-046` - Реализовать полноценный lord action UI
@@ -186,7 +186,7 @@ Notes:
 
 Contract:
 Inputs: Stage 1 auth/snapshot/event sync, QR/PvE runtime, reward approval, order/trade, reputation, shared mobile UX flow in docs/ui/mobile-witcher-sorceress-shared-flow-v0.1.md and native iOS plan in docs/ios-native-plan.md.
-Outputs: Native SwiftUI iOS gameplay UI for 5 witchers and 4 field-active sorceresses, proven on at least one real iPhone before Stage 2B acceptance; normal players start at code login after background auto-connect, online map viewing is not required for these roles, and sorceress-specific magic/favorite UI is deferred.
+Outputs: Native SwiftUI iOS gameplay UI for 7 witchers and 4 field-active sorceresses, proven on at least one real iPhone before Stage 2B acceptance; normal players start at code login after background auto-connect, online map viewing is not required for these roles, and sorceress-specific magic/favorite UI is deferred.
 Implementation path: Build ios/ as the production mobile client with SwiftUI, AVFoundation camera QR, local JSON snapshot/settings/event_queue persistence and existing backend APIs. Keep Godot mobile/ as legacy/reference only; do not delete it, but do not count it as the production acceptance path.
 Interfaces: POST /api/auth/player-code, GET /api/content/snapshot, POST /api/events/sync, QR/manual context, reward approvals, gear/bag/deck, trade/order/player-state APIs, iOS app sandbox persistence, Xcode/free provisioning/TestFlight install path. Sorceress mana/spell/favorite endpoints remain future-layer UI dependencies, not TASK-047 V0 blockers.
 Failure/review paths: Network failure preserves local events; rejected/review/locked states are shown and not deleted; hidden diagnostic setup can repair server URL without exposing it as player gameplay; missing iPhone smoke blocks TASK-047/TASK-050 rather than being deferred as launch risk; Android smoke is no longer required for this production build; action without QR/manual physical-presence confirmation goes to review/blocked state.
@@ -195,54 +195,7 @@ Required tests: iOS scaffold static tests, Mac/Xcode build/install smoke, iPhone
 
 ## Dependency Ready
 
-### TASK-049 - Реализовать Admin paper recovery и correction forms
-
-Status: `dependency-ready`
-Priority: `P0`
-Category: `admin`
-Stage: `STAGE-2B: Playable Role UI`
-Stage gate: `False`
-Dependencies: `TASK-045`, `TASK-021`, `TASK-022`, `TASK-043`
-
-Goal:
-
-Довести мастерские формы восстановления и коррекций, чтобы все критичные бумажные fallback-события можно было внести из Admin Studio с audit и conflict review.
-
-Scope:
-- Paper recovery forms for paper_pve_result, paper_pvp_stake, paper_lord_action, paper_lord_battle, paper_order_resolution, paper_npc_deal and paper_final_evidence
-- Required fields: paper_form_id, source form type, operator, timestamp, participants, object/stake/territory/battle/order/QR, result and recovery reason
-- Conflict preview before submit: duplicate digital event, stale ownership, locked asset, closed order, finished battle or final-lock conflict
-- Master correction forms with reason/operator for reward approval, map/garrison/MP/building/recruit/reserve/raid/PvP timeout/final evidence
-- Review queue integration with severity P0/P1/P2/P3 and visible unresolved state
-- Audit log/export visibility for post-game review and final_summary paper recovery section
-
-Acceptance:
-- Master can enter every allowed paper fallback form from Admin Studio without editing SQLite or using Swagger
-- Conflicting or duplicate paper recovery creates review item and never silently overwrites digital state
-- Valid paper recovery applies through the same idempotency/resource/ownership checks as digital events
-- Corrections require reason/operator and are visible in audit/final summary where relevant
-- Paper recovery drill can be rehearsed for lord action or lord battle plus at least one mobile/PvP/final evidence form
-
-Test Steps:
-- Submit paper_pve_result and paper_pvp_stake forms from Admin UI
-- Submit paper_lord_action and paper_lord_battle continuation forms and verify timestamp/conflict behavior
-- Submit paper_order_resolution, paper_npc_deal and paper_final_evidence forms
-- Create duplicate/conflicting paper recovery and verify needs_master_review with reason
-- Create correction with missing reason and verify rejection; create valid correction and verify audit
-- Open final_summary and verify paper recovery evidence is present
-- uv run pytest tests/test_final_summary_runtime.py tests/test_fastapi_contract.py -q
-- uv run python scripts/taskctl.py validate
-
-Notes:
-
-Contract:
-Inputs: TASK-021 game ops dashboard, TASK-022 NPC/final tools and TASK-043 recovery consistency fixes.
-Outputs: Admin Studio forms for all critical paper fallback and correction workflows.
-Implementation path: Forms call explicit backend endpoints that reuse event/recovery services; no direct DB writes from UI.
-Interfaces: paper_forms seed, event_reviews, final_summary paper recovery section, correction/review APIs and backup/export.
-Failure/review paths: Duplicate/conflicting recovery always goes to master review with reason; missing required fields block submission.
-Required tests: Browser smoke, recovery conflict fixtures, final_summary visibility and TaskOS validate.
-
+_No tasks._
 
 ## Blocked
 
@@ -666,7 +619,7 @@ Goal:
 Использовать Stage 3 generator для первичного набора 40+ самостоятельных QR/PvE сцен на 10 часов.
 
 Scope:
-- 40+ QR/PvE entries for 10-hour 15-person profile
+- 40+ QR/PvE entries for 10-hour 17-person profile
 - Target mix: minimum 15 repeatable_scene/always_available_scene entries and 25+ unique_object entries
 - Balanced mix: always-available ordinary QR, monsters, investigations, moral choices, puzzles, artifacts, orders, rare cards, plot keys and strategic items
 - Tiers 1-4 by acts
@@ -686,11 +639,11 @@ Acceptance:
 - Pack includes at least 15 repeatable_scene/always_available_scene QR scenes and 25+ unique_object entries
 - Pack includes personal goal hooks, hidden goal_flags, final_hooks and role-load tags for Stage 5
 - Pack contains enough always-available ordinary QR quests to prevent idle players
-- Coverage explicitly checks idle risk for 5 witchers + 4 hybrid field sorceresses
+- Coverage explicitly checks idle risk for 7 witchers + 4 hybrid field sorceresses
 
 Test Steps:
 - Generate full draft pack
-- Check content mix: count>=40, repeatable_scene+always_available_scene>=15, unique_object>=25, 9 mobile role idle coverage
+- Check content mix: count>=40, repeatable_scene+always_available_scene>=15, unique_object>=25, 11 mobile role idle coverage
 - Проверить coverage report: count>=40, tiers 1-4, scene mix, stat mix, always-available QR count
 - Проверить QR modes, locations, personal goal hooks, goal_flags and final_hooks
 - Проверить single_d20 policy, no reroll effects and physical-presence honesty policy
@@ -762,7 +715,7 @@ Goal:
 Дополнить квесты полным набором предметов, карт, зелий, заклинаний, артефактов, заказов, NPC-событий и QR checklist.
 
 Scope:
-- Production profile content: 4 lords, 4 sorceresses, 5 witchers, 2 NPC masters
+- Production profile content: 4 lords, 4 sorceresses, 7 witchers, 2 NPC masters
 - QR mix lock: minimum 15 repeatable_scene/always_available_scene entries and 25+ unique_object entries
 - Personal goal hooks, goal_flags, final_hooks and role-load tags aligned with quests
 - Act unlock policy, reward approval policy, final score category, PvP throttle tags and ops checklist tags aligned with quests/props
@@ -788,7 +741,7 @@ Scope:
 - Spell cards for sorceress rituals and intrigues with V0 T1-T4 role coverage
 - Potion catalog with wholesale 8/18/40, resale bands 12-15/25-30/55-70, per-scene cap rules, no-reroll effects and rare potion caps
 - Sorceress alignment content for start_lord_support, independent_intrigue, double_game, declared_new_patron and open_betrayal
-- Final_summary NPC-led tournament content, role-specific weights and flags for optional lord final scene, optional witcher final scene/evidence for 5 witchers, sorceress favorites/alignment evidence, locked magical intent, 7:30-9:30 timeboxes, master load plan and personal finals
+- Final_summary NPC-led tournament content, role-specific weights and flags for optional lord final scene, optional witcher final scene/evidence for 7 witchers, sorceress favorites/alignment evidence, locked magical intent, 7:30-9:30 timeboxes, master load plan and personal finals
 - QR print/manual-code checklist
 - Player-facing handouts: общие правила, QR honesty policy, single-d20 checks, памятки ведьмака/чародейки/лорда, PvP refusal/safety and NPC scene book
 - Artifact owner/master visibility and reveal rules
@@ -799,7 +752,7 @@ Scope:
 - Paper fallback forms manifest aligned with critical game actions and final evidence
 
 Acceptance:
-- Full content pack matches 4/4/5 + 2 NPC production profile
+- Full content pack matches 4/4/7 + 2 NPC production profile
 - QR/PvE content contains at least 15 repeatable_scene/always_available_scene entries and 25+ unique_object entries
 - Full content pack contains personal_goals hooks, hidden goal_flags, final_hooks and custom full Gwent card content
 - Custom Gwent card pack covers rows, leaders, weather/special effects, rarity/power budget and original art prompts without copying official Witcher 3 card art or names where rights are unclear
@@ -808,7 +761,7 @@ Acceptance:
 - Lord order content supports cap 2 public + 1 addressed active orders per lord
 - Trade content supports trade_transfers pending locks and no double ownership
 - Favorite content supports consent, primary/secondary caps, change limit, no passive runtime bonus, max 2 sorceresses per favored player and final traces
-- Final summary content includes NPC-led final tournament/final_summary, optional lord final scene, optional witcher final scenes/evidence for 5 witchers, sorceress favorites/alignment evidence, locked magical intent, master load plan and personal finals
+- Final summary content includes NPC-led final tournament/final_summary, optional lord final scene, optional witcher final scenes/evidence for 7 witchers, sorceress favorites/alignment evidence, locked magical intent, master load plan and personal finals
 - NPC runbook content covers roleplay-first King/order/admin-review and Wanderer/deals/field interventions with buffer review
 - Full content imports без validation errors
 - Есть игровые цепочки для ведьмаков, чародеек, лордов и NPC
@@ -830,7 +783,7 @@ Acceptance:
 
 Test Steps:
 - Run CSV import on full content pack
-- Check production profile 4/4/5 + 2 NPC and QR mix 15+ repeatable_scene/always_available_scene + 25+ unique_object
+- Check production profile 4/4/7 + 2 NPC and QR mix 15+ repeatable_scene/always_available_scene + 25+ unique_object
 - Проверить personal_goals hooks, goal_flags, final_hooks and custom full Gwent cards
 - Проверить custom Gwent card taxonomy: rows, leader cards, weather/special effects, rarity, deck limits, power budget and original art prompts
 - Проверить building catalog, army unit catalog, territory fort catalog и territory recruit source coverage
@@ -902,7 +855,7 @@ Acceptance:
 - Content smoke подтверждает основные игровые цепочки
 - Content pack содержит unique objects по актам: artifacts, rare cards, gold, plot keys and strategic items
 - Content smoke includes order cap 2 public + 1 addressed per lord and favorite primary/secondary caps
-- Final summary inputs готовы для optional lord final scene, optional witcher final scenes/evidence for 5 witchers, sorceress favorites/alignment evidence and personal finals
+- Final summary inputs готовы для optional lord final scene, optional witcher final scenes/evidence for 7 witchers, sorceress favorites/alignment evidence and personal finals
 - Final summary inputs include master load plan for two NPC masters
 - Coverage report confirms Act 1/2/3 = 12/14/14 slots and required per-act scene hooks
 - Coverage report confirms rarity caps, power budget, visibility and counterplay for Rare/Legendary rewards
@@ -951,9 +904,9 @@ Goal:
 Создать симулятор действий игроков и ролей для проверки темпа 10-часовой игры.
 
 Scope:
-- Production profile scenario: 4 lords, 4 hybrid sorceresses, 5 witchers and 2 NPC masters
+- Production profile scenario: 4 lords, 4 hybrid sorceresses, 7 witchers and 2 NPC masters
 - Fixed 10-hour schedule model with registration, buffers, final lock, Final Act and debrief/export
-- 9 mobile roles model: 5 witchers + 4 field-active sorceresses
+- 11 mobile roles model: 7 witchers + 4 field-active sorceresses
 - Archetypes: active/casual witcher, sorceress, lord, risk-seeker, support player
 - Action budgets by act/time and role-load model, not one QR/hour norm
 - Quest selection, personal goals, order race, full Gwent PvP frequency, trade conflicts, lord economy, magic usage
@@ -966,12 +919,12 @@ Scope:
 Acceptance:
 - Simulator runs repeatable scenarios on full content pack
 - Reports include XP, gold, gear, cards, reputation, order completion, lord economy
-- Reports include role-load idle risk for 9 mobile roles, order pressure, offline act unlock friction, pending reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact and NPC-master load
+- Reports include role-load idle risk for 11 mobile roles, order pressure, offline act unlock friction, pending reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact and NPC-master load
 - Assumptions are documented and adjustable
 
 Test Steps:
 - Run deterministic simulation seed
-- Run 15-person profile seed with 4 lords, 4 hybrid sorceresses, 5 witchers and 2 NPC masters
+- Run 17-person profile seed with 4 lords, 4 hybrid sorceresses, 7 witchers and 2 NPC masters
 - Проверить reports for all archetypes
 - Check role-load idle risk, order pressure, offline act unlock, reward approval locks, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact and NPC-master load reports
 - Изменить action budget и проверить report changes
@@ -1003,19 +956,19 @@ Goal:
 Scope:
 - XP curve and level distribution
 - Level-up grant +1 stat per level with max stat 7
-- 15-person pacing with 9 mobile roles and 15+25 QR mix
+- 17-person pacing with 11 mobile roles and 15+25 QR mix
 - Role-load model using QR, orders, personal goals, magic, trade, NPC and PvP action sources
 - Gold/reward budget by tier
 - Gear/stat requirement pacing
 - 30-minute QR cooldown/failure impact
-- Idle-risk report for 5 witchers + 4 field sorceresses
+- Idle-risk report for 7 witchers + 4 field sorceresses
 - PvE -> progression/gold/cards -> stronger PvE/PvP loop
 
 Acceptance:
 - Active players land around level 7-9 in simulation
 - Level 10 is rare and requires exceptional route
 - Every level-up grants exactly +1 stat and stat values never exceed 7
-- 9 mobile roles have enough repeatable_scene/always_available_scene QR capacity and non-QR role actions without expecting completion of all 40+ scenes
+- 11 mobile roles have enough repeatable_scene/always_available_scene QR capacity and non-QR role actions without expecting completion of all 40+ scenes
 - XP from monsters, autoquests, orders, personal goals and significant events creates a slowed but pleasant level curve
 - Rewards are meaningful without runaway snowball
 - 30-minute failure cooldown does not stall player for too long
@@ -1023,7 +976,7 @@ Acceptance:
 Test Steps:
 - Run progression simulations across archetypes
 - Check level-up +1 stat/max 7 in progression report
-- Check 15-person/9-mobile-role role-load idle-risk report against 15+ repeatable_scene/always_available_scene + 25+ unique_object QR mix and non-QR actions
+- Check 17-person/11-mobile-role role-load idle-risk report against 15+ repeatable_scene/always_available_scene + 25+ unique_object QR mix and non-QR actions
 - Проверить level distribution and reward value report
 - Проверить XP source distribution and slowed leveling curve
 - Tune content tables if thresholds fail
@@ -1057,7 +1010,7 @@ Scope:
 - Full Gwent outcomes, challenge token pacing, 30-minute PvP start window, no-match-limit risk after start, custom card value and Gwent-inspired deck complexity
 - PvP-volume go/no-go report: 90th percentile table wait, matches over 25 minutes, per-act mandatory starts, buffer/review load and tuning knobs for tokens/throttle/tables/card complexity
 - PvP throttle report: pvp_tables, queued challenges, per-act mandatory match cap, normal/limited/paused modes and final lock behavior
-- 15-person full Gwent PvP volume report for 3 challenge tokens per act, including timeout/refusal/tie rates, stake transfer, table wait percentiles and over-25-minute rate
+- 17-person full Gwent PvP volume report for 3 challenge tokens per act, including timeout/refusal/tie rates, stake transfer, table wait percentiles and over-25-minute rate
 - Trade_transfers conflict report: pending locks, double ownership prevention and order-object transfers
 - Lord full-graph map movement, MP cap/refill, route pressure, enemy intel redaction, pending arrival recovery, physical venue travel time, territory race and active army <-> fort transfer pressure
 - Lord order pressure with cap 2 public + 1 addressed and low witcher availability
@@ -1082,7 +1035,7 @@ Scope:
 
 Acceptance:
 - Нет очевидной доминирующей стратегии для full Gwent PvP/lord economy/magic
-- Full Gwent PvP report confirms 3 challenge tokens per act do not create excessive PvP volume for 15-person profile, including no-match-limit risk, timeout/refusal/tie handling and stake transfer
+- Full Gwent PvP report confirms 3 challenge tokens per act do not create excessive PvP volume for 17-person profile, including no-match-limit risk, timeout/refusal/tie handling and stake transfer
 - PvP throttle normal/limited/paused, 2 pvp tables, queued challenges and per-act match cap do not create deadlocks
 - Trade_transfers report confirms pending locks do not create double ownership or stuck assets
 - Лордам интересно двигаться по карте, атаковать, защищаться, перебрасывать войска в тематические форты и обратно, гарнизонить, строиться, рейдить, нанимать войска и делать заказы
@@ -1108,7 +1061,7 @@ Acceptance:
 
 Test Steps:
 - Run full Gwent/lord map/battle/raid/magic simulation fixtures
-- Check 15-person full Gwent PvP volume report for token use, no-match-limit risk, timeout/refusal/tie rate, stake transfer, table wait percentiles, over-25-minute rate and special/weather/leader card frequency
+- Check 17-person full Gwent PvP volume report for token use, no-match-limit risk, timeout/refusal/tie rate, stake transfer, table wait percentiles, over-25-minute rate and special/weather/leader card frequency
 - If PvP-volume report fails, tune tokens/throttle/table count/card complexity and re-run
 - Check PvP throttle report for pvp_tables, queue, per-act cap, normal/limited/paused and final lock behavior
 - Check trade_transfers conflict report for pending locks and double ownership
@@ -1156,7 +1109,7 @@ Goal:
 
 Scope:
 - Real hardware rehearsal
-- 15-person fixed 10-hour runbook: registration/snapshot, Act 1, buffer, Act 2, buffer, Act 3, final lock, Final Act, debrief/export
+- 17-person fixed 10-hour runbook: registration/snapshot, Act 1, buffer, Act 2, buffer, Act 3, final lock, Final Act, debrief/export
 - Physical act announcement rehearsal for Act 1/2/3/Final Act before unlock code reveal
 - QR honesty policy and single_d20/no-reroll check rehearsal
 - NPC-master split rehearsal: roleplay-first King/order/admin-review vs Wanderer/deals/field interventions with fallback overlap and buffer review
@@ -1175,9 +1128,9 @@ Scope:
 
 Acceptance:
 - Full scripted run passes on real hardware
-- Full scripted run covers 15-person production profile and fixed 10-hour pacing with buffers/final lock
+- Full scripted run covers 17-person production profile and fixed 10-hour pacing with buffers/final lock
 - Runbook covers roleplay-first NPC-master split, order/admin review, field interventions, buffer review and fallback overlap
-- Rehearsal evidence covers order pressure, 9 mobile role idle risk, offline act unlock, pending reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact, locked magical intent and NPC-led final tournament/final_summary
+- Rehearsal evidence covers order pressure, 11 mobile role idle risk, offline act unlock, pending reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact, locked magical intent and NPC-led final tournament/final_summary
 - Runbook covers game-day ops checklist, severity rubric, final timeboxes and master approvals
 - Runbook covers physical act announcements, QR honesty policy, single_d20 checks, PvP refusal/safety table, player-facing handouts and NPC-led Final Act tournament load plan
 - Server restart does not lose rehearsal state
@@ -1191,9 +1144,9 @@ Acceptance:
 
 Test Steps:
 - Run rehearsal on venue-like Wi-Fi
-- Check production profile during rehearsal: 4 lords, 4 hybrid sorceresses, 5 witchers, 2 NPC masters
+- Check production profile during rehearsal: 4 lords, 4 hybrid sorceresses, 7 witchers, 2 NPC masters
 - Scripted run: registration/snapshot -> start Act 1 with physical announcement/buffer/Act 2 announcement/buffer/Act 3 announcement/final lock/final announcement -> offline act unlock code -> auto tick -> challenge tokens -> lord MP refill -> `/lords/home` -> switch territory -> accumulated recruit stock -> buy unit to garrison -> army/garrison transfer -> strategic map route preview -> pending horse arrival -> contested neutral capture -> neutral AI/master takeover battle -> fort garrison -> pending tick reward -> buy building with prerequisites -> anti-snowball 30/50 check -> raid debuff/loot -> QR/PvE single_d20/no-reroll + honesty policy -> failure cooldown 30 min -> pending reward approval -> personal_goals/goal_flags -> sync -> trade_transfers lock/accept -> digital order cap/race/object conflict -> full Gwent PvP token/30-minute PvP start window/PvP throttle/interception/timeout-refusal-tie/refusal-safety table -> lord battle 5x6 with 60s timer, auto-resolve and 6 unit-class fixture coverage -> paper_lord_action/paper_lord_battle recovery drill -> sorceress wholesale potion + spell + consent primary/secondary favorite -> locked magical intent -> artifact/plot key reveal -> roleplay-first King ruling/order/admin-review buffer -> Wanderer deal/field intervention -> NPC-led final tournament/final_summary evidence/export and Final Act load plan
-- Check fixed 10-hour pacing, 9 mobile role idle risk, order pressure, offline act unlock, reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact and NPC-master load
+- Check fixed 10-hour pacing, 11 mobile role idle risk, order pressure, offline act unlock, reward approvals, full Gwent PvP volume/no-match-limit/throttle risk, trade conflicts, favorites impact and NPC-master load
 - Backup/restore check
 - 4 lord panels simultaneous check
 - Game-day smoke dry run
@@ -1228,7 +1181,7 @@ Goal:
 Принять Stage 5: баланс симуляцией подтвержден, rehearsal пройден, игра готова к проведению.
 
 Scope:
-- 15-person production profile sign-off
+- 17-person production profile sign-off
 - Balance reports sign-off
 - Idle risk, order pressure, NPC load, offline act unlock, reward approvals, full Gwent PvP volume/throttle, trade conflicts, favorites, locked magical intent and final_summary sign-off
 - Full rehearsal sign-off
@@ -1241,8 +1194,8 @@ Scope:
 
 Acceptance:
 - Simulation confirms pacing, rewards and role interest
-- Simulation and rehearsal confirm 15-person profile: 4 lords, 4 hybrid sorceresses, 5 witchers and 2 NPC masters
-- 9 mobile role idle risk is acceptable with 15+ repeatable_scene/always_available_scene QR scenes, 25+ unique_object entries and non-QR role actions
+- Simulation and rehearsal confirm 17-person profile: 4 lords, 4 hybrid sorceresses, 7 witchers and 2 NPC masters
+- 11 mobile role idle risk is acceptable with 15+ repeatable_scene/always_available_scene QR scenes, 25+ unique_object entries and non-QR role actions
 - Offline act unlock and reward approval locks do not create idle risk or cascade exploits
 - Active player level target 7-9 holds; level 10 remains rare
 - Lord strategy simulation confirms movement, territory control, thematic fort transfer, named building tree, accumulated recruit stock/rates, unit class roster, raid pacing/loot and anti-snowball 30/50 are interesting without runaway snowball
@@ -1267,7 +1220,7 @@ Acceptance:
 
 Test Steps:
 - Review balance simulation reports
-- Review 15-person production profile, fixed 10-hour schedule, 9 mobile role idle risk and 15+25 QR mix reports
+- Review 17-person production profile, fixed 10-hour schedule, 11 mobile role idle risk and 15+25 QR mix reports
 - Review lord movement/economy/fort transfer/recruit/building/unit/raid/anti-snowball reports
 - Review order pressure, full Gwent PvP token/window/no-match-limit/timeout/refusal/tie, trade_transfers, favorites, locked magical intent, potion economy, NPC/final_summary reports
 - Review rehearsal evidence, physical act announcement, QR honesty, single_d20/no-reroll, act unlock/reward approval/PvP throttle/refusal/final timebox/load plan reports and blockers
@@ -1465,11 +1418,11 @@ Scope:
 - Trade seed: trade_transfers online-only, two confirmations, pending asset locks and atomic owner changes
 - Lord battle seed: deterministic 5x6 defaults attack/defense/hp/initiative/move_range/attack_range/tier/unit_class, damage max(1, attack - defense + modifiers), unit_power/deployed_army_power/domain_army_power, partial stack wounds, deployment caps, line of sight, hero targeting, 60s turn timer and auto-resolve
 - Spell cards seed для ритуалов и интриг чародеек, hourly mana regen by sorceress level/bonuses, V0 spell roles T1-T4, potion wholesale 8/18/40, resale bands 12-15/25-30/55-70, starting gold 20g witcher/30g sorceress, max 1 potion per scene default and no potion reroll effects
-- NPC/final seed: roleplay-first King rulings, Stranger deals, NPC buffer runbook, review severity P0/P1/P2/P3, NPC-led final tournament + final_summary + personal hooks, master final evidence categories, optional lord final scene, optional witcher final scene/evidence for 5 witchers, sorceress favorites/alignment evidence, locked magical intent, sorceress_alignment, Final Act 7:30-9:30 timeboxes, master load plan and personal finals
-- Seed для production profile: 15 человек = 13 игроков (4 лорда, 4 чародейки, 5 ведьмаков) и 2 NPC-мастера
+- NPC/final seed: roleplay-first King rulings, Stranger deals, NPC buffer runbook, review severity P0/P1/P2/P3, NPC-led final tournament + final_summary + personal hooks, master final evidence categories, optional lord final scene, optional witcher final scene/evidence for 7 witchers, sorceress favorites/alignment evidence, locked magical intent, sorceress_alignment, Final Act 7:30-9:30 timeboxes, master load plan and personal finals
+- Seed для production profile: 17 человек = 15 игроков (4 лорда, 4 чародейки, 7 ведьмаков) и 2 NPC-мастера
 - Content mix seed: 40+ QR/PvE, минимум 15 always-available/repeatable scenes и 25+ unique objects
 - Order cap seed: максимум 2 public + 1 addressed active orders per lord
-- Card conversion seed: personal card tier -> army unit card tier for lord transfer
+- Personal card seed: cards.csv uses no_lord_conversion; lord army unit cards come from recruit, building or lord runtime sources
 - V0 balance defaults seed: XP thresholds 0/10/25/45/70/100/135/175/220/270, PvE DC tiers, reward budgets, lord economy defaults, lord HP formula and mana regen/costs
 - Rarity rules seed: Common/Uncommon/Rare/Legendary, power_budget, act_cap, visibility, counterplay, rare card/artifact/potion/plot key caps
 - Paper fallback seed: paper_pve_result, paper_pvp_stake, paper_lord_action, paper_lord_battle, paper_order_resolution, paper_npc_deal, paper_final_evidence and source=paper_recovered event contract
@@ -1489,7 +1442,7 @@ Acceptance:
 - Seed содержит territory bonus types, neutral defense profiles, accumulated recruit stock/rates и raid rules
 - Seed содержит venue_map_profile или эквивалент, где old house and adjacent shed excluded and have no QR/orders/territories/routes
 - Seed фиксирует, что лорды начинают только с резиденции, а остальные зоны нейтральны
-- Seed содержит минимум 15 repeatable_scene/always_available_scene QR scenes и 25+ unique_object by acts for 15-person profile
+- Seed содержит минимум 15 repeatable_scene/always_available_scene QR scenes и 25+ unique_object by acts for 17-person profile
 - Seed содержит diplomacy_signals для союзов, заговоров и коалиций против лидера
 - xp_rules покрывают монстров, автоквесты, заказы, личные цели, значимые события, +1 stat per level, max stat 7 и замедление левелинга
 - Seed содержит anti_snowball_rules с default income cuts 30% и 50%
@@ -1501,7 +1454,7 @@ Acceptance:
 - trade_transfers seed locks assets while pending and prevents double ownership
 - final_summary seed фиксирует NPC-led tournament evidence + locked magical intent + personal hooks and hidden flag visibility
 - buildings.csv содержит v1 default catalog: Training Yard, Barracks, Archery Range, Stables, Siege Yard, War Academy, Market, Tax Office, Storehouse, Bank, Treasury Hall, Notice Board, Envoy Hall, Map Room, Raid Office, War Council, Mage Study, Alchemy Lab, Scrying Room, Wards, Ritual Chamber
-- cards.csv содержит army unit cards для 6 базовых земных unit_class без массовых магов/монстров и personal-card tier conversion to lord army unit card
+- cards.csv содержит личные card assets с no_lord_conversion; army_unit_cards.csv содержит 6 базовых земных unit_class без массовых магов/монстров
 - docs/game-mechanics.md указан как канон механик
 - Seed includes V0 balance defaults for XP, DC, rewards, lord economy, lord HP, mana and spell costs
 - Seed includes rarity_rules or equivalent rarity/power_budget/act_cap/visibility/counterplay fields with caps for rare cards, artifacts, potions and plot keys
@@ -1530,7 +1483,7 @@ Test Steps:
 - Проверить seed для neutral territory battle, garrison, pending tick reward, reserve spawn, 60s timer and auto-resolve
 - Проверить building prerequisites/cross-deps и отсутствие act cap в data contract
 - Проверить unit_class coverage: infantry, guard, ranged, cavalry, heavy_siege, specialist
-- Проверить production profile 4/4/5 + 2 NPC, favorite caps/lifecycle, sorceress_alignment values, reputation -5..+5 start 0 thresholds and card tier conversion
+- Проверить production profile 4/4/7 + 2 NPC, favorite caps/lifecycle, sorceress_alignment values, reputation -5..+5 start 0 thresholds and no_lord_conversion для личных карт
 - uv run python scripts\taskctl.py validate
 - Check V0 balance defaults: XP thresholds, DC tiers, reward budgets, lord economy, lord HP formula, mana regen and spell costs
 - Check rarity caps: rare Gwent cards 6 total/max 2 per act, artifacts 8 total, legendary artifacts 2 total/not before Act 2, potion caps and plot/strategic keys 6 total
@@ -1546,7 +1499,7 @@ Test Steps:
 Notes:
 
 Contract:
-Inputs: Canonical docs, current tasks.json, production profile 4 lords/4 sorceresses/5 witchers/2 NPC masters, and Stage 1 acceptance in TASK-018.
+Inputs: Canonical docs, current tasks.json, production profile 4 lords/4 sorceresses/7 witchers/2 NPC masters, and Stage 1 acceptance in TASK-018.
 Outputs: Editable seed pack under data/seed plus valid/broken fixtures under tests/fixtures. Required CSVs and headers: profiles(profile_id,total_people,player_count,npc_master_count,lord_count,sorceress_count,witcher_count); players(player_id,role_type,display_name,lord_id,sorceress_start_lord_id,level,xp,gold,reputation,stats_json,player_code_id); player_codes(code_id,player_id,code,enabled); role_tokens(token_id,role_type,owner_id,token,enabled); acts(act_id,sequence,act_type,name,start_offset_min,end_offset_min,buffer_after_min,unlock_required,physical_announcement_required); act_unlock_codes(unlock_id,act_id,code,revealed_after_start); physical_announcements(announcement_id,act_id,required_signal,operator_role); auto_timers(timer_id,act_id,timer_type,offset_min,interval_min,effect_type); domains(domain_id,lord_player_id,name,starting_gold,base_income); map_nodes(node_id,name,node_type,zone_status,territory_id); map_edges(edge_id,from_node_id,to_node_id,mp_cost,bidirectional); territories(territory_id,name,owner_domain_id,bonus_type,tier,neutral_defense_profile_id); movement_rules(rule_id,mp_cap,refill_interval_min,refill_amount); buildings(building_id,branch,name,tier,gold_cost,prerequisite_ids,recruit_unlock_ids,capacity_delta,raid_unlock); army_unit_cards(card_id,unit_class,tier,attack,defense,hp,initiative,move_range,attack_range,cost,source_id); recruit_markets(offer_id,domain_id,card_id,cost,status,refresh_rule); mobs(mob_id,tier,scene_hp,combat_dc,scene_damage,round_limit,special_rule); pve_scenarios(scenario_id,act_id,tier,scene_type,primary_stat,dc,check_policy,combat_profile_id,reward_id,success_text,failure_text,timeout_outcome); qr_objects(qr_id,manual_code,scenario_id,qr_mode,act_id,location_node_id,physical_presence_required,rate_limit,consumption_rule); rewards(reward_id,xp,gold,item_ids,card_ids,artifact_ids,rarity,approval_policy); reward_approval_rules(rule_id,reward_type,default_status,locks_assets); items(item_id,item_type,tier,stat_requirement_json,effect_json); gwent_cards(card_id,faction,row,type,strength,effect,rarity); gwent_decks(deck_id,player_id,leader_card_id,card_ids); gwent_matches(match_id,challenger_id,target_id,status,stake_json); challenge_tokens(token_rule_id,act_id,tokens_per_player,start_window_min); pvp_tables(table_id,status,zone_name); pvp_throttle_rules(rule_id,mode,max_tables,max_started_per_player_per_act,final_lock_behavior); pvp_refusal_rules(rule_id,reason,severity,default_outcome); trade_transfers(transfer_id,from_player_id,to_player_id,asset_type,asset_id,status); orders(order_id,lord_id,target_player_id,object_id,visibility,status,escrow_reward_id); potions(potion_id,rarity,wholesale_cost,resale_min,resale_max,effect_json); potion_markets(market_id,seller_role,potion_id,stock,refresh_rule); spells(spell_id,tier,role,cost_mana,target_type,effect_json,counterplay); artifacts(artifact_id,rarity,act_cap,visibility,power_budget,counterplay); personal_goals(goal_id,player_id,act_id,public_text,progress_type,final_hook_id); goal_tracks(track_id,goal_id,state,current_value,target_value,visibility); goal_flags(flag_id,goal_id,flag_key,value,visibility); final_hooks(final_hook_id,role_category,evidence_category,summary_text); reputation_rules(rule_id,min_value,max_value,label,player_descriptor,master_visibility); npc_events(event_id,npc_role,event_type,target_id,price_json,consequence_json,severity); favorite_rules(rule_id,max_primary,max_secondary,max_sorceresses_per_favored,change_limit_per_act,passive_bonus_allowed); sorceress_alignment_rules(rule_id,alignment_state,evidence_required); final_summary_fields(field_id,source_type,evidence_category,visibility,required_for_export); final_procedures(procedure_id,final_act_window,start_offset_min,end_offset_min,station_count,master_role); paper_forms(form_type,required_fields_json,recovery_event_type,conflict_policy); backup_jobs(job_id,trigger_type,include_sqlite,include_event_log); player_handouts(handout_id,audience,required_topics); ops_checklists(item_id,phase,owner_role,required).
 Implementation path: Create data/seed with one valid minimal full-game seed and tests/fixtures/seed_valid plus tests/fixtures/seed_invalid_* packs for duplicate IDs, missing refs, bad QR mode, bad profile counts, future-act unlock, reward approval, order conflict, Gwent deck invalid, building cycle and paper conflict.
 Interfaces: Every CSV uses stable opaque IDs, UTF-8, comma delimiter, header row, no hidden implicit references. Cross-file references must use *_id columns and be validated by TASK-004.
@@ -1571,7 +1524,7 @@ Scope:
 - SQLite tables для full-game runtime сущностей
 - CSV import с duplicate/missing-reference validation
 - snapshot_versions и compact mobile content snapshot
-- Проверка QR mode values unique_object/repeatable_scene/always_available_scene, fixed 10-hour schedule, 3 story acts + final act, production profile 4/4/5 + 2 NPC, act availability, act_unlock_codes, role/player codes, cooldown/token windows и restart recovery
+- Проверка QR mode values unique_object/repeatable_scene/always_available_scene, fixed 10-hour schedule, 3 story acts + final act, production profile 4/4/7 + 2 NPC, act availability, act_unlock_codes, role/player codes, cooldown/token windows и restart recovery
 - Schema/import validation для personal_goals, goal_tracks, hidden goal_flags, final_hooks, full Gwent cards/decks/matches, trade_transfers and final_summary
 - Lord strategic tables: map graph, movement pools, territory claims, pending rewards, recruit offers, raids
 - Building/unit importer validation: dependency graph, unit classes, recruit unlocks and capacity
@@ -1582,9 +1535,9 @@ Scope:
 Acceptance:
 - Fresh DB собирается из seed CSV
 - Ошибочные CSV падают с читаемой ошибкой
-- Snapshot содержит игроков профиля 4/4/5, QR, PvE, personal goals, items/cards/gwent cards/potions/spells и descriptors
+- Snapshot содержит игроков профиля 4/4/7, QR, PvE, personal goals, items/cards/gwent cards/potions/spells и descriptors
 - SQLite schema хранит map_nodes/map_edges, movement_pools, territory_claims, pending_tick_rewards, reward_approvals, recruit_offers, anti_snowball_rules, act_unlock_codes, challenge_tokens, pvp_tables/throttle, trade_transfers, personal_goals, goal_flags, gwent_matches, final_summary и raid_effects
-- Importer ловит cycles, missing prerequisites, unknown branch, invalid gold_cost, bad recruit_unlock, invalid unit_class/tier/capacity/range, invalid production profile, invalid stat cap/level rule, invalid act unlock coverage, invalid reward approval policy, invalid reputation range/start/thresholds, invalid mana regen source, invalid full Gwent deck/card rule, invalid PvP throttle rule, invalid card conversion tier, invalid trade transfer lock rule, invalid favorite caps/lifecycle, invalid order cap/status machine, invalid cooldown/token window, invalid XP source, invalid spell-card target/counterplay, invalid final_summary fields/load plan и duplicate active order object rule
+- Importer ловит cycles, missing prerequisites, unknown branch, invalid gold_cost, bad recruit_unlock, invalid unit_class/tier/capacity/range, invalid production profile, invalid stat cap/level rule, invalid act unlock coverage, invalid reward approval policy, invalid reputation range/start/thresholds, invalid mana regen source, invalid full Gwent deck/card rule, invalid PvP throttle rule, invalid personal card no-conversion rule, invalid trade transfer lock rule, invalid favorite caps/lifecycle, invalid order cap/status machine, invalid cooldown/token window, invalid XP source, invalid spell-card target/counterplay, invalid final_summary fields/load plan и duplicate active order object rule
 - После restart доступны импортированное состояние и snapshot metadata
 - Import pipeline has a documented module boundary and can be run from uv without relying on global Python packages
 
@@ -1885,7 +1838,7 @@ Scope:
 - Witchers/sorceresses can run QR/PvE in any zone regardless of territory owner
 - Visible personal_goals/goal_tracks progress and hidden goal_flags emitted only for master/final hooks
 - XP rewards from monsters, autoquests, lord orders, personal goals and significant events
-- Level-up grants +1 stat, respects max stat 7, and balances 5 witchers + 4 field-active sorceresses
+- Level-up grants +1 stat, respects max stat 7, and balances 7 witchers + 4 field-active sorceresses
 - Reward draft and roll_log
 - No reroll effects in PvE check resolution; rare aids modify result through logged modifiers or hindrance downgrade
 - Temporary player_scene_hp: default 6 + level + armor_or_ward_bonus, minimum 7, reset after scene
@@ -1901,7 +1854,7 @@ Acceptance:
 - Каждая проверка использует ровно один d20; все преимущества/помехи учтены как modifiers
 - Territory owner does not block witcher/sorceress PvE
 - XP source, +1 stat per level, max stat 7 and slowed level curve are applied by scenario rewards
-- PvE flow is balanced for 5 witchers plus 4 hybrid field sorceresses in the current 15-person production profile
+- PvE flow is balanced for 7 witchers plus 4 hybrid field sorceresses in the current 17-person production profile
 - PvE modes support unique_object, repeatable_scene and always_available_scene behavior
 - Future-act content does not open without server sync or master unlock code
 - Unique/rare/order/final rewards stay locked until master approval
@@ -2167,11 +2120,11 @@ Scope:
 - Tie handling: tied round means both players lose the round; double-loss match edge goes to master review
 - Weather, clear weather, decoy, scorch, commander's horn and core abilities with custom LARP cards
 - Cards do not burn in personal PvP
-- Permanent card-to-lord conversion path by personal card tier
+- No card-to-lord conversion path; personal cards remain personal/trade assets
 - Assigned online battle zone and 30-minute PvP start window; after match start no separate match time limit
 - PvP throttling: default 2 pvp_tables, queued challenges, max 2 started mandatory matches per player per act without master approval, normal/limited/paused modes and final lock behavior
 - PvP refusal/safety table: active-scene deferred, unsafe route/force majeure, safety stop, valid-ignore review and overload throttle behavior
-- Timeout/refusal/tie master review paths, stake transfer and 15-person full Gwent volume balance hook
+- Timeout/refusal/tie master review paths, stake transfer and 17-person full Gwent volume balance hook
 - Idempotent result application
 
 Acceptance:
@@ -2186,8 +2139,8 @@ Acceptance:
 - Round engine supports 3 rows, pass, tie both lose round, weather/decoy/scorch/horn/core abilities
 - Ставка фиксируется до боя и применяется один раз
 - Личные карты не сгорают после раунда
-- Передача карты лорду навсегда делает army unit card по тиру карты
-- Runtime сохраняет данные для Stage 5 full Gwent PvP volume, no-match-limit risk, timeout/refusal/tie and stake transfer report по 15-person profile
+- Личные карты не конвертируются в lord army unit cards; попытка conversion rejects without mutation
+- Runtime сохраняет данные для Stage 5 full Gwent PvP volume, no-match-limit risk, timeout/refusal/tie and stake transfer report по 17-person profile
 
 Test Steps:
 - Проверить grant 3 challenge tokens per act и накопление между актами
@@ -2199,8 +2152,8 @@ Test Steps:
 - Проверить no match time limit after start and timestamp capture for duration report
 - Проверить stake application once
 - Duplicate result ignored
-- Проверить card-to-lord conversion by tier
-- Проверить PvP event data for 15-person profile balance report
+- Проверить, что card-to-lord conversion rejects without consuming card or minting reserve
+- Проверить PvP event data for 17-person profile balance report
 - uv run python scripts\taskctl.py validate
 - Passed: uv run pytest tests/test_pvp_runtime.py; passed: uv run pytest tests/test_pvp_runtime.py tests/test_fastapi_contract.py tests/test_act_timer_runtime.py tests/test_import_snapshot_pipeline.py tests/test_seed_contract.py; passed: uv run python scripts/taskctl.py validate. Full uv run pytest currently reports 54 passed and 1 unrelated lord_panel_contract status expectation failure outside TASK-014.
 
@@ -2891,7 +2844,7 @@ Scope:
 Acceptance:
 - Stake transfer происходит только после финального match winner best-of-3
 - Seed не содержит поддерживаемых на бумаге, но игнорируемых в runtime Gwent effects
-- Любой из 9 мобильных игроков с PvP может пройти deck preflight перед challenge
+- Любой из 11 мобильных игроков с PvP может пройти deck preflight перед challenge
 - Невалидный deck/leader не тратит token, не lock-ит stake и не занимает table
 - Tie/refusal/timeout/deferred paths не оставляют stuck active challenge, busy table или locked stake без review owner
 - Регрессионные тесты покрывают normal finish, double-tie, refusal, invalid deck и idempotent finish
@@ -3432,7 +3385,7 @@ Goal:
 Принять Stage 1 отдельно: основной игровой движок всех классов работает на seed fixtures без Admin Studio генерации контента.
 
 Scope:
-- Production profile seed flow: 4 lords, 4 sorceresses, 5 witchers and 2 NPC masters
+- Production profile seed flow: 4 lords, 4 sorceresses, 7 witchers and 2 NPC masters
 - Fixed 10-hour schedule, personal_goals, goal_flags, trade_transfers, full Gwent and final_summary seed flow
 - Scripted role-flow на seed content
 - Witcher offline PvE -> sync
@@ -3447,7 +3400,7 @@ Scope:
 Acceptance:
 - Core Game Engine можно тестировать независимо от будущей Admin Studio и генератора
 - Все основные классы имеют рабочий runtime-контур
-- Seed role-flow confirms current 15-person profile and role counts
+- Seed role-flow confirms current 17-person profile and role counts
 - Лордский strategic runtime проходит route -> contested claim -> neutral/territory battle -> garrison -> income/pending reward -> building prerequisites -> recruit/unit unlock -> reserve transfer -> anti-snowball -> raid debuff/loot
 - PvE cooldown 30 min, QR modes, personal goals, full Gwent PvP challenge tokens/window, trade_transfers, order cap, hourly mana, potion wholesale flow, favorite lifecycle, King/Wanderer event и final_summary inputs проверены на seed flow
 - Physical act announcements, QR honesty policy, single-d20 checks, PvP refusal/safety table, player-facing handouts and NPC-led Final Act tournament load plan проверены на seed flow
@@ -3459,7 +3412,7 @@ Acceptance:
 - Свежая волна Stage 1 review issues TASK-059-TASK-065 закрыта, а TASK-066 подтвердил реальные regression tests перед приемкой.
 
 Test Steps:
-- Check seed profile 4 lords + 4 sorceresses + 5 witchers + 2 NPC masters
+- Check seed profile 4 lords + 4 sorceresses + 7 witchers + 2 NPC masters
 - Run scripted flow: registration/snapshot -> start Act 1 with physical announcement/buffer/Act 2 announcement/buffer/Act 3 announcement/final lock/final announcement -> auto tick -> grant 3 challenge tokens -> hourly mana -> lord MP refill -> `/lords/home` -> accumulated recruit stock tick -> buy unit to selected territory garrison -> army/garrison transfer -> route -> contested neutral capture -> 5x6 neutral battle with 60s timer/auto-resolve -> garrison -> pending tick reward -> buy Training Yard/Barracks/Market/Notice Board/Mage Study -> anti-snowball check -> raid debuff/loot -> opaque QR/PvE single_d20 with modifiers -> QR honesty review path -> PvE scene_hp/failure cooldown 30 min -> personal_goals/goal_flags -> sync -> trade_transfers lock/accept -> order status/cap/object conflict check -> full Gwent PvP token/assigned zone/30-minute PvP start window/tie/timeout-refusal/safety table/stake transfer -> lord battle -> sorceress wholesale potion + spell + consent primary/secondary favorite -> locked magical intent -> roleplay-first King/Wanderer event -> NPC-led final tournament/final_summary evidence/export without automatic winner calculation
 - Restart после scripted flow и проверить state
 - Run paper_recovered event fixture for one critical event, including paper_lord_action or paper_lord_battle, and verify duplicate/conflict goes to master review
@@ -3831,7 +3784,7 @@ Interfaces: /api/pvp/matches/{match_id}/rounds, gwent_runtime_matches, gwent_rou
 Failure/review paths: Missing opponent state, illegal cards, contradictory pass flags or timeout/refusal route to pending/review, not a unilateral win.
 Required tests: Behavior-level two-client and exploit regression tests.
 
-### TASK-070 - Fix personal card conversion ownership
+### TASK-070 - Reject personal card conversion into lord army units
 
 Status: `done`
 Priority: `P1`
@@ -3842,26 +3795,26 @@ Dependencies: `TASK-023`
 
 Goal:
 
-Close the review issue where a personal card can be converted into a lord army unit without the player owning and debiting that exact card.
+Close the review issue by removing the personal-card-to-lord-army conversion path: personal cards remain personal/trade assets and conversion attempts reject without mutation.
 
 Scope:
-- Personal-to-army conversion requires active asset_ownership for the exact card and player
-- Conversion debits or consumes the personal card atomically before minting an army reserve unit
-- Locked/pending reward cards cannot be converted until approved/unlocked
-- Duplicate conversion remains idempotent only for the same already-consumed source card
-- Audit log records source player, lord, card, resulting army unit and ownership/debit state
+- Personal-to-army conversion is not a supported runtime path
+- Conversion attempts reject before debiting or consuming personal cards
+- Locked/pending reward cards stay locked and are not converted
+- Duplicate conversion attempts remain idempotent by producing the same no-mutation rejection
+- Audit/event state does not mint lord army reserves from personal cards
 
 Acceptance:
-- A player cannot convert a catalog card they do not own
-- A player cannot convert a pending/locked card
-- A valid owned card conversion consumes one personal card and creates exactly one matching army unit reserve
-- Repeating the same conversion does not mint extra army units
+- No player can convert any personal card into a lord army unit
+- Pending/locked cards remain locked and are not consumed by conversion attempts
+- Owned cards remain owned after rejected conversion attempts
+- Repeating the same conversion attempt does not mint army units or duplicate events
 
 Test Steps:
-- Add non-owned personal card conversion regression
-- Add locked/pending reward card conversion regression
-- Add valid conversion ownership debit and army reserve creation test
-- Add duplicate conversion idempotency test
+- Add non-owned personal card conversion rejection regression
+- Add locked/pending reward card conversion rejection regression
+- Add owned-card rejection regression that proves no debit and no army reserve creation
+- Add duplicate conversion rejection idempotency test
 - uv run pytest tests/test_pvp_runtime.py tests/test_trade_transfers.py tests/test_reward_approvals.py -q
 - uv run python scripts/taskctl.py validate
 - uv run pytest tests\test_pvp_runtime.py -q; uv run pytest tests\test_pvp_runtime.py tests\test_trade_transfers.py tests\test_reward_approvals.py -q; uv run python scripts\taskctl.py validate
@@ -3869,12 +3822,12 @@ Test Steps:
 Notes:
 
 Contract:
-Inputs: Review finding 4, pvp_service personal_card_conversions and asset_service ownership/lock helpers.
-Outputs: No army-unit minting without real personal card ownership and atomic consumption.
-Implementation path: Reuse lock_owned_asset/debit_asset_ownership or a dedicated consume helper with require_existing_owner, then create reserve only after the card is consumed.
+Inputs: Review finding 4, pvp_service personal_card_conversions endpoint surface, asset_service ownership/lock helpers and personal card seed rules.
+Outputs: Personal cards cannot mint lord army units; lord army cards come only from recruit, building or lord runtime sources, while personal assets move through trade_transfers.
+Implementation path: Reject convert_personal_card_to_lord before debit/mint logic and keep ownership/lock state unchanged; preserve the API surface as a clear no-conversion guard for old clients.
 Interfaces: personal_card_conversions, asset_ownership, asset_locks, army_reserve_runtime and event log.
-Failure/review paths: Ownership/lock ambiguity rejects or routes to review without creating reserve units.
-Required tests: Behavior-level ownership, lock and idempotency tests.
+Failure/review paths: Any conversion attempt returns a no-conversion error without creating reserve units, consuming cards or releasing pending locks.
+Required tests: Behavior-level no-mutation ownership, lock and idempotency tests.
 
 ### TASK-071 - Fix lord active-army movement, capture and garrison rules
 
@@ -4807,3 +4760,52 @@ Implementation path: Treat references as art direction and interaction grammar; 
 Interfaces: Brief feeds TASK-046 lord `/lords/home`/map/forts/battle board, TASK-047 mobile screens, TASK-048 personal Gwent UI, TASK-031 content asset tags, TASK-035 balance reports and TASK-050/TASK-058 visual QA.
 Failure/review paths: If a desired visual requires unavailable rights, replace it with an original analogue preserving layout/function; if the lord home, map or forts cannot be data-bound to selected territory/venue_map_v1/territory_forts/lord_map_layout/intel graph movement, or if a role screen lacks a visual acceptance mockup, block visual acceptance.
 Required tests: Reference matrix review, visual prototype review, data-binding review, asset manifest/IP-safety checklist, responsive screenshot checklist and TaskOS validate.
+
+### TASK-049 - Реализовать Admin paper recovery и correction forms
+
+Status: `done`
+Priority: `P0`
+Category: `admin`
+Stage: `STAGE-2B: Playable Role UI`
+Stage gate: `False`
+Dependencies: `TASK-045`, `TASK-021`, `TASK-022`, `TASK-043`
+
+Goal:
+
+Довести мастерские формы восстановления и коррекций, чтобы все критичные бумажные fallback-события можно было внести из Admin Studio с audit и conflict review.
+
+Scope:
+- Paper recovery forms for paper_pve_result, paper_pvp_stake, paper_lord_action, paper_lord_battle, paper_order_resolution, paper_npc_deal and paper_final_evidence
+- Required fields: paper_form_id, source form type, operator, timestamp, participants, object/stake/territory/battle/order/QR, result and recovery reason
+- Conflict preview before submit: duplicate digital event, stale ownership, locked asset, closed order, finished battle or final-lock conflict
+- Master correction forms with reason/operator for reward approval, map/garrison/MP/building/recruit/reserve/raid/PvP timeout/final evidence
+- Review queue integration with severity P0/P1/P2/P3 and visible unresolved state
+- Audit log/export visibility for post-game review and final_summary paper recovery section
+
+Acceptance:
+- Master can enter every allowed paper fallback form from Admin Studio without editing SQLite or using Swagger
+- Conflicting or duplicate paper recovery creates review item and never silently overwrites digital state
+- Valid paper recovery applies through the same idempotency/resource/ownership checks as digital events
+- Corrections require reason/operator and are visible in audit/final summary where relevant
+- Paper recovery drill can be rehearsed for lord action or lord battle plus at least one mobile/PvP/final evidence form
+
+Test Steps:
+- Submit paper_pve_result and paper_pvp_stake forms from Admin UI
+- Submit paper_lord_action and paper_lord_battle continuation forms and verify timestamp/conflict behavior
+- Submit paper_order_resolution, paper_npc_deal and paper_final_evidence forms
+- Create duplicate/conflicting paper recovery and verify needs_master_review with reason
+- Create correction with missing reason and verify rejection; create valid correction and verify audit
+- Open final_summary and verify paper recovery evidence is present
+- uv run pytest tests/test_final_summary_runtime.py tests/test_fastapi_contract.py -q
+- uv run python scripts/taskctl.py validate
+- Targeted admin/game-ops tests passed; TASK-049 final_summary/fastapi checks passed; task graph validated.
+
+Notes:
+
+Contract:
+Inputs: TASK-021 game ops dashboard, TASK-022 NPC/final tools and TASK-043 recovery consistency fixes.
+Outputs: Admin Studio forms for all critical paper fallback and correction workflows.
+Implementation path: Forms call explicit backend endpoints that reuse event/recovery services; no direct DB writes from UI.
+Interfaces: paper_forms seed, event_reviews, final_summary paper recovery section, correction/review APIs and backup/export.
+Failure/review paths: Duplicate/conflicting recovery always goes to master review with reason; missing required fields block submission.
+Required tests: Browser smoke, recovery conflict fixtures, final_summary visibility and TaskOS validate.

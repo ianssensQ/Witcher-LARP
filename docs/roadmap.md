@@ -50,7 +50,7 @@ master review/reputation scoping. `TASK-066` идет после этих fixes 
 
 Цель: реализовать основной runtime-движок игры для всех классов и ролей без зависимости от будущей генерации контента.
 
-Production profile для всех этапов: 15 человек всего, 13 игроков + 2 NPC-мастера; игроки - 4 лорда, 4 гибридные мобильные чародейки и 5 свободных ведьмаков.
+Production profile для всех этапов: 17 человек всего, 15 игроков + 2 NPC-мастера; игроки - 4 лорда, 4 гибридные мобильные чародейки и 7 свободных ведьмаков.
 
 Что входит:
 
@@ -58,7 +58,7 @@ Production profile для всех этапов: 15 человек всего, 1
 - uv-managed Python/backend/tooling contract: `pyproject.toml`, `.python-version`, `.venv` через `uv sync`, запуск через `uv run`;
 - implementation layout: `backend/witcher_larp`, `mobile/`, `backend/witcher_larp/web`, `data/seed`, `data/snapshots`, `data/backups`, `tests/fixtures`;
 - player codes, role tokens, mobile snapshot, event queue и sync;
-- seed/runtime profile 4/4/5 + 2 NPC-мастера;
+- seed/runtime profile 4/4/7 + 2 NPC-мастера;
 - 10-часовой fixed schedule seed: registration/snapshot, Act 1, buffer, Act 2, buffer, Act 3, final lock, Final Act, debrief/export/emergency buffer;
 - offline act unlock seed: server sync или master `act_unlock_code`/QR для Act 2, Act 3 и Final Act;
 - physical act announcement seed: после запуска на сервере каждый акт явно объявляется голосом/криком на участке;
@@ -78,9 +78,9 @@ Production profile для всех этапов: 15 человек всего, 1
 - full Gwent personal PvP, 3 challenge tokens per act, накопление токенов, max 1 active challenge, timeout/refusal/tie review и 30-minute PvP window на явку/старт в назначенной online-зоне;
 - PvP throttling: default 2 `pvp_tables`, queued challenges, max 2 started mandatory matches per player per act без master approval, режимы `normal/limited/paused`, final lock behavior;
 - PvP refusal/safety table: active scene/deferred, unsafe route/force majeure, safety stop, valid-ignore review and overload throttle behavior;
-- чародейки: PvE/PvP, hourly mana regen, wholesale/resale potion market, зелья, заклинания, primary/secondary фавориты, `sorceress_alignment`, locked magical intent;
+- чародейки: PvE/PvP, wholesale/resale potion market, зелья, интриги без production mana economy, primary/secondary фавориты, `sorceress_alignment`, locked magical intent;
 - favorites lifecycle: consent, 1 primary + 1 secondary, max 2 sorceresses per favored player, 1 change per act, no passive runtime bonus;
-- репутация Добро/Зло с диапазоном -5..+5, стартом 0 и thresholds Тьма/Запятнанный/Нейтральный/Добро/Свет, NPC Король/Свет, Странник/Тьма-Дьявол, NPC deal capture;
+- репутация Добро/Зло с диапазоном -12..+12, стартом 0 и thresholds Тьма/Запятнанный/Нейтральный/Добро/Свет, NPC Король/Свет, Странник/Тьма-Дьявол, NPC deal capture;
 - NPC-led final tournament summary runtime: evidence по ролям, missing locks, pending disputes, NPC prices, locked magical intent, personal hooks, final lock and export snapshot без автоматического объявления победителей.
 - 7:30-9:30 master-led Final Act runbook with NPC-led tournament, review severity P0/P1/P2/P3 and game-day ops checklist hooks.
 
@@ -98,7 +98,7 @@ Production profile для всех этапов: 15 человек всего, 1
 - Python/backend/tooling commands use uv and do not require global Python packages;
 - Stage 1 uses static FastAPI-served HTML/CSS/JS panels without implicit Node frontend build tooling;
 - implementation layout directories are documented before code depends on them;
-- seed фиксирует 4 лордов, 4 чародеек, 5 ведьмаков и 2 NPC-мастеров;
+- seed фиксирует 4 лордов, 4 чародеек, 7 ведьмаков и 2 NPC-мастеров;
 - seed фиксирует venue_map_v1 и исключает старый дом/соседний сарай из игровых узлов;
 - seed фиксирует personal_goals, goal_flags, trade_transfers, full Gwent cards/matches and final_summary;
 - seed фиксирует V0 balance defaults, rarity fields/caps and paper recovery event contract;
@@ -128,9 +128,9 @@ Production profile для всех этапов: 15 человек всего, 1
 - PvP challenge тратит жетон, проверяет накопление 3 токенов за акт, max 1 active challenge и 30-minute PvP окно на явку/старт;
 - PvP throttle проверяет 2 pvp tables, queued challenge, per-act started match cap, mode `normal/limited/paused` and final lock behavior;
 - full Gwent fixture проходит deck validation, 10-card hand, mulligan, 3 rows, pass, weather/decoy/scorch/horn, tie handling and stake transfer;
-- PvP timeout/refusal/tie path уходит в master review, а Stage 5 отдельно проверяет PvP volume и no-match-limit risk для 15-person profile;
+- PvP timeout/refusal/tie path уходит в master review, а Stage 5 отдельно проверяет PvP volume и no-match-limit risk для 17-person profile;
 - trade_transfer блокирует asset до accept/decline и атомарно меняет владельца;
-- чародейка покупает зелье по wholesale/resale rules, передает/продает его, получает hourly mana regen, применяет валидное заклинание с тратой маны, ведет consent-based primary/secondary favorites без passive runtime bonus, меняет `sorceress_alignment` только через evidence event и фиксирует locked magical intent в final lock;
+- чародейка покупает зелье по wholesale/resale rules, передает/продает его, действует через интриги/зелья/NPC-master effects без production mana economy, ведет consent-based primary/secondary favorites без passive runtime bonus, меняет `sorceress_alignment` только через evidence event и фиксирует locked magical intent в final lock;
 - spell/potion seed покрывает T1-T4 spell roles, potion wholesale 8/18/40 and max 1 potion per scene default;
 - NPC/reputation event меняет видимое/скрытое состояние, Король может выдать influence/ruling, Странник - сделку с ценой;
 - final summary собирает evidence по ролям, missing locks, pending disputes, NPC prices, locked magical intent, personal hooks, final lock state and export snapshot для NPC-led final tournament/master ruling;
@@ -190,7 +190,7 @@ Gate: `TASK-080`.
 2026-06-03: после ревью кода Stage 2 перед следующим playable/UI-гейтом
 добавлен pre-Stage-2B remediation/test block. `TASK-068`-`TASK-073` закрывают
 серьезные runtime/validation issues: PvE reward authority, one-sided Gwent
-round authority, personal card ownership conversion, lord active-army/garrison/
+round authority, personal card no-conversion guard, lord active-army/garrison/
 movement rules, lord order lifecycle authority and seed business validation.
 `TASK-074` отдельно ревьюит и переписывает тесты, которые не поймали эти баги.
 
@@ -429,7 +429,7 @@ Gate: `TASK-037`.
 Что входит:
 
 - archetype player simulator;
-- 15-person profile simulator: 5 witchers, 4 hybrid sorceresses, 4 lords, 2 NPC-master load;
+- 17-person profile simulator: 7 witchers, 4 hybrid sorceresses, 4 lords, 2 NPC-master load;
 - reward/progression reports;
 - PvE tier pressure и 30-минутный cooldown impact;
 - full Gwent outcomes, challenge token pacing, 30-minute PvP start window, no-match-limit risk after match start, custom card value and deck complexity from weather/special/leader cards;
@@ -445,8 +445,8 @@ Gate: `TASK-037`.
 - sorceress wholesale potion economy impact;
 - spell/potion V0 catalog impact, potion per-scene cap and rare potion caps;
 - primary/secondary favorites impact and caps;
-- order pressure for 5 witchers and lord progression without critical witcher dependency;
-- idle risk report for 9 mobile roles and 15+25 QR mix;
+- order pressure for 7 witchers and lord progression without critical witcher dependency;
+- idle risk report for 11 mobile roles and 15+25 QR mix;
 - artifact value и NPC deal prices;
 - King ruling influence, Stranger hidden price и final_summary inputs;
 - NPC-master split: King/order/admin-review and Stranger/deals/field interventions;
@@ -472,11 +472,11 @@ Gate: `TASK-037`.
 - нет очевидной доминирующей стратегии в full Gwent PvP, лордской экономике или магии;
 - challenge tokens, potion economy, raid loot и 30/50 anti-snowball не создают exploit;
 - rare rewards, legendary artifacts, plot keys and potion caps не создают exploit или доминирующую стратегию;
-- 3 challenge tokens per act не создают чрезмерный PvP volume в 15-person profile: 90-й перцентиль ожидания стола <=10 минут, не больше 20% матчей уходят за 25 минут, per-act mandatory starts не перегружают буферы, а отсутствие лимита времени после старта Gwent не ломает расписание;
+- 3 challenge tokens per act не создают чрезмерный PvP volume в 17-person profile: 90-й перцентиль ожидания стола <=10 минут, не больше 20% матчей уходят за 25 минут, per-act mandatory starts не перегружают буферы, а отсутствие лимита времени после старта Gwent не ломает расписание;
 - custom Gwent decks имеют читаемую row/special/leader distribution and no single card family creates a dominant or overlong match pattern;
 - PvP throttle normal/limited/paused, 2 pvp tables, queued challenges and per-act match cap do not create deadlocks;
 - trade_transfers не создают double ownership, lost assets или конфликтные locks;
-- 15 always-available/repeatable сцен и 25+ unique objects не создают idle risk для 9 мобильных ролей;
+- 15 always-available/repeatable сцен и 25+ unique objects не создают idle risk для 11 мобильных ролей;
 - offline act unlock and pending reward approval do not create idle risk or cascade exploits;
 - лордам интересно двигаться по карте, атаковать, защищаться, перебрасывать войска в тематические форты и обратно, гарнизонить, строиться, рейдить, нанимать войска и создавать заказы;
 - movement по карте участка остается играбельным для лордов без GPS/интернета/QR: illustrated map, route costs, physical route assumptions and paper fallback agree with runtime map data;
@@ -487,7 +487,7 @@ Gate: `TASK-037`.
 - master-led Final Act timeboxes fit into 7:30-9:30 without a single scene consuming the whole finale;
 - Final Act load feasible for two NPC masters without unmanned critical review;
 - full scripted run проходит на мастерском ноутбуке, 4 lord panels и реальных телефонах;
-- runbook проверяет разделение двух NPC-мастеров и order pressure при 5 ведьмаках;
+- runbook проверяет разделение двух NPC-мастеров и order pressure при 7 ведьмаках;
 - runbook проверяет review severity P0/P1/P2/P3, game-day ops checklist, act unlock codes, reward approvals and PvP throttle mode;
 - runbook проверяет physical act announcements, opaque QR/manual IDs, QR honesty policy, single-d20 checks, PvP refusal/safety table and player-facing handouts;
 - server restart, backups, restore и post-game export проверены;

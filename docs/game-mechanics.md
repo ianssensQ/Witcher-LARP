@@ -23,14 +23,14 @@
 
 ## Production profile
 
-Текущий production profile игры рассчитан на 15 человек всего: 13 игроков и 2 NPC-мастера. Игровой состав фиксируется так:
+Текущий production profile игры рассчитан на 17 человек всего: 15 игроков и 2 NPC-мастера. Игровой состав фиксируется так:
 
 - 4 лорда, каждый управляет своим владением;
 - 4 привязанные к лордам чародейки;
-- 5 свободных ведьмаков-наемников;
+- 7 свободных ведьмаков-наемников;
 - 2 NPC-мастера, которые ведут Короля/Свет, Странника/Тьму, review queue, живые события и мастерские коррекции.
 
-`docs/core-engine-v1.2.md` остается историческим source document с более ранним составом. Для реализации, контента, симуляции и rehearsal каноничен профиль 4/4/5 + 2 NPC-мастера.
+`docs/core-engine-v1.2.md` остается историческим source document с более ранним составом. Для реализации, контента, симуляции и rehearsal каноничен профиль 4/4/7 + 2 NPC-мастера.
 
 ## Роли и статы
 
@@ -151,7 +151,7 @@ Snapshot перед игрой содержит весь контент, но т
 
 Это защищает темп игры: контент не вываливается заранее, но полевые игроки не обязаны каждый раз немедленно возвращаться в дом только ради открытия следующего акта.
 
-Цель полного контент-пака - 40+ самостоятельных QR/PvE-сцен на 10-часовую игру. Для production profile с 5 ведьмаками и 4 мобильными чародейками минимальный микс: 15+ always-available/repeatable сцен и 25+ уникальных объектов интереса. 40+ сцен нужны для вариативности и защиты от простоя, а не как ожидание, что игроки пройдут весь пакет.
+Цель полного контент-пака - 40+ самостоятельных QR/PvE-сцен на 10-часовую игру. Для production profile с 7 ведьмаками и 4 мобильными чародейками минимальный микс: 15+ always-available/repeatable сцен и 25+ уникальных объектов интереса. 40+ сцен нужны для вариативности и защиты от простоя, а не как ожидание, что игроки пройдут весь пакет.
 
 Content matrix V0:
 
@@ -306,9 +306,9 @@ V0 balance defaults нужны, чтобы документы, seed fixtures и 
 
 ## Цифровые заказы
 
-Доска объявлений существует в приложении, а не как обязательная физическая доска. Лорды создают публичные или адресные заказы из веб-панели, награда резервируется в escrow. Для production profile с 5 ведьмаками лордский прогресс не должен критически зависеть от ведьмачьих заказов: карта, рекрутинг, рейды, экономика и NPC-события остаются самостоятельными путями развития. Заказы дают преимущество, связи и интриги, но не являются единственным двигателем владения.
+Доска объявлений существует в приложении, а не как обязательная физическая доска. Лорды создают публичные или адресные заказы из веб-панели, награда резервируется в escrow. Для production profile с 7 ведьмаками лордский прогресс не должен критически зависеть от ведьмачьих заказов: карта, рекрутинг, рейды, экономика и NPC-события остаются самостоятельными путями развития. Заказы дают преимущество, связи и интриги, но не являются единственным двигателем владения.
 
-Лимит активных заказов одного лорда: до 2 публичных и 1 адресного заказа одновременно. Лимит нужен, чтобы 4 лорда не перегружали 5 ведьмаков и 4 чародеек шумом невыполнимых поручений.
+Лимит активных заказов одного лорда: до 2 публичных и 1 адресного заказа одновременно. Лимит нужен, чтобы 4 лорда не перегружали 7 ведьмаков и 4 чародеек шумом невыполнимых поручений.
 
 Status machine заказа:
 
@@ -408,7 +408,7 @@ PvP refusal/safety table:
 
 Эти правила не отменяют жетоны. Они задают операционный темп, чтобы full Gwent не съел весь день.
 
-Stage 5 обязан подписать PvP-volume go/no-go report. Отчет моделирует 9 мобильных ролей, 3 жетона за акт, default 2 `pvp_tables`, 20-minute target, 25-minute master acceleration и no hard match limit после старта. Если 90-й перцентиль ожидания стола выше 10 минут, больше 20% матчей уходят за 25 минут или больше 8 обязательных PvP-стартов на акт перегружают буферы/review, баланс должен выбрать один из tuning knobs: снизить выдачу жетонов, перевести default throttle в `limited`, добавить стол, ужесточить приоритет только для interception-ставок или сократить custom card complexity. Без такого отчета правило 3 жетона за акт не считается релизно подписанным.
+Stage 5 обязан подписать PvP-volume go/no-go report. Отчет моделирует 11 мобильных ролей, 3 жетона за акт, default 2 `pvp_tables`, 20-minute target, 25-minute master acceleration и no hard match limit после старта. Если 90-й перцентиль ожидания стола выше 10 минут, больше 20% матчей уходят за 25 минут или чрезмерное число обязательных PvP-стартов на акт перегружает буферы/review, баланс должен выбрать один из tuning knobs: снизить выдачу жетонов, перевести default throttle в `limited`, добавить стол, ужесточить приоритет только для interception-ставок или сократить custom card complexity. Без такого отчета правило 3 жетона за акт не считается релизно подписанным.
 
 ### Прогрессия личных карт
 
@@ -424,7 +424,7 @@ Stage 5 обязан подписать PvP-volume go/no-go report. Отчет �
 колоды одинакового power level. Они не обязаны быть одинаковыми по `card_id`:
 лучший вариант - одинаковый скелет силы с разным фракционным/школьным вкусом,
 чтобы матчи не превращались в один и тот же mirror. Количество стартовых
-наборов не хардкодится под 5 ведьмаков; оно должно генерироваться под
+наборов не хардкодится под 7 ведьмаков; оно должно генерироваться под
 фактическое число player-facing PvP участников. Для ближайшего пересчета
 баланса нужно учитывать заявленный профиль на 11 игроков, но подробный scaling
 стартовых копий, role split и лимитов карт фиксируется отдельным pass после
@@ -436,8 +436,8 @@ Stage 5 обязан подписать PvP-volume go/no-go report. Отчет �
 Стартовая колода:
 
 - 1 понятный лидер без сильного swing-эффекта;
-- минимум 22 unit cards, чтобы deck validation проходила сразу;
-- 0-2 простые special/weather cards;
+- ровно 22 unit cards в seed-колоде, чтобы deck validation проходила сразу;
+- без стартовых special/weather cards; их можно добавить позже как прогрессию;
 - без нейтральных героев 15 силы;
 - без массовой выдачи героев, шпионов, `scorch`, `commanders_horn` и полных
   payoff-наборов `tight_bond`/`muster`;
@@ -674,7 +674,7 @@ V0 economy defaults для лордов:
 - если герой-армия не в выбранной территории, верхняя линия армии на `/lords/home` пустая/заблокированная, но локальный гарнизон и разрешенный найм остаются видны;
 - UI каждой карточки найма показывает `+X/час` и `(current_stock)`, а recruit modal показывает арт/статы 1 юнита, slider количества, расчет стоимости и кнопку найма.
 
-Карты игроков остаются отдельным социальным усилением. Если ведьмак или чародейка передает личную карту лорду, она навсегда конвертируется в army unit card и выходит из личной колоды.
+Карты игроков остаются отдельным социальным и торговым усилением. Личные Gwent-карты не конвертируются в army unit cards лордов; лордские боевые карты появляются только из найма, зданий и лордского runtime.
 
 ## Резиденция, building tree и рейды
 
@@ -860,7 +860,7 @@ Neutral AI V1 играет по простому priority order: добить к
 
 ## Чародейки и магия
 
-Чародейки используют тот же PvE/PvP engine, что и ведьмаки, но в production profile являются гибридной мобильной ролью: они ходят в поле и проходят QR/PvE, но часть времени тратят на магию, рынок зелий, фаворитов, интриги и поддержку владения. Баланс 10-часовой игры считается для 9 мобильных ролей: 5 ведьмаков и 4 чародейки.
+Чародейки используют тот же PvE/PvP engine, что и ведьмаки, но в production profile являются гибридной мобильной ролью: они ходят в поле и проходят QR/PvE, но часть времени тратят на магию, рынок зелий, фаворитов, интриги и поддержку владения. Баланс 10-часовой игры считается для 11 мобильных ролей: 7 ведьмаков и 4 чародейки.
 
 Чародейки получают дополнительные магические варианты:
 
@@ -1234,7 +1234,7 @@ Authoring matrix нужна мастерам и контент-мейкеру. �
 - success text;
 - PvE cooldown 30 минут;
 - order object conflict rule;
-- production profile tag для 15 человек;
+- production profile tag для 17 человек;
 - player-facing handout tag: общие правила, ведьмак, чародейка, лорд, PvP/refusal, финал или NPC scene book;
 - repeatable/always-available marker для целевого микса 15+25;
 - final procedure flag;
@@ -1316,6 +1316,6 @@ Runtime CSV остаются источником для приложения:
 2. **Stage 2 - Admin Studio.** Мастер получает UI для импорта, проверки, snapshot, игровых операций, lord map ops, contested/pending rewards, рейдов, anti-snowball, PvP timeout review, NPC, visibility, backups и final summary. Этот этап нужен до генератора, чтобы генерация PvE сразу жила в удобной мастерской модели.
 3. **Stage 3 - PvE Generation Engine.** В Admin Studio появляется генератор PvE/QR: шаблоны, tier/reward/stat controls, QR modes, artifact/reputation/NPC/order flags, preview, compiler и validation. Генератор обязан создавать квесты, которые проходят runtime importer и запускаются в PvE engine.
 4. **Stage 4 - Unique Quest Production.** Генератор используется для 40+ QR/PvE-сцен, включая минимум 15 always-available/repeatable сцен и 25+ unique objects, после чего мастер вручную полирует тексты, моральные развилки, скрытую правду, уникальные последствия, personal goal hooks, кастомные Gwent cards с row/leader/weather/special taxonomy and original art prompts, артефакты, редкие карты, сюжетные ключи, strategic items, building/unit visual tags, territory fort manifest, venue map manifest, NPC-связи, финальные флаги, favorites content, locked magical intent hooks, order cap и player-facing handouts/role packets.
-5. **Stage 5 - Balance Simulation.** Полный контент-пак прогоняется через симуляции: 10-часовой fixed schedule, offline act unlock friction, pending reward approvals, темп прокачки, ценность наград, PvE tiers, cooldown 30 min, role-load idle risk для 9 мобильных ролей, full Gwent volume/no-match-limit/throttle/deck-complexity risk, trade conflicts, лордское движение по карте с physical route assumptions and no GPS/internet/QR dependency, экономика лордов без критической зависимости от 5 ведьмаков, accumulated recruit stock/rates, Heroes-like `/lords/home` и building tree depth, anti-snowball 30/50, рейды, lord battle 5x6 с 60s timer, visual-content readability, магия и potion economy чародеек, V0 spell/potion catalog, primary/secondary favorites, locked magical intent, NPC-master load с severity P0/P1/P2/P3, артефакты, NPC-сделки, NPC-led Final Act tournament load, game-day ops checklist, lord paper fallback drill и финальная сводка без автоматического победителя.
+5. **Stage 5 - Balance Simulation.** Полный контент-пак прогоняется через симуляции: 10-часовой fixed schedule, offline act unlock friction, pending reward approvals, темп прокачки, ценность наград, PvE tiers, cooldown 30 min, role-load idle risk для 11 мобильных ролей, full Gwent volume/no-match-limit/throttle/deck-complexity risk, trade conflicts, лордское движение по карте с physical route assumptions and no GPS/internet/QR dependency, экономика лордов без критической зависимости от 7 ведьмаков, accumulated recruit stock/rates, Heroes-like `/lords/home` и building tree depth, anti-snowball 30/50, рейды, lord battle 5x6 с 60s timer, visual-content readability, магия и potion economy чародеек, V0 spell/potion catalog, primary/secondary favorites, locked magical intent, NPC-master load с severity P0/P1/P2/P3, артефакты, NPC-сделки, NPC-led Final Act tournament load, game-day ops checklist, lord paper fallback drill и финальная сводка без автоматического победителя.
 
 Переход между этапами фиксируется отдельной gate-задачей в `tasks.json`. Это защищает проект от ситуации, где есть много квестов, но не проверен runtime, или есть движок, но не доказано, что игрокам будет интересно 10 часов.
