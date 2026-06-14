@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+.DS_Store
 .pytest_cache/
 .venv/
 .env
@@ -56,6 +57,8 @@ prototypes/stage2b-v2/src/assets/generated/mobile/m1-journal-v2/portrait-frame-v
 .codex-taskos-upstream/
 .test-data/
 data/*
+!data/authoring/
+!data/authoring/**
 !data/seed/
 !data/seed/**
 !data/snapshots/
